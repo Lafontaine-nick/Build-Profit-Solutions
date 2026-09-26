@@ -237,6 +237,33 @@ export function isExplicitHvacVentilationEvidence(
   return false;
 }
 
+const CONFIRMED_HVAC_COUNT_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'contractor_confirmed_from_plan_review',
+  'user_confirmed_suggestion',
+]);
+
+/**
+ * A new-build HVAC plan includes one system even when the architectural set
+ * has no mechanical schedule. The count is a confirmation, not a plan read.
+ * Tonnage, registers, and duct length stay blank until they are printed or entered.
+ */
+export function hvacNewBuildSystemOffer(input: {
+  planImportTradeKey?: unknown;
+  hvacSystemCount?: unknown;
+  source?: unknown;
+  userOverride?: boolean;
+}): boolean {
+  if (String(input.planImportTradeKey || '') !== 'hvac') return false;
+  if (input.userOverride) return false;
+  const source = String(input.source || '');
+  if (CONFIRMED_HVAC_COUNT_SOURCES.has(source)) return false;
+  const count = Number(String(input.hvacSystemCount ?? '').replace(/,/g, ''));
+  if (Number.isFinite(count) && count > 0) return false;
+  return true;
+}
+
 /** Whole-house ventilation is optional — only surface when plans document equipment. */
 export function hasDocumentedHvacVentilationCount(
   source: Record<string, unknown> | null | undefined

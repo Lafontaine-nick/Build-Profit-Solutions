@@ -387,7 +387,7 @@ const HVAC_OPTIONS: TradeOption[] = [
     canonicalId: 'hvac',
     measurementKey: 'hvacSystemTons',
     unit: 'ton',
-    measurementHelper: 'Enter documented system tonnage from the plans.',
+    measurementHelper: 'Choose the system size. This prices the HVAC package.',
   },
   {
     id: 'furnace',

@@ -199,6 +199,16 @@ const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
   'cleanup',
 ]);
 
+/** Generic ground-up cleanup is not an HVAC quantity. Only an explicit HVAC cleanup line stays. */
+export function explicitHvacCleanupScopeDetection(detection: {
+  label?: string | null;
+  evidence?: string | null;
+}): boolean {
+  const text = `${detection.label || ''} ${detection.evidence || ''}`;
+  if (/standard ground-up scope/i.test(text)) return false;
+  return /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(text);
+}
+
 export function filterPlanScopesForTrade<
   T extends {
     itemId?: string | null;
@@ -222,6 +232,13 @@ export function filterPlanScopesForTrade<
     if (
       tradeKey === 'electrical' &&
       ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS.has(itemId)
+    ) {
+      return false;
+    }
+    if (
+      tradeKey === 'hvac' &&
+      itemId === 'cleanup' &&
+      !explicitHvacCleanupScopeDetection(detection)
     ) {
       return false;
     }

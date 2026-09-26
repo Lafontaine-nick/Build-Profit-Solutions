@@ -110,6 +110,72 @@ describe('HVAC suggested pricing comparisons', () => {
     expect(pricing.comparison).toBeNull();
   });
 
+  it('uses the selected tonnage when the contractor picks a size', () => {
+    const priceFor = (input: Record<string, unknown>, state?: string) => {
+      const resolved = resolveChecklistItemQuantity('hvac', input, {
+        templateKey: 'hvac',
+      });
+      return resolveScopeItemSuggestedPricing(
+        'hvac',
+        input,
+        'hvac',
+        resolved,
+        state ? { state } : undefined
+      );
+    };
+    const lot49FourTon = {
+      floorAreaSqft: '2571',
+      hvacSystemCount: '1',
+      hvacSystemTons: '4',
+      planImportTradeKey: 'hvac',
+      quickMeasurementSources: {
+        hvacSystemCount: 'needs_confirmation',
+        hvacSystemTons: 'user_entered',
+      },
+      quickMeasurementUserOverrides: { hvacSystemTons: true },
+    };
+    const priced = priceFor(lot49FourTon, 'UT');
+    expect(priced.fill).toMatchObject({
+      total: 12500,
+      material: 7400,
+      labor: 5100,
+      displayQuantityLine: '1 system · 4 tons',
+    });
+    expect(priced.fill?.total).not.toBe(15300);
+    expect(priced.fill?.total).not.toBe(19500);
+
+    const twoTon = priceFor(
+      {
+        ...lot49FourTon,
+        hvacSystemTons: '2',
+      },
+      'UT'
+    );
+    expect(twoTon.fill).toMatchObject({
+      total: 9500,
+      displayQuantityLine: '1 system · 2 tons',
+    });
+
+    const tonsOnly = priceFor(
+      {
+        hvacSystemTons: '4',
+        planImportTradeKey: 'hvac',
+        itemQuantities: {
+          hvac: { quantity: '1', unit: 'each', quantitySource: 'assumption' },
+        },
+        quickMeasurementSources: { hvacSystemTons: 'user_entered' },
+        quickMeasurementUserOverrides: { hvacSystemTons: true },
+      },
+      'UT'
+    );
+    expect(tonsOnly.fill).toMatchObject({
+      total: 12500,
+      material: 7400,
+      labor: 5100,
+      displayQuantityLine: '1 system · 4 tons',
+    });
+  });
+
   it('uses tier-based system pricing only when equipment counts are verified', () => {
     const input = {
       floorAreaSqft: '3660',

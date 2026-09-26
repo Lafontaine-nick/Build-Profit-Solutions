@@ -1592,6 +1592,42 @@ describe("estimatePlanToMeasurements", () => {
     ]);
   });
 
+  test("HVAC plan scope keeps the system and drops generic ground-up cleanup", () => {
+    const filtered = filterPlanScopesForTrade(
+      {
+        detections: [
+          {
+            itemId: "hvac",
+            state: "included",
+            label: "HVAC",
+            evidence:
+              "Full residential architectural plan set for a new residence",
+          },
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "Cleanup & disposal",
+            evidence:
+              "Standard ground-up scope for a full residential plan set — confirm what is in your bid",
+          },
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "HVAC cleanup",
+            evidence: "HVAC cleanup and haul-off of old equipment",
+          },
+        ],
+      },
+      "selected_trade",
+      TRADE_CONFIGS.hvac,
+    );
+    expect(filtered.detections.map((row) => row.itemId)).toEqual([
+      "hvac",
+      "cleanup",
+    ]);
+    expect(filtered.detections[1].label).toBe("HVAC cleanup");
+  });
+
   test("selected-trade Drywall scope keeps the base line and explicit addons", () => {
     const filtered = filterPlanScopesForTrade(
       {

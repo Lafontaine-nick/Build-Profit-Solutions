@@ -1626,6 +1626,23 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.paintAreaSqft).toBeUndefined();
   });
 
+  it('does not invent HVAC cleanup from a generic ground-up cleanup line', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'HVAC for a new residence. Cleanup & disposal. Standard ground-up scope.',
+      { templateKey: 'hvac', projectType: 'hvac' }
+    );
+    expect(parsed.hvacCleanupCount).toBeUndefined();
+    expect(parsed.hvacSystemCount).toBeUndefined();
+  });
+
+  it('counts an explicit HVAC cleanup line', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Include HVAC cleanup and haul-off of the old condenser.',
+      { templateKey: 'hvac', projectType: 'hvac' }
+    );
+    expect(parsed.hvacCleanupCount).toBe(1);
+  });
+
   it('does not invent an HVAC replacement count when replacement work is unquantified', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Replace the existing heat-pump HVAC system and ductwork.',

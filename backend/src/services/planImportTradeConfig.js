@@ -543,6 +543,12 @@ const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
   "cleanup",
 ]);
 
+function explicitHvacCleanupScopeDetection(detection) {
+  const text = `${detection?.label || ""} ${detection?.evidence || ""}`;
+  if (/standard ground-up scope/i.test(text)) return false;
+  return /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(text);
+}
+
 function filterPlanScopesForTrade(scope, mode, trade) {
   if (!scope || mode !== "selected_trade") return scope;
   const tradeKey = trade?.key || null;
@@ -552,6 +558,13 @@ function filterPlanScopesForTrade(scope, mode, trade) {
     if (
       tradeKey === "electrical" &&
       ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS.has(itemId)
+    ) {
+      return false;
+    }
+    if (
+      tradeKey === "hvac" &&
+      itemId === "cleanup" &&
+      !explicitHvacCleanupScopeDetection(detection)
     ) {
       return false;
     }

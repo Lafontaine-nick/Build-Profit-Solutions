@@ -141,6 +141,7 @@ import {
   buildHvacPlanReviewLowConfidenceReadings,
   filterHvacPlanReviewReadingsForTakeoff,
   hasDocumentedHvacVentilationCount,
+  hvacNewBuildSystemOffer,
   hvacTakeoffSkippedCanonicalReadings,
   resolveHvacPlanReviewMeasurements,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
@@ -1737,8 +1738,7 @@ export default function PlanTakeoffReviewModal({
       ).flatMap(reading => {
         const field = String(reading.field || '').trim();
         const value = Number(reading.value);
-        if (!field) return [];
-        if (effectiveTradeKey !== 'hvac' && !(value > 0)) return [];
+        if (!field || !(value > 0)) return [];
         const existing = takeoff.measurementProvenance?.[field];
         return [
           [
@@ -1911,7 +1911,8 @@ export default function PlanTakeoffReviewModal({
             }),
             ...hvacUnconfirmedReadings.flatMap(reading => {
               const field = String(reading.field || '').trim();
-              if (!field) return [];
+              const value = Number(reading.value);
+              if (!field || !(value > 0)) return [];
               return [[field, 'needs_confirmation'] as const];
             }),
           ])
@@ -1961,6 +1962,18 @@ export default function PlanTakeoffReviewModal({
               confirmedKeys: openingCountConfirmedKeys,
             })
           : undefined;
+    const offerHvacSystem =
+      effectiveTradeKey === 'hvac' &&
+      hvacNewBuildSystemOffer({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: values.hvacSystemCount,
+        source: hvacQuickMeasurementSourcesFromReview?.hvacSystemCount,
+      });
+    if (offerHvacSystem && hvacQuickMeasurementSourcesFromReview) {
+      values.hvacSystemCount = '1';
+      hvacQuickMeasurementSourcesFromReview.hvacSystemCount =
+        'needs_confirmation';
+    }
     onApply(
       values,
       scopeDetections.map(d => ({
@@ -1982,6 +1995,14 @@ export default function PlanTakeoffReviewModal({
               conflictResolutionProvenanceEntry(resolution),
             ])
           ),
+          ...(offerHvacSystem
+            ? {
+                hvacSystemCount: lowConfidenceNeedsReviewProvenance(
+                  'hvacSystemCount',
+                  1
+                ),
+              }
+            : {}),
         },
         measurementConflicts: unresolved,
         electricalValidation: reviewElectricalValidation,
@@ -2385,10 +2406,11 @@ export default function PlanTakeoffReviewModal({
             {effectiveTradeKey === 'hvac' ? (
               <>
                 <PlanTakeoffLowConfidenceChooser
-                  lowConfidence={hvacReviewReadings}
+                  lowConfidence={hvacReviewReadings.filter(
+                    reading => Number(reading.value) > 0
+                  )}
                   unreadable={[]}
                   accepted={lowConfidenceAccepted}
-                  includeEmptyReadings
                   onToggleAccept={(field, _value) => {
                     setLowConfidenceAccepted(prev => {
                       const next = { ...prev };

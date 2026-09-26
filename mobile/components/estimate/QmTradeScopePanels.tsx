@@ -71,6 +71,7 @@ import {
   concreteScopeCanonicalId,
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
+import { HVAC_SYSTEM_TONNAGE_TIERS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   applyHvacScopePanelMeasurementEdit,
   applyHvacScopeMeasurements,
@@ -7134,7 +7135,37 @@ export function QmSimpleTradeScopePanels({
             {measurementHelper}
           </Text>
         ) : null}
-        {active && option.measurementKey ? (
+        {active && option.id === HVAC_CAPACITY_OPTION_ID ? (
+          <View style={[styles.choiceWrap, { marginTop: 10 }]}>
+            {HVAC_SYSTEM_TONNAGE_TIERS.map(tons => {
+              const selected =
+                Number(hvacScopePanelMeasurementValue(option, measurements)) ===
+                tons;
+              return (
+                <QmScopeChoiceChip
+                  key={String(tons)}
+                  label={`${tons} ton`}
+                  active={selected}
+                  reviewState={selected ? 'confirmed' : 'idle'}
+                  onPress={() =>
+                    setMeasurements(
+                      prev =>
+                        applyHvacScopePanelMeasurementEdit(
+                          prev,
+                          option,
+                          selected ? '' : String(tons)
+                        ) as ScopeMeasurementsInputExtended
+                    )
+                  }
+                  disabled={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  compact
+                />
+              );
+            })}
+          </View>
+        ) : active && option.measurementKey ? (
           <QmSqftMeasurementRow
             label={
               option.id === HVAC_SYSTEMS_OPTION_ID

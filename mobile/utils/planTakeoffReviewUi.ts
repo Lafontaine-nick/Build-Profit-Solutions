@@ -262,8 +262,13 @@ export function measurementDisplayLabel(
     return { label: windowsDoorsLabels[key], subtext: 'Count · each' };
   }
 
+  if (key === 'hvacSystemCount') {
+    return {
+      label: Number(value) === 1 ? 'HVAC system' : 'HVAC systems',
+    };
+  }
+
   const hvacLabel = {
-    hvacSystemCount: 'HVAC systems',
     hvacSystemTons: 'HVAC capacity',
     hvacServiceCallCount: 'HVAC service calls',
     hvacEquipmentReplacementCount: 'HVAC equipment replacements',
@@ -2277,6 +2282,7 @@ function planTakeoffLabel(
 }
 
 const PLAN_TAKEOFF_LINE_PRIORITY = [
+  'hvacSystemCount',
   'floorAreaSqft',
   'garageSqft',
   'deckSqft',

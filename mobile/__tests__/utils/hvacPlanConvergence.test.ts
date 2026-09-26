@@ -7,6 +7,7 @@ import {
   HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS,
   buildHvacPlanReviewLowConfidenceReadings,
   filterHvacPlanReviewReadingsForTakeoff,
+  hvacNewBuildSystemOffer,
   hvacTakeoffSkippedCanonicalReadings,
   isExplicitHvacVentilationEvidence,
   resolveHvacPlanReviewMeasurements,
@@ -21,6 +22,8 @@ import {
   prepareScopeMeasurementsInputForUi,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
+import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
+import { confirmedPlanTakeoffLines } from '@/utils/planTakeoffReviewUi';
 
 describe('hvacPlanConvergence', () => {
   it('snaps documented tonnage to standard residential tiers', () => {
@@ -428,6 +431,57 @@ describe('hvacPlanConvergence', () => {
         },
       }).map(row => row.field)
     ).toContain('hvacVentilationCount');
+  });
+
+  it('offers one HVAC system to confirm when an architectural plan has no system count', () => {
+    expect(
+      hvacNewBuildSystemOffer({ planImportTradeKey: 'hvac' })
+    ).toBe(true);
+    expect(
+      hvacNewBuildSystemOffer({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 2,
+      })
+    ).toBe(false);
+    expect(
+      hvacNewBuildSystemOffer({
+        planImportTradeKey: 'electrical',
+      })
+    ).toBe(false);
+  });
+
+  it('keeps an explicit HVAC cleanup line and drops generic ground-up cleanup', () => {
+    const filtered = filterPlanScopesForTrade(
+      [
+        { itemId: 'hvac', label: 'HVAC', state: 'included' },
+        {
+          itemId: 'cleanup',
+          label: 'Cleanup & disposal',
+          evidence: 'Standard ground-up scope for a full residential plan set',
+        },
+        {
+          itemId: 'cleanup',
+          label: 'HVAC cleanup',
+          evidence: 'HVAC cleanup of replaced equipment',
+        },
+      ],
+      'selected_trade',
+      'hvac'
+    );
+    expect(filtered.map(row => row.label)).toEqual(['HVAC', 'HVAC cleanup']);
+  });
+
+  it('lists the confirmation system on Scope found ahead of blank distribution counts', () => {
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'hvac',
+          hvacSystemCount: 1,
+        },
+        sources: { hvacSystemCount: 'needs_confirmation' },
+        wholeProject: false,
+      })
+    ).toEqual(['HVAC system · 1']);
   });
 
   it('stripUnverifiedHvacVentilation removes vision-only ventilation quantities', () => {

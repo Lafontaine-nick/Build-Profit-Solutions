@@ -1961,7 +1961,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (ventilationCount)
       out.hvacVentilationCount = Math.round(ventilationCount);
     if (/\b(?:permit|inspection)\b/i.test(hvacText)) out.hvacPermitCount = 1;
-    if (/\b(?:hvac\s+)?(?:cleanup|disposal|haul[\s-]?off)\b/i.test(hvacText)) {
+    if (/\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(hvacText)) {
       out.hvacCleanupCount = 1;
     }
   }

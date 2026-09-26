@@ -141,6 +141,29 @@ export function isSouthernUtahPricingLocation(
   return /^84[0-7]\d{2}$/.test(zip);
 }
 
+/** Contractor picked a system size. That choice prices the package. */
+function hvacCapacityContractorSelected(
+  input: Record<string, unknown>
+): boolean {
+  const tonsValue = Number(
+    String(input.hvacSystemTons ?? '').replace(/,/g, '')
+  );
+  if (!(Number.isFinite(tonsValue) && tonsValue > 0)) return false;
+  const sources = (input.quickMeasurementSources || {}) as Record<
+    string,
+    string
+  >;
+  const overrides = (input.quickMeasurementUserOverrides || {}) as Record<
+    string,
+    boolean
+  >;
+  return (
+    sources.hvacSystemTons === 'user_entered' ||
+    sources.hvacSystemTons === 'manual_override' ||
+    overrides.hvacSystemTons === true
+  );
+}
+
 /** Decide whether HVAC should price as a complete package or verified equipment takeoff. */
 export function resolveHvacPricingEvidenceTier(
   input: Record<string, unknown>,
@@ -180,6 +203,10 @@ export function resolveHvacPricingEvidenceTier(
 
   if (hasSystemCount && countVerified && tonsVerified && !countNeedsReview) {
     return 'verified_equipment';
+  }
+
+  if (hvacCapacityContractorSelected(input)) {
+    return 'national_planning';
   }
 
   if (
@@ -238,6 +265,7 @@ export function resolveHvacInstalledPackageSuggestedTotal(
   );
   const hasSystemCount =
     Number.isFinite(systemCountValue) && systemCountValue > 0;
+  const contractorSized = hvacCapacityContractorSelected(input);
   const systemCount = hasSystemCount
     ? Math.max(1, Math.round(systemCountValue))
     : 1;
@@ -268,7 +296,8 @@ export function resolveHvacInstalledPackageSuggestedTotal(
   // tonnage merely because a system count was entered. Multiple systems share
   // mobilization and startup, so apply a modest five-percent package
   // efficiency adjustment rather than multiplying full standalone allowances.
-  if (!hasSystemCount || !hasTotalTons) return null;
+  if (!hasTotalTons) return null;
+  if (!hasSystemCount && !contractorSized) return null;
   const perSystemTons = totalTons / systemCount;
   const perSystem = hvacSystemTierBudgetSplit(perSystemTons);
   const packageEfficiency = systemCount > 1 ? 0.95 : 1;
