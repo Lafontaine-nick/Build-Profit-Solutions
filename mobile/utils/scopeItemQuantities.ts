@@ -25020,6 +25020,14 @@ export function scopeMeasurementsToPayload(
     concreteDemoLimitedAccess: sanitized.concreteDemoLimitedAccess ?? null,
     concreteDemoCy: parseScopeMeasurementInput(sanitized.concreteDemoCy),
     concreteCy: parseScopeMeasurementInput(sanitized.concreteCy),
+    houseSlabSqft: parseScopeMeasurementInput(sanitized.houseSlabSqft),
+    garageSlabSqft: parseScopeMeasurementInput(sanitized.garageSlabSqft),
+    houseSlabThicknessInches: parseScopeMeasurementInput(
+      sanitized.houseSlabThicknessInches
+    ),
+    garageSlabThicknessInches: parseScopeMeasurementInput(
+      sanitized.garageSlabThicknessInches
+    ),
     excavationCy: parseScopeMeasurementInput(sanitized.excavationCy),
     excavationAreaSqft: parseScopeMeasurementInput(
       sanitized.excavationAreaSqft
@@ -25831,6 +25839,14 @@ export function scopeMeasurementsInputFromPayload(
     concreteDemoLimitedAccess: payload.concreteDemoLimitedAccess ?? null,
     concreteDemoCy: measurementFieldString(payload.concreteDemoCy),
     concreteCy: measurementFieldString(payload.concreteCy),
+    houseSlabSqft: measurementFieldString(payload.houseSlabSqft),
+    garageSlabSqft: measurementFieldString(payload.garageSlabSqft),
+    houseSlabThicknessInches: measurementFieldString(
+      payload.houseSlabThicknessInches
+    ),
+    garageSlabThicknessInches: measurementFieldString(
+      payload.garageSlabThicknessInches
+    ),
     excavationCy: measurementFieldString(payload.excavationCy),
     excavationAreaSqft: measurementFieldString(payload.excavationAreaSqft),
     excavationDepthInches: measurementFieldString(
@@ -26900,6 +26916,10 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     | 'unsure'
     | null;
   concreteScope?: string[] | null;
+  houseSlabSqft?: string | number | null;
+  garageSlabSqft?: string | number | null;
+  houseSlabThicknessInches?: string | number | null;
+  garageSlabThicknessInches?: string | number | null;
   excavationQuantityMode?: 'direct_cy' | 'area_depth' | null;
   concreteAreaByType?: Partial<
     Record<

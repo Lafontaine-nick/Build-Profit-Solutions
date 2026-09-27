@@ -23,6 +23,8 @@ const { createOpenAiChatCompletion } = require("../utils/openaiChatCompletionPar
 const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  applyConcreteCoverPatioToTrade,
+  ensureConcreteCoverPatioScope,
 } = require("./planImportTradeConfig");
 const {
   mergeMeasurementCandidates,
@@ -6160,13 +6162,39 @@ async function analyzePlanForMeasurements({
       notesBlock += `\n\nInsulation takeoff: exterior wall insulation ${tradeMeasurementInput.exteriorWallInsulationSqft.toLocaleString()} SF from readable plan geometry.`;
     }
   }
+  let tradeScopeInput = scope;
+  if (
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "concrete"
+  ) {
+    const patioOffer = applyConcreteCoverPatioToTrade(
+      tradeMeasurementInput,
+      buildingAreas,
+    );
+    tradeMeasurementInput = patioOffer.measurements;
+    if (patioOffer.offered) {
+      measurementProvenance.concretePatioSqft = {
+        value: patioOffer.patioSqft,
+        source: "plan_facts",
+        normalizedSource: "NEEDS_REVIEW",
+        status: "needs_review",
+        pricingEligible: false,
+        reason:
+          "Cover sheet patio area. Confirm this flatwork quantity before pricing.",
+      };
+    }
+    tradeScopeInput = ensureConcreteCoverPatioScope(
+      scope,
+      patioOffer.patioSqft,
+    );
+  }
   const tradeMeasurements = filterPlanMeasurementsForTrade(
     tradeMeasurementInput,
     planSelection.mode,
     planSelection.trade,
   );
   const tradeScope = filterPlanScopesForTrade(
-    scope,
+    tradeScopeInput,
     planSelection.mode,
     planSelection.trade,
   );

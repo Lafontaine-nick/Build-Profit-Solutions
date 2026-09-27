@@ -662,6 +662,31 @@ describe('plan takeoff review UI polish', () => {
     });
   });
 
+  it('does not list total flatwork when it repeats the typed patio area', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'concrete',
+          concretePatioSqft: 322,
+          concreteSqft: 322,
+        },
+        sources: {
+          concretePatioSqft: 'needs_confirmation',
+          concreteSqft: 'detected_from_plan',
+        },
+        wholeProject: false,
+      })
+    ).toEqual(['Patio area · 322 SF']);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: { concreteSqft: 500 },
+        sources: { concreteSqft: 'needs_confirmation' },
+        wholeProject: false,
+      })
+    ).toEqual(['Total flatwork area · 500 SF']);
+  });
+
   it('builds grouped Flooring plan review summary with per-type install areas', () => {
     const summary = buildFlooringPlanReviewSummary({
       flooringCarpetSqft: 500,

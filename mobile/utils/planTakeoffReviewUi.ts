@@ -2328,6 +2328,21 @@ function isDerivedPlanTakeoffKey(
   ) {
     return true;
   }
+  if (key === 'concreteSqft') {
+    const typedFlatwork = [
+      'concreteDrivewaySqft',
+      'concreteSidewalkSqft',
+      'concretePatioSqft',
+      'concreteWalkwaySqft',
+      'concreteRvPadSqft',
+    ]
+      .map(part => Number(measurements[part]))
+      .filter(part => Number.isFinite(part) && part > 0);
+    if (typedFlatwork.length) {
+      const typedTotal = typedFlatwork.reduce((sum, part) => sum + part, 0);
+      if (Math.abs(value - typedTotal) < 1) return true;
+    }
+  }
   return false;
 }
 

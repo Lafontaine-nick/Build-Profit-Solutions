@@ -214,4 +214,24 @@ describe('concrete QM remodel', () => {
       expect.arrayContaining(['demo_removal', 'exterior_trim_paint'])
     );
   });
+
+  it('leaves house and garage slab pour blank for a plan cover', () => {
+    const hydrated = concreteQmPanel.hydrateMeasurements({
+      templateKey: 'concrete',
+      notes:
+        'Main Living Area 2,571 SqFt. Garages 1,427 SqFt. Covered Patio 322 SqFt.',
+      measurements: {
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        concretePatioSqft: 322,
+        concreteScope: ['patios', 'pour_flatwork'],
+      },
+      checklistItems: [],
+    });
+    expect(hydrated.houseSlabSqft).toBeUndefined();
+    expect(hydrated.garageSlabSqft).toBeUndefined();
+    expect(hydrated.concreteScope).not.toEqual(
+      expect.arrayContaining(['house_slab', 'garage_slab'])
+    );
+  });
 });

@@ -59,6 +59,7 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import { withConcreteCoverPatioOffer } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   hydratePlumbingPlanMeasurementsFromInventory,
@@ -631,6 +632,10 @@ export type ScopeMeasurements = {
   concretePumpCount?: number | null;
   additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
+  houseSlabSqft?: number | null;
+  garageSlabSqft?: number | null;
+  houseSlabThicknessInches?: number | null;
+  garageSlabThicknessInches?: number | null;
   excavationCy?: number | null;
   excavationAreaSqft?: number | null;
   excavationDepthInches?: number | null;
@@ -5091,6 +5096,62 @@ export function applyPlanImportToDraft(
       };
     }
   }
+  if (planImportTradeKey === 'concrete') {
+    const coveredPatioSqft =
+      payload.buildingAreas?.coveredPatioSqft ??
+      payload.planFacts?.buildingAreas?.coveredPatioSqft;
+    const hadPatio = Number(scopeMeasurements.concretePatioSqft) > 0;
+    const offered = withConcreteCoverPatioOffer(
+      scopeMeasurements as Record<string, unknown>,
+      coveredPatioSqft
+    );
+    const offeredInput: Record<string, unknown> = { ...offered };
+    if (!(Number(offeredInput.excavationCy) > 0)) {
+      const existingScope = Array.isArray(offeredInput.concreteScope)
+        ? offeredInput.concreteScope.map(String)
+        : [];
+      const kept = existingScope.filter(id => id !== 'excavation');
+      if (kept.length) offeredInput.concreteScope = kept;
+      else delete offeredInput.concreteScope;
+    }
+    const normalized = normalizeTradeMeasurements(
+      'concrete',
+      offeredInput,
+      'plan'
+    );
+    scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      scopeMeasurements,
+      normalized
+    );
+    const patioSqft = Number(scopeMeasurements.concretePatioSqft);
+    if (patioSqft > 0) {
+      const scope = new Set(
+        (scopeMeasurements.concreteScope || []).map(String)
+      );
+      scope.add('patios');
+      scope.add('pour_flatwork');
+      if (!(Number(scopeMeasurements.excavationCy) > 0)) {
+        scope.delete('excavation');
+      }
+      scopeMeasurements = {
+        ...scopeMeasurements,
+        concreteScope: [...scope],
+        concreteAreaByType: {
+          ...(scopeMeasurements.concreteAreaByType || {}),
+          patios:
+            Number(scopeMeasurements.concreteAreaByType?.patios) > 0
+              ? scopeMeasurements.concreteAreaByType?.patios
+              : patioSqft,
+        },
+      };
+      if (!hadPatio) {
+        scopeMeasurements.quickMeasurementSources = {
+          ...(scopeMeasurements.quickMeasurementSources || {}),
+          concretePatioSqft: 'needs_confirmation',
+        };
+      }
+    }
+  }
   if (planImportTradeKey === 'insulation') {
     scopeMeasurements = applyHydratedInsulationScopeMeasurements(
       scopeMeasurements,
@@ -5283,8 +5344,32 @@ export function applyPlanImportToDraft(
     });
   }
 
+  const coveredPatioForScope =
+    planImportTradeKey === 'concrete'
+      ? Number(
+          payload.buildingAreas?.coveredPatioSqft ??
+            payload.planFacts?.buildingAreas?.coveredPatioSqft
+        )
+      : 0;
+  const concreteDetections =
+    planImportTradeKey === 'concrete' &&
+    coveredPatioForScope > 0 &&
+    !(payload.scopeDetections || []).some(
+      detection =>
+        detection.itemId === 'pour_flatwork' || detection.itemId === 'patios'
+    )
+      ? [
+          ...(payload.scopeDetections || []),
+          {
+            itemId: 'pour_flatwork',
+            state: 'included' as const,
+            label: 'Patio',
+            evidence: `Cover sheet patio ${coveredPatioForScope} sqft. Confirm this flatwork area.`,
+          },
+        ]
+      : payload.scopeDetections || [];
   const detections = filterPlanScopesForTrade(
-    payload.scopeDetections || [],
+    concreteDetections,
     planImportMode,
     planImportTradeKey
   );

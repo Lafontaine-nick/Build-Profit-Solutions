@@ -209,6 +209,15 @@ export function explicitHvacCleanupScopeDetection(detection: {
   return /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(text);
 }
 
+/** A foundation sheet is not an excavation quantity. Keep the line only with CY. */
+export function explicitConcreteExcavationScopeDetection(detection: {
+  label?: string | null;
+  evidence?: string | null;
+}): boolean {
+  const text = `${detection.label || ''} ${detection.evidence || ''}`;
+  return /\d+(?:\.\d+)?\s*(?:c\.?\s*y\.?|cubic\s+yards?)\b/i.test(text);
+}
+
 export function filterPlanScopesForTrade<
   T extends {
     itemId?: string | null;
@@ -239,6 +248,13 @@ export function filterPlanScopesForTrade<
       tradeKey === 'hvac' &&
       itemId === 'cleanup' &&
       !explicitHvacCleanupScopeDetection(detection)
+    ) {
+      return false;
+    }
+    if (
+      tradeKey === 'concrete' &&
+      itemId === 'excavation' &&
+      !explicitConcreteExcavationScopeDetection(detection)
     ) {
       return false;
     }

@@ -33,6 +33,8 @@ const {
 const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  applyConcreteCoverPatioToTrade,
+  ensureConcreteCoverPatioScope,
   TRADE_CONFIGS,
 } = require("../planImportTradeConfig");
 const shvPlanFacts = require("../testFixtures/shvPlanFacts");
@@ -1626,6 +1628,46 @@ describe("estimatePlanToMeasurements", () => {
       "cleanup",
     ]);
     expect(filtered.detections[1].label).toBe("HVAC cleanup");
+  });
+
+  test("concrete plan export confirms cover patio and drops excavation without cubic yards", () => {
+    const offered = applyConcreteCoverPatioToTrade(
+      {},
+      { coveredPatioSqft: 322, totalLivingSqft: 2571, garageSqft: 1427 },
+    );
+    expect(offered).toEqual({
+      measurements: { concretePatioSqft: 322 },
+      offered: true,
+      patioSqft: 322,
+    });
+    const scoped = ensureConcreteCoverPatioScope(
+      {
+        detections: [
+          {
+            itemId: "excavation",
+            state: "included",
+            label: "Excavation",
+            evidence:
+              "A-3 is a foundation plan, and the elevation sheets identify a bottom-of-footing level.",
+          },
+        ],
+      },
+      offered.patioSqft,
+    );
+    const filtered = filterPlanScopesForTrade(
+      scoped,
+      "selected_trade",
+      TRADE_CONFIGS.concrete,
+    );
+    expect(filtered.detections.map((row) => row.itemId)).toEqual([
+      "pour_flatwork",
+    ]);
+    expect(
+      applyConcreteCoverPatioToTrade(
+        { concretePatioSqft: 180 },
+        { coveredPatioSqft: 322 },
+      ).measurements.concretePatioSqft,
+    ).toBe(180);
   });
 
   test("selected-trade Drywall scope keeps the base line and explicit addons", () => {

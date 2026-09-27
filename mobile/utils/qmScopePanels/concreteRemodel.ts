@@ -514,6 +514,22 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   };
 }
 
+/** Building slabs stay off until the contractor enters an area. */
+export const CONCRETE_BUILDING_SLAB_OPTIONS = [
+  {
+    id: 'house_slab' as const,
+    label: 'House slab pour',
+    areaKey: 'houseSlabSqft' as const,
+    thicknessKey: 'houseSlabThicknessInches' as const,
+  },
+  {
+    id: 'garage_slab' as const,
+    label: 'Garage slab pour',
+    areaKey: 'garageSlabSqft' as const,
+    thicknessKey: 'garageSlabThicknessInches' as const,
+  },
+];
+
 export const CONCRETE_FLATWORK_OPTIONS = [
   { id: 'driveways' as const, label: 'Driveway' },
   { id: 'sidewalks' as const, label: 'Sidewalk' },

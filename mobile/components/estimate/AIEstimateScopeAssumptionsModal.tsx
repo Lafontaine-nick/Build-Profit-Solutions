@@ -20873,7 +20873,14 @@ function CollapsibleQuickMeasurements({
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
-                  mixedExteriorScope={mixedExteriorQmJob || compactMixedScope}
+                  mixedExteriorScope={
+                    (mixedExteriorQmJob || compactMixedScope) &&
+                    !(
+                      (singleTradeImport && tradeKey === 'concrete') ||
+                      (measurements.planImportMode === 'selected_trade' &&
+                        measurements.planImportTradeKey === 'concrete')
+                    )
+                  }
                   darkMode={darkMode}
                   Colors={Colors}
                 />

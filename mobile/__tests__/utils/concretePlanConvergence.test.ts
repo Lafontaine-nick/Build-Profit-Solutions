@@ -2,7 +2,9 @@ import {
   buildConcreteStructuredMeasurements,
   inferConcreteScopeFromMeasurements,
   normalizeConcreteScalarMeasurements,
+  withConcreteCoverPatioOffer,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
+import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import {
   buildNormalizedScopeMeasurementsFromInput,
@@ -27,6 +29,39 @@ function inputWith(
 }
 
 describe('concrete plan convergence', () => {
+  it('offers cover-sheet patio area and leaves excavation off without cubic yards', () => {
+    const offered = withConcreteCoverPatioOffer(
+      { concreteDrivewaySqft: 0 },
+      322
+    );
+    expect(offered.concretePatioSqft).toBe(322);
+    const structured = buildConcreteStructuredMeasurements(offered);
+    expect(structured.concreteAreaByType).toEqual({ patios: 322 });
+    expect(structured.concreteScope).toEqual(
+      expect.arrayContaining(['patios', 'pour_flatwork'])
+    );
+    expect(structured.concreteScope).not.toContain('excavation');
+    expect(
+      filterPlanScopesForTrade(
+        [
+          {
+            itemId: 'excavation',
+            label: 'Excavation',
+            evidence:
+              'A-3 is a foundation plan, and the elevation sheets identify a bottom-of-footing level.',
+          },
+          {
+            itemId: 'excavation',
+            label: 'Excavation',
+            evidence: 'Excavate 18 CY for the footing trench.',
+          },
+        ],
+        'selected_trade',
+        'concrete'
+      ).map(row => row.evidence)
+    ).toEqual(['Excavate 18 CY for the footing trench.']);
+  });
+
   it('maps labeled plan flatwork areas into concreteAreaByType', () => {
     const structured = buildConcreteStructuredMeasurements({
       concreteDrivewaySqft: 800,

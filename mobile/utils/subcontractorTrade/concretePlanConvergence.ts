@@ -125,6 +125,22 @@ function sumAreaByType(areaByType: ConcreteAreaByType | null): number | null {
   return total > 0 ? total : null;
 }
 
+/**
+ * Cover-sheet covered patio is the concrete flatwork area to confirm.
+ * Other flatwork types and footing CY stay untouched.
+ */
+export function withConcreteCoverPatioOffer(
+  measurements: Record<string, unknown>,
+  coveredPatioSqft: unknown
+): Record<string, unknown> {
+  if (positiveNumber(measurements.concretePatioSqft) != null) {
+    return measurements;
+  }
+  const patio = positiveNumber(coveredPatioSqft);
+  if (patio == null) return measurements;
+  return { ...measurements, concretePatioSqft: patio };
+}
+
 /** Build scope selections only from explicitly supported quantities. */
 export function inferConcreteScopeFromMeasurements(
   input: Record<string, unknown>,

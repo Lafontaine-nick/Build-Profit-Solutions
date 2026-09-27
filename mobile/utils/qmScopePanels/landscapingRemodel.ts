@@ -114,6 +114,24 @@ export function readLandscapingScope(m: Record<string, unknown>): string[] {
   return Array.isArray(m.landscapeScope) ? m.landscapeScope.map(String) : [];
 }
 
+const LANDSCAPE_DEMO_NOTE =
+  /\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b[^.;\n]{0,45}\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)|\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)\b[^.;\n]{0,45}\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b/i;
+
+/**
+ * Mixed-exterior cards stay off until the notes describe landscape clearing.
+ * A contractor tap (`chosen`) turns the chip on even when the notes do not.
+ */
+export function landscapingDemoChipActive(input: {
+  selected: boolean;
+  condensed: boolean;
+  notes?: string | null;
+  chosen?: boolean;
+}): boolean {
+  if (!input.selected) return false;
+  if (!input.condensed || input.chosen) return true;
+  return LANDSCAPE_DEMO_NOTE.test(String(input.notes || ''));
+}
+
 function scopeSelectionActivatesItem(itemId: string, scope: string[]): boolean {
   const selected = new Set(scope);
   const canonical = new Set(scope.map(landscapingScopeCanonicalId));

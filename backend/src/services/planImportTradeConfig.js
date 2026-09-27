@@ -549,6 +549,55 @@ function explicitHvacCleanupScopeDetection(detection) {
   return /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(text);
 }
 
+function positivePlanQuantity(value) {
+  const n = Number(String(value ?? "").replace(/,/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** A foundation sheet is not an excavation quantity. Keep the line only with CY. */
+function explicitConcreteExcavationScopeDetection(detection) {
+  const text = `${detection?.label || ""} ${detection?.evidence || ""}`;
+  return /\d+(?:\.\d+)?\s*(?:c\.?\s*y\.?|cubic\s+yards?)\b/i.test(text);
+}
+
+/**
+ * Cover-sheet covered patio is the concrete flatwork area to confirm.
+ * Driveway, walks, and footing CY stay blank until they are printed.
+ */
+function applyConcreteCoverPatioToTrade(measurements, buildingAreas) {
+  const next = { ...(measurements || {}) };
+  const existing = positivePlanQuantity(next.concretePatioSqft);
+  if (existing != null) {
+    return { measurements: next, offered: false, patioSqft: existing };
+  }
+  const patio = positivePlanQuantity(buildingAreas?.coveredPatioSqft);
+  if (patio == null) {
+    return { measurements: next, offered: false, patioSqft: null };
+  }
+  next.concretePatioSqft = patio;
+  return { measurements: next, offered: true, patioSqft: patio };
+}
+
+function ensureConcreteCoverPatioScope(scope, patioSqft) {
+  if (!(patioSqft > 0)) return scope;
+  const detections = Array.isArray(scope?.detections) ? [...scope.detections] : [];
+  if (
+    detections.some(
+      (detection) =>
+        detection?.itemId === "pour_flatwork" || detection?.itemId === "patios",
+    )
+  ) {
+    return scope || { detections };
+  }
+  detections.push({
+    itemId: "pour_flatwork",
+    state: "included",
+    label: "Patio",
+    evidence: `Cover sheet patio ${patioSqft} sqft. Confirm this flatwork area.`,
+  });
+  return { ...(scope || {}), detections };
+}
+
 function filterPlanScopesForTrade(scope, mode, trade) {
   if (!scope || mode !== "selected_trade") return scope;
   const tradeKey = trade?.key || null;
@@ -565,6 +614,13 @@ function filterPlanScopesForTrade(scope, mode, trade) {
       tradeKey === "hvac" &&
       itemId === "cleanup" &&
       !explicitHvacCleanupScopeDetection(detection)
+    ) {
+      return false;
+    }
+    if (
+      tradeKey === "concrete" &&
+      itemId === "excavation" &&
+      !explicitConcreteExcavationScopeDetection(detection)
     ) {
       return false;
     }
@@ -601,4 +657,7 @@ module.exports = {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
   getTradeScopeAllowlist,
+  applyConcreteCoverPatioToTrade,
+  ensureConcreteCoverPatioScope,
+  explicitConcreteExcavationScopeDetection,
 };

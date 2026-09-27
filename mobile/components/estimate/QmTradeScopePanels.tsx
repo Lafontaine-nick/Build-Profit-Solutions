@@ -54,6 +54,7 @@ import {
   type FlooringInstallCounts,
 } from '@/utils/qmScopePanels/flooringRemodel';
 import {
+  landscapingDemoChipActive,
   landscapingScopeCanonicalId,
   readLandscapingScope,
 } from '@/utils/qmScopePanels/landscapingRemodel';
@@ -63,6 +64,7 @@ import {
   type FloorPrepSeverity,
 } from '@/utils/flooringDemoPrepBoundary';
 import {
+  CONCRETE_BUILDING_SLAB_OPTIONS,
   CONCRETE_FLATWORK_OPTIONS,
   CONCRETE_DECORATIVE_FINISH_OPTIONS,
   CONCRETE_DEMO_THICKNESS_OPTIONS,
@@ -4135,12 +4137,14 @@ export function QmLandscapingScopePanels({
     measurements as Record<string, unknown>
   );
   const noteText = String(notes || '');
-  const demoActive =
-    selected.includes('demo_clearing') &&
-    (!condensed ||
-      /\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b[^.;\n]{0,45}\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)|\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)\b[^.;\n]{0,45}\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b/i.test(
-        noteText
-      ));
+  const [demoChosen, setDemoChosen] = useState(false);
+  const demoSelected = selected.includes('demo_clearing');
+  const demoActive = landscapingDemoChipActive({
+    selected: demoSelected,
+    condensed,
+    notes: noteText,
+    chosen: demoChosen,
+  });
   const shrubsOnly =
     /\bshrubs?\b/i.test(String(notes || '')) &&
     !/\bplants?\b|\bplanting\b|\btrees?\b/i.test(String(notes || ''));
@@ -4240,7 +4244,24 @@ export function QmLandscapingScopePanels({
               excavation, hardscape demolition, and grading are separate.
             </Text>
             <TouchableOpacity
-              onPress={() => toggle('demo_clearing')}
+              onPress={() => {
+                if (!demoActive) {
+                  setDemoChosen(true);
+                  setMeasurements(prev => {
+                    const current = readLandscapingScope(
+                      prev as Record<string, unknown>
+                    );
+                    if (current.includes('demo_clearing')) return prev;
+                    return {
+                      ...prev,
+                      landscapeScope: [...current, 'demo_clearing'],
+                    } as ScopeMeasurementsInputExtended;
+                  });
+                  return;
+                }
+                setDemoChosen(false);
+                toggle('demo_clearing');
+              }}
               disabled={applying}
               activeOpacity={1}
               style={[
@@ -5653,6 +5674,128 @@ export function QmConcreteScopePanels({
                         Colors={Colors}
                         highlighted
                       />
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <View style={{ marginTop: 14 }}>
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  {
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                Building slab pour
+              </Text>
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                ]}
+              >
+                Enter the house and garage slab areas. These stay blank until
+                you type them.
+              </Text>
+              {CONCRETE_BUILDING_SLAB_OPTIONS.map(option => {
+                const active = selected.includes(option.id);
+                const thickness =
+                  Number(
+                    (measurements as Record<string, unknown>)[
+                      option.thicknessKey
+                    ]
+                  ) || 4;
+                const area = Number(
+                  (measurements as Record<string, unknown>)[option.areaKey]
+                );
+                const slabCy =
+                  Number.isFinite(area) && area > 0
+                    ? (area * (thickness / 12)) / 27
+                    : 0;
+                return (
+                  <React.Fragment key={option.id}>
+                    <QmConcreteScopeChoiceChip
+                      label={option.label}
+                      active={active}
+                      onPress={() => toggle(option.id)}
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                      style={{ marginTop: 10 }}
+                    />
+                    {active ? (
+                      <>
+                        <QmSqftMeasurementRow
+                          label={`${option.label} area`}
+                          helperText='Type the slab area for this pour.'
+                          value={String(
+                            (measurements as Record<string, unknown>)[
+                              option.areaKey
+                            ] || ''
+                          )}
+                          placeholder='Enter'
+                          unitLabel='sqft'
+                          onChangeText={value =>
+                            updateMeasurement(option.areaKey, value)
+                          }
+                          applying={applying}
+                          darkMode={darkMode}
+                          Colors={Colors}
+                          highlighted
+                        />
+                        <Text
+                          style={[
+                            styles.qmPanelCaption,
+                            {
+                              color: darkMode ? '#cbd5e1' : Colors.text,
+                              marginTop: 6,
+                              marginBottom: 4,
+                            },
+                          ]}
+                        >
+                          {option.label} thickness
+                        </Text>
+                        <View style={styles.qmOptionWrap}>
+                          {CONCRETE_SLAB_THICKNESS_OPTIONS.map(choice => {
+                            const thicknessActive =
+                              thickness === choice.inches;
+                            return (
+                              <QmConcreteScopeChoiceChip
+                                key={`${option.id}-${choice.id}`}
+                                label={choice.label}
+                                active={thicknessActive}
+                                onPress={() =>
+                                  setMeasurements(prev => ({
+                                    ...prev,
+                                    [option.thicknessKey]: choice.inches,
+                                  }))
+                                }
+                                applying={applying}
+                                darkMode={darkMode}
+                                Colors={Colors}
+                              />
+                            );
+                          })}
+                        </View>
+                        {slabCy > 0 ? (
+                          <Text
+                            style={[
+                              styles.qmPanelCaption,
+                              {
+                                color: darkMode ? '#94a3b8' : '#64748b',
+                                marginTop: 6,
+                              },
+                            ]}
+                          >
+                            Approximately {slabCy.toFixed(1)} CY from the area
+                            and thickness you enter.
+                          </Text>
+                        ) : null}
+                      </>
                     ) : null}
                   </React.Fragment>
                 );

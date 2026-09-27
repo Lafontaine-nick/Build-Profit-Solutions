@@ -2,6 +2,7 @@ import {
   LANDSCAPING_QM_EMBEDDED_IDS,
   LANDSCAPING_QM_SYNC_SCOPE_IDS,
   isLandscapingQmScopeItemActive,
+  landscapingDemoChipActive,
   landscapingQmPanel,
   syncLandscapingQmScopeItems,
 } from '@/utils/qmScopePanels/landscapingRemodel';
@@ -52,6 +53,31 @@ describe('landscaping QM', () => {
       }
     );
     expect(next.every((row) => row.state === 'included' && row.noteBacked === true)).toBe(true);
+  });
+
+  it('lets a contractor turn on demo clearing when mixed-exterior notes do not describe it', () => {
+    expect(
+      landscapingDemoChipActive({
+        selected: true,
+        condensed: true,
+        notes: 'Covered patio 322 sqft and landscape drainage.',
+      })
+    ).toBe(false);
+    expect(
+      landscapingDemoChipActive({
+        selected: true,
+        condensed: true,
+        notes: 'Covered patio 322 sqft and landscape drainage.',
+        chosen: true,
+      })
+    ).toBe(true);
+    expect(
+      landscapingDemoChipActive({
+        selected: true,
+        condensed: true,
+        notes: 'Clear vegetation and landscape debris from the lot.',
+      })
+    ).toBe(true);
   });
 
   it('activates scope cards from QM selection or measurements', () => {
