@@ -59,7 +59,11 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
-import { withConcreteCoverPatioOffer } from '@/utils/subcontractorTrade/concretePlanConvergence';
+import {
+  withConcreteCoverPatioOffer,
+  withConcreteGroundUpFlatworkPrompts,
+  withConcreteGroundUpStructurePrompts,
+} from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   hydratePlumbingPlanMeasurementsFromInventory,
@@ -629,6 +633,10 @@ export type ScopeMeasurements = {
   gravelBaseCy?: number | null;
   gravelBaseDepthInches?: number | null;
   concretePumpReviewNeeded?: boolean | null;
+  concreteGroundUpStructurePrompted?: boolean | null;
+  concreteGroundUpFlatworkPrompted?: boolean | null;
+  concreteRvGarageLabeled?: boolean | null;
+  concreteRvGaragePrompted?: boolean | null;
   concretePumpCount?: number | null;
   additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
@@ -5151,6 +5159,24 @@ export function applyPlanImportToDraft(
         };
       }
     }
+    scopeMeasurements = withConcreteGroundUpStructurePrompts(
+      scopeMeasurements as Record<string, unknown>
+    ) as typeof scopeMeasurements;
+    const planMeasurementRecord = payload.measurements as
+      | Record<string, unknown>
+      | undefined;
+    scopeMeasurements = withConcreteGroundUpFlatworkPrompts(
+      {
+        ...(scopeMeasurements as Record<string, unknown>),
+        ...(planMeasurementRecord?.concreteRvGarageLabeled === true
+          ? { concreteRvGarageLabeled: true }
+          : {}),
+      },
+      {
+        rooms: payload.rooms,
+        notes: next.originalNotes,
+      }
+    ) as typeof scopeMeasurements;
   }
   if (planImportTradeKey === 'insulation') {
     scopeMeasurements = applyHydratedInsulationScopeMeasurements(

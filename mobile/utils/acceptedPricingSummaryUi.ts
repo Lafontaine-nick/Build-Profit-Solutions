@@ -548,10 +548,29 @@ export function resolveAcceptedPricingDisplay(params: {
   suggestedBlock?: SuggestedPricingBlock | null;
   intelligence: ScopeItemIntelligence;
 }): AcceptedPricingDisplay {
-  const total = resolveAcceptedMoneyTotal({
-    resolved: params.resolved,
-    acceptance: params.acceptance,
-  });
+  const foundationPackageSuggestion =
+    (params.itemId === 'house_slab' || params.itemId === 'garage_slab') &&
+    params.suggestedBlock &&
+    /foundation package/i.test(params.suggestedBlock.rateSourceLabel || '') &&
+    params.acceptance?.selectionStatus === 'accepted'
+      ? params.suggestedBlock
+      : null;
+  const acceptanceForDisplay = foundationPackageSuggestion
+    ? {
+        ...params.acceptance!,
+        materialAmount: foundationPackageSuggestion.material,
+        laborAmount: foundationPackageSuggestion.labor,
+        totalAmount: foundationPackageSuggestion.total,
+        pricingSourceLabel: foundationPackageSuggestion.rateSourceLabel,
+        rateSourceLabel: foundationPackageSuggestion.rateSourceLabel,
+      }
+    : params.acceptance;
+  const total = foundationPackageSuggestion
+    ? foundationPackageSuggestion.total
+    : resolveAcceptedMoneyTotal({
+        resolved: params.resolved,
+        acceptance: acceptanceForDisplay,
+      });
   // A mode toggle can preserve the accepted status while temporarily dropping
   // the monetary fields. Keep the card visibly priced from the current
   // suggestion until the user edits or reapplies pricing.
@@ -569,8 +588,8 @@ export function resolveAcceptedPricingDisplay(params: {
       ? buildAcceptanceFromSuggestedBlock(params.suggestedBlock)
       : null;
   const acceptance = normalizeAcceptanceMetadata(
-    params.acceptance || inferredFromSuggestion || buildFallbackAcceptance(params.resolved, total),
-    params.suggestedBlock,
+    acceptanceForDisplay || inferredFromSuggestion || buildFallbackAcceptance(params.resolved, total),
+    foundationPackageSuggestion || params.suggestedBlock,
     params.intelligence
   );
   const confidenceLabel = resolveAcceptedConfidenceLabel(params.intelligence, acceptance);

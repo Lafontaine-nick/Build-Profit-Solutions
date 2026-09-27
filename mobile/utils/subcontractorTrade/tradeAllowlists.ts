@@ -68,7 +68,7 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
       'reinforcement',
       'complex_forming',
     ],
-    ['pour_flatwork', 'pour_foundation'],
+    ['pour_flatwork', 'house_slab', 'garage_slab', 'pour_foundation'],
     ['concrete_sealer', 'decorative_finish', 'additional_haul_off']
   ),
   framing: [

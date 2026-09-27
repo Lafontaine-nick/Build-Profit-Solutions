@@ -1,5 +1,9 @@
 import type { ConcreteFlatworkOptionId } from '@/utils/qmScopePanels/concreteRemodel';
-import { CONCRETE_FLATWORK_OPTION_IDS } from '@/utils/qmScopePanels/concreteRemodel';
+import {
+  CONCRETE_FLATWORK_OPTION_IDS,
+  isConcreteQmScopeItemActive,
+} from '@/utils/qmScopePanels/concreteRemodel';
+import { isRvOrToyGarageBayName } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
 /** Plan-export flat keys mapped to canonical flatwork type ids. */
 export const CONCRETE_PLAN_FLATWORK_AREA_KEYS: Record<
@@ -72,6 +76,61 @@ function positiveNumber(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * House + garage slab area prices as one foundation package at $8/SF.
+ * Footings and rebar stay visible and are included in that rate.
+ * Flatwork stays on its own card. No slab area means footing and rebar price on their own.
+ */
+export function concreteFoundationPackageDollars(
+  itemId: string,
+  measurements: { houseSlabSqft?: unknown; garageSlabSqft?: unknown } | null | undefined,
+  templateKey?: string | null
+): { material: number; labor: number; allowance: number } | 'included' | null {
+  if (String(templateKey || '').toLowerCase() !== 'concrete') return null;
+  const house = positiveNumber(measurements?.houseSlabSqft) ?? 0;
+  const garage = positiveNumber(measurements?.garageSlabSqft) ?? 0;
+  if (!(house > 0 || garage > 0)) return null;
+  if (itemId === 'pour_foundation' || itemId === 'reinforcement') return 'included';
+  const area = itemId === 'house_slab' ? house : itemId === 'garage_slab' ? garage : 0;
+  if (!(area > 0)) return null;
+  const half = Math.round(area * 4 * 100) / 100;
+  return { material: half, labor: half, allowance: 0 };
+}
+
+function concreteConfirmScopeItemVisible(input: {
+  itemId: string;
+  templateKey?: string | null;
+  state?: string | null;
+  noteBacked?: boolean | null;
+  measurements: Record<string, unknown> | null | undefined;
+}): boolean {
+  if (String(input.templateKey || '').toLowerCase() !== 'concrete') return true;
+  const measurements = input.measurements || {};
+  return (
+    isConcreteQmScopeItemActive(input.itemId, measurements) ||
+    (input.state === 'included' && input.noteBacked === true)
+  );
+}
+
+/** Confirm Scope should only offer a price the contractor can see and apply. */
+export function shouldOfferConcreteConfirmScopePrice(input: {
+  itemId: string;
+  templateKey?: string | null;
+  state?: string | null;
+  noteBacked?: boolean | null;
+  measurements: Record<string, unknown> | null | undefined;
+}): boolean {
+  if (!concreteConfirmScopeItemVisible(input)) return false;
+  if (String(input.templateKey || '').toLowerCase() !== 'concrete') return true;
+  return (
+    concreteFoundationPackageDollars(
+      input.itemId,
+      input.measurements,
+      input.templateKey
+    ) !== 'included'
+  );
+}
+
 function readAreaByType(
   input: Record<string, unknown>
 ): ConcreteAreaByType | null {
@@ -129,6 +188,159 @@ function sumAreaByType(areaByType: ConcreteAreaByType | null): number | null {
  * Cover-sheet covered patio is the concrete flatwork area to confirm.
  * Other flatwork types and footing CY stay untouched.
  */
+/** Ground-up structural chips. Quantities stay blank until the contractor types them. */
+export const CONCRETE_GROUND_UP_STRUCTURE_SCOPE_IDS = [
+  'reinforcement',
+  'pour_foundation',
+  'house_slab',
+  'garage_slab',
+] as const;
+
+function positiveConcreteQuantity(value: unknown): boolean {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0;
+}
+
+/** Copy for Quick measurements when a ground-up structural chip is on with no quantity. */
+export function concreteStructureQuantityPrompt(
+  measurements: Record<string, unknown>
+): string | null {
+  const scope = new Set(
+    Array.isArray(measurements.concreteScope)
+      ? measurements.concreteScope.map(String)
+      : []
+  );
+  const open: string[] = [];
+  if (
+    scope.has('pour_foundation') &&
+    !positiveConcreteQuantity(measurements.concreteCy)
+  ) {
+    open.push('footing');
+  }
+  if (
+    scope.has('house_slab') &&
+    !positiveConcreteQuantity(measurements.houseSlabSqft)
+  ) {
+    open.push('house slab');
+  }
+  if (
+    scope.has('garage_slab') &&
+    !positiveConcreteQuantity(measurements.garageSlabSqft)
+  ) {
+    open.push('garage slab');
+  }
+  if (
+    scope.has('reinforcement') &&
+    !positiveConcreteQuantity(measurements.concreteReinforcementSqft)
+  ) {
+    open.push('rebar');
+  }
+  const areaByType =
+    measurements.concreteAreaByType &&
+    typeof measurements.concreteAreaByType === 'object'
+      ? (measurements.concreteAreaByType as Record<string, unknown>)
+      : {};
+  const flatworkOpen: Array<{ id: string; label: string; scalarKey: string }> = [
+    { id: 'driveways', label: 'driveway', scalarKey: 'concreteDrivewaySqft' },
+    { id: 'walkways', label: 'walkway', scalarKey: 'concreteWalkwaySqft' },
+    { id: 'rv_pads', label: 'RV pad', scalarKey: 'concreteRvPadSqft' },
+  ];
+  for (const row of flatworkOpen) {
+    if (!scope.has(row.id)) continue;
+    if (
+      positiveConcreteQuantity(areaByType[row.id]) ||
+      positiveConcreteQuantity(measurements[row.scalarKey])
+    ) {
+      continue;
+    }
+    open.push(row.label);
+  }
+  if (!open.length) return null;
+  if (open.length === 1) {
+    return `Enter the ${open[0]} quantity before it can be priced.`;
+  }
+  const last = open[open.length - 1];
+  const rest = open.slice(0, -1);
+  const list =
+    rest.length > 1 ? `${rest.join(', ')}, and ${last}` : `${rest[0]} and ${last}`;
+  return `Enter the ${list} quantities before they can be priced.`;
+}
+
+export function withConcreteGroundUpStructurePrompts(
+  measurements: Record<string, unknown>
+): Record<string, unknown> {
+  if (measurements.concreteGroundUpStructurePrompted) return measurements;
+  const scope = new Set(
+    Array.isArray(measurements.concreteScope)
+      ? measurements.concreteScope.map(String)
+      : []
+  );
+  for (const id of CONCRETE_GROUND_UP_STRUCTURE_SCOPE_IDS) scope.add(id);
+  return {
+    ...measurements,
+    concreteScope: [...scope],
+    concreteGroundUpStructurePrompted: true,
+  };
+}
+
+/** A labeled Toy Garage or RV Garage. A plain Garage label is not enough. */
+export function planLabelsRvOrToyGarage(input: {
+  rooms?: Array<{ name?: string | null }> | null;
+  notes?: string | null;
+  concreteRvGarageLabeled?: unknown;
+}): boolean {
+  if (input.concreteRvGarageLabeled === true) return true;
+  if ((input.rooms || []).some(room => isRvOrToyGarageBayName(room?.name))) {
+    return true;
+  }
+  return /\b(?:rv|toy)\s*garage\b/i.test(String(input.notes || ''));
+}
+
+/**
+ * Ground-up flatwork chips with blank areas.
+ * Driveway and walkway are typical. RV pad turns on only for a labeled RV or toy garage.
+ * Sidewalk stays off.
+ */
+export function withConcreteGroundUpFlatworkPrompts(
+  measurements: Record<string, unknown>,
+  context?: {
+    rooms?: Array<{ name?: string | null }> | null;
+    notes?: string | null;
+  }
+): Record<string, unknown> {
+  const scope = new Set(
+    Array.isArray(measurements.concreteScope)
+      ? measurements.concreteScope.map(String)
+      : []
+  );
+  const prompted = measurements.concreteGroundUpFlatworkPrompted === true;
+  if (!prompted) {
+    scope.add('driveways');
+    scope.add('walkways');
+  }
+  const rvLabeled = planLabelsRvOrToyGarage({
+    rooms: context?.rooms,
+    notes: context?.notes,
+    concreteRvGarageLabeled: measurements.concreteRvGarageLabeled,
+  });
+  const rvPrompted = measurements.concreteRvGaragePrompted === true;
+  if (rvLabeled && !rvPrompted) scope.add('rv_pads');
+  if (
+    prompted &&
+    (!rvLabeled || rvPrompted) &&
+    measurements.concreteRvGarageLabeled === rvLabeled
+  ) {
+    return measurements;
+  }
+  return {
+    ...measurements,
+    concreteScope: [...scope],
+    concreteGroundUpFlatworkPrompted: true,
+    concreteRvGarageLabeled: rvLabeled,
+    concreteRvGaragePrompted: rvPrompted || rvLabeled,
+  };
+}
+
 export function withConcreteCoverPatioOffer(
   measurements: Record<string, unknown>,
   coveredPatioSqft: unknown

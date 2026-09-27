@@ -223,6 +223,7 @@ const TRADE_CONFIGS = {
       "concreteSubgradePrepSqft",
       "complexFormingLf",
       "concreteThicknessInches",
+      "concreteRvGarageLabeled",
     ],
     reviewScopeKeywords: [
       "concrete",
@@ -578,6 +579,13 @@ function applyConcreteCoverPatioToTrade(measurements, buildingAreas) {
   return { measurements: next, offered: true, patioSqft: patio };
 }
 
+/** Toy Garage and RV Garage are labeled bays. A plain Garage is not. */
+function concretePlanLabelsRvOrToyGarage(rooms) {
+  return (Array.isArray(rooms) ? rooms : []).some((room) =>
+    /\b(?:rv|toy)\s*garage\b/i.test(String(room?.name || "")),
+  );
+}
+
 function ensureConcreteCoverPatioScope(scope, patioSqft) {
   if (!(patioSqft > 0)) return scope;
   const detections = Array.isArray(scope?.detections) ? [...scope.detections] : [];
@@ -658,6 +666,7 @@ module.exports = {
   filterPlanScopesForTrade,
   getTradeScopeAllowlist,
   applyConcreteCoverPatioToTrade,
+  concretePlanLabelsRvOrToyGarage,
   ensureConcreteCoverPatioScope,
   explicitConcreteExcavationScopeDetection,
 };

@@ -710,6 +710,10 @@ export type NormalizedScopeMeasurements = {
   concreteDemoLimitedAccess: boolean | null;
   concreteDemoCy: number | null;
   concreteCy: number | null;
+  houseSlabSqft: number | null;
+  garageSlabSqft: number | null;
+  houseSlabThicknessInches: number | null;
+  garageSlabThicknessInches: number | null;
   excavationCy: number | null;
   excavationAreaSqft: number | null;
   excavationDepthInches: number | null;
@@ -1719,6 +1723,18 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 6,
     sourceLabel: 'National average · Standard flatwork · 4 in base',
   },
+  house_slab: {
+    unit: 'sqft',
+    material: 4,
+    labor: 4,
+    sourceLabel: 'Foundation package · $8/SF includes footings and rebar',
+  },
+  garage_slab: {
+    unit: 'sqft',
+    material: 4,
+    labor: 4,
+    sourceLabel: 'Foundation package · $8/SF includes footings and rebar',
+  },
   concrete: {
     unit: 'sqft',
     material: 4,
@@ -2292,6 +2308,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       labor: 185,
       sourceLabel: 'National planning rate · Footings / foundation',
     },
+  },
+  house_slab: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.house_slab,
+  },
+  garage_slab: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.garage_slab,
   },
   pour_foundation: {
     cy: NATIONAL_AVERAGE_BUDGET_SPLITS.pour_foundation,
@@ -6959,6 +6981,24 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter footing or foundation concrete in CY.',
     missingMessage: 'Enter foundation CY.',
   },
+  house_slab: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'houseSlabSqft',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the house slab area. The $8/SF price includes footings and rebar. Separate from exterior flatwork.',
+    missingMessage: 'Enter house slab area.',
+  },
+  garage_slab: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'garageSlabSqft',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the garage slab area, including a toy or RV garage bay. The $8/SF price includes footings and rebar. Separate from exterior flatwork.',
+    missingMessage: 'Enter garage slab area.',
+  },
   site_prep: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -9558,6 +9598,8 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
       unit: 'cy',
       measurementKeys: ['concreteCy', 'concreteSqft'],
     },
+    house_slab: { unit: 'sqft', measurementKeys: ['houseSlabSqft'] },
+    garage_slab: { unit: 'sqft', measurementKeys: ['garageSlabSqft'] },
     excavation: { unit: 'cy', measurementKeys: ['excavationCy'] },
     trenching: { unit: 'lf' },
     utility_trenching: { unit: 'lf' },
@@ -25008,6 +25050,12 @@ export function scopeMeasurementsToPayload(
       sanitized.gravelBaseDepthInches
     ),
     concretePumpReviewNeeded: sanitized.concretePumpReviewNeeded ?? null,
+    concreteGroundUpStructurePrompted:
+      sanitized.concreteGroundUpStructurePrompted === true,
+    concreteGroundUpFlatworkPrompted:
+      sanitized.concreteGroundUpFlatworkPrompted === true,
+    concreteRvGarageLabeled: sanitized.concreteRvGarageLabeled === true,
+    concreteRvGaragePrompted: sanitized.concreteRvGaragePrompted === true,
     concretePumpCount: parseScopeMeasurementInput(sanitized.concretePumpCount),
     additionalHaulOffLoadCount: parseScopeMeasurementInput(
       sanitized.additionalHaulOffLoadCount
@@ -25827,6 +25875,12 @@ export function scopeMeasurementsInputFromPayload(
       payload.gravelBaseDepthInches
     ),
     concretePumpReviewNeeded: payload.concretePumpReviewNeeded ?? null,
+    concreteGroundUpStructurePrompted:
+      payload.concreteGroundUpStructurePrompted === true,
+    concreteGroundUpFlatworkPrompted:
+      payload.concreteGroundUpFlatworkPrompted === true,
+    concreteRvGarageLabeled: payload.concreteRvGarageLabeled === true,
+    concreteRvGaragePrompted: payload.concreteRvGaragePrompted === true,
     concretePumpCount: measurementFieldString(payload.concretePumpCount),
     additionalHaulOffLoadCount: measurementFieldString(
       payload.additionalHaulOffLoadCount
@@ -26920,6 +26974,10 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   garageSlabSqft?: string | number | null;
   houseSlabThicknessInches?: string | number | null;
   garageSlabThicknessInches?: string | number | null;
+  concreteGroundUpStructurePrompted?: boolean | null;
+  concreteGroundUpFlatworkPrompted?: boolean | null;
+  concreteRvGarageLabeled?: boolean | null;
+  concreteRvGaragePrompted?: boolean | null;
   excavationQuantityMode?: 'direct_cy' | 'area_depth' | null;
   concreteAreaByType?: Partial<
     Record<

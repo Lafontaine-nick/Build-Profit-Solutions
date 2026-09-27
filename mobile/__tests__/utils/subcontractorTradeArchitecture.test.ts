@@ -1280,6 +1280,25 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ]);
   });
 
+  it('drops note-backed drainage and MEP from a concrete plan export', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'pour_flatwork', noteBacked: true },
+        { id: 'drainage', noteBacked: true },
+        { id: 'demo_clearing', noteBacked: true },
+        { id: 'permits', noteBacked: true },
+        { id: 'electrical', noteBacked: true },
+        { id: 'custom_extra', noteBacked: false },
+      ],
+      'selected_trade',
+      'concrete'
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'pour_flatwork',
+      'custom_extra',
+    ]);
+  });
+
   it('does not activate framing from Windows & doors quantities', () => {
     const normalized = normalizeTradeMeasurements(
       'windows_doors',

@@ -21,6 +21,8 @@ export const CONCRETE_QM_SYNC_SCOPE_IDS = new Set([
   'excavation',
   'reinforcement',
   'pour_flatwork',
+  'house_slab',
+  'garage_slab',
   'pour_foundation',
   'complex_forming',
   'concrete_sealer',
@@ -274,6 +276,10 @@ export function isConcreteQmScopeItemActive(
       );
     case 'pour_foundation':
       return positiveNumber(measurements.concreteCy) != null;
+    case 'house_slab':
+      return positiveNumber(measurements.houseSlabSqft) != null;
+    case 'garage_slab':
+      return positiveNumber(measurements.garageSlabSqft) != null;
     case 'retaining_wall':
       return positiveNumber(measurements.retainingWallLf) != null;
     case 'landscaping':
@@ -310,6 +316,8 @@ const CONCRETE_SCOPE_ITEM_LABELS: Record<string, string> = {
   excavation: 'Excavation / soil movement',
   reinforcement: 'Rebar / mesh',
   pour_flatwork: 'Pour flatwork',
+  house_slab: 'House slab pour',
+  garage_slab: 'Garage slab pour',
   pour_foundation: 'Footings / foundation',
   complex_forming: 'Complex forming',
   concrete_sealer: 'Concrete sealer',

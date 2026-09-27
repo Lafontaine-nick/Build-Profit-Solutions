@@ -185,6 +185,11 @@ import {
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
 import {
+  concreteFoundationPackageDollars,
+  concreteStructureQuantityPrompt,
+  shouldOfferConcreteConfirmScopePrice,
+} from '@/utils/subcontractorTrade/concretePlanConvergence';
+import {
   checklistDisplayHelper,
   checklistDisplayLabel,
   choiceIdsToScopeState,
@@ -5700,6 +5705,37 @@ function QuantitySection({
         >
           Standard component pricing is included in the complete system rate.
           Change to No only when supplied by others or excluded from this bid.
+        </Text>
+      </View>
+    );
+  }
+
+  const includedInFoundationPackage =
+    concreteFoundationPackageDollars(itemId, measurementsInput, templateKey) ===
+    'included';
+  if (includedInFoundationPackage) {
+    return (
+      <View
+        style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}
+      >
+        <Text
+          style={{
+            color: '#22c55e',
+            fontSize: 12,
+            fontWeight: '700',
+          }}
+        >
+          Included in the foundation package · $0 incremental
+        </Text>
+        <Text
+          style={{
+            color: captionColor(darkMode, Colors),
+            fontSize: 11,
+            marginTop: 4,
+          }}
+        >
+          Footing and rebar quantities stay on the card. They are included in
+          the house and garage slab price.
         </Text>
       </View>
     );
@@ -15836,7 +15872,12 @@ function CollapsibleQuickMeasurements({
   const mixedTradeSet = new Set(
     qmScopeTrades.map(trade => String(trade || '').toLowerCase())
   );
-  const mixedExteriorQmJob = isMixedExteriorScopeNotes(notes);
+  const concretePlanExport =
+    (singleTradeImport && tradeKey === 'concrete') ||
+    (String(measurements.planImportMode || '') === 'selected_trade' &&
+      String(measurements.planImportTradeKey || '') === 'concrete');
+  const mixedExteriorQmJob =
+    isMixedExteriorScopeNotes(notes) && !concretePlanExport;
   const explicitHvacScopeInNotes =
     /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       String(notes || '')
@@ -16122,6 +16163,7 @@ function CollapsibleQuickMeasurements({
     Array.isArray(measurements.flooringExistingTypes) &&
     measurements.flooringExistingTypes.length > 0;
   const landscapingQmJob =
+    !concretePlanExport &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'landscaping' ||
       mixedExteriorQmJob ||
@@ -18565,6 +18607,9 @@ function CollapsibleQuickMeasurements({
     ].some(
       key => Number(String(measurements[key] ?? '').replace(/,/g, '')) > 0
     );
+  const concreteStructurePrompt = concreteStructureQuantityPrompt(
+    measurements as Record<string, unknown>
+  );
   const subtitle =
     headerSummary.relevantTotal > 0
       ? headerSummary.needsConfirmation > 0
@@ -18573,8 +18618,9 @@ function CollapsibleQuickMeasurements({
           : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
           ? 'Review suggestions to apply planning estimates.'
-          : 'All set — measurements look complete.'
-      : 'Optional — autofill repeated quantities';
+          : concreteStructurePrompt ||
+            'All set — measurements look complete.'
+      : concreteStructurePrompt || 'Optional — autofill repeated quantities';
 
   const beginEditingField = useCallback(
     (
@@ -20875,12 +20921,10 @@ function CollapsibleQuickMeasurements({
                   applying={applying}
                   mixedExteriorScope={
                     (mixedExteriorQmJob || compactMixedScope) &&
-                    !(
-                      (singleTradeImport && tradeKey === 'concrete') ||
-                      (measurements.planImportMode === 'selected_trade' &&
-                        measurements.planImportTradeKey === 'concrete')
-                    )
+                    !concretePlanExport
                   }
+                  promptGroundUpStructure={concretePlanExport}
+                  notes={notes}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -21932,9 +21976,16 @@ export default function AIEstimateScopeAssumptionsModal({
         planImport?.planFacts?.buildingAreas?.totalLivingSqft
     ),
   });
+  const concretePlanExport =
+    (singleTradePlanImport && singleTradeKey === 'concrete') ||
+    ((measurements.planImportMode || planImport?.estimatingMode) ===
+      'selected_trade' &&
+      (measurements.planImportTradeKey || planImport?.selectedTrade) ===
+        'concrete');
   const collapsedScopeGroupSummary =
-    wholeProjectPlanChecklist ||
-    (mixedScopeReviewMode && !dedicatedElectricalChecklist);
+    !concretePlanExport &&
+    (wholeProjectPlanChecklist ||
+      (mixedScopeReviewMode && !dedicatedElectricalChecklist));
   const scopeCardTemplateKey = useCallback(
     (itemId: string) => {
       if (notesPlumbingFlow && plumbingItemIds.has(itemId)) {
@@ -25401,8 +25452,9 @@ export default function AIEstimateScopeAssumptionsModal({
       projectType: draft?.projectType,
       notes: scopeNotes,
       wholeProjectPlan: wholeProjectPlanChecklist,
+      planImportTradeKey: concretePlanExport ? 'concrete' : null,
     }),
-    [draft?.projectType, scopeNotes, wholeProjectPlanChecklist]
+    [draft?.projectType, scopeNotes, wholeProjectPlanChecklist, concretePlanExport]
   );
 
   const groupedItems = useMemo(() => {
@@ -25740,6 +25792,12 @@ export default function AIEstimateScopeAssumptionsModal({
               hideIncludedStuccoComponentCards &&
               includedStuccoComponentIds.has(item.id)
             ) &&
+            (String(checklist?.templateKey || '').toLowerCase() !== 'concrete' ||
+              isConcreteQmScopeItemActive(
+                item.id,
+                measurements as Record<string, unknown>
+              ) ||
+              (item.state === 'included' && item.noteBacked === true)) &&
             (!embedQmScopeInQuickMeasurements ||
               !qmScopeEmbeddedInQuickMeasurements(item.id) ||
               keepBathroomPricingCard(item.id))
@@ -25813,6 +25871,7 @@ export default function AIEstimateScopeAssumptionsModal({
     includedStuccoComponentIds,
     hideDeselectedRoofingQmCard,
     hideDuplicateRoofingBaseCard,
+    measurements,
     measurements.itemQuantities,
     measurements.pricingAcceptance,
   ]);
@@ -26538,6 +26597,17 @@ export default function AIEstimateScopeAssumptionsModal({
       const item = displayItems[index];
       const cardTemplateKey = scopeCardTemplateKey(item.id);
       if (!checklistItemInScope(item)) continue;
+      if (
+        !shouldOfferConcreteConfirmScopePrice({
+          itemId: item.id,
+          templateKey: cardTemplateKey,
+          state: item.state,
+          noteBacked: item.noteBacked,
+          measurements,
+        })
+      ) {
+        continue;
+      }
       if (hideDeselectedRoofingQmCard(item.id)) continue;
       if (hideDuplicateRoofingBaseCard(item.id)) continue;
       if (
@@ -26868,6 +26938,18 @@ export default function AIEstimateScopeAssumptionsModal({
       // The suggestion list can briefly retain a row while a Yes/No/Not sure
       // choice is being synchronized. Count only currently selected scope items.
       if (!selectedScopeIds.has(row.itemId)) continue;
+      const readySource = displayItems.find(item => item.id === row.itemId);
+      if (
+        !shouldOfferConcreteConfirmScopePrice({
+          itemId: row.itemId,
+          templateKey: checklist?.templateKey,
+          state: readySource?.state,
+          noteBacked: readySource?.noteBacked,
+          measurements: pricingFooterMeasurements,
+        })
+      ) {
+        continue;
+      }
       if (blockedItemIds.has(row.itemId)) continue;
       // Applied pricing lines are the source of truth for this footer. This
       // also prevents stale suggestion rows from being counted after a card

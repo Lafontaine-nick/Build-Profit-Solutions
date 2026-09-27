@@ -1,3 +1,13 @@
+import { sumConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
+import { filterUnmentionedMixedExteriorConcreteItems } from '@/utils/estimateScopeChecklistUi';
+import {
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
+import {
+  concreteFoundationPackageDollars,
+  shouldOfferConcreteConfirmScopePrice,
+} from '@/utils/subcontractorTrade/concretePlanConvergence';
 import {
   CONCRETE_SCOPE_OPTIONS,
   CONCRETE_QM_EMBEDDED_IDS,
@@ -233,5 +243,185 @@ describe('concrete QM remodel', () => {
     expect(hydrated.concreteScope).not.toEqual(
       expect.arrayContaining(['house_slab', 'garage_slab'])
     );
+  });
+
+  it('turns a typed house or garage slab into its own priced card', () => {
+    const next = syncConcreteQmScopeItems([], {
+      concreteScope: ['house_slab', 'garage_slab', 'pour_foundation', 'site_prep'],
+      houseSlabSqft: '2571',
+      garageSlabSqft: '1427',
+      concreteCy: '35',
+      concreteSubgradePrepSqft: '2000',
+    });
+    expect(next.map(row => row.id)).toEqual(
+      expect.arrayContaining([
+        'house_slab',
+        'garage_slab',
+        'pour_foundation',
+        'site_prep',
+      ])
+    );
+    const measurements = {
+      houseSlabSqft: '2571',
+      garageSlabSqft: '1427',
+      houseSlabThicknessInches: '4',
+      garageSlabThicknessInches: '4',
+      concreteSqft: '922',
+      itemQuantities: {},
+    };
+    const houseQty = resolveChecklistItemQuantity('house_slab', measurements, {
+      templateKey: 'concrete',
+    });
+    expect(houseQty?.quantity).toBe(2571);
+    expect(houseQty?.unit).toBe('sqft');
+    const priced = resolveScopeItemSuggestedPricing(
+      'house_slab',
+      measurements,
+      'concrete',
+      houseQty!
+    );
+    expect(priced.fill?.material).toBe(10284);
+    expect(priced.fill?.labor).toBe(10284);
+    expect(priced.fill?.rateSourceLabel).toMatch(/Foundation package/);
+    const thicker = resolveScopeItemSuggestedPricing(
+      'house_slab',
+      { ...measurements, houseSlabThicknessInches: '6' },
+      'concrete',
+      houseQty!
+    );
+    expect(thicker.fill?.total).toBe(priced.fill?.total);
+    const footingOnly = resolveScopeItemSuggestedPricing(
+      'pour_foundation',
+      { concreteCy: '35', itemQuantities: {} },
+      'concrete',
+      resolveChecklistItemQuantity(
+        'pour_foundation',
+        { concreteCy: '35', itemQuantities: {} },
+        { templateKey: 'concrete' }
+      )!
+    );
+    expect(footingOnly.fill?.total).toBe(35 * 350);
+    expect(
+      concreteFoundationPackageDollars(
+        'pour_foundation',
+        { houseSlabSqft: '2571' },
+        'concrete'
+      )
+    ).toBe('included');
+    expect(
+      concreteFoundationPackageDollars(
+        'pour_foundation',
+        { concreteCy: '35' },
+        'concrete'
+      )
+    ).toBeNull();
+  });
+
+  it('prices the foundation package once and keeps an already applied flatwork card', () => {
+    const items = [
+      item('house_slab'),
+      item('garage_slab'),
+      item('pour_foundation'),
+      item('reinforcement'),
+      item('pour_flatwork'),
+    ].map(row => ({ ...row, state: 'included' as const }));
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      templateKey: 'concrete',
+      measurements: {
+        houseSlabSqft: '2571',
+        garageSlabSqft: '1427',
+        concreteCy: '35',
+        concreteReinforcementSqft: '3998',
+        itemQuantities: {
+          house_slab__material: { quantity: '10284', unit: 'allowance' },
+          house_slab__labor: { quantity: '15426', unit: 'allowance' },
+          garage_slab__material: { quantity: '5708', unit: 'allowance' },
+          garage_slab__labor: { quantity: '8562', unit: 'allowance' },
+          pour_foundation__material: { quantity: '5775', unit: 'allowance' },
+          pour_foundation__labor: { quantity: '6475', unit: 'allowance' },
+          reinforcement__material: { quantity: '3998', unit: 'allowance' },
+          reinforcement__labor: { quantity: '2998.5', unit: 'allowance' },
+          pour_flatwork__material: { quantity: '4688', unit: 'allowance' },
+          pour_flatwork__labor: { quantity: '7032', unit: 'allowance' },
+        },
+        pricingAcceptance: {
+          house_slab: { selectionStatus: 'accepted', totalAmount: 25710 },
+          garage_slab: { selectionStatus: 'accepted', totalAmount: 14270 },
+          pour_foundation: { selectionStatus: 'accepted', totalAmount: 12250 },
+          reinforcement: { selectionStatus: 'accepted', totalAmount: 6997 },
+          pour_flatwork: { selectionStatus: 'accepted', totalAmount: 11720 },
+        },
+      } as never,
+    });
+    expect(breakdown.total).toBe(2571 * 8 + 1427 * 8 + 11720);
+  });
+
+  it('does not offer a separate price for footing or rebar inside the foundation package', () => {
+    const measurements = {
+      houseSlabSqft: '2571',
+      garageSlabSqft: '1427',
+      concreteCy: '35',
+      concreteReinforcementSqft: '3998',
+      concreteScope: ['pour_foundation', 'reinforcement', 'house_slab'],
+    };
+    expect(
+      shouldOfferConcreteConfirmScopePrice({
+        itemId: 'pour_foundation',
+        templateKey: 'concrete',
+        state: 'included',
+        noteBacked: true,
+        measurements,
+      })
+    ).toBe(false);
+    expect(
+      shouldOfferConcreteConfirmScopePrice({
+        itemId: 'reinforcement',
+        templateKey: 'concrete',
+        state: 'included',
+        noteBacked: true,
+        measurements,
+      })
+    ).toBe(false);
+    expect(
+      shouldOfferConcreteConfirmScopePrice({
+        itemId: 'site_prep',
+        templateKey: 'concrete',
+        state: 'included',
+        noteBacked: false,
+        measurements: { ...measurements, concreteSubgradePrepSqft: '2000' },
+      })
+    ).toBe(false);
+    expect(
+      shouldOfferConcreteConfirmScopePrice({
+        itemId: 'pour_flatwork',
+        templateKey: 'concrete',
+        state: 'included',
+        noteBacked: true,
+        measurements,
+      })
+    ).toBe(true);
+  });
+
+  it('keeps typed footing and subgrade on a concrete checklist', () => {
+    const notes = 'Covered patio and landscape drainage.';
+    const rows = [
+      {
+        ...item('pour_foundation'),
+        state: 'included' as const,
+        noteBacked: true,
+      },
+      { ...item('site_prep'), state: 'included' as const, noteBacked: true },
+    ];
+    expect(
+      filterUnmentionedMixedExteriorConcreteItems(rows, notes, 'concrete').map(
+        row => row.id
+      )
+    ).toEqual(['pour_foundation', 'site_prep']);
+    expect(
+      filterUnmentionedMixedExteriorConcreteItems(rows, notes, 'room_remodel').map(
+        row => row.id
+      )
+    ).not.toContain('pour_foundation');
   });
 });

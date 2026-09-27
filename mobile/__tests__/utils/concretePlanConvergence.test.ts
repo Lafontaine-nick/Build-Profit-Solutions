@@ -3,6 +3,9 @@ import {
   inferConcreteScopeFromMeasurements,
   normalizeConcreteScalarMeasurements,
   withConcreteCoverPatioOffer,
+  concreteStructureQuantityPrompt,
+  withConcreteGroundUpFlatworkPrompts,
+  withConcreteGroundUpStructurePrompts,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
@@ -60,6 +63,99 @@ describe('concrete plan convergence', () => {
         'concrete'
       ).map(row => row.evidence)
     ).toEqual(['Excavate 18 CY for the footing trench.']);
+  });
+
+  it('highlights ground-up structural chips without filling quantities', () => {
+    const prompted = withConcreteGroundUpStructurePrompts({
+      concreteScope: ['patios', 'pour_flatwork'],
+      concretePatioSqft: 322,
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+    });
+    expect(prompted.concreteScope).toEqual(
+      expect.arrayContaining([
+        'patios',
+        'pour_flatwork',
+        'reinforcement',
+        'pour_foundation',
+        'house_slab',
+        'garage_slab',
+      ])
+    );
+    expect(prompted.concreteScope).not.toContain('retaining_wall');
+    expect(prompted.concreteCy).toBeUndefined();
+    expect(prompted.houseSlabSqft).toBeUndefined();
+    expect(prompted.garageSlabSqft).toBeUndefined();
+    expect(prompted.concreteReinforcementSqft).toBeUndefined();
+    const again = withConcreteGroundUpStructurePrompts({
+      ...prompted,
+      concreteScope: ['patios', 'pour_flatwork'],
+    });
+    expect(again.concreteScope).toEqual(['patios', 'pour_flatwork']);
+  });
+
+  it('turns on driveway and walkway, and RV pad only when the plan labels an RV or toy garage', () => {
+    const typical = withConcreteGroundUpFlatworkPrompts({
+      concreteScope: ['patios', 'pour_flatwork'],
+      concretePatioSqft: 322,
+    });
+    expect(typical.concreteScope).toEqual(
+      expect.arrayContaining(['patios', 'driveways', 'walkways'])
+    );
+    expect(typical.concreteScope).not.toContain('rv_pads');
+    expect(typical.concreteScope).not.toContain('sidewalks');
+    expect(typical.concreteDrivewaySqft).toBeUndefined();
+    expect(typical.concreteWalkwaySqft).toBeUndefined();
+
+    const turnedOff = withConcreteGroundUpFlatworkPrompts({
+      ...typical,
+      concreteScope: ['patios', 'pour_flatwork'],
+    });
+    expect(turnedOff.concreteScope).toEqual(['patios', 'pour_flatwork']);
+
+    const toyGarage = withConcreteGroundUpFlatworkPrompts(
+      { concreteScope: ['patios'] },
+      { rooms: [{ name: 'Toy Garage' }, { name: 'Garage' }] }
+    );
+    expect(toyGarage.concreteScope).toEqual(
+      expect.arrayContaining(['driveways', 'walkways', 'rv_pads'])
+    );
+    expect(toyGarage.concreteRvPadSqft).toBeUndefined();
+
+    const plainGarage = withConcreteGroundUpFlatworkPrompts(
+      { concreteScope: ['patios'] },
+      { rooms: [{ name: 'Garage' }] }
+    );
+    expect(plainGarage.concreteScope).not.toContain('rv_pads');
+
+    const fromNotes = withConcreteGroundUpFlatworkPrompts(
+      { concreteScope: ['patios'], concreteGroundUpFlatworkPrompted: true },
+      { notes: 'Room measurements:\n- Toy Garage' }
+    );
+    expect(fromNotes.concreteScope).toContain('rv_pads');
+    expect(fromNotes.concreteScope).not.toContain('driveways');
+  });
+
+  it('asks for open ground-up structural quantities instead of saying measurements are complete', () => {
+    expect(
+      concreteStructureQuantityPrompt({
+        concreteScope: [
+          'pour_foundation',
+          'house_slab',
+          'garage_slab',
+          'reinforcement',
+        ],
+      })
+    ).toBe(
+      'Enter the footing, house slab, garage slab, and rebar quantities before they can be priced.'
+    );
+    expect(
+      concreteStructureQuantityPrompt({
+        concreteScope: ['pour_foundation', 'reinforcement'],
+        concreteCy: 35,
+        concreteReinforcementSqft: 3998,
+      })
+    ).toBeNull();
   });
 
   it('maps labeled plan flatwork areas into concreteAreaByType', () => {

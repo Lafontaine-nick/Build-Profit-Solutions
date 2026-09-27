@@ -284,12 +284,14 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
         ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
         : getTradeScopeAllowlist(tradeKey);
   const filtered = allowed
-    ? items.filter(
-        item =>
-          allowed.includes(item.id) ||
-          Boolean((item as T & { noteBacked?: boolean }).noteBacked) ||
-          String(item.id || '').startsWith('custom_')
-      )
+    ? items.filter(item => {
+        if (allowed.includes(item.id)) return true;
+        if (String(item.id || '').startsWith('custom_')) return true;
+        // Plan notes mention drainage, permits, and MEP words. Those are not
+        // concrete scope on a concrete plan export.
+        if (tradeKey === 'concrete') return false;
+        return Boolean((item as T & { noteBacked?: boolean }).noteBacked);
+      })
     : items;
   if (tradeKey === 'garage_doors') {
     const garage = filtered.find(item => item.id === 'garage_doors');

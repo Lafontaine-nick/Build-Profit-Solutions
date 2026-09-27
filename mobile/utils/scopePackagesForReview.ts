@@ -113,7 +113,11 @@ export function buildConfirmScopeDisplayItems(
     expanded = expanded.filter((row) => row.id !== 'electrical_service_upgrade');
   }
   expanded = ensureMixedExteriorScopeItems(expanded, templateKey, noteText);
-  expanded = filterUnmentionedMixedExteriorConcreteItems(expanded, noteText);
+  expanded = filterUnmentionedMixedExteriorConcreteItems(
+    expanded,
+    noteText,
+    templateKey
+  );
   if (/\bshrubs?\b/i.test(noteText) && !/\bplants?\b/i.test(noteText)) {
     expanded = expanded.map(row =>
       row.id === 'plants' ? { ...row, label: 'Shrubs' } : row

@@ -24,6 +24,7 @@ const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
   applyConcreteCoverPatioToTrade,
+  concretePlanLabelsRvOrToyGarage,
   ensureConcreteCoverPatioScope,
 } = require("./planImportTradeConfig");
 const {
@@ -6187,6 +6188,9 @@ async function analyzePlanForMeasurements({
       scope,
       patioOffer.patioSqft,
     );
+    if (concretePlanLabelsRvOrToyGarage(rooms)) {
+      tradeMeasurementInput.concreteRvGarageLabeled = true;
+    }
   }
   const tradeMeasurements = filterPlanMeasurementsForTrade(
     tradeMeasurementInput,

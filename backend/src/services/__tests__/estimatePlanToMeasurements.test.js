@@ -34,6 +34,7 @@ const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
   applyConcreteCoverPatioToTrade,
+  concretePlanLabelsRvOrToyGarage,
   ensureConcreteCoverPatioScope,
   TRADE_CONFIGS,
 } = require("../planImportTradeConfig");
@@ -1668,6 +1669,20 @@ describe("estimatePlanToMeasurements", () => {
         { coveredPatioSqft: 322 },
       ).measurements.concretePatioSqft,
     ).toBe(180);
+    expect(concretePlanLabelsRvOrToyGarage([{ name: "Toy Garage" }])).toBe(
+      true,
+    );
+    expect(concretePlanLabelsRvOrToyGarage([{ name: "RV Garage" }])).toBe(
+      true,
+    );
+    expect(concretePlanLabelsRvOrToyGarage([{ name: "Garage" }])).toBe(false);
+    expect(
+      filterPlanMeasurementsForTrade(
+        { concretePatioSqft: 322, concreteRvGarageLabeled: true },
+        "selected_trade",
+        TRADE_CONFIGS.concrete,
+      ).concreteRvGarageLabeled,
+    ).toBe(true);
   });
 
   test("selected-trade Drywall scope keeps the base line and explicit addons", () => {

@@ -73,6 +73,10 @@ import {
   concreteScopeCanonicalId,
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
+import {
+  withConcreteGroundUpFlatworkPrompts,
+  withConcreteGroundUpStructurePrompts,
+} from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { HVAC_SYSTEM_TONNAGE_TIERS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   applyHvacScopePanelMeasurementEdit,
@@ -4719,6 +4723,8 @@ export function QmConcreteScopePanels({
   applying,
   measurementFooter,
   mixedExteriorScope = false,
+  promptGroundUpStructure = false,
+  notes = '',
   darkMode,
   Colors,
 }: {
@@ -4729,9 +4735,36 @@ export function QmConcreteScopePanels({
   applying: boolean;
   measurementFooter?: React.ReactNode;
   mixedExteriorScope?: boolean;
+  promptGroundUpStructure?: boolean;
+  notes?: string;
   darkMode: boolean;
   Colors: Colors;
 }) {
+  useEffect(() => {
+    if (!promptGroundUpStructure) return;
+    setMeasurements(prev => {
+      const withStructure = prev.concreteGroundUpStructurePrompted
+        ? prev
+        : (withConcreteGroundUpStructurePrompts(
+            prev as Record<string, unknown>
+          ) as ScopeMeasurementsInputExtended);
+      const withFlatwork = withConcreteGroundUpFlatworkPrompts(
+        withStructure as Record<string, unknown>,
+        { notes }
+      ) as ScopeMeasurementsInputExtended;
+      if (
+        withFlatwork.concreteScope === withStructure.concreteScope &&
+        withFlatwork.concreteGroundUpFlatworkPrompted ===
+          withStructure.concreteGroundUpFlatworkPrompted &&
+        withFlatwork.concreteRvGaragePrompted ===
+          withStructure.concreteRvGaragePrompted &&
+        withStructure === prev
+      ) {
+        return prev;
+      }
+      return withFlatwork;
+    });
+  }, [notes, promptGroundUpStructure, setMeasurements]);
   const selected = readConcreteScope(measurements as Record<string, unknown>);
   const [expanded, setExpanded] = useState(true);
   const [sitePrepExpanded, setSitePrepExpanded] = useState(true);

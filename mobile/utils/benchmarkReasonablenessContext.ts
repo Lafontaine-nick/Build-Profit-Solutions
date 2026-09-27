@@ -23,6 +23,7 @@ import {
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
 import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import { concreteFoundationPackageDollars } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import {
   allowanceSplitSubKey,
   checklistItemInScope,
@@ -183,8 +184,20 @@ function resolveMaterialLaborSplit(
 function splitAppliedScopeDollars(
   itemId: string,
   measurements: ScopeMeasurementsInputExtended,
-  _templateKey?: string | null
+  templateKey?: string | null
 ): { material: number; labor: number; allowance: number } {
+  const acceptanceStatus = measurements.pricingAcceptance?.[itemId]?.selectionStatus;
+  const keepManualPrice =
+    acceptanceStatus === 'manual_adjusted' || acceptanceStatus === 'user_entered';
+  if (!keepManualPrice) {
+    const packageDollars = concreteFoundationPackageDollars(
+      itemId,
+      measurements,
+      templateKey
+    );
+    if (packageDollars === 'included') return { material: 0, labor: 0, allowance: 0 };
+    if (packageDollars) return packageDollars;
+  }
   const quantities = measurements.itemQuantities || {};
   const acceptance = measurements.pricingAcceptance?.[itemId];
   const total = resolveAppliedScopeMoneyTotal(itemId, quantities, acceptance);

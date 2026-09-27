@@ -2504,6 +2504,24 @@ function migrateGroundUpTakeoffScopeItems(
         category: i.category || 'structural',
       };
     }
+    if (i.id === 'house_slab') {
+      return {
+        ...i,
+        label: 'House slab pour',
+        helperText:
+          'House slab area. Priced at $8/SF with footings and rebar included. Separate from exterior flatwork.',
+        category: i.category || 'structural',
+      };
+    }
+    if (i.id === 'garage_slab') {
+      return {
+        ...i,
+        label: 'Garage slab pour',
+        helperText:
+          'Garage and toy-garage slab area. Priced at $8/SF with footings and rebar included. Separate from exterior flatwork.',
+        category: i.category || 'structural',
+      };
+    }
     if (i.id === 'landscaping') {
       return {
         ...i,
@@ -3094,8 +3112,12 @@ export function ensureMixedExteriorScopeItems(
 
 export function filterUnmentionedMixedExteriorConcreteItems(
   items: ScopeChecklistItem[],
-  notes?: string | null
+  notes?: string | null,
+  templateKey?: string | null
 ): ScopeChecklistItem[] {
+  // A concrete confirm uses the measurement card. Typed footing, subgrade,
+  // and slab lines stay even when the job notes never name them.
+  if (String(templateKey || '').toLowerCase() === 'concrete') return items;
   if (!isMixedExteriorScopeNotes(notes)) return items;
   const text = String(notes || '');
   const concreteOnlyIds = new Set([
@@ -4179,7 +4201,8 @@ export function hydrateScopeChecklistFromNotes(
     isMixedExteriorScopeNotes(notes)
       ? filterUnmentionedMixedExteriorConcreteItems(
           ensureMixedExteriorScopeItems(finalized, templateKey, notes),
-          notes
+          notes,
+          templateKey
         )
       : finalized,
     notes,
@@ -5914,6 +5937,7 @@ export type ScopeChecklistGroupingContext = {
   notes?: string | null;
   /** General-contractor plan export keeps the ground-up groups. */
   wholeProjectPlan?: boolean | null;
+  planImportTradeKey?: string | null;
 };
 
 /** Finish-out workflow for garage / basement / in-place room conversions. */
@@ -6351,7 +6375,15 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'complex_forming',
       ],
     },
-    { title: 'Pour', itemIds: ['pour_flatwork', 'pour_foundation'] },
+    {
+      title: 'Pour',
+      itemIds: [
+        'pour_flatwork',
+        'house_slab',
+        'garage_slab',
+        'pour_foundation',
+      ],
+    },
     {
       title: 'Upgrades / disposal',
       itemIds: [
@@ -6452,7 +6484,10 @@ export function resolveScopeChecklistGroups(
   if (context.wholeProjectPlan) {
     return SCOPE_CHECKLIST_GROUPS.ground_up;
   }
-  if (isMixedExteriorScopeNotes(context.notes)) {
+  if (
+    isMixedExteriorScopeNotes(context.notes) &&
+    context.planImportTradeKey !== 'concrete'
+  ) {
     return MIXED_EXTERIOR_SCOPE_GROUPS;
   }
   return SCOPE_CHECKLIST_GROUPS[key] ?? null;
