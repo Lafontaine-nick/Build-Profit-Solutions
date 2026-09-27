@@ -843,6 +843,56 @@ export function lowConfidenceConfirmationProvenance(
   };
 }
 
+export const NEW_BUILD_HVAC_SYSTEM_OFFER = 'new_build_hvac_system';
+
+/** Provenance for the 1-system confirmation when the plans do not print a count. */
+export function newBuildHvacSystemOfferProvenance(value = 1): {
+  value: number;
+  status: 'needs_review';
+  normalizedSource: 'NEEDS_REVIEW';
+  pricingEligible: false;
+  offer: typeof NEW_BUILD_HVAC_SYSTEM_OFFER;
+  reason: string;
+} {
+  return {
+    ...lowConfidenceNeedsReviewProvenance('hvacSystemCount', value),
+    offer: NEW_BUILD_HVAC_SYSTEM_OFFER,
+    reason:
+      'This plan does not print an HVAC system count. Confirm 1 system for the install.',
+  };
+}
+
+const LEGACY_HVAC_SYSTEM_OFFER_REASONS = new Set([
+  'The plan reading confidence is too low; confirm this quantity before pricing.',
+  'Contractor accepted this low-confidence hvac system read during takeoff review.',
+]);
+
+/**
+ * The new-build system count is a confirmation, not a quantity read off the plans.
+ * Older imports used the generic low-confidence reason with no plan evidence source.
+ */
+export function isNewBuildHvacSystemOfferRead(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string
+): boolean {
+  if (field !== 'hvacSystemCount') return false;
+  if (String(measurements?.planImportTradeKey || '') !== 'hvac') return false;
+  const provenance = measurements?.measurementProvenance;
+  if (!provenance || typeof provenance !== 'object') return false;
+  const entry = (provenance as Record<string, unknown>).hvacSystemCount;
+  if (!entry || typeof entry !== 'object') return false;
+  const record = entry as {
+    offer?: unknown;
+    source?: unknown;
+    reason?: unknown;
+  };
+  if (String(record.offer || '') === NEW_BUILD_HVAC_SYSTEM_OFFER) return true;
+  const count = Number(measurements?.hvacSystemCount);
+  if (count !== 1) return false;
+  if (record.source) return false;
+  return LEGACY_HVAC_SYSTEM_OFFER_REASONS.has(String(record.reason || ''));
+}
+
 export function lowConfidenceNeedsReviewProvenance(
   field: string,
   value: number

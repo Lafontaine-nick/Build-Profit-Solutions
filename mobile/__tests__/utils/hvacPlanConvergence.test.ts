@@ -24,6 +24,7 @@ import {
 } from '@/utils/scopeItemQuantities';
 import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 import { confirmedPlanTakeoffLines } from '@/utils/planTakeoffReviewUi';
+import { checklistDisplayHelper } from '@/utils/estimateScopeChecklistUi';
 
 describe('hvacPlanConvergence', () => {
   it('snaps documented tonnage to standard residential tiers', () => {
@@ -448,6 +449,21 @@ describe('hvacPlanConvergence', () => {
         planImportTradeKey: 'electrical',
       })
     ).toBe(false);
+  });
+
+  it('describes HVAC cleanup as this trade only', () => {
+    expect(
+      checklistDisplayHelper(
+        {
+          id: 'cleanup',
+          label: 'HVAC cleanup',
+          helperText: 'Debris and final cleanup for the HVAC work.',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        'hvac'
+      )
+    ).toBe('Debris and final cleanup for the HVAC work.');
   });
 
   it('keeps an explicit HVAC cleanup line and drops generic ground-up cleanup', () => {

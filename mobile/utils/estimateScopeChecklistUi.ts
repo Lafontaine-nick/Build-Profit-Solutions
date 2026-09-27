@@ -38,6 +38,7 @@ import {
   PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { hvacCardForItemId } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   COMPLETE_DRYWALL_ASSEMBLY_HELPER,
   COMPLETE_DRYWALL_ASSEMBLY_LABEL,
@@ -5804,6 +5805,12 @@ export function checklistDisplayHelper(
   }
   if (templateKey === 'electrical' && item.id === 'electrical_trim') {
     return ELECTRICAL_TRIM_CARD_HELPER;
+  }
+  if (String(templateKey || '').toLowerCase() === 'hvac' && item.id === 'cleanup') {
+    return (
+      hvacCardForItemId('cleanup')?.helper ||
+      'Debris and final cleanup for the HVAC work.'
+    );
   }
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
 }

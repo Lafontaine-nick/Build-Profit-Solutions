@@ -13,6 +13,7 @@ import {
   HVAC_EQUIPMENT_OPTION_IDS,
   HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT,
   HVAC_SYSTEMS_OPTION_ID,
+  hvacPlanInstallIncludesDistribution,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipReviewState,
   hvacScopeOptionHasExplicitQuantityInNotes,
@@ -1067,6 +1068,27 @@ describe('simple trade QM panels', () => {
     expect(
       hvacScopeOptionHasExplicitQuantityInNotes('ductwork', notes)
     ).toBe(true);
+  });
+
+  it('includes distribution in a plan-import HVAC install so it is not priced again', () => {
+    expect(
+      hvacPlanInstallIncludesDistribution(
+        { planImportTradeKey: 'hvac', hvacSystemCount: '1' },
+        [HVAC_SYSTEMS_OPTION_ID]
+      )
+    ).toBe(true);
+    expect(
+      hvacPlanInstallIncludesDistribution(
+        { planImportTradeKey: 'hvac' },
+        []
+      )
+    ).toBe(false);
+    expect(
+      hvacPlanInstallIncludesDistribution(
+        { hvacSystemCount: '1' },
+        [HVAC_SYSTEMS_OPTION_ID]
+      )
+    ).toBe(false);
   });
 
   it('flags a selected HVAC system when its quantity is blank', () => {

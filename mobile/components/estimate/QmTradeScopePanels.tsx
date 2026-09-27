@@ -82,6 +82,7 @@ import {
   HVAC_OPTIONAL_ADDON_OPTION_IDS,
   HVAC_SCOPE_DISTRIBUTION_OPTION_IDS,
   HVAC_SYSTEMS_OPTION_ID,
+  hvacPlanInstallIncludesDistribution,
   HVAC_CAPACITY_OPTION_ID,
   HVAC_VENTILATION_QUANTITY_HELPER,
   hvacFieldHasTakeoffEvidence,
@@ -209,17 +210,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     alignItems: 'center',
     marginBottom: 8,
-  },
-  hvacScopeRemoveButton: {
-    alignSelf: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginTop: 2,
-  },
-  hvacScopeRemoveText: {
-    color: '#f87171',
-    fontSize: 12,
-    fontWeight: '700',
   },
   hvacScopeSummary: {
     fontSize: 11,
@@ -6944,6 +6934,16 @@ export function QmSimpleTradeScopePanels({
     // Selections are option IDs, not canonical checklist IDs. Multiple
     // options may intentionally converge on one checklist item (for example,
     // Roofing underlayment and Ice & water shield).
+    if (
+      scopeKey === 'hvac' &&
+      (HVAC_SCOPE_DISTRIBUTION_OPTION_IDS as readonly string[]).includes(id) &&
+      hvacPlanInstallIncludesDistribution(
+        measurements as Record<string, unknown>,
+        selections
+      )
+    ) {
+      return;
+    }
     const selected = selections.includes(id);
     const next = selected
       ? selections.filter(value => value !== id)
@@ -7226,14 +7226,6 @@ export function QmSimpleTradeScopePanels({
             </Text>
           </View>
         ) : null}
-        <TouchableOpacity
-          onPress={() => toggle(option.id, option.canonicalId)}
-          disabled={applying}
-          activeOpacity={0.75}
-          style={styles.hvacScopeRemoveButton}
-        >
-          <Text style={styles.hvacScopeRemoveText}>Remove from bid</Text>
-        </TouchableOpacity>
       </View>
     );
   };
@@ -7489,11 +7481,30 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
+  const renderHvacIncludedChip = (option: (typeof spec.options)[number]) => (
+    <View key={option.id} style={styles.hvacScopeIdleCell}>
+      <QmScopeChoiceChip
+        label={option.label}
+        active
+        reviewState='confirmed'
+        quantityCaption='Included'
+        onPress={() => undefined}
+        disabled
+        darkMode={darkMode}
+        Colors={Colors}
+        style={styles.choiceChipCompact}
+        compact
+        labelFontSize={13}
+      />
+    </View>
+  );
+
   const renderHvacScopeSubPanel = ({
     title,
     caption,
     selectedOptions,
     idleOptions,
+    includedOptions = [],
     showSummary = false,
     equipmentCollapse = false,
     includeOptionalAddOns = false,
@@ -7504,6 +7515,7 @@ export function QmSimpleTradeScopePanels({
     caption: string;
     selectedOptions: (typeof spec.options)[number][];
     idleOptions: (typeof spec.options)[number][];
+    includedOptions?: (typeof spec.options)[number][];
     showSummary?: boolean;
     equipmentCollapse?: boolean;
     includeOptionalAddOns?: boolean;
@@ -7517,6 +7529,7 @@ export function QmSimpleTradeScopePanels({
     const hasContent =
       selectedCards.length ||
       idleOptions.length ||
+      includedOptions.length ||
       optionalIdle.length ||
       (equipmentCollapse && equipmentChipOptions.length > 0);
 
@@ -7573,6 +7586,11 @@ export function QmSimpleTradeScopePanels({
         {selectedCards.length ? (
           <View style={styles.hvacScopeSelectedList}>
             {selectedCards.map(renderHvacSelectedCard)}
+          </View>
+        ) : null}
+        {includedOptions.length ? (
+          <View style={styles.hvacScopeIdleWrap}>
+            {includedOptions.map(renderHvacIncludedChip)}
           </View>
         ) : null}
         {renderHvacAddToBidSection(idleOptions, {
@@ -7643,6 +7661,18 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
+  const distributionIncludedInInstall =
+    scopeKey === 'hvac' &&
+    hvacPlanInstallIncludesDistribution(
+      measurements as Record<string, unknown>,
+      selections
+    );
+  const includedDistributionOptions = distributionIncludedInInstall
+    ? HVAC_SCOPE_DISTRIBUTION_OPTION_IDS.map(id => optionById.get(id)).filter(
+        (option): option is (typeof spec.options)[number] => Boolean(option)
+      )
+    : [];
+
   if (scopeKey === 'hvac') {
     return (
       <>
@@ -7662,11 +7692,16 @@ export function QmSimpleTradeScopePanels({
         })}
         {renderHvacScopeSubPanel({
           title: 'Distribution',
-          caption: 'Ductwork, thermostats, and air devices in this bid.',
-          selectedOptions: hvacSelectedForIds(
-            HVAC_SCOPE_DISTRIBUTION_OPTION_IDS
-          ),
-          idleOptions: hvacIdleForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
+          caption: distributionIncludedInInstall
+            ? 'Included in the HVAC install price.'
+            : 'Ductwork, thermostats, and air devices in this bid.',
+          selectedOptions: distributionIncludedInInstall
+            ? []
+            : hvacSelectedForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
+          idleOptions: distributionIncludedInInstall
+            ? []
+            : hvacIdleForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
+          includedOptions: includedDistributionOptions,
           borderless: true,
           sectionSeparator: true,
         })}

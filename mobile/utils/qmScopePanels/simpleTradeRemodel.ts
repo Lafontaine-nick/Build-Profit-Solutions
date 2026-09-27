@@ -356,6 +356,23 @@ export const HVAC_SCOPE_DISTRIBUTION_OPTION_IDS = [
   'returns',
 ] as const;
 
+/**
+ * A plan-import HVAC install prices ductwork, the thermostat, registers, and
+ * returns inside the system package. Those chips stay included so they are
+ * not added again as separate bid lines.
+ */
+export function hvacPlanInstallIncludesDistribution(
+  measurements: Record<string, unknown>,
+  selections: readonly string[] = []
+): boolean {
+  if (String(measurements.planImportTradeKey || '') !== 'hvac') return false;
+  if (selections.includes(HVAC_SYSTEMS_OPTION_ID)) return true;
+  const count = Number(
+    String(measurements.hvacSystemCount ?? '').replace(/,/g, '')
+  );
+  return Number.isFinite(count) && count > 0;
+}
+
 export const HVAC_SCOPE_CORE_SECTIONS: Array<{
   label: string | null;
   optionIds: readonly string[];

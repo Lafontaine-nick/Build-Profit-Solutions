@@ -33,6 +33,8 @@ import {
   pendingPlanConfirmationReads,
   pendingPlanConfirmationCandidateValues,
   confirmPendingPlanConfirmationRead,
+  isNewBuildHvacSystemOfferRead,
+  newBuildHvacSystemOfferProvenance,
   pendingPlanConfirmationSelectedValue,
   emptyPlanTakeoffReadingDisplay,
   isPendingPlanReadConfirmed,
@@ -1106,6 +1108,64 @@ describe('planMeasurementConflictUi', () => {
       },
     });
     expect(pending.map(read => read.field)).toEqual([]);
+  });
+
+  it('treats the new-build HVAC system as a confirmation, not a plan quantity', () => {
+    const offered = {
+      planImportTradeKey: 'hvac',
+      hvacSystemCount: 1,
+      quickMeasurementSources: { hvacSystemCount: 'needs_confirmation' },
+      measurementProvenance: {
+        hvacSystemCount: newBuildHvacSystemOfferProvenance(1),
+      },
+    };
+    expect(isNewBuildHvacSystemOfferRead(offered, 'hvacSystemCount')).toBe(
+      true
+    );
+    const confirmed = confirmPendingPlanConfirmationRead(
+      offered,
+      'hvacSystemCount',
+      1
+    );
+    expect(isNewBuildHvacSystemOfferRead(confirmed, 'hvacSystemCount')).toBe(
+      true
+    );
+    expect(
+      isNewBuildHvacSystemOfferRead(
+        {
+          planImportTradeKey: 'hvac',
+          hvacSystemCount: 1,
+          measurementProvenance: {
+            hvacSystemCount: {
+              status: 'user_confirmed',
+              normalizedSource: 'USER_CONFIRMED',
+              reason:
+                'Contractor accepted this low-confidence hvac system read during takeoff review.',
+              value: 1,
+            },
+          },
+        },
+        'hvacSystemCount'
+      )
+    ).toBe(true);
+    expect(
+      isNewBuildHvacSystemOfferRead(
+        {
+          planImportTradeKey: 'hvac',
+          hvacSystemCount: 2,
+          measurementProvenance: {
+            hvacSystemCount: {
+              source: 'pdf_text_instance_tags',
+              status: 'needs_review',
+              reason:
+                'The plan reading confidence is too low; confirm this quantity before pricing.',
+              value: 2,
+            },
+          },
+        },
+        'hvacSystemCount'
+      )
+    ).toBe(false);
   });
 
   it('emptyPlanTakeoffReadingDisplay clarifies optional whole-house ventilation', () => {

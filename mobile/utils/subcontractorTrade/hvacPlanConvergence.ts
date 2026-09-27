@@ -145,7 +145,7 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
     'cleanup',
     'hvacCleanupCount',
     'HVAC cleanup',
-    'Removal, disposal, and final cleanup assigned to HVAC.',
+    'Debris and final cleanup for the HVAC work.',
     'closeout'
   ),
 ];

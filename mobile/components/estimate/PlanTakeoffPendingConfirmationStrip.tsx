@@ -18,6 +18,7 @@ import {
   pendingPlanConfirmationSelectedValue,
   resolveHvacPendingPlanConfirmationReads,
   resolvePendingPlanConfirmationDisplayValue,
+  isNewBuildHvacSystemOfferRead,
   shortPlanTakeoffHelper,
   unconfirmPendingPlanConfirmationRead,
   type PendingPlanConfirmationRead,
@@ -168,26 +169,52 @@ export function PlanTakeoffPendingConfirmationStrip({
       measurements.planImportTradeKey ||
       measurements.planFacts
   );
-  const reviewTitle = hasPlanContext
-    ? 'Unverified plan reads'
-    : 'Measurements to confirm';
-  const reviewDescription = hasPlanContext
-    ? displayReads.length === 1
-      ? 'One quantity from plan takeoff still needs confirmation.'
-      : `${displayReads.length} quantities from plan takeoff still need confirmation.`
-    : displayReads.length === 1
-      ? 'One derived measurement still needs confirmation.'
-      : `${displayReads.length} derived measurements still need confirmation.`;
+  const offeredSystemOnly =
+    displayReads.length > 0 &&
+    displayReads.every(read =>
+      isNewBuildHvacSystemOfferRead(measurements, read.field)
+    );
+  const offeredSystemConfirmed =
+    offeredSystemOnly &&
+    displayReads.every(read => {
+      return (
+        pendingPlanConfirmationSelectedValue(
+          measurements,
+          read.field,
+          localSelections[read.field]
+        ) != null
+      );
+    });
+  const reviewTitle = offeredSystemOnly
+    ? 'HVAC system'
+    : hasPlanContext
+      ? 'Unverified plan reads'
+      : 'Measurements to confirm';
+  const reviewDescription = offeredSystemOnly
+    ? offeredSystemConfirmed
+      ? '1 system is in this bid.'
+      : 'This plan does not print a system count. Confirm 1 system for the install.'
+    : hasPlanContext
+      ? displayReads.length === 1
+        ? 'One quantity from plan takeoff still needs confirmation.'
+        : `${displayReads.length} quantities from plan takeoff still need confirmation.`
+      : displayReads.length === 1
+        ? 'One derived measurement still needs confirmation.'
+        : `${displayReads.length} derived measurements still need confirmation.`;
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.eyebrow}>Needs review</Text>
+      {offeredSystemConfirmed ? null : (
+        <Text style={styles.eyebrow}>Needs review</Text>
+      )}
       <Text style={[styles.title, { color: titleColor }]}>
         {reviewTitle}
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
-        {reviewDescription}{' '}
-        Tap a count to confirm it, or edit it.
+        {reviewDescription}
+        {offeredSystemConfirmed
+          ? ''
+          : ' Tap a count to confirm it, or edit it.'}
       </Text>
       <View style={styles.cardList}>
         {displayReads.map(reading => {
@@ -213,6 +240,10 @@ export function PlanTakeoffPendingConfirmationStrip({
           const confirmed = selectedValue != null;
           const editing = editingField === reading.field;
           const emptyDisplay = emptyPlanTakeoffReadingDisplay(reading.field);
+          const offeredSystem = isNewBuildHvacSystemOfferRead(
+            measurements,
+            reading.field
+          );
           return (
             <View
               key={reading.field}
@@ -238,7 +269,9 @@ export function PlanTakeoffPendingConfirmationStrip({
                 {confirmed && hasQuantity
                   ? conflictChooserConfirmedLine(reading.field, selectedValue)
                   : hasQuantity
-                    ? 'Needs manual confirmation'
+                    ? offeredSystem
+                      ? 'Confirm this system'
+                      : 'Needs manual confirmation'
                     : emptyDisplay.statusLine}
               </Text>
               {hasQuantity ? (
@@ -249,15 +282,19 @@ export function PlanTakeoffPendingConfirmationStrip({
                       selected={selectedValue === value}
                       label={formatPlanTakeoffQuantity(reading.field, value)}
                       subtitle={
-                        confirmed
-                          ? hasPlanContext
-                            ? 'Plan quantity'
-                            : 'Derived from notes'
-                          : index === 0
-                            ? 'Tap to confirm'
-                            : hasPlanContext
-                              ? 'Alternate plan quantity'
-                              : 'Alternative estimate'
+                        offeredSystem
+                          ? confirmed
+                            ? 'System in bid'
+                            : 'Tap to confirm'
+                          : confirmed
+                            ? hasPlanContext
+                              ? 'Plan quantity'
+                              : 'Derived from notes'
+                            : index === 0
+                              ? 'Tap to confirm'
+                              : hasPlanContext
+                                ? 'Alternate plan quantity'
+                                : 'Alternative estimate'
                       }
                       darkMode={darkMode}
                       onPress={() => {

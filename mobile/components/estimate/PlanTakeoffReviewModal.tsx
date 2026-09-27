@@ -42,6 +42,7 @@ import {
   formatPlanTakeoffQuantity,
   lowConfidenceConfirmationProvenance,
   lowConfidenceNeedsReviewProvenance,
+  newBuildHvacSystemOfferProvenance,
   pendingManualConflictFields,
   planConflictChooserRowsKey,
   planTakeoffConflictFieldSet,
@@ -1997,10 +1998,7 @@ export default function PlanTakeoffReviewModal({
           ),
           ...(offerHvacSystem
             ? {
-                hvacSystemCount: lowConfidenceNeedsReviewProvenance(
-                  'hvacSystemCount',
-                  1
-                ),
+                hvacSystemCount: newBuildHvacSystemOfferProvenance(1),
               }
             : {}),
         },

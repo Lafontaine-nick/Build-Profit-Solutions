@@ -18656,7 +18656,29 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput as Record<string, unknown>,
       pricingContext
     );
-    if (evidenceTier !== 'verified_equipment') {
+    const tonsSource = String(
+      (
+        measurementsInput.quickMeasurementSources as
+          | Record<string, string>
+          | undefined
+      )?.hvacSystemTons || ''
+    );
+    const tonsOverride = Boolean(
+      (
+        measurementsInput.quickMeasurementUserOverrides as
+          | Record<string, boolean>
+          | undefined
+      )?.hvacSystemTons
+    );
+    const contractorSized =
+      tonsSource === 'user_entered' ||
+      tonsSource === 'manual_override' ||
+      tonsOverride;
+    if (
+      evidenceTier !== 'verified_equipment' &&
+      evidenceTier !== 'national_planning' &&
+      !contractorSized
+    ) {
       // Package pricing handled above; do not multiply unverified counts.
     } else {
       const systemTons = parseScopeMeasurementInput(

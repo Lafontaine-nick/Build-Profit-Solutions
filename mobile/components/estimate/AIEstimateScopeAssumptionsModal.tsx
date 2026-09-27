@@ -115,6 +115,7 @@ import {
   HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS,
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
   hvacQuickMeasurementSourcesFromProvenance,
+  hvacSystemTierBudgetSplit,
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
@@ -5368,7 +5369,8 @@ function resolveHvacLibrarySuggestedPricing(
   resolved: Pick<
     ReturnType<typeof resolveChecklistItemQuantity>,
     'quantity' | 'unit' | 'dualCount'
-  >
+  >,
+  measurementsInput?: ScopeMeasurementsInputExtended | null
 ): ReturnType<typeof resolveScopeItemSuggestedPricing> {
   const canonicalId = HVAC_PRICING_CARD_ALIASES[itemId] || itemId;
   const unit = HVAC_PRICING_CARD_UNITS[canonicalId];
@@ -5376,6 +5378,50 @@ function resolveHvacLibrarySuggestedPricing(
   const quantity = Number(resolved.dualCount?.quantity ?? resolved.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) {
     return { fill: null, comparison: null };
+  }
+  if (canonicalId === 'hvac' && measurementsInput) {
+    const tons = Number(
+      String(measurementsInput.hvacSystemTons ?? '').replace(/,/g, '')
+    );
+    const tonsSource = String(
+      measurementsInput.quickMeasurementSources?.hvacSystemTons || ''
+    );
+    const contractorSized =
+      Number.isFinite(tons) &&
+      tons > 0 &&
+      (tonsSource === 'user_entered' ||
+        tonsSource === 'manual_override' ||
+        measurementsInput.quickMeasurementUserOverrides?.hvacSystemTons ===
+          true);
+    if (contractorSized) {
+      const systemCount = Math.max(1, Math.round(quantity) || 1);
+      const tier = hvacSystemTierBudgetSplit(tons / systemCount);
+      const material = Math.round(systemCount * tier.material);
+      const labor = Math.round(systemCount * tier.labor);
+      return {
+        fill: {
+          material,
+          labor,
+          total: material + labor,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: tier.sourceLabel,
+          helper: `Based on ${systemCount.toLocaleString()} ${
+            systemCount === 1 ? 'system' : 'systems'
+          } · ${tons.toLocaleString()} tons`,
+          mode: 'suggested_price',
+          basis: { quantity: systemCount, unit: 'each' },
+          displayQuantityLine: `${systemCount} ${
+            systemCount === 1 ? 'system' : 'systems'
+          } · ${tons.toLocaleString()} tons`,
+          pricingRecordId: `bps_national:hvac:${tier.tierTons}ton`,
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: canonicalId,
+          benchmarkAction: 'price_ready',
+        },
+        comparison: null,
+      };
+    }
   }
   const rate = getNationalAverageBudgetSplit(canonicalId, unit);
   if (!rate || !(rate.material + rate.labor > 0)) {
@@ -6043,7 +6089,8 @@ function QuantitySection({
       );
       const hvacLibrarySuggested = resolveHvacLibrarySuggestedPricing(
         itemId,
-        displayResolved
+        displayResolved,
+        measurementsInput
       );
       const rawSuggested = calculatedSuggested.fill
         ? calculatedSuggested
@@ -6652,7 +6699,8 @@ function QuantitySection({
       );
       const hvacLibraryPlanningSuggested = resolveHvacLibrarySuggestedPricing(
         itemId,
-        resolved
+        resolved,
+        measurementsInput
       );
       const rawPlanningSuggested = calculatedPlanningSuggested.fill
         ? calculatedPlanningSuggested
@@ -7151,7 +7199,8 @@ function QuantitySection({
   );
   const hvacLibraryCatalogSuggested = resolveHvacLibrarySuggestedPricing(
     itemId,
-    resolved
+    resolved,
+    measurementsInput
   );
   const airSealingLibrarySuggested =
     itemId === 'air_sealing'
@@ -9091,10 +9140,21 @@ function scopeRowMeasurementSignature(
     ...(rule.measurementKeys || []),
     'floorAreaSqft',
   ].filter((key): key is string => Boolean(key));
+  if (itemId === 'hvac' || itemId === 'hvac_systems') {
+    for (const key of ['hvacSystemCount', 'hvacSystemTons']) {
+      if (!watchedKeys.includes(key)) watchedKeys.push(key);
+    }
+  }
   const sources = measurementsInput.quickMeasurementSources || {};
+  const overrides = measurementsInput.quickMeasurementUserOverrides || {};
 
   return JSON.stringify({
-    measurementKeys: watchedKeys.map(key => [key, inputRecord[key], sources[key]]),
+    measurementKeys: watchedKeys.map(key => [
+      key,
+      inputRecord[key],
+      sources[key],
+      overrides[key] === true,
+    ]),
     quantityEntries,
     pricingAcceptance: measurementsInput.pricingAcceptance?.[itemId],
     scopeGapResolutions: measurementsInput.scopeGapResolutions?.[itemId],
