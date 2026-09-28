@@ -460,12 +460,14 @@ describe('plan takeoff review UI polish', () => {
       }).some(l => /Benchmark pricing available/i.test(l))
     ).toBe(true);
 
+    const insulationLines = scopeTakeoffStatusLines({
+      itemId: 'insulation',
+      evidence: 'Standard ground-up scope for a full residential plan set',
+    });
     expect(
-      scopeTakeoffStatusLines({
-        itemId: 'insulation',
-        evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some(l => /Needs wall and ceiling takeoff/i.test(l))
+      insulationLines.some(l => /Needs wall and ceiling takeoff/i.test(l))
     ).toBe(true);
+    expect(insulationLines.join(' ')).not.toMatch(/standard ground-up scope/i);
 
     const drywallLines = scopeTakeoffStatusLines({
       itemId: 'drywall',

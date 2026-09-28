@@ -1900,7 +1900,13 @@ export function scopeTakeoffStatusLines(input: {
     } else {
       lines.push('Standard ground-up scope');
     }
-  } else if (evidence && !(id === 'drywall' && isGenericGroundUpEvidence(evidence))) {
+  } else if (
+    evidence &&
+    !(
+      (id === 'drywall' || id === 'insulation') &&
+      isGenericGroundUpEvidence(evidence)
+    )
+  ) {
     lines.push(evidence);
   } else if (id === 'sitework' || id === 'excavation') {
     lines.push('Standard ground-up scope — needs site takeoff');
@@ -1917,7 +1923,7 @@ export function scopeTakeoffStatusLines(input: {
     const page = pageFromAssumptions(input.assumptions, [/elevation/i]);
     const pageEnd = pageEndFromAssumptions(input.assumptions, [/elevation/i]);
     lines.push(formatPlanSourceLabel({ kind: 'elevations', page, pageEnd }));
-  } else if (id !== 'drywall') {
+  } else if (id !== 'drywall' && id !== 'insulation') {
     lines.push('Standard ground-up scope');
   }
 

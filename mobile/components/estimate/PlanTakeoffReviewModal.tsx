@@ -606,7 +606,7 @@ export default function PlanTakeoffReviewModal({
             plateHeightFt: insulationPlanFacts?.plateHeightFt,
             storyCount: insulationPlanFacts?.storyCount,
             allowConditionedAreaCeilingSuggestion: true,
-            requireExplicitSurfaceTakeoff: true,
+            requireExplicitSurfaceTakeoff: geometryGross != null,
           }
         )
       );
@@ -632,7 +632,8 @@ export default function PlanTakeoffReviewModal({
             }
             if (
               component.key === 'exteriorWallInsulationSqft' &&
-              !hasOpeningBasis
+              !hasOpeningBasis &&
+              component.source !== 'planning_assumption'
             ) {
               return false;
             }
@@ -896,16 +897,28 @@ export default function PlanTakeoffReviewModal({
             takeoff.measurements
           )
         );
+        const atticMatchesCeilingBoundary =
+          ceilingBoundary?.calculatedSqft != null &&
+          Math.abs(Number(value) - ceilingBoundary.calculatedSqft) <=
+            Math.max(25, ceilingBoundary.calculatedSqft * 0.02);
         const sourceLabel = semanticsOn
           ? key === 'atticInsulationSqft' &&
             Number(value) > 0 &&
             !(Number(takeoff.measurements?.atticInsulationSqft) > 0) &&
             !takeoff.measurementProvenance?.[key]
-            ? 'Calculated from conditioned ceiling geometry — confirm before pricing'
+            ? atticMatchesCeilingBoundary
+              ? 'Calculated from conditioned ceiling geometry — confirm before pricing'
+              : 'Planning estimate from the living area — confirm before pricing'
             : key === 'exteriorWallInsulationSqft' &&
                 insulationOpeningNeedsReview(takeoff) &&
                 !(Number(value) > 0)
               ? 'Opening deduction needs review — enter wall SF manually'
+              : key === 'exteriorWallInsulationSqft' &&
+                  Number(value) > 0 &&
+                  !(Number(takeoff.measurements?.exteriorWallInsulationSqft) > 0) &&
+                  !takeoff.measurementProvenance?.[key] &&
+                  openingDeductionSqft == null
+                ? 'Planning estimate from the main-floor footprint — confirm before pricing'
               : key === 'exteriorWallInsulationSqft' &&
                   Number(value) > 0 &&
                   openingDeductionSqft != null
@@ -947,9 +960,13 @@ export default function PlanTakeoffReviewModal({
           !(Number(value) > 0);
         const needsInsulationConfirmation =
           effectiveTradeKey === 'insulation' &&
-          key === 'atticInsulationSqft' &&
           Number(value) > 0 &&
-          !takeoff.measurementProvenance?.[key];
+          !takeoff.measurementProvenance?.[key] &&
+          ((key === 'atticInsulationSqft' &&
+            !(Number(takeoff.measurements?.atticInsulationSqft) > 0)) ||
+            (key === 'exteriorWallInsulationSqft' &&
+              !(Number(takeoff.measurements?.exteriorWallInsulationSqft) > 0) &&
+              openingDeductionSqft == null));
         const keepInsulationSuggestionSelected =
           effectiveTradeKey === 'insulation' &&
           (key === 'exteriorWallInsulationSqft' ||

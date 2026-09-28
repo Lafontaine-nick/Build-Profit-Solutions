@@ -31,6 +31,7 @@ import {
   syncInsulationAssembliesWithPlanMeasurements,
   takeStashedInsulationAssemblyRowsForType,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 
 describe('insulationPlanConvergence', () => {
   it('rejects partial opening reads below 8% of gross wall area', () => {
@@ -797,5 +798,29 @@ describe('insulationPlanConvergence', () => {
     ];
     const next = insulationAssemblyRowsWithoutPricedLocation(rows, 'roof_deck');
     expect(next.map(row => row.id)).toEqual(['attic', 'wall']);
+  });
+
+  it('drops generic ground-up cleanup and keeps an explicit insulation cleanup line', () => {
+    const filtered = filterPlanScopesForTrade(
+      [
+        { itemId: 'insulation', label: 'Insulation', state: 'included' },
+        {
+          itemId: 'cleanup',
+          label: 'Cleanup & disposal',
+          evidence: 'Standard ground-up scope for a full residential plan set',
+        },
+        {
+          itemId: 'cleanup',
+          label: 'Insulation cleanup',
+          evidence: 'Bag and haul insulation scrap for this scope',
+        },
+      ],
+      'selected_trade',
+      'insulation'
+    );
+    expect(filtered.map(row => row.label)).toEqual([
+      'Insulation',
+      'Insulation cleanup',
+    ]);
   });
 });

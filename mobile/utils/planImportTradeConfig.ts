@@ -252,7 +252,7 @@ export function filterPlanScopesForTrade<
       return false;
     }
     if (
-      tradeKey === 'drywall' &&
+      (tradeKey === 'drywall' || tradeKey === 'insulation') &&
       itemId === 'cleanup' &&
       /standard\s+ground-?up\s+scope/i.test(
         `${detection.label || ''} ${detection.evidence || ''}`

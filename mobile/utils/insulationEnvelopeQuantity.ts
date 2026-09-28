@@ -20,6 +20,24 @@ export const INSULATION_DEFAULT_WALL_HEIGHT_FT = 9;
 export const INSULATION_DEFAULT_OPENINGS_PERCENT = 15;
 /** Fallback when perimeter is unknown — square living footprint only (not drywall 3.5×). */
 export const INSULATION_PERIMETER_FROM_LIVING_FACTOR = 4;
+/**
+ * Cover-total minus main-floor living is a second story only when the gap is
+ * a real upper floor. Lot 49’s 44 SF cover gap is not upstairs.
+ */
+export const INSULATION_MIN_UPPER_FLOOR_SHARE = 0.15;
+
+/** Null when the cover-versus-main gap is too small to be an upper floor. */
+export function insulationUpperFloorGapSqft(
+  mainFloor: number | null,
+  totalLiving: number | null
+): number | null {
+  if (mainFloor == null || totalLiving == null || totalLiving <= mainFloor + 1) {
+    return null;
+  }
+  const gap = Math.round((totalLiving - mainFloor) * 10) / 10;
+  if (gap / totalLiving < INSULATION_MIN_UPPER_FLOOR_SHARE) return null;
+  return gap;
+}
 
 export type InsulationEnvelopeComponentKey =
   | 'exteriorWallInsulationSqft'
@@ -175,17 +193,34 @@ export function insulationCeilingBoundaryBreakdownFromPlanFacts(
   };
 }
 
+function credibleUpstairsLivingSqft(
+  upstairs: number | null,
+  totalLiving: number | null
+): number | null {
+  if (upstairs == null) return null;
+  if (
+    totalLiving != null &&
+    upstairs / totalLiving < INSULATION_MIN_UPPER_FLOOR_SHARE
+  ) {
+    return null;
+  }
+  return upstairs;
+}
+
 function isMultiStoryCeilingPlanFacts(
   facts: PlanFacts | null | undefined
 ): boolean {
   const stories = n(facts?.storyCount);
-  const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
-  const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
   const totalLiving = n(facts?.buildingAreas?.totalLivingSqft);
+  const upstairs = credibleUpstairsLivingSqft(
+    n(facts?.buildingAreas?.upstairsLivingSqft),
+    totalLiving
+  );
+  const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
   return (
     (stories ?? 0) > 1 ||
     upstairs != null ||
-    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1)
+    insulationUpperFloorGapSqft(mainFloor, totalLiving) != null
   );
 }
 
@@ -205,7 +240,24 @@ export function resolveConditionedCeilingAreaSqft(
   if (facts?.vaultedCeilingDetected === true) return null;
 
   const boundary = insulationCeilingBoundaryBreakdownFromPlanFacts(facts);
-  if (facts?.ceilingBoundary && boundary?.calculatedSqft != null) {
+  const livingAnchor =
+    n(facts?.buildingAreas?.mainFloorLivingSqft) ??
+    n(facts?.buildingAreas?.totalLivingSqft) ??
+    n(floorAreaSqft);
+  const boundaryExclusions =
+    (boundary?.vaultedOpenToBelowSqft || 0) +
+    (boundary?.roofDeckInsulationSqft || 0);
+  const fragmentBoundary =
+    boundary?.calculatedSqft != null &&
+    !isMultiStoryCeilingPlanFacts(facts) &&
+    livingAnchor != null &&
+    boundary.calculatedSqft < livingAnchor * INSULATION_MIN_UPPER_FLOOR_SHARE &&
+    boundaryExclusions < livingAnchor * INSULATION_MIN_UPPER_FLOOR_SHARE;
+  if (
+    facts?.ceilingBoundary &&
+    boundary?.calculatedSqft != null &&
+    !fragmentBoundary
+  ) {
     if (
       isMultiStoryCeilingPlanFacts(facts) &&
       !hasFullCeilingBoundary(facts.ceilingBoundary) &&
@@ -216,19 +268,19 @@ export function resolveConditionedCeilingAreaSqft(
     return boundary.calculatedSqft;
   }
 
-  const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
   const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
   const totalLiving =
     n(facts?.buildingAreas?.totalLivingSqft) ?? n(floorAreaSqft);
+  const upstairs = credibleUpstairsLivingSqft(
+    n(facts?.buildingAreas?.upstairsLivingSqft),
+    totalLiving
+  );
   const inferredUpstairs =
-    upstairs ??
-    (totalLiving != null && mainFloor != null && totalLiving > mainFloor
-      ? Math.round((totalLiving - mainFloor) * 10) / 10
-      : null);
+    upstairs ?? insulationUpperFloorGapSqft(mainFloor, totalLiving);
   const multiStory =
     (n(facts?.storyCount) ?? 0) > 1 ||
-    inferredUpstairs != null ||
-    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1);
+    upstairs != null ||
+    insulationUpperFloorGapSqft(mainFloor, totalLiving) != null;
 
   if (multiStory) {
     return inferredUpstairs;
@@ -433,12 +485,18 @@ export function resolveInsulationEnvelopePlanningQuantity(
       wallSource = 'calculated_from_plan';
       wallConfidence = heightLabeled ? 'medium' : 'low';
       wallFormula = `${perimeter} LF × ${height} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'}`;
-    } else if (living && !raw.requireExplicitSurfaceTakeoff) {
-      const estPerimeter = estimatedPerimeterFromLiving(living);
-      exteriorWalls = Math.round(estPerimeter * height * stories * 10) / 10;
-      wallSource = 'planning_assumption';
-      wallConfidence = 'low';
-      wallFormula = `≈${estPerimeter} LF (from √living) × ${height} ft × ${stories}`;
+    } else if (!raw.requireExplicitSurfaceTakeoff) {
+      const footprint =
+        n(raw.mainFloorLivingSqft) || (stories <= 1 ? living : null);
+      if (footprint) {
+        const estPerimeter = estimatedPerimeterFromLiving(footprint);
+        exteriorWalls = Math.round(estPerimeter * height * stories * 10) / 10;
+        wallSource = 'planning_assumption';
+        wallConfidence = 'low';
+        wallFormula = `≈${estPerimeter} LF from the main-floor footprint × ${height} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'}`;
+      } else {
+        exteriorWalls = 0;
+      }
     } else {
       exteriorWalls = 0;
     }

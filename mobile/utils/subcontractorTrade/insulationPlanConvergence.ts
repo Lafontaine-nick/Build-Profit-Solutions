@@ -9,7 +9,11 @@ import type { PlanFacts } from '@/utils/planMeasurementFacts';
 import { mergePlanFactsWithBuildingAreas } from '@/utils/planMeasurementFacts';
 import type { InsulationAssembly } from '@/utils/estimateAiDraft';
 import type { PlanCeilingBoundary } from '@/utils/planMeasurementFacts';
-import { insulationCeilingBoundaryBreakdownFromPlanFacts } from '@/utils/insulationEnvelopeQuantity';
+import {
+  INSULATION_MIN_UPPER_FLOOR_SHARE,
+  insulationCeilingBoundaryBreakdownFromPlanFacts,
+  insulationUpperFloorGapSqft,
+} from '@/utils/insulationEnvelopeQuantity';
 import {
   enrichPlanFactsWithSouthernUtahBarometer,
   enrichPlanFactsWithSouthernUtahInsulationCeiling,
@@ -223,10 +227,16 @@ export function isMultiStoryInsulationPlanFacts(
   const upstairs = positiveNumber(planFacts?.buildingAreas?.upstairsLivingSqft);
   const mainFloor = positiveNumber(planFacts?.buildingAreas?.mainFloorLivingSqft);
   const totalLiving = positiveNumber(planFacts?.buildingAreas?.totalLivingSqft);
+  const credibleUpstairs =
+    upstairs != null &&
+    (totalLiving == null ||
+      upstairs / totalLiving >= INSULATION_MIN_UPPER_FLOOR_SHARE)
+      ? upstairs
+      : null;
   return (
     (stories ?? 0) > 1 ||
-    upstairs != null ||
-    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1)
+    credibleUpstairs != null ||
+    insulationUpperFloorGapSqft(mainFloor, totalLiving) != null
   );
 }
 

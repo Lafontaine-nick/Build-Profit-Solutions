@@ -166,6 +166,69 @@ describe('insulationEnvelopeQuantity', () => {
     ).toBe(960);
   });
 
+  it('plans exterior walls from the main-floor footprint when the sheet has no perimeter', () => {
+    const facts = {
+      storyCount: 1,
+      buildingAreas: {
+        totalLivingSqft: 2571,
+        mainFloorLivingSqft: 2527,
+      },
+    };
+    const result = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(facts, 2571, {
+        allowConditionedAreaCeilingSuggestion: true,
+      })
+    );
+    const wall = result?.components.find(
+      component => component.key === 'exteriorWallInsulationSqft'
+    );
+    expect(wall?.source).toBe('planning_assumption');
+    expect(wall?.quantity).toBe(1538);
+    expect(wall?.formula).toMatch(/201 LF/);
+    expect(
+      result?.components.find(
+        component => component.key === 'atticInsulationSqft'
+      )?.quantity
+    ).toBe(2527);
+  });
+
+  it('uses main-floor living as the single-story ceiling when the cover gap is only a sliver', () => {
+    const facts = {
+      storyCount: 1,
+      buildingAreas: {
+        totalLivingSqft: 2571,
+        mainFloorLivingSqft: 2527,
+      },
+    };
+    expect(resolveConditionedCeilingAreaSqft(facts, 2571)).toBe(2527);
+    const result = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(facts, 2571, {
+        allowConditionedAreaCeilingSuggestion: true,
+        requireExplicitSurfaceTakeoff: true,
+      })
+    );
+    expect(
+      result?.components.find(
+        component => component.key === 'atticInsulationSqft'
+      )?.quantity
+    ).toBe(2527);
+  });
+
+  it('ignores a fragment ceiling boundary on a single-story plan', () => {
+    const facts = {
+      storyCount: 1,
+      buildingAreas: {
+        totalLivingSqft: 2571,
+        mainFloorLivingSqft: 2571,
+      },
+      ceilingBoundary: {
+        mainFloorAtticExposureSqft: 44,
+        complete: true,
+      },
+    };
+    expect(resolveConditionedCeilingAreaSqft(facts, 2571)).toBe(2571);
+  });
+
   it('does not create a two-story attic quantity from total living area alone', () => {
     const inputs = insulationEnvelopeInputsFromPlanFacts(
       {
