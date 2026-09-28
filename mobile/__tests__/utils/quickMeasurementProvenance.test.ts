@@ -236,6 +236,48 @@ describe('resolveQuickMeasurementFields', () => {
     }
   });
 
+  test('hides blank drywall specialty fields until a quantity is present', () => {
+    const rows = quickMeasurementRowsForInput(
+      'drywall',
+      'drywall',
+      emptyQuickMeasurementInput(),
+      []
+    );
+    const empty = resolveQuickMeasurementFields({
+      rows,
+      measurements: emptyQuickMeasurementInput(),
+      templateKey: 'drywall',
+      includedScopeKeys: ['drywall'],
+    });
+    const emptyByKey = Object.fromEntries(empty.map(result => [result.key, result]));
+    for (const key of [
+      'moistureResistantDrywallSqft',
+      'highCeilingDrywallSqft',
+      'vaultedCeilingDrywallSqft',
+      'level5FinishSqft',
+    ]) {
+      expect(emptyByKey[key]).toMatchObject({
+        state: 'not_relevant',
+        relevant: false,
+        blockingPrice: false,
+      });
+    }
+    const filled = resolveQuickMeasurementFields({
+      rows,
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        moistureResistantDrywallSqft: '180',
+      },
+      templateKey: 'drywall',
+      includedScopeKeys: ['drywall'],
+    });
+    const moisture = filled.find(
+      result => result.key === 'moistureResistantDrywallSqft'
+    );
+    expect(moisture?.relevant).toBe(true);
+    expect(moisture?.state).not.toBe('not_relevant');
+  });
+
   test('keeps optional ground-up gas piping out of confirmation blockers until entered', () => {
     const rows = quickMeasurementRowsForInput(
       'plumbing_service',

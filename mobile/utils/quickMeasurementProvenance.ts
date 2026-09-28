@@ -387,6 +387,12 @@ export function resolveQuickMeasurementFields(params: {
       !fromNotes &&
       !sourceTag &&
       !conflictFields.has(field.key);
+    const optionalBlankDrywall =
+      (field.key === 'moistureResistantDrywallSqft' ||
+        field.key === 'highCeilingDrywallSqft' ||
+        field.key === 'vaultedCeilingDrywallSqft' ||
+        field.key === 'level5FinishSqft') &&
+      !filled;
 
     const keepingExisting =
       params.keepingExistingWetArea ||
@@ -444,7 +450,7 @@ export function resolveQuickMeasurementFields(params: {
           ? 'detected_from_plan'
           : sourceTag,
       relevant:
-        optionalGasLine
+        optionalGasLine || optionalBlankDrywall
           ? false
           : manuallyEntered && filled
             ? true
@@ -477,10 +483,12 @@ export function resolveQuickMeasurementFields(params: {
         filled && !fromNotes && sourceTag === 'user_confirmed_suggestion',
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
-      relevant: optionalGasLine ? false : relevance.relevant,
-      blockingPrice: optionalGasLine
-        ? false
-        : relevance.blockingPrice && !filled,
+      relevant:
+        optionalGasLine || optionalBlankDrywall ? false : relevance.relevant,
+      blockingPrice:
+        optionalGasLine || optionalBlankDrywall
+          ? false
+          : relevance.blockingPrice && !filled,
       estimate,
       sourceLabel:
         conflictFields.has(field.key) && !isUserOverride
