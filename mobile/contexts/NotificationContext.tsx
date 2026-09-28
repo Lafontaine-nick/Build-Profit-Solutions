@@ -4,7 +4,8 @@ import notificationEmitter from '@/utils/notificationEmitter';
 
 interface NotificationContextType {
   showNotification: (notification: InAppNotificationData) => void;
-  hideNotification: () => void;
+  /** Pass `{ snooze: false }` to hide without running the banner's dismiss handler. */
+  hideNotification: (options?: { snooze?: boolean }) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -47,9 +48,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   }, []);
 
-  const hideNotification = useCallback(() => {
+  const hideNotification = useCallback((options?: { snooze?: boolean }) => {
+    const snooze = options?.snooze !== false;
     setNotification((current) => {
-      if (current?.onDismiss) {
+      if (snooze && current?.onDismiss) {
         try {
           current.onDismiss();
         } catch (e) {

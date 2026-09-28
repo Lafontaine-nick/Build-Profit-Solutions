@@ -54,21 +54,18 @@ export function buildProfileCompletionReminderCopy(
 
   if (needsDetails && needsPhoto) {
     return {
-      title: 'Complete your profile',
-      body:
-        'Add your business details and upload a company logo or personal photo. Your profile appears on bids, contracts, and Find Subcontractors.',
+      title: 'Finish your profile',
+      body: 'Add your company, phone, and logo.',
     };
   }
   if (needsPhoto) {
     return {
-      title: 'Add your logo or photo',
-      body:
-        'Upload a company logo or personal photo in Profile so estimates and contracts show your brand—not the default placeholder.',
+      title: 'Add your logo',
+      body: 'Upload a logo or photo for bids and contracts.',
     };
   }
   return {
     title: 'Finish your profile',
-    body:
-      'Add your company name, phone, and service area in Profile so leads and project tools use the right contact info.',
+    body: 'Add your company, phone, and service area.',
   };
 }

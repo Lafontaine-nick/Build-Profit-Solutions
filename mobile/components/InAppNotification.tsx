@@ -32,8 +32,10 @@ export interface InAppNotificationData {
   };
   onPress?: () => void;
   duration?: number;
+  /** Stay up until the user opens it, swipes it away, or leaves the screen. */
+  sticky?: boolean;
   data?: any;
-  /** Called when the banner auto-dismisses or the user closes it. */
+  /** Called when the user closes the banner. Not called on a silent hide. */
   onDismiss?: () => void;
 }
 
@@ -132,11 +134,12 @@ export default function InAppNotification({
         }),
       ]).start();
 
-      // Auto-dismiss after duration (default 4 seconds)
-      const duration = notification.duration || 4000;
-      dismissTimeoutRef.current = setTimeout(() => {
-        dismiss();
-      }, duration);
+      if (!notification.sticky) {
+        const duration = notification.duration || 4000;
+        dismissTimeoutRef.current = setTimeout(() => {
+          dismiss();
+        }, duration);
+      }
     } else {
       slideAnim.setValue(-NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN);
       opacityAnim.setValue(0);

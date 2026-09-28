@@ -66,7 +66,7 @@ function ProfileCompletionReminderCore({ userId }: { userId: string }) {
         type: 'info',
         icon: 'person',
         iconType: 'material',
-        duration: 10000,
+        sticky: true,
         action: {
           label: 'Open Profile',
           onPress: openProfile,

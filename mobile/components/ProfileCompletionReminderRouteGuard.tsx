@@ -5,8 +5,8 @@ import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { isPostOnboardingAppRoute } from '@/lib/profileCompletionReminderEligibility';
 
 /**
- * Clears the profile-completion banner when the user is on landing, auth, or onboarding
- * (NotificationProvider is app-wide, so the toast can otherwise linger on the homepage).
+ * Clears the profile-completion banner when the user is on landing, auth, or onboarding.
+ * Hiding here does not snooze it; a swipe or close is what waits 24 hours.
  */
 export default function ProfileCompletionReminderRouteGuard() {
   const segments = useSegments();
@@ -18,7 +18,7 @@ export default function ProfileCompletionReminderRouteGuard() {
 
   useEffect(() => {
     if (!eligible) {
-      hideNotification();
+      hideNotification({ snooze: false });
     }
   }, [eligible, hideNotification]);
 
