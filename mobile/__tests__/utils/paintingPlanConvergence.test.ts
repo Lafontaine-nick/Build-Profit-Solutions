@@ -2,12 +2,18 @@ import {
   applyPaintPricingMethodChoice,
   buildPaintingPdfMeasurementLines,
   buildPaintingStructuredMeasurements,
+  ensurePaintingPlanChecklistItems,
   normalizePaintingScalarMeasurements,
   paintingPlanNeedsAreaConfirmation,
+  restorePaintingPlanSurfaceFields,
   stripConfirmedMeasurementsFromScopeDescription,
 } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
-import { filterPlanMeasurementsForTrade } from '@/utils/planImportTradeConfig';
+import {
+  filterChecklistItemsForTrade,
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+} from '@/utils/planImportTradeConfig';
 import {
   resolveScopeItemSuggestedPricing,
   scopeMeasurementsInputFromPayload,
@@ -28,6 +34,109 @@ function inputWith(
 }
 
 describe('painting plan convergence', () => {
+  it('keeps wall and ceiling paint and drops door installation on a painting plan bid', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'interior_door_install', noteBacked: true },
+        { id: 'baseboard_install', noteBacked: true },
+        { id: 'door_paint' },
+        { id: 'trim_paint' },
+        { id: 'ceiling_paint' },
+        { id: 'prep' },
+      ],
+      'selected_trade',
+      'painting'
+    );
+    const items = ensurePaintingPlanChecklistItems(filtered, {
+      wallPaintSqft: '3734',
+      ceilingPaintSqft: '2571',
+    });
+    expect(items.map(item => item.id)).toEqual([
+      'door_paint',
+      'trim_paint',
+      'ceiling_paint',
+      'prep',
+      'interior_paint',
+    ]);
+  });
+
+  it('restores plan wall and ceiling areas and does not price prep from their sum', () => {
+    const restored = restorePaintingPlanSurfaceFields({
+      planImportTradeKey: 'painting',
+      wallPaintSqft: '',
+      ceilingPaintSqft: '',
+      itemQuantities: {
+        ceiling_paint: { quantity: '2571' },
+        prep: { quantity: '6305' },
+      },
+    });
+    expect(restored.wallPaintSqft).toBe('3734');
+    expect(restored.ceilingPaintSqft).toBe('2571');
+
+    const persisted = scopeMeasurementsPayloadForPersist(
+      inputWith({
+        planImportTradeKey: 'painting',
+        paintPricingMethod: 'separate',
+        wallPaintSqft: '3734',
+        ceilingPaintSqft: '2571',
+        itemQuantities: {
+          prep: { quantity: '6305', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      }),
+      { templateKey: 'painting' }
+    );
+    expect(persisted.itemQuantities?.interior_paint).toMatchObject({
+      quantity: 3734,
+      quantitySource: 'plan_vision',
+    });
+    expect(persisted.itemQuantities?.ceiling_paint).toMatchObject({
+      quantity: 2571,
+      quantitySource: 'plan_vision',
+    });
+    expect(persisted.itemQuantities?.prep).toBeUndefined();
+
+    const prep = resolveScopeItemSuggestedPricing(
+      'prep',
+      inputWith({
+        planImportTradeKey: 'painting',
+        wallPaintSqft: '3734',
+        ceilingPaintSqft: '2571',
+      }),
+      'painting',
+      {
+        quantity: 6305,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
+    expect(prep.fill).toBeNull();
+  });
+
+  it('drops generic ground-up cleanup and keeps an explicit painting cleanup line', () => {
+    const filtered = filterPlanScopesForTrade(
+      [
+        { itemId: 'interior_paint', label: 'Interior paint', state: 'included' },
+        {
+          itemId: 'cleanup',
+          label: 'Cleanup & disposal',
+          evidence:
+            'Standard final cleanup for a complete ground-up new construction package.',
+        },
+        {
+          itemId: 'cleanup',
+          label: 'Paint cleanup',
+          evidence: 'Bag and haul masking and paint waste for this scope',
+        },
+      ],
+      'selected_trade',
+      'painting'
+    );
+    expect(filtered.map(row => row.label)).toEqual([
+      'Interior paint',
+      'Paint cleanup',
+    ]);
+  });
+
   it('maps labeled plan quantities into paintScope without combining walls and ceilings', () => {
     const structured = buildPaintingStructuredMeasurements({
       wallPaintSqft: 5000,

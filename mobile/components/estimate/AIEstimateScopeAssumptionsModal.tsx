@@ -68,7 +68,12 @@ import {
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
-import { applyPaintPricingMethodChoice } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
+import {
+  applyPaintPricingMethodChoice,
+  ensurePaintingPlanChecklistItems,
+  restorePaintingPlanSurfaceFields,
+} from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
   ELECTRICAL_CARDS,
   hasDetailedElectricalQuantities,
@@ -381,8 +386,6 @@ import {
   resolveCustomScopePricingUnit,
   resolveDualRatePricingDisplayFromNotes,
   resolveScopeItemSuggestedPricing,
-  resolveInsulationAssemblyLumpBenchmarkComparison,
-  resolveInsulationAssemblyNationalRateCardComparison,
   resolveInsulationAssemblyPlanningRateLabel,
   resolveInsulationAssemblyPlanningRateTier,
   resolveInsulationAssemblyRowPricingMap,
@@ -7357,23 +7360,6 @@ function QuantitySection({
           'insulation'
         )
       : null;
-  const insulationNationalComparison =
-    itemId === 'insulation' && assemblyInsulationPricing
-      ? resolveInsulationAssemblyNationalRateCardComparison(
-          assemblyPricingInput,
-          pricingContext,
-          'insulation'
-        )
-      : null;
-  const insulationLumpBenchmark =
-    itemId === 'insulation' &&
-    assemblyInsulationPricing &&
-    !insulationNationalComparison
-      ? resolveInsulationAssemblyLumpBenchmarkComparison(
-          measurementsInput,
-          pricingContext
-        )
-      : null;
   const wetAreaDemoFallback =
     itemId === 'demo' &&
     resolved.unit === 'sqft' &&
@@ -7405,10 +7391,7 @@ function QuantitySection({
       : assemblyInsulationPricing
         ? {
             fill: assemblyInsulationPricing,
-            comparison:
-              insulationNationalComparison ??
-              insulationLumpBenchmark ??
-              initialSuggestedFromCatalog.comparison,
+            comparison: null,
           }
         : initialSuggestedFromCatalog.fill
           ? initialSuggestedFromCatalog
@@ -7499,10 +7482,7 @@ function QuantitySection({
   }
   if (assemblyInsulationPricing) {
     suggestedBudgetSplit = assemblyInsulationPricing;
-    suggestedComparisonSplit =
-      insulationNationalComparison ??
-      insulationLumpBenchmark ??
-      suggestedComparisonSplit;
+    suggestedComparisonSplit = null;
   }
   if (
     itemId === 'insulation' &&
@@ -14672,7 +14652,12 @@ function CollapsibleQuickMeasurements({
     /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
       String(notes || '')
     );
-  const quickMeasurementTemplateKey = stuccoTradeFlow
+  const paintingPlanMeasurements =
+    String(measurements.planImportTradeKey || '') === 'painting' ||
+    (singleTradeImport && tradeKey === 'painting');
+  const quickMeasurementTemplateKey = paintingPlanMeasurements
+    ? 'painting'
+    : stuccoTradeFlow
     ? 'stucco'
     : notesTradeFlow && tradeKey === 'plumbing' && !compactBathroomPlumbingFlow
       ? notesTradeMode === 'plumbing_service'
@@ -15445,6 +15430,24 @@ function CollapsibleQuickMeasurements({
                 field.key !== 'insulatedGarageWallSqft' &&
                 field.key !== 'insulatedGarageCeilingSqft'
             )
+          )
+          .filter(row => row.length > 0);
+      }
+      if (tradeKey === 'painting') {
+        const hideWhenEmpty = new Set<QuickMeasurementFieldKey>([
+          'cabinetUpperLf',
+          'cabinetLowerLf',
+          'cabinetRunLf',
+          'cabinetPaintSqft',
+          'exteriorPaintSqft',
+        ]);
+        return filteredRows
+          .map(row =>
+            row.filter(field => {
+              if (field.key === 'paintAreaSqft') return false;
+              if (!hideWhenEmpty.has(field.key)) return true;
+              return Boolean(String(measurements[field.key] ?? '').trim());
+            })
           )
           .filter(row => row.length > 0);
       }
@@ -18709,6 +18712,7 @@ function CollapsibleQuickMeasurements({
             ? { ...resolvedField, label: 'Walls & ceilings paint' }
             : resolvedField.key === 'wallPaintSqft' &&
                 compactMixedScope &&
+                String(measurements.planImportTradeKey || '') !== 'painting' &&
                 !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bwalls?\b|\bwalls?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
                   String(notes || '')
                 ) &&
@@ -18724,6 +18728,21 @@ function CollapsibleQuickMeasurements({
       /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^0-9.;\n]{0,35}\b(?:paint(?:ing)?|repaint(?:ing)?|walls?|ceilings?)\b/i.test(
         String(notes || '')
       );
+    const paintingPlanSurfaceValue = (() => {
+      if (String(measurements.planImportTradeKey || '') !== 'painting') return '';
+      if (field.key !== 'wallPaintSqft' && field.key !== 'ceilingPaintSqft') {
+        return '';
+      }
+      const direct = String(measurements[field.key] ?? '').trim();
+      if (direct) return direct;
+      const itemId =
+        field.key === 'wallPaintSqft' ? 'interior_paint' : 'ceiling_paint';
+      const quantity = measurements.itemQuantities?.[itemId]?.quantity;
+      return quantity != null && Number(String(quantity).replace(/,/g, '')) > 0
+        ? String(quantity)
+        : '';
+    })();
+    const planSourcedPaintQuantity = Boolean(paintingPlanSurfaceValue);
     const isUnquantifiedPaintField =
       [
         'paintAreaSqft',
@@ -18732,6 +18751,7 @@ function CollapsibleQuickMeasurements({
         'exteriorPaintSqft',
       ].includes(field.key) &&
       !explicitPaintAreaInNotes &&
+      !planSourcedPaintQuantity &&
       !measurements.quickMeasurementUserOverrides?.[field.key];
     const clearStaleDrywallDisplay =
       field.key === 'drywallSqft' &&
@@ -18780,7 +18800,7 @@ function CollapsibleQuickMeasurements({
                   measurements,
                   noteQuickMeasurements.values,
                   displayUserOverrides
-                );
+                ) || paintingPlanSurfaceValue;
     const isEditing = editingFieldKey === field.key;
     const lockedVariant =
       isEditing && editingVariant ? editingVariant : variant;
@@ -18881,7 +18901,8 @@ function CollapsibleQuickMeasurements({
               notesSpecifyPaintCeilings &&
               !notesSpecifyPaintWalls
             ? { label: 'Paint ceilings' }
-            : field.key === 'ceilingPaintSqft'
+            : field.key === 'ceilingPaintSqft' &&
+                String(measurements.planImportTradeKey || '') !== 'painting'
               ? { label: 'Ceiling painting area' }
               : field.key === 'roofDeckingReplacementSqft'
                 ? { label: 'Roof decking repair' }
@@ -20069,6 +20090,14 @@ function CollapsibleQuickMeasurements({
       paintAreaSqft: basis === 'walls' || basis === 'combined' ? '' : value,
     }));
   };
+
+  const insulationQuickMeasurementsEmpty =
+    insulationAssemblyCardActive &&
+    headerSummary.relevantTotal === 0 &&
+    !notesScopeSelectorVisible &&
+    !ambiguousPaintArea &&
+    measurementConflicts.length === 0;
+  if (insulationQuickMeasurementsEmpty) return null;
 
   return (
     <View
@@ -23613,7 +23642,14 @@ export default function AIEstimateScopeAssumptionsModal({
       /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,30}\b(?:paint(?:ing)?|repaint(?:ing)?|walls?|ceilings?)\b/i.test(
         measurementNotes
       );
-    if (!notesIncludeExplicitPaintArea) {
+    const paintingPlanTakeoff =
+      String(nextMeasurements.planImportTradeKey || '') === 'painting' ||
+      String(draft?.scopeMeasurements?.planImportTradeKey || '') ===
+        'painting' ||
+      (planImport?.estimatingMode === 'selected_trade' &&
+        planImport.selectedTrade === 'painting') ||
+      String(checklist?.templateKey || '').toLowerCase() === 'painting';
+    if (!notesIncludeExplicitPaintArea && !paintingPlanTakeoff) {
       const nextItemQuantities = { ...(nextMeasurements.itemQuantities || {}) };
       delete nextItemQuantities.paint;
       delete nextItemQuantities.interior_paint;
@@ -23802,6 +23838,73 @@ export default function AIEstimateScopeAssumptionsModal({
           planImport?.missingInfo ??
           [],
       };
+      if (hydrateTradeContext.tradeKey === 'painting') {
+        nextMeasurements = restorePaintingPlanSurfaceFields(nextMeasurements);
+        const sourceMeasurements: Record<string, number | string> = {
+          ...(planImport?.measurements || {}),
+        };
+        for (const key of [
+          'wallPaintSqft',
+          'ceilingPaintSqft',
+          'baseboardLf',
+          'interiorDoorCount',
+        ] as const) {
+          const value = nextMeasurements[key];
+          if (Number(String(value ?? '').replace(/,/g, '')) > 0) {
+            sourceMeasurements[key] = value as number | string;
+          }
+        }
+        const hydratedPaint = hydratePaintingPlanMeasurements({
+          measurements: sourceMeasurements,
+          rooms:
+            planImport?.rooms ||
+            draft?.scopeMeasurements?.planRooms ||
+            null,
+          buildingAreas:
+            planImport?.buildingAreas ||
+            draft?.scopeMeasurements?.planFacts?.buildingAreas ||
+            null,
+          planFacts:
+            planImport?.planFacts ||
+            draft?.scopeMeasurements?.planFacts ||
+            null,
+          estimatingMode: 'selected_trade',
+          selectedTrade: 'painting',
+          measurementProvenance:
+            nextMeasurements.measurementProvenance ||
+            planImport?.measurementProvenance ||
+            null,
+        });
+        const fillPaintSurface = (
+          key: 'wallPaintSqft' | 'ceilingPaintSqft'
+        ) => {
+          if (Number(String(nextMeasurements[key] ?? '').replace(/,/g, '')) > 0) {
+            return;
+          }
+          const value = hydratedPaint.measurements?.[key];
+          if (Number(value) > 0) {
+            nextMeasurements = {
+              ...nextMeasurements,
+              [key]: String(value),
+            };
+          }
+        };
+        fillPaintSurface('wallPaintSqft');
+        fillPaintSurface('ceilingPaintSqft');
+        if (
+          nextMeasurements.paintPricingMethod !== 'separate' &&
+          Number(String(nextMeasurements.wallPaintSqft ?? '').replace(/,/g, '')) >
+            0 &&
+          Number(
+            String(nextMeasurements.ceilingPaintSqft ?? '').replace(/,/g, '')
+          ) > 0
+        ) {
+          nextMeasurements = {
+            ...nextMeasurements,
+            paintPricingMethod: 'separate',
+          };
+        }
+      }
     }
     if (
       hydratedPlanTrade === 'insulation' ||
@@ -24276,6 +24379,12 @@ export default function AIEstimateScopeAssumptionsModal({
         'selected_trade',
         hydrateTradeContext.tradeKey
       );
+      if (hydrateTradeContext.tradeKey === 'painting') {
+        normalized = ensurePaintingPlanChecklistItems(
+          normalized,
+          nextMeasurements
+        );
+      }
     }
     const explicitBathroomRemodelNotes =
       /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
@@ -30178,10 +30287,11 @@ export default function AIEstimateScopeAssumptionsModal({
             }
             showExistingWetAreaPanel={!hasSitePhotos && !notesPlumbingFlow}
             hasSitePhotos={hasSitePhotos}
-            singleTradeImport={
-              (singleTradePlanImport || stuccoTradeFlow) &&
-              !notesContainStructuralMixedScope
-            }
+        singleTradeImport={
+          (singleTradePlanImport && singleTradeKey === 'painting') ||
+          ((singleTradePlanImport || stuccoTradeFlow) &&
+            !notesContainStructuralMixedScope)
+        }
             tradeKey={
               notesPlumbingFlow
                 ? 'plumbing'

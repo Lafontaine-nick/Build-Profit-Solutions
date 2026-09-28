@@ -886,11 +886,14 @@ export function planReviewProvenanceFlags(input: {
       source.includes('calculated_from_symbols') ||
       source.includes('elevation') ||
       source.includes('needs_confirmation'));
-  const incomplete =
+  const paintingCoverage =
     paintingKey &&
     typeof input.provenanceEntry === 'object' &&
-    input.provenanceEntry != null &&
-    (input.provenanceEntry as { coverage?: string }).coverage === 'incomplete';
+    input.provenanceEntry != null
+      ? (input.provenanceEntry as { coverage?: string }).coverage
+      : undefined;
+  const incomplete =
+    paintingCoverage === 'incomplete' || paintingCoverage === 'living_area';
   const derivedFromFixtureInventory =
     plumbingKey &&
     typeof input.provenanceEntry === 'object' &&
@@ -1132,12 +1135,12 @@ function paintingQuantityNote(
   const entry = provenance?.[key];
   if (entry == null) return undefined;
   const s = provenanceSourceText(entry);
-  if (
-    (typeof entry === 'object' &&
-      entry != null &&
-      (entry as { coverage?: string }).coverage === 'incomplete') ||
-    s.includes('incomplete')
-  ) {
+  const coverage =
+    typeof entry === 'object' && entry != null
+      ? (entry as { coverage?: string }).coverage
+      : undefined;
+  if (coverage === 'living_area') return 'Living area — confirm';
+  if (coverage === 'incomplete' || s.includes('incomplete')) {
     return 'Partial room geometry — confirm';
   }
   if (
@@ -2476,8 +2479,9 @@ export function confirmedPlanTakeoffLines(input: {
   );
   const measurements = input.measurements || {};
   const wholeProject = input.wholeProject !== false;
-  const electricalPlan =
-    String(measurements.planImportTradeKey || '') === 'electrical';
+  const tradeKey = String(measurements.planImportTradeKey || '');
+  const electricalPlan = tradeKey === 'electrical';
+  const insulationPlan = tradeKey === 'insulation';
   const numeric = new Map<string, number>();
   for (const [key, raw] of Object.entries(measurements)) {
     if (!/^[A-Za-z]/.test(key)) continue;
@@ -2507,6 +2511,12 @@ export function confirmedPlanTakeoffLines(input: {
     }
     const value = Number(raw);
     if (!Number.isFinite(value) || value <= 0) continue;
+    if (
+      insulationPlan &&
+      (key === 'floorAreaSqft' || key === 'garageSqft' || key === 'deckSqft')
+    ) {
+      continue;
+    }
     if (!/(Sqft|Lf|Count|Cy|Tons|Inches)$/i.test(key) && key !== 'serviceAmperage') {
       continue;
     }

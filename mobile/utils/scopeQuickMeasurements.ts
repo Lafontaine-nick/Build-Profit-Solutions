@@ -3811,7 +3811,9 @@ export function quickMeasurementRowsForInput(
   const combinedWallsAndCeilingsPaint =
     paintWallsMentioned && paintCeilingsMentioned && !separatePaintSurfaceAreas;
   const normalizeGenericPaintRows = (rows: QuickMeasurementRow[]) =>
-    rows
+    resolvedKey === 'painting'
+      ? rows
+      : rows
       .map(row =>
         row
           .filter(

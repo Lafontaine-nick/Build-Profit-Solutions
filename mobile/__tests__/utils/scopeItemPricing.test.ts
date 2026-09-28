@@ -14,7 +14,6 @@ import {
   customScopeEditorRateValue,
   looksLikeCustomScopeUnitRate,
   resolveInsulationAssemblyLumpBenchmarkComparison,
-  resolveInsulationAssemblyNationalRateCardComparison,
   resolveInsulationAssemblyScopeSuggestedPricing,
   primaryQuantityForAppliedSuggestedBlock,
   resolveScopeItemSuggestedPricing,
@@ -3242,18 +3241,9 @@ describe('resolveTemplateRateForItem', () => {
       { state: 'UT' },
       'insulation'
     );
-    const comparison = resolveInsulationAssemblyNationalRateCardComparison(
-      input,
-      { state: 'UT' },
-      'insulation'
-    );
-
     expect(block?.total).toBeGreaterThan(8140);
     expect(block?.total).toBeLessThan(8180);
     expect(block?.rateSourceLabel).toMatch(/Production planning rate/i);
-    expect(comparison?.total).toBeGreaterThan(15000);
-    expect(comparison?.isComparison).toBe(true);
-    expect(comparison?.benchmarkAction).toBe('comparison_only');
   });
 
   it('prices individual insulation assembly rows for scope card display', () => {

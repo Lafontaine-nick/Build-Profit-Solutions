@@ -544,6 +544,12 @@ const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
   "cleanup",
 ]);
 
+function isGenericGroundUpCleanupEvidence(text) {
+  return /standard\s+ground-?up\s+scope|standard\s+for\s+ground-?up|ground-?up\s+new\s+construction/i.test(
+    text || "",
+  );
+}
+
 function explicitHvacCleanupScopeDetection(detection) {
   const text = `${detection?.label || ""} ${detection?.evidence || ""}`;
   if (/standard ground-up scope/i.test(text)) return false;
@@ -626,9 +632,11 @@ function filterPlanScopesForTrade(scope, mode, trade) {
       return false;
     }
     if (
-      (tradeKey === "drywall" || tradeKey === "insulation") &&
+      (tradeKey === "drywall" ||
+        tradeKey === "insulation" ||
+        tradeKey === "painting") &&
       itemId === "cleanup" &&
-      /standard\s+ground-?up\s+scope/i.test(
+      isGenericGroundUpCleanupEvidence(
         `${detection.label || ""} ${detection.evidence || ""}`,
       )
     ) {

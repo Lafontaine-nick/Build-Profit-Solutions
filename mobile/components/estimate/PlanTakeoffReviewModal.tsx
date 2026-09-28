@@ -119,6 +119,7 @@ import {
   type PlanEstimatingMode,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
+import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import {
   expectedInsulationGrossWallSqft,
   hasFullInsulationCeilingBoundary,
@@ -511,6 +512,15 @@ export default function PlanTakeoffReviewModal({
   const [conflictChooserKey, setConflictChooserKey] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
+  const paintingHydration = useMemo(() => {
+    if (effectiveTradeKey !== 'painting' || !takeoff) return null;
+    return hydratePaintingPlanMeasurements({
+      ...takeoff,
+      estimatingMode: effectiveMode,
+      selectedTrade: 'painting',
+    });
+  }, [effectiveMode, effectiveTradeKey, takeoff]);
+
   const visibleMeasurements = useMemo(() => {
     const filtered = filterPlanMeasurementsForTrade(
       takeoff?.measurements || {},
@@ -537,6 +547,9 @@ export default function PlanTakeoffReviewModal({
       return filterPlanReviewMeasurementEntries(
         hydrateFramingPlanMeasurementsFromAreas(filtered)
       );
+    }
+    if (effectiveTradeKey === 'painting' && paintingHydration) {
+      return filterPlanReviewMeasurementEntries(paintingHydration.measurements);
     }
     if (effectiveTradeKey === 'insulation') {
       const insulationPlanFacts = mergeInsulationPlanFactsFromTakeoff(
@@ -734,7 +747,7 @@ export default function PlanTakeoffReviewModal({
         electricalPlanDeviceStaysVisible(key, provenance[key])
       )
     );
-  }, [takeoff, effectiveMode, effectiveTradeKey]);
+  }, [takeoff, effectiveMode, effectiveTradeKey, paintingHydration]);
 
   const windowsDoorsOpeningSchedules = useMemo(
     () =>
@@ -923,6 +936,11 @@ export default function PlanTakeoffReviewModal({
                   Number(value) > 0 &&
                   openingDeductionSqft != null
                 ? `Net wall area after ${openingDeductionSqft.toLocaleString()} SF window/door openings`
+                : key === 'ceilingPaintSqft' &&
+                    (paintingHydration?.measurementProvenance?.ceilingPaintSqft as
+                      | { coverage?: string }
+                      | undefined)?.coverage === 'living_area'
+                  ? 'Living area — confirm'
                 : measurementSourceLabel({
                     key,
                     value: Number(value),
@@ -945,6 +963,9 @@ export default function PlanTakeoffReviewModal({
           !(Number(takeoff.measurements?.[key]) > 0) &&
           scheduleDocumented;
         const provenanceEntry =
+          (effectiveTradeKey === 'painting'
+            ? paintingHydration?.measurementProvenance?.[key]
+            : undefined) ??
           takeoff.measurementProvenance?.[key] ??
           plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key) ??
           (scheduleFilledCount
@@ -1180,7 +1201,7 @@ export default function PlanTakeoffReviewModal({
     );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, takeoff, visibleMeasurements, tradeReview]);
+  }, [visible, takeoff, visibleMeasurements, tradeReview, paintingHydration]);
 
   useEffect(() => {
     const showEvent =
@@ -1250,11 +1271,12 @@ export default function PlanTakeoffReviewModal({
     if (effectiveTradeKey !== 'painting') return null;
     return buildPaintingPlanReviewSummary(
       paintingReviewMeasurements,
-      takeoff?.measurementProvenance
+      paintingHydration?.measurementProvenance || takeoff?.measurementProvenance
     );
   }, [
     effectiveTradeKey,
     paintingReviewMeasurements,
+    paintingHydration?.measurementProvenance,
     takeoff?.measurementProvenance,
   ]);
 
@@ -2003,6 +2025,7 @@ export default function PlanTakeoffReviewModal({
       {
         measurementProvenance: {
           ...(takeoff.measurementProvenance || {}),
+          ...(paintingHydration?.measurementProvenance || {}),
           ...retainedConflictProvenance,
           ...retainedLowConfidenceProvenance,
           ...hvacReviewProvenance,

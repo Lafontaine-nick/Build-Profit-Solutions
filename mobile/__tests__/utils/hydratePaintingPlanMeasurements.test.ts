@@ -95,11 +95,100 @@ describe('hydratePaintingPlanMeasurements', () => {
     expect(hydrated.measurements.ceilingPaintSqft).toBe(3660);
     expect(hydrated.measurements.wallPaintSqft).toBe(4918.2);
     expect(hydrated.measurements.baseboardLf).toBe(482.2);
+    expect(hydrated.measurementProvenance?.wallPaintSqft?.coverage).not.toBe(
+      'incomplete'
+    );
+    expect(hydrated.measurementProvenance?.baseboardLf?.coverage).not.toBe(
+      'incomplete'
+    );
+  });
+
+  it('uses the main-floor living area when room ceilings exceed the cover sheet', () => {
+    const hydrated = hydratePaintingPlanMeasurements({
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'painting',
+      measurements: {
+        ceilingPaintSqft: 3583.5,
+        wallPaintSqft: 3734,
+        baseboardLf: 410.3,
+        interiorDoorCount: 17,
+      },
+      buildingAreas: {
+        totalLivingSqft: 2571,
+        mainFloorLivingSqft: 2527,
+        garageSqft: 1427,
+      },
+      planFacts: { wallHeightFt: 9.1, storyCount: 1 },
+      rooms: [
+        { name: 'Great Room', areaSqft: 2000, confidence: 0.9 },
+        { name: 'Bedrooms', areaSqft: 1583.5, confidence: 0.9 },
+      ],
+    });
+    expect(hydrated.measurements.ceilingPaintSqft).toBe(2527);
+    expect(hydrated.measurements.wallPaintSqft).toBe(3734);
+    expect(hydrated.measurements.baseboardLf).toBe(410.3);
+    expect(hydrated.measurements.interiorDoorCount).toBe(17);
+    expect(hydrated.measurementProvenance?.ceilingPaintSqft).toMatchObject({
+      coverage: 'living_area',
+    });
+  });
+
+  it('keeps calculated walls and a living-area ceiling when the review is reopened', () => {
+    const hydrated = hydratePaintingPlanMeasurements({
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'painting',
+      measurements: {
+        ceilingPaintSqft: 2571,
+        wallPaintSqft: 3734,
+        baseboardLf: 410.3,
+        interiorDoorCount: 18,
+      },
+      measurementProvenance: {
+        ceilingPaintSqft: {
+          source: 'measured_from_geometry',
+          coverage: 'complete',
+        },
+        wallPaintSqft: {
+          source: 'measured_from_geometry',
+          coverage: 'incomplete',
+        },
+        baseboardLf: {
+          source: 'measured_from_geometry',
+          coverage: 'incomplete',
+        },
+      },
+      buildingAreas: { totalLivingSqft: 2571, garageSqft: 1427 },
+      rooms: [
+        { name: 'Great Room', lengthFt: 16, widthFt: 14, confidence: 0.9 },
+        { name: 'Kitchen', lengthFt: 12, widthFt: 12, confidence: 0.9 },
+      ],
+    });
+    expect(hydrated.measurements.ceilingPaintSqft).toBe(2571);
+    expect(hydrated.measurements.wallPaintSqft).toBe(3734);
+    expect(hydrated.measurements.baseboardLf).toBe(410.3);
+    expect(hydrated.measurementProvenance?.ceilingPaintSqft).toMatchObject({
+      coverage: 'living_area',
+    });
     expect(hydrated.measurementProvenance?.wallPaintSqft).toMatchObject({
-      coverage: 'incomplete',
+      coverage: 'complete',
     });
     expect(hydrated.measurementProvenance?.baseboardLf).toMatchObject({
-      coverage: 'incomplete',
+      coverage: 'complete',
+    });
+  });
+
+  it('caps a stored ceiling that exceeds living area even when rooms were stripped', () => {
+    const hydrated = hydratePaintingPlanMeasurements({
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'painting',
+      measurements: { ceilingPaintSqft: 3583.5, wallPaintSqft: 3734 },
+      buildingAreas: { mainFloorLivingSqft: 2527, totalLivingSqft: 2571 },
+      rooms: [],
+    });
+    expect(hydrated.measurements.ceilingPaintSqft).toBe(2527);
+    expect(hydrated.measurements.wallPaintSqft).toBe(3734);
+    expect(hydrated.measurementProvenance?.ceilingPaintSqft).toMatchObject({
+      coverage: 'living_area',
     });
   });
 

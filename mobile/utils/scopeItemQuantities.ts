@@ -751,6 +751,7 @@ export type NormalizedScopeMeasurements = {
   insulationAssemblies:
     import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
   planFacts?: ScopeMeasurements['planFacts'];
+  planImportTradeKey?: ScopeMeasurements['planImportTradeKey'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
   baseboardLf: number | null;
@@ -7558,6 +7559,7 @@ export function normalizeScopeMeasurements(
     ),
     measurementProvenance: measurements?.measurementProvenance,
     measurementConflicts: measurements?.measurementConflicts,
+    planImportTradeKey: measurements?.planImportTradeKey,
     itemQuantities,
   };
 }
@@ -10908,7 +10910,13 @@ function explicitItemQuantityOverride(
   const includesCountertops =
     Boolean(override.includesCountertops) ||
     (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
-  const baseLabel = sourceLabel(override.quantitySource || 'user_entered');
+  const planPaintSurface =
+    String(measurements.planImportTradeKey || '') === 'painting' &&
+    (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
+    (override.quantitySource === 'user_entered' || !override.quantitySource);
+  const baseLabel = sourceLabel(
+    planPaintSurface ? 'plan_vision' : override.quantitySource || 'user_entered'
+  );
   const combinedCabinetsCounters = itemId === 'cabinets' && includesCountertops;
   const materialEntry = usesAllowanceSplitEditor(rule)
     ? parseStoredItemQuantity(
@@ -10924,7 +10932,9 @@ function explicitItemQuantityOverride(
     : null;
   const splitTotal =
     (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
-  const quantitySource = override.quantitySource || 'user_entered';
+  const quantitySource = planPaintSurface
+    ? 'plan_vision'
+    : override.quantitySource || 'user_entered';
   if (usesAllowanceSplitEditor(rule)) {
     const appliedTotal = allowanceSplitAppliedTotal(
       measurements.itemQuantities,
@@ -15413,44 +15423,6 @@ export function resolveInsulationAssemblyScopeSuggestedPricing(
 }
 
 /** National rate-card assembly total for the same rows — comparison only. */
-export function resolveInsulationAssemblyNationalRateCardComparison(
-  measurementsInput: ScopeMeasurementsInputExtended,
-  pricingContext?: ScopePricingContext | null,
-  templateKey?: string | null
-): SuggestedPricingBlock | null {
-  const livingSf = parseScopeMeasurementInput(
-    String(measurementsInput.floorAreaSqft ?? '')
-  );
-  const primaryTier = resolveInsulationAssemblyPlanningRateTier(
-    templateKey,
-    livingSf
-  );
-  if (primaryTier === 'national') return null;
-
-  const nationalPricing = resolveInsulationAssemblyScopeSuggestedPricing(
-    measurementsInput,
-    pricingContext,
-    templateKey,
-    'national'
-  );
-  if (!nationalPricing) return null;
-
-  return {
-    ...nationalPricing,
-    materialSource: 'national_average',
-    laborSource: 'national_average',
-    rateSourceLabel:
-      'Reference only · national rate-card insulation assemblies',
-    helper:
-      'National planning ceiling for the same assemblies. The production or calibrated assembly total above is the suggested bid price.',
-    isComparison: true,
-    benchmarkAction: 'comparison_only',
-    productionStatus: 'review_required',
-    benchmarkLevel: 'component',
-    benchmarkScopeKey: 'insulation',
-  };
-}
-
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -15648,15 +15620,9 @@ export function resolveScopeItemSuggestedPricing(
         'insulation'
       );
       if (assemblyFill) {
-        const assemblyComparison =
-          resolveInsulationAssemblyNationalRateCardComparison(
-            assemblyPricingInput,
-            pricingContext,
-            'insulation'
-          );
         return {
           fill: assemblyFill,
-          comparison: assemblyComparison,
+          comparison: null,
         };
       }
     }
@@ -16387,6 +16353,15 @@ export function resolveScopeItemSuggestedPricing(
       },
       comparison: null,
     };
+  }
+
+  if (
+    itemId === 'prep' &&
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    String(measurementsInput.planImportTradeKey || '') === 'painting'
+  ) {
+    // Plan takeoff leaves job condition, application method, and prep open.
+    return empty;
   }
 
   if (
@@ -24753,22 +24728,30 @@ function syncPaintingCombinedQuantitiesIntoItemQuantities(
     const ceilingQuantity =
       parseScopeMeasurementInput(extended.ceilingPaintSqft) || 0;
     const splitTotal = wallQuantity + ceilingQuantity;
+    const planImport =
+      String(extended.planImportTradeKey || '') === 'painting';
+    const quantitySource = planImport ? 'plan_vision' : 'user_entered';
     const nextItemQuantities = { ...extended.itemQuantities };
     if (wallQuantity > 0) {
       nextItemQuantities.interior_paint = {
         quantity: String(wallQuantity),
         unit: 'sqft',
-        quantitySource: 'user_entered',
+        quantitySource,
       };
     }
     if (ceilingQuantity > 0) {
       nextItemQuantities.ceiling_paint = {
         quantity: String(ceilingQuantity),
         unit: 'sqft',
-        quantitySource: 'user_entered',
+        quantitySource,
       };
     }
-    if (splitTotal > 0) {
+    if (planImport) {
+      const prepQuantity = Number(nextItemQuantities.prep?.quantity);
+      if (prepQuantity > 0 && Math.abs(prepQuantity - splitTotal) < 0.5) {
+        delete nextItemQuantities.prep;
+      }
+    } else if (splitTotal > 0) {
       nextItemQuantities.prep = {
         ...(nextItemQuantities.prep || {}),
         quantity: String(splitTotal),

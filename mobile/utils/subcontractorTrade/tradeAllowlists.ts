@@ -120,10 +120,6 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'exterior_prep',
     'exterior_paint',
     'exterior_trim_paint',
-    'baseboard_install',
-    'interior_door_install',
-    'door_casing_install',
-    'window_install',
     'cleanup',
   ],
   windows_doors: [

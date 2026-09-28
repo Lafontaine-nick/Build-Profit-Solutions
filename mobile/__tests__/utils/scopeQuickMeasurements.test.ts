@@ -301,6 +301,26 @@ describe('scopeQuickMeasurements', () => {
     );
   });
 
+  it('keeps separate wall and ceiling fields on a painting plan import', () => {
+    const notes =
+      'Architectural set includes framing, doors, and interior paint for a new single-story house.';
+    const fields = quickMeasurementRowsForInput(
+      'painting',
+      'painting',
+      { wallPaintSqft: '3734', ceilingPaintSqft: '2571' },
+      [],
+      { scopeNotes: notes }
+    ).flat();
+
+    expect(fields.find(field => field.key === 'wallPaintSqft')?.label).toBe(
+      'Walls'
+    );
+    expect(fields.find(field => field.key === 'ceilingPaintSqft')?.label).toBe(
+      'Ceilings'
+    );
+    expect(fields.some(field => field.key === 'paintAreaSqft')).toBe(true);
+  });
+
   it('keeps paint visible for confirmation when notes provide no paint area', () => {
     const notes =
       'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';

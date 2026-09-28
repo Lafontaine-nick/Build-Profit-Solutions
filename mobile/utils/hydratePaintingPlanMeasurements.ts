@@ -39,19 +39,64 @@ function roundTenth(n: number): number {
 }
 
 const ROOM_CEILING_COVERAGE_MIN = 0.7;
+/** Room areas more than 10% above the cover sheet are overlapping, not a larger ceiling. */
+const PAINTING_CEILING_OVER_LIVING_MAX = 1.1;
 
 function pickPaintingCeilingSqft(
   roomCeilingSqft: number | null,
   livingCeilingSqft: number | null
-): { value: number | null; usedRooms: boolean; incompleteRooms: boolean; roomSqft: number | null } {
+): {
+  value: number | null;
+  usedRooms: boolean;
+  incompleteRooms: boolean;
+  ceilingUsesLivingArea: boolean;
+  roomSqft: number | null;
+} {
   const room = positive(roomCeilingSqft);
   const living = positive(livingCeilingSqft);
-  if (living && room && room < living * ROOM_CEILING_COVERAGE_MIN) {
-    return { value: living, usedRooms: false, incompleteRooms: true, roomSqft: room };
+  if (living && room && room > living * PAINTING_CEILING_OVER_LIVING_MAX) {
+    return {
+      value: living,
+      usedRooms: false,
+      incompleteRooms: false,
+      ceilingUsesLivingArea: true,
+      roomSqft: room,
+    };
   }
-  if (room) return { value: room, usedRooms: true, incompleteRooms: false, roomSqft: room };
-  if (living) return { value: living, usedRooms: false, incompleteRooms: false, roomSqft: room };
-  return { value: null, usedRooms: false, incompleteRooms: false, roomSqft: room };
+  if (living && room && room < living * ROOM_CEILING_COVERAGE_MIN) {
+    return {
+      value: living,
+      usedRooms: false,
+      incompleteRooms: true,
+      ceilingUsesLivingArea: false,
+      roomSqft: room,
+    };
+  }
+  if (room) {
+    return {
+      value: room,
+      usedRooms: true,
+      incompleteRooms: false,
+      ceilingUsesLivingArea: false,
+      roomSqft: room,
+    };
+  }
+  if (living) {
+    return {
+      value: living,
+      usedRooms: false,
+      incompleteRooms: false,
+      ceilingUsesLivingArea: false,
+      roomSqft: room,
+    };
+  }
+  return {
+    value: null,
+    usedRooms: false,
+    incompleteRooms: false,
+    ceilingUsesLivingArea: false,
+    roomSqft: room,
+  };
 }
 
 function isPaintableInteriorRoom(name: string | null | undefined): boolean {
@@ -204,26 +249,36 @@ function conditionedLivingCeilingSqft(
   );
 }
 
+function paintingCoverage(
+  input: PaintingHydrationInput,
+  key: string
+): string | undefined {
+  const entry = input.measurementProvenance?.[key];
+  if (!entry || typeof entry !== 'object') return undefined;
+  return (entry as { coverage?: string }).coverage;
+}
+
 function markDerived(
   input: PaintingHydrationInput,
   key: string,
   value: number,
   assumption: string,
-  extra?: { coverage?: 'complete' | 'incomplete' }
+  extra?: { coverage?: 'complete' | 'incomplete' | 'living_area' }
 ) {
   const measurements = { ...(input.measurements || {}) };
   measurements[key] = value;
+  const needsReview =
+    extra?.coverage === 'incomplete' || extra?.coverage === 'living_area';
   const fieldConfidence = { ...(input.fieldConfidence || {}) };
   fieldConfidence[key] = Math.max(
     Number(fieldConfidence[key] || 0),
-    extra?.coverage === 'incomplete' ? 0.55 : 0.75
+    needsReview ? 0.55 : 0.75
   );
   const measurementProvenance = { ...(input.measurementProvenance || {}) };
   measurementProvenance[key] = {
     value,
     source: 'measured_from_geometry',
-    normalizedSource:
-      extra?.coverage === 'incomplete' ? 'NEEDS_REVIEW' : 'FROM_PLAN',
+    normalizedSource: needsReview ? 'NEEDS_REVIEW' : 'FROM_PLAN',
     ...(extra?.coverage ? { coverage: extra.coverage } : {}),
   };
   const assumptions = [...(input.assumptions || [])];
@@ -319,80 +374,123 @@ export function hydratePaintingPlanMeasurements<T extends PaintingHydrationInput
   const picked = pickPaintingCeilingSqft(roomCeiling, livingCeiling);
   const geometryIncomplete = Boolean(picked.incompleteRooms);
   const existingCeiling = positive(next.measurements?.ceilingPaintSqft);
+  const ceilingExceedsLiving =
+    livingCeiling != null &&
+    existingCeiling != null &&
+    existingCeiling > livingCeiling * PAINTING_CEILING_OVER_LIVING_MAX;
+  const ceilingUsesLivingArea =
+    picked.ceilingUsesLivingArea || ceilingExceedsLiving;
   const shouldReplaceCeiling =
     picked.value != null &&
     (!(existingCeiling > 0) ||
+      ceilingExceedsLiving ||
       (geometryIncomplete &&
         livingCeiling != null &&
-        (existingCeiling as number) < livingCeiling * ROOM_CEILING_COVERAGE_MIN));
+        (existingCeiling as number) <
+          livingCeiling * ROOM_CEILING_COVERAGE_MIN));
 
+  const ceilingAlreadyLiving =
+    picked.value != null &&
+    existingCeiling != null &&
+    Math.abs(existingCeiling - picked.value) <=
+      Math.max(1, picked.value * 0.02);
   if (shouldReplaceCeiling && picked.value) {
     const rounded = roundTenth(picked.value);
+    const roomSqftLabel = picked.roomSqft?.toLocaleString();
     next = markDerived(
       next,
       'ceilingPaintSqft',
       rounded,
-      picked.incompleteRooms
-        ? `Ceiling paint ${rounded.toLocaleString()} SF calculated from labeled conditioned living area because detected rooms (${picked.roomSqft?.toLocaleString()} SF) do not cover living area.`
-        : picked.usedRooms
-          ? `Ceiling paint ${rounded.toLocaleString()} SF calculated from ${withArea.length} dimensioned interior rooms.`
-          : `Ceiling paint ${rounded.toLocaleString()} SF calculated from labeled conditioned living area (garage and covered patio excluded).`,
+      ceilingUsesLivingArea
+        ? `Ceiling paint ${rounded.toLocaleString()} SF uses the labeled living area${
+            roomSqftLabel
+              ? ` because detected rooms (${roomSqftLabel} SF) exceed the cover sheet`
+              : ' because the stored room-area ceiling exceeds the cover sheet'
+          }.`
+        : picked.incompleteRooms
+          ? `Ceiling paint ${rounded.toLocaleString()} SF calculated from labeled conditioned living area because detected rooms (${roomSqftLabel} SF) do not cover living area.`
+          : picked.usedRooms
+            ? `Ceiling paint ${rounded.toLocaleString()} SF calculated from ${withArea.length} dimensioned interior rooms.`
+            : `Ceiling paint ${rounded.toLocaleString()} SF calculated from labeled conditioned living area (garage and covered patio excluded).`,
+      { coverage: ceilingUsesLivingArea ? 'living_area' : 'complete' }
+    );
+  } else if (
+    ceilingAlreadyLiving &&
+    (ceilingUsesLivingArea || geometryIncomplete)
+  ) {
+    next = markDerived(
+      next,
+      'ceilingPaintSqft',
+      roundTenth(existingCeiling as number),
+      `Ceiling paint ${roundTenth(existingCeiling as number).toLocaleString()} SF uses the labeled living area.`,
+      { coverage: 'living_area' }
+    );
+  }
+
+  const computedWallSqft =
+    wallHeightFt && dimensioned.length >= MIN_ROOMS
+      ? roundTenth(
+          dimensioned.reduce(
+            (sum, entry) => sum + (entry.perimeterLf || 0) * wallHeightFt,
+            0
+          )
+        )
+      : null;
+  const existingWall = positive(next.measurements?.wallPaintSqft);
+  if (!(existingWall > 0) && computedWallSqft != null && computedWallSqft > 0) {
+    next = markDerived(
+      next,
+      'wallPaintSqft',
+      computedWallSqft,
+      geometryIncomplete
+        ? `Interior wall paint ${computedWallSqft.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height. Partial room geometry versus labeled living area — confirm remaining walls.`
+        : `Interior wall paint ${computedWallSqft.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height.`,
+      { coverage: geometryIncomplete ? 'incomplete' : 'complete' }
+    );
+  } else if (
+    existingWall != null &&
+    paintingCoverage(next, 'wallPaintSqft') === 'incomplete'
+  ) {
+    next = markDerived(
+      next,
+      'wallPaintSqft',
+      existingWall,
+      `Interior wall paint ${roundTenth(existingWall).toLocaleString()} SF calculated from dimensioned room perimeters.`,
       { coverage: 'complete' }
     );
   }
 
-  if (
-    !(positive(next.measurements?.wallPaintSqft) > 0) &&
-    wallHeightFt &&
+  const computedBaseboardLf =
     dimensioned.length >= MIN_ROOMS
-  ) {
-    const wallSqft = dimensioned.reduce(
-      (sum, entry) => sum + (entry.perimeterLf || 0) * wallHeightFt,
-      0
-    );
-    next = markDerived(
-      next,
-      'wallPaintSqft',
-      roundTenth(wallSqft),
-      geometryIncomplete
-        ? `Interior wall paint ${roundTenth(wallSqft).toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height. Partial room geometry versus labeled living area — confirm remaining walls.`
-        : `Interior wall paint ${roundTenth(wallSqft).toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height.`,
-      { coverage: geometryIncomplete ? 'incomplete' : 'complete' }
-    );
-  } else if (geometryIncomplete && positive(next.measurements?.wallPaintSqft) > 0) {
-    next = markDerived(
-      next,
-      'wallPaintSqft',
-      Number(next.measurements?.wallPaintSqft),
-      `Interior wall paint is from partial room geometry versus labeled living area — confirm remaining walls.`,
-      { coverage: 'incomplete' }
-    );
-  }
-
+      ? roundTenth(
+          dimensioned.reduce((sum, entry) => sum + (entry.perimeterLf || 0), 0)
+        )
+      : null;
+  const existingBaseboard = positive(next.measurements?.baseboardLf);
   if (
-    !(positive(next.measurements?.baseboardLf) > 0) &&
-    dimensioned.length >= MIN_ROOMS
+    !(existingBaseboard > 0) &&
+    computedBaseboardLf != null &&
+    computedBaseboardLf > 0
   ) {
-    const lf = dimensioned.reduce(
-      (sum, entry) => sum + (entry.perimeterLf || 0),
-      0
-    );
     next = markDerived(
       next,
       'baseboardLf',
-      roundTenth(lf),
+      computedBaseboardLf,
       geometryIncomplete
-        ? `Baseboard / trim ${roundTenth(lf).toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters. Partial room geometry — confirm remaining trim.`
-        : `Baseboard / trim ${roundTenth(lf).toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters.`,
+        ? `Baseboard / trim ${computedBaseboardLf.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters. Partial room geometry — confirm remaining trim.`
+        : `Baseboard / trim ${computedBaseboardLf.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters.`,
       { coverage: geometryIncomplete ? 'incomplete' : 'complete' }
     );
-  } else if (geometryIncomplete && positive(next.measurements?.baseboardLf) > 0) {
+  } else if (
+    existingBaseboard != null &&
+    paintingCoverage(next, 'baseboardLf') === 'incomplete'
+  ) {
     next = markDerived(
       next,
       'baseboardLf',
-      Number(next.measurements?.baseboardLf),
-      `Baseboard / trim is from partial room geometry versus labeled living area — confirm remaining trim.`,
-      { coverage: 'incomplete' }
+      existingBaseboard,
+      `Baseboard / trim ${roundTenth(existingBaseboard).toLocaleString()} LF calculated from dimensioned room perimeters.`,
+      { coverage: 'complete' }
     );
   }
 

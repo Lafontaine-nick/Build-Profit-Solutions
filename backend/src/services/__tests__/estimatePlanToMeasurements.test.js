@@ -1483,6 +1483,34 @@ describe("estimatePlanToMeasurements", () => {
     );
   });
 
+  test("Lot 49 room ceilings that exceed the cover sheet use main-floor living area", () => {
+    const derived = derivePaintingGeometryMeasurements(
+      {
+        ceilingPaintSqft: 3583.5,
+        wallPaintSqft: 3734,
+        baseboardLf: 410.3,
+        interiorDoorCount: 17,
+      },
+      sanitizeRooms([
+        { name: "Great Room", areaSqft: 2000, confidence: 0.9 },
+        { name: "Bedrooms", areaSqft: 1583.5, confidence: 0.9 },
+      ]),
+      { wallHeightFt: 9.1, storyCount: 1 },
+      {
+        buildingAreas: {
+          totalLivingSqft: 2571,
+          mainFloorLivingSqft: 2527,
+          garageSqft: 1427,
+        },
+      },
+    );
+    expect(derived.measurements.ceilingPaintSqft).toBe(2527);
+    expect(derived.measurements.wallPaintSqft).toBe(3734);
+    expect(derived.measurements.baseboardLf).toBe(410.3);
+    expect(derived.measurements.interiorDoorCount).toBe(17);
+    expect(derived.assumptions.join(" ")).toMatch(/exceed the cover sheet/i);
+  });
+
   test("derivePaintingGeometryMeasurements keeps labeled paint totals and skips unlabeled cabinets", () => {
     const derived = derivePaintingGeometryMeasurements(
       { wallPaintSqft: 5000, ceilingPaintSqft: 2000 },
@@ -1629,6 +1657,40 @@ describe("estimatePlanToMeasurements", () => {
       "cleanup",
     ]);
     expect(filtered.detections[1].label).toBe("HVAC cleanup");
+  });
+
+  test("painting plan scope keeps interior paint and drops generic ground-up cleanup", () => {
+    const filtered = filterPlanScopesForTrade(
+      {
+        detections: [
+          {
+            itemId: "interior_paint",
+            state: "included",
+            label: "Interior paint",
+            evidence: "Standard interior finish for the complete new residence.",
+          },
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "Cleanup & disposal",
+            evidence:
+              "Standard final cleanup for a complete ground-up new construction package.",
+          },
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "Paint cleanup",
+            evidence: "Bag and haul masking and paint waste for this scope",
+          },
+        ],
+      },
+      "selected_trade",
+      TRADE_CONFIGS.painting,
+    );
+    expect(filtered.detections.map((row) => row.label)).toEqual([
+      "Interior paint",
+      "Paint cleanup",
+    ]);
   });
 
   test("concrete plan export confirms cover patio and drops excavation without cubic yards", () => {

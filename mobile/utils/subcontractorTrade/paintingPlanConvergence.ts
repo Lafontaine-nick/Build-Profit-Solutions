@@ -516,3 +516,91 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
     itemQuantities: nextItemQuantities,
   };
 }
+
+const PAINTING_INSTALL_SCOPE_IDS = new Set([
+  'baseboard_install',
+  'interior_door_install',
+  'door_casing_install',
+  'window_install',
+]);
+
+/**
+ * Painting plan bids price paint, not hanging doors or installing trim.
+ * Keep wall and ceiling paint as their own lines when the takeoff has them.
+ */
+export function ensurePaintingPlanChecklistItems<T extends { id: string }>(
+  items: T[],
+  measurements?: {
+    wallPaintSqft?: string | number | null;
+    ceilingPaintSqft?: string | number | null;
+  } | null
+): T[] {
+  const kept = items.filter(item => !PAINTING_INSTALL_SCOPE_IDS.has(item.id));
+  const has = (id: string) => kept.some(item => item.id === id);
+  const extras: T[] = [];
+  if (
+    positiveNumber(measurements?.wallPaintSqft) != null &&
+    !has('interior_paint')
+  ) {
+    extras.push({
+      id: 'interior_paint',
+      inputType: 'yes_no',
+      label: 'Interior wall paint',
+      helperText: 'Paint the interior wall area from the plan takeoff.',
+      category: 'paint',
+      state: 'included',
+    } as unknown as T);
+  }
+  if (
+    positiveNumber(measurements?.ceilingPaintSqft) != null &&
+    !has('ceiling_paint')
+  ) {
+    extras.push({
+      id: 'ceiling_paint',
+      inputType: 'yes_no',
+      label: 'Ceiling paint',
+      helperText: 'Paint the ceiling area from the plan takeoff.',
+      category: 'paint',
+      state: 'included',
+    } as unknown as T);
+  }
+  return extras.length ? [...kept, ...extras] : kept;
+}
+
+/** Put plan wall and ceiling areas back on the measurement card. */
+export function restorePaintingPlanSurfaceFields<
+  T extends {
+    wallPaintSqft?: string | number | null;
+    ceilingPaintSqft?: string | number | null;
+    planImportTradeKey?: string | null;
+    itemQuantities?: Record<
+      string,
+      { quantity?: string | number | null }
+    > | null;
+  },
+>(measurements: T): T {
+  if (String(measurements.planImportTradeKey || '') !== 'painting') {
+    return measurements;
+  }
+  const ceiling =
+    positiveNumber(measurements.ceilingPaintSqft) ??
+    positiveNumber(measurements.itemQuantities?.ceiling_paint?.quantity);
+  const wall =
+    positiveNumber(measurements.wallPaintSqft) ??
+    positiveNumber(measurements.itemQuantities?.interior_paint?.quantity);
+  const prep = positiveNumber(measurements.itemQuantities?.prep?.quantity);
+  const restoredWall =
+    wall ??
+    (ceiling != null && prep != null && prep > ceiling
+      ? Math.round((prep - ceiling) * 10) / 10
+      : null);
+  if (restoredWall == null && ceiling == null) return measurements;
+  const next = { ...measurements };
+  if (positiveNumber(measurements.wallPaintSqft) == null && restoredWall != null) {
+    next.wallPaintSqft = String(restoredWall);
+  }
+  if (positiveNumber(measurements.ceilingPaintSqft) == null && ceiling != null) {
+    next.ceilingPaintSqft = String(ceiling);
+  }
+  return next;
+}

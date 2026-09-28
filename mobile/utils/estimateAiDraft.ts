@@ -69,7 +69,10 @@ import {
   hydratePlumbingPlanMeasurementsFromInventory,
   reconcilePlumbingEquipmentScopeMeasurements,
 } from '@/utils/planTakeoffReviewUi';
-import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import {
+  confirmedPaintingMeasurementTextLines,
+  ensurePaintingPlanChecklistItems,
+} from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import { applyHydratedInsulationScopeMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import type {
   ElectricalPanelLocation,
@@ -4877,7 +4880,12 @@ export function applyPlanImportToDraft(
             ? standaloneHvacChecklistItems()
             : planImportTradeKey === 'stucco'
               ? buildStuccoTradeChecklistItems(tradeChecklistItems)
-              : tradeChecklistItems;
+              : planImportTradeKey === 'painting'
+                ? ensurePaintingPlanChecklistItems(
+                    tradeChecklistItems,
+                    scopeMeasurements
+                  )
+                : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,

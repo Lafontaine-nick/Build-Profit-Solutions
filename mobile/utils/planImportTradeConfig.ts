@@ -199,6 +199,13 @@ const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
   'cleanup',
 ]);
 
+/** Generic new-build cleanup is not a trade quantity. An explicit trade cleanup line stays. */
+export function isGenericGroundUpCleanupEvidence(text: string): boolean {
+  return /standard\s+ground-?up\s+scope|standard\s+for\s+ground-?up|ground-?up\s+new\s+construction/i.test(
+    text || ''
+  );
+}
+
 /** Generic ground-up cleanup is not an HVAC quantity. Only an explicit HVAC cleanup line stays. */
 export function explicitHvacCleanupScopeDetection(detection: {
   label?: string | null;
@@ -252,9 +259,11 @@ export function filterPlanScopesForTrade<
       return false;
     }
     if (
-      (tradeKey === 'drywall' || tradeKey === 'insulation') &&
+      (tradeKey === 'drywall' ||
+        tradeKey === 'insulation' ||
+        tradeKey === 'painting') &&
       itemId === 'cleanup' &&
-      /standard\s+ground-?up\s+scope/i.test(
+      isGenericGroundUpCleanupEvidence(
         `${detection.label || ''} ${detection.evidence || ''}`
       )
     ) {
@@ -292,8 +301,17 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
       : tradeKey === 'framing'
         ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
         : getTradeScopeAllowlist(tradeKey);
+  const paintingInstallIds = new Set([
+    'baseboard_install',
+    'interior_door_install',
+    'door_casing_install',
+    'window_install',
+  ]);
   const filtered = allowed
     ? items.filter(item => {
+        if (tradeKey === 'painting' && paintingInstallIds.has(item.id)) {
+          return false;
+        }
         if (allowed.includes(item.id)) return true;
         if (String(item.id || '').startsWith('custom_')) return true;
         // Plan notes mention drainage, permits, and MEP words. Those are not

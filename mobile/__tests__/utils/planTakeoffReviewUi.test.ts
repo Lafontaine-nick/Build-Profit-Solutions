@@ -180,6 +180,22 @@ describe('plan takeoff review UI polish', () => {
     expect(
       confirmedPlanTakeoffLines({
         measurements: {
+          planImportTradeKey: 'insulation',
+          floorAreaSqft: 2571,
+          garageSqft: 1427,
+          deckSqft: 322,
+          atticInsulationSqft: 2527,
+          exteriorWallInsulationSqft: 1555.1,
+        },
+        wholeProject: false,
+      })
+    ).toEqual([
+      'Attic / ceiling insulation · 2,527 SF',
+      'Exterior wall insulation · 1,555.1 SF',
+    ]);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
           floorAreaSqft: 2571,
           windowCount: 31,
           interiorDoorCount: 18,
@@ -1101,6 +1117,46 @@ describe('plan takeoff review UI polish', () => {
         },
       ])
     );
+  });
+
+  it('labels a living-area ceiling fallback as a confirmation, not detected geometry', () => {
+    expect(
+      buildPaintingPlanReviewSummary(
+        { ceilingPaintSqft: 2527, wallPaintSqft: 3734 },
+        {
+          ceilingPaintSqft: {
+            source: 'measured_from_geometry',
+            coverage: 'living_area',
+          },
+          wallPaintSqft: { source: 'measured_from_geometry' },
+        }
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          label: 'Ceilings',
+          value: '2,527 sqft',
+          note: 'Living area — confirm',
+        },
+        {
+          label: 'Walls',
+          value: '3,734 sqft',
+          note: 'Calculated from plan geometry',
+        },
+      ])
+    );
+    expect(
+      planReviewProvenanceFlags({
+        key: 'ceilingPaintSqft',
+        provenanceEntry: {
+          source: 'measured_from_geometry',
+          coverage: 'living_area',
+        },
+      })
+    ).toMatchObject({
+      hasReliableDimensions: false,
+      roomDependent: true,
+    });
   });
 
   it('does not promote unresolved Electrical conflicts into Detected quantities', () => {

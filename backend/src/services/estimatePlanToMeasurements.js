@@ -711,15 +711,27 @@ function roundTenth(n) {
 
 /** Use labeled living SF when detected rooms cover less than 70% of it. */
 const ROOM_CEILING_COVERAGE_MIN = 0.7;
+/** Room areas more than 10% above the cover sheet are overlapping, not a larger ceiling. */
+const PAINTING_CEILING_OVER_LIVING_MAX = 1.1;
 
 function pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft) {
   const room = positive(roomCeilingSqft);
   const living = positive(livingCeilingSqft);
+  if (living && room && room > living * PAINTING_CEILING_OVER_LIVING_MAX) {
+    return {
+      value: living,
+      usedRooms: false,
+      incompleteRooms: false,
+      ceilingUsesLivingArea: true,
+      roomSqft: room,
+    };
+  }
   if (living && room && room < living * ROOM_CEILING_COVERAGE_MIN) {
     return {
       value: living,
       usedRooms: false,
       incompleteRooms: true,
+      ceilingUsesLivingArea: false,
       roomSqft: room,
     };
   }
@@ -728,6 +740,7 @@ function pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft) {
       value: room,
       usedRooms: true,
       incompleteRooms: false,
+      ceilingUsesLivingArea: false,
       roomSqft: room,
     };
   if (living)
@@ -735,6 +748,7 @@ function pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft) {
       value: living,
       usedRooms: false,
       incompleteRooms: false,
+      ceilingUsesLivingArea: false,
       roomSqft: room,
     };
   return {
@@ -895,9 +909,16 @@ function derivePaintingGeometryMeasurements(
   }
 
   const existingCeiling = positive(next.ceilingPaintSqft);
+  const ceilingExceedsLiving =
+    livingCeilingSqft != null &&
+    existingCeiling != null &&
+    existingCeiling > livingCeilingSqft * PAINTING_CEILING_OVER_LIVING_MAX;
+  const ceilingUsesLivingArea =
+    Boolean(pickedCeiling.ceilingUsesLivingArea) || ceilingExceedsLiving;
   const shouldReplaceCeiling =
     pickedCeiling.value != null &&
     (!(existingCeiling > 0) ||
+      ceilingExceedsLiving ||
       (geometryIncomplete &&
         livingCeilingSqft != null &&
         existingCeiling < livingCeilingSqft * ROOM_CEILING_COVERAGE_MIN));
@@ -906,11 +927,17 @@ function derivePaintingGeometryMeasurements(
     next.ceilingPaintSqft = rounded;
     if (!derivedKeys.includes("ceilingPaintSqft"))
       derivedKeys.push("ceilingPaintSqft");
-    const ceilingSource = pickedCeiling.incompleteRooms
-      ? `labeled conditioned living area (detected rooms ${pickedCeiling.roomSqft.toLocaleString()} SF were incomplete; garage and covered patio excluded)`
-      : pickedCeiling.usedRooms
-        ? `${withArea.length} dimensioned interior rooms`
-        : "labeled conditioned living area (garage and covered patio excluded)";
+    const ceilingSource = ceilingUsesLivingArea
+      ? `labeled living area (detected rooms ${
+          pickedCeiling.roomSqft != null
+            ? `${pickedCeiling.roomSqft.toLocaleString()} SF`
+            : "the stored ceiling"
+        } exceed the cover sheet; garage and covered patio excluded)`
+      : pickedCeiling.incompleteRooms
+        ? `labeled conditioned living area (detected rooms ${pickedCeiling.roomSqft.toLocaleString()} SF were incomplete; garage and covered patio excluded)`
+        : pickedCeiling.usedRooms
+          ? `${withArea.length} dimensioned interior rooms`
+          : "labeled conditioned living area (garage and covered patio excluded)";
     assumptions.push(
       `Ceiling paint ${rounded.toLocaleString()} SF calculated from ${ceilingSource}.`,
     );
