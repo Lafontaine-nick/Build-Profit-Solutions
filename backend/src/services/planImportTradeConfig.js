@@ -626,6 +626,15 @@ function filterPlanScopesForTrade(scope, mode, trade) {
       return false;
     }
     if (
+      tradeKey === "drywall" &&
+      itemId === "cleanup" &&
+      /standard\s+ground-?up\s+scope/i.test(
+        `${detection.label || ""} ${detection.evidence || ""}`,
+      )
+    ) {
+      return false;
+    }
+    if (
       tradeKey === "concrete" &&
       itemId === "excavation" &&
       !explicitConcreteExcavationScopeDetection(detection)

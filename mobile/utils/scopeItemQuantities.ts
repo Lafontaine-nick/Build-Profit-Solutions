@@ -243,7 +243,6 @@ import {
 } from '@/utils/quickMeasurementEstimates';
 import {
   copyDrywallQuantityFields,
-  DRYWALL_INSTALLED_MATERIAL_SHARE,
   drywallPackageSurfacePlanningQuantity,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
@@ -260,6 +259,7 @@ import {
   drywallFinishLaborBucketLabel,
   resolveDrywallPackageMaterialMultiplier,
   resolveDrywallPackageLaborMultiplier,
+  drywallGypsumBarometerPackageDollars,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   insulationEnvelopeInputsFromPlanFacts,
@@ -20417,81 +20417,33 @@ export function resolveScopeItemSuggestedPricing(
     calculatedLabor += round2(thickenedEdgeCy * edgeRate.labor);
     calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
   }
+  let pricedMaterialSource = materialRateSource;
+  let pricedLaborSource = laborRateSource;
+  let drywallBarometerLabel: string | null = null;
   if (
     itemId === 'drywall' &&
     completeDrywallPackage &&
     unit === 'sqft' &&
-    calculatedFlatworkTotal > 0
+    calculatedFlatworkTotal > 0 &&
+    !['user_entered', 'manual_override'].includes(
+      String(resolved.quantitySource)
+    )
   ) {
-    const livingSf = parseScopeMeasurementInput(
-      measurementsInput.floorAreaSqft
-    );
-    const drywallBaseline = resolveDrywallProductionAssemblyBaseline({
-      livingSf,
-      packageSurfaceSqft: count,
-    });
-    if (
-      drywallBaseline.barometerTotal != null &&
-      drywallBaseline.barometerTotal > 0 &&
-      !isProtectedDrywallQuantity(
-        measurementsInput as unknown as Record<string, unknown>
-      ) &&
-      !['user_entered', 'manual_override'].includes(
-        String(resolved.quantitySource)
-      )
-    ) {
-      const expectedPackage = drywallPackageSurfacePlanningQuantity(
-        livingSf,
-        parseScopeMeasurementInput(
-          String(measurementsInput.garageSqft ?? '')
-        ) ||
-          parseScopeMeasurementInput(
-            String(measurementsInput.planFacts?.buildingAreas?.garageSqft ?? '')
-          ) ||
-          null
-      );
-      const matchesBarometerPackage =
-        expectedPackage != null &&
-        Math.abs(count - expectedPackage) / expectedPackage <= 0.1;
-      if (matchesBarometerPackage) {
-        calculatedMaterial = round2(
-          drywallBaseline.barometerTotal * DRYWALL_INSTALLED_MATERIAL_SHARE
-        );
-        calculatedLabor = round2(
-          drywallBaseline.barometerTotal *
-            (1 - DRYWALL_INSTALLED_MATERIAL_SHARE)
-        );
-        const measurementRecord = measurementsInput as Record<string, unknown>;
-        const packageMaterialMultiplier =
-          resolveDrywallPackageMaterialMultiplier(measurementRecord, count, {
-            planFacts: measurementRecord.planFacts as Record<
-              string,
-              unknown
-            > | null,
-            completePackage: true,
-          });
-        if (packageMaterialMultiplier !== 1) {
-          calculatedMaterial = round2(
-            calculatedMaterial * packageMaterialMultiplier
-          );
-        }
-        const packageLaborMultiplier = resolveDrywallPackageLaborMultiplier(
-          measurementRecord,
-          count,
-          {
-            planFacts: measurementRecord.planFacts as Record<
-              string,
-              unknown
-            > | null,
-            completePackage: true,
-            checklistItems: pricingContext?.checklistItems,
-          }
-        );
-        if (packageLaborMultiplier !== 1) {
-          calculatedLabor = round2(calculatedLabor * packageLaborMultiplier);
-        }
-        calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
+    const barometer = drywallGypsumBarometerPackageDollars(
+      measurementsInput as unknown as Record<string, unknown>,
+      {
+        packageSqft: count,
+        templateKey,
+        checklistItems: pricingContext?.checklistItems,
       }
+    );
+    if (barometer) {
+      calculatedMaterial = barometer.material;
+      calculatedLabor = barometer.labor;
+      calculatedFlatworkTotal = barometer.total;
+      drywallBarometerLabel = barometer.sourceLabel;
+      pricedMaterialSource = 'local_benchmark';
+      pricedLaborSource = 'local_benchmark';
     }
   }
   const repairMinimum =
@@ -20658,15 +20610,17 @@ export function resolveScopeItemSuggestedPricing(
     material,
     labor,
     total: round2(material + labor),
-    materialSource: materialRateSource,
-    laborSource: laborRateSource,
-    rateSourceLabel: rateSourceLabelFor(
-      materialRateSource,
-      laborRateSource,
-      template,
-      regional,
-      effectiveAverage
-    ),
+    materialSource: pricedMaterialSource,
+    laborSource: pricedLaborSource,
+    rateSourceLabel:
+      drywallBarometerLabel ||
+      rateSourceLabelFor(
+        materialRateSource,
+        laborRateSource,
+        template,
+        regional,
+        effectiveAverage
+      ),
     templateName,
     helper: floorPrepReviewBeforeBid
       ? 'Possible duplicate scope · review whether final substrate preparation is included in demolition before bidding.'
@@ -20697,10 +20651,10 @@ export function resolveScopeItemSuggestedPricing(
       average: effectiveAverage,
       material,
       labor,
-      materialSource: materialRateSource,
-      laborSource: laborRateSource,
-      materialRate: effectiveMaterialRateForBuckets,
-      laborRate: effectiveLaborRate,
+      materialSource: pricedMaterialSource,
+      laborSource: pricedLaborSource,
+      materialRate: drywallBarometerLabel ? null : effectiveMaterialRateForBuckets,
+      laborRate: drywallBarometerLabel ? null : effectiveLaborRate,
       laborBucketLabel: drywallLaborBucketLabel,
     }),
     pricingRecordId: `bps_national:${itemId}:${unit}`,

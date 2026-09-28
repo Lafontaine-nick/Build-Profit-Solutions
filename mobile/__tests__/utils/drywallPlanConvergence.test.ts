@@ -23,6 +23,7 @@ import {
   drywallAccessLaborMultiplier,
   resolveDrywallPackageMaterialMultiplier,
   resolveDrywallPackageLaborMultiplier,
+  drywallGypsumBarometerPackageDollars,
   resolveDrywallSheetLengthChoiceId,
   hasDifficultDrywallAccess,
   hasDifficultDrywallSheetHandlingAccess,
@@ -36,6 +37,7 @@ import {
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
+import { filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 
 describe('drywall plan convergence', () => {
   test('does not turn living area into a plan takeoff', () => {
@@ -170,6 +172,60 @@ describe('drywall plan convergence', () => {
     expect(Number(hydrated.drywallWallSqft)).toBeCloseTo(9150, 0);
     expect(hydrated.drywallSqft).toBe(14728);
     expect(Number(hydrated.fireRatedDrywallSqft)).toBeCloseTo(1917.9, 0);
+  });
+
+  test('prices garage once and uses the cover garage when the room read is short', () => {
+    const hydrated = hydrateDrywallComponentMeasurementsFromPlanContext(
+      {
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        drywallWallSqft: 6428,
+        drywallCeilingSqft: 2571,
+        drywallSqft: 14331,
+        garageCeilingDrywallSqft: 1018.9,
+        garageWallDrywallSqft: 1647.1,
+        fireRatedDrywallSqft: 2666,
+      },
+      [],
+      {
+        buildingAreas: {
+          mainFloorLivingSqft: 2571,
+          garageSqft: 1427,
+        },
+      }
+    );
+    expect(hydrated.garageCeilingDrywallSqft).toBe(1427);
+    expect(hydrated.garageWallDrywallSqft).toBe(1647.1);
+    expect(hydrated.drywallSqft).toBeCloseTo(12073.1, 0);
+    expect(hydrated.fireRatedDrywallSqft).toBeCloseTo(3074.1, 0);
+    expect(hydrated.drywallSqft).not.toBe(
+      Number(hydrated.drywallWallSqft) +
+        Number(hydrated.drywallCeilingSqft) +
+        Number(hydrated.garageWallDrywallSqft) +
+        Number(hydrated.garageCeilingDrywallSqft) +
+        Number(hydrated.fireRatedDrywallSqft)
+    );
+  });
+
+  test('drops generic ground-up cleanup and keeps an explicit drywall cleanup line', () => {
+    const filtered = filterPlanScopesForTrade(
+      [
+        { itemId: 'drywall', label: 'Drywall', state: 'included' },
+        {
+          itemId: 'cleanup',
+          label: 'Cleanup & disposal',
+          evidence: 'Standard ground-up scope for a full residential plan set',
+        },
+        {
+          itemId: 'cleanup',
+          label: 'Drywall cleanup',
+          evidence: 'Hang and finish cleanup for the drywall work',
+        },
+      ],
+      'selected_trade',
+      'drywall'
+    );
+    expect(filtered.map(row => row.label)).toEqual(['Drywall', 'Drywall cleanup']);
   });
 
   test('reconciles Plan 58 partial geometry to schedule ceiling and planning wall split', () => {
@@ -445,11 +501,80 @@ describe('drywall plan convergence', () => {
     expect(pricing.fill?.total).toBeGreaterThanOrEqual(24450);
     expect(pricing.fill?.total).toBeLessThanOrEqual(25000);
     expect(pricing.fill?.labor).toBe(14455);
+    expect(pricing.fill?.rateSourceLabel).toMatch(/gypsum board benchmark/i);
     expect(
       resolveDrywallPackageMaterialMultiplier(measurements, 14728, {
         completePackage: true,
       })
     ).toBeLessThan(resolveDrywallBoardMaterialMultiplier(measurements, 14728));
+  });
+
+  test('keeps a confirmed Lot 49 package on the gypsum benchmark instead of a saved library rate', () => {
+    const measurements = {
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+      drywallSqft: 12073,
+      drywallWallSqft: 6428,
+      drywallCeilingSqft: 2571,
+      garageWallDrywallSqft: 1647.1,
+      garageCeilingDrywallSqft: 1427,
+      fireRatedDrywallSqft: 3074,
+      drywallFinishLevel: 'orange_peel',
+      drywallSheetLength: '12ft',
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'drywall',
+      quickMeasurementSources: {
+        drywallSqft: 'contractor_confirmed_from_plan_review',
+      },
+      planFacts: {
+        buildingAreas: {
+          mainFloorLivingSqft: 2571,
+          garageSqft: 1427,
+        },
+      },
+      itemQuantities: {
+        drywall: {
+          quantity: 12073,
+          unit: 'sqft',
+          quantitySource: 'contractor_confirmed_from_plan_review',
+        },
+      },
+    } as any;
+    const resolved = resolveChecklistItemQuantity('drywall', measurements, {
+      templateKey: 'drywall',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'drywall',
+      measurements,
+      'drywall',
+      resolved,
+      {
+        checklistItems: [{ id: 'drywall', state: 'included' }],
+        libraryRates: [
+          {
+            scopeItemName: 'Drywall board and accessories',
+            category: 'material',
+            unitType: 'sqft',
+            unitRate: 2.92,
+          },
+          {
+            scopeItemName: 'Drywall hang and finish labor',
+            category: 'labor',
+            unitType: 'sqft',
+            unitRate: 8.67,
+          },
+        ],
+      }
+    );
+    const benchmark = drywallGypsumBarometerPackageDollars(measurements, {
+      packageSqft: 12073,
+      templateKey: 'drywall',
+    });
+    expect(benchmark?.total).toBeGreaterThan(19000);
+    expect(benchmark?.total).toBeLessThan(23000);
+    expect(pricing.fill?.total).toBe(benchmark?.total);
+    expect(pricing.fill?.rateSourceLabel).toMatch(/Plan 49 gypsum board benchmark/i);
+    expect(pricing.fill?.materialSource).toBe('local_benchmark');
   });
 
   test('applies modest sheet-length material savings without labor changes', () => {

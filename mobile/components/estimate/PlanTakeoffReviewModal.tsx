@@ -77,6 +77,7 @@ import {
   electricalPlanDeviceStaysVisible,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewMeasurementDetailLine,
   formatPlumbingGasApplianceScope,
   formatPlumbingWaterHeaterDetail,
   PLUMBING_FIXTURE_INVENTORY_ORDER,
@@ -2474,6 +2475,11 @@ export default function PlanTakeoffReviewModal({
                     row.provenance.status,
                     Colors
                   );
+                  const measurementDetail = planReviewMeasurementDetailLine({
+                    provenanceLabel: row.provenance.label,
+                    sourceLabel: row.sourceLabel,
+                    subtext: row.subtext,
+                  });
                   const confirmRow = !row.pricingEligible;
                   const windowsDoorsTier =
                     effectiveTradeKey === 'windows_doors' ||
@@ -2631,7 +2637,7 @@ export default function PlanTakeoffReviewModal({
                             >
                               {row.provenance.label}
                             </Text>
-                            {row.sourceLabel || row.subtext ? (
+                            {measurementDetail ? (
                               <Text
                                 style={[
                                   styles.evidenceText,
@@ -2639,7 +2645,7 @@ export default function PlanTakeoffReviewModal({
                                 ]}
                                 numberOfLines={2}
                               >
-                                {row.sourceLabel || row.subtext}
+                                {measurementDetail}
                               </Text>
                             ) : null}
                             {row.conflictValue != null ? (

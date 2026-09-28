@@ -548,25 +548,29 @@ export function resolveAcceptedPricingDisplay(params: {
   suggestedBlock?: SuggestedPricingBlock | null;
   intelligence: ScopeItemIntelligence;
 }): AcceptedPricingDisplay {
-  const foundationPackageSuggestion =
-    (params.itemId === 'house_slab' || params.itemId === 'garage_slab') &&
+  const packageSuggestion =
     params.suggestedBlock &&
-    /foundation package/i.test(params.suggestedBlock.rateSourceLabel || '') &&
-    params.acceptance?.selectionStatus === 'accepted'
+    params.acceptance?.selectionStatus === 'accepted' &&
+    (((params.itemId === 'house_slab' || params.itemId === 'garage_slab') &&
+      /foundation package/i.test(params.suggestedBlock.rateSourceLabel || '')) ||
+      (params.itemId === 'drywall' &&
+        /gypsum board benchmark/i.test(
+          params.suggestedBlock.rateSourceLabel || ''
+        )))
       ? params.suggestedBlock
       : null;
-  const acceptanceForDisplay = foundationPackageSuggestion
+  const acceptanceForDisplay = packageSuggestion
     ? {
         ...params.acceptance!,
-        materialAmount: foundationPackageSuggestion.material,
-        laborAmount: foundationPackageSuggestion.labor,
-        totalAmount: foundationPackageSuggestion.total,
-        pricingSourceLabel: foundationPackageSuggestion.rateSourceLabel,
-        rateSourceLabel: foundationPackageSuggestion.rateSourceLabel,
+        materialAmount: packageSuggestion.material,
+        laborAmount: packageSuggestion.labor,
+        totalAmount: packageSuggestion.total,
+        pricingSourceLabel: packageSuggestion.rateSourceLabel,
+        rateSourceLabel: packageSuggestion.rateSourceLabel,
       }
     : params.acceptance;
-  const total = foundationPackageSuggestion
-    ? foundationPackageSuggestion.total
+  const total = packageSuggestion
+    ? packageSuggestion.total
     : resolveAcceptedMoneyTotal({
         resolved: params.resolved,
         acceptance: acceptanceForDisplay,
@@ -589,7 +593,7 @@ export function resolveAcceptedPricingDisplay(params: {
       : null;
   const acceptance = normalizeAcceptanceMetadata(
     acceptanceForDisplay || inferredFromSuggestion || buildFallbackAcceptance(params.resolved, total),
-    foundationPackageSuggestion || params.suggestedBlock,
+    packageSuggestion || params.suggestedBlock,
     params.intelligence
   );
   const confidenceLabel = resolveAcceptedConfidenceLabel(params.intelligence, acceptance);

@@ -24,6 +24,7 @@ import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
 import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { concreteFoundationPackageDollars } from '@/utils/subcontractorTrade/concretePlanConvergence';
+import { drywallGypsumBarometerPackageDollars } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   allowanceSplitSubKey,
   checklistItemInScope,
@@ -197,6 +198,19 @@ function splitAppliedScopeDollars(
     );
     if (packageDollars === 'included') return { material: 0, labor: 0, allowance: 0 };
     if (packageDollars) return packageDollars;
+    if (itemId === 'drywall') {
+      const drywallPackage = drywallGypsumBarometerPackageDollars(
+        measurements as unknown as Record<string, unknown>,
+        { templateKey }
+      );
+      if (drywallPackage) {
+        return {
+          material: drywallPackage.material,
+          labor: drywallPackage.labor,
+          allowance: 0,
+        };
+      }
+    }
   }
   const quantities = measurements.itemQuantities || {};
   const acceptance = measurements.pricingAcceptance?.[itemId];

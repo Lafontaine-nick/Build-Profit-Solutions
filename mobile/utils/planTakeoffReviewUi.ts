@@ -203,7 +203,8 @@ export function measurementDisplayLabel(
     {
       drywallSqft: {
         label: 'Total drywall package',
-        subtext: 'Net wall + ceiling surface SF',
+        subtext:
+          'House walls and ceilings plus garage walls and ceiling. Fire-rated board is the garage type, not extra area.',
       },
       drywallWallSqft: {
         label: 'House walls',
@@ -215,15 +216,16 @@ export function measurementDisplayLabel(
       },
       garageWallDrywallSqft: {
         label: 'Garage walls',
-        subtext: 'Garage wall surface SF',
+        subtext: 'Included in the total package',
       },
       garageCeilingDrywallSqft: {
         label: 'Garage ceiling',
-        subtext: 'Garage ceiling surface SF',
+        subtext: 'Included in the total package',
       },
       fireRatedDrywallSqft: {
         label: 'Fire-rated board',
-        subtext: 'Garage / rated assemblies · typically 5/8" Type X',
+        subtext:
+          'Garage walls and ceiling, as 5/8" Type X. Already included in those lines.',
       },
       moistureResistantDrywallSqft: {
         label: 'Moisture-resistant board',
@@ -1743,10 +1745,34 @@ export function measurementSourceLabel(input: {
 
   if (!(Number(input.value) > 0)) return null;
 
+  if (
+    input.key === 'drywallWallSqft' ||
+    input.key === 'drywallCeilingSqft' ||
+    input.key === 'drywallSqft' ||
+    input.key === 'garageWallDrywallSqft' ||
+    input.key === 'garageCeilingDrywallSqft' ||
+    input.key === 'fireRatedDrywallSqft'
+  ) {
+    return 'Planning estimate';
+  }
+
   return formatPlanSourceLabel({
     kind: 'plan_generic',
     page: page ?? undefined,
   });
+}
+
+/** Gray detail under the badge. Skip a source line that only repeats the badge. */
+export function planReviewMeasurementDetailLine(input: {
+  provenanceLabel?: string | null;
+  sourceLabel?: string | null;
+  subtext?: string | null;
+}): string | null {
+  const source = String(input.sourceLabel || '').trim();
+  const badge = String(input.provenanceLabel || '').trim();
+  const subtext = String(input.subtext || '').trim();
+  if (source && source.toLowerCase() !== badge.toLowerCase()) return source;
+  return subtext || null;
 }
 
 export function roomSourceLabel(input: {
@@ -1874,7 +1900,7 @@ export function scopeTakeoffStatusLines(input: {
     } else {
       lines.push('Standard ground-up scope');
     }
-  } else if (evidence) {
+  } else if (evidence && !(id === 'drywall' && isGenericGroundUpEvidence(evidence))) {
     lines.push(evidence);
   } else if (id === 'sitework' || id === 'excavation') {
     lines.push('Standard ground-up scope — needs site takeoff');
@@ -1891,7 +1917,7 @@ export function scopeTakeoffStatusLines(input: {
     const page = pageFromAssumptions(input.assumptions, [/elevation/i]);
     const pageEnd = pageEndFromAssumptions(input.assumptions, [/elevation/i]);
     lines.push(formatPlanSourceLabel({ kind: 'elevations', page, pageEnd }));
-  } else {
+  } else if (id !== 'drywall') {
     lines.push('Standard ground-up scope');
   }
 

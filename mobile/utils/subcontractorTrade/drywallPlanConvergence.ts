@@ -1109,15 +1109,44 @@ export function reconcileIncompleteDrywallGeometryTakeoff(
     planningEstimateKeys.push('drywallSqft');
   }
 
-  const houseTotal =
-    positiveNumber(next.drywallSqft) ??
-    drywallSurfaceFromComponents(next);
+  const scheduleGarage = resolveScheduleGarageSqft(next, planFacts);
+  const garageCeiling = positiveNumber(next.garageCeilingDrywallSqft);
+  if (
+    scheduleGarage != null &&
+    garageCeiling != null &&
+    garageCeiling < scheduleGarage * 0.9
+  ) {
+    assumptions.push(
+      `Garage ceiling drywall raised from ${garageCeiling.toLocaleString()} SF to ${scheduleGarage.toLocaleString()} SF using the cover garage area because the dimensioned garage rooms did not cover the garage.`
+    );
+    next.garageCeilingDrywallSqft = roundTenth(scheduleGarage);
+    planningEstimateKeys.push('garageCeilingDrywallSqft');
+    reconciled = true;
+  }
+
+  const garageWall = positiveNumber(next.garageWallDrywallSqft) || 0;
+  const previousGarage = garageWall + (garageCeiling || 0);
+  const fireRated = positiveNumber(next.fireRatedDrywallSqft);
+  const garageTotalForBoard = resolveDrywallGarageSurfaceQuantity(next, { planFacts });
+  if (
+    fireRated != null &&
+    garageTotalForBoard != null &&
+    previousGarage > 0 &&
+    Math.abs(fireRated - previousGarage) < 1 &&
+    Math.abs(fireRated - garageTotalForBoard) > 1
+  ) {
+    next.fireRatedDrywallSqft = roundTenth(garageTotalForBoard);
+    planningEstimateKeys.push('fireRatedDrywallSqft');
+  }
+
+  const lockedTotal = ['user_entered', 'manual_override', 'user_confirmed_suggestion', 'contractor_confirmed_from_plan_review'].includes(
+    quantitySource(next, 'drywallSqft', '')
+  );
+  const houseSurface = drywallSurfaceFromComponents(next);
   const garageTotal = resolveDrywallGarageSurfaceQuantity(next, { planFacts });
-  if (houseTotal != null) {
+  if (!lockedTotal && houseSurface != null) {
     next.drywallSqft = roundTenth(
-      garageTotal != null && garageTotal > 0
-        ? houseTotal + garageTotal
-        : houseTotal
+      houseSurface + (garageTotal != null && garageTotal > 0 ? garageTotal : 0)
     );
   }
 
@@ -1577,4 +1606,90 @@ export function resolveDrywallProductionAssemblyBaseline(params: {
 
 function roundRate(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * Lot-matched gypsum-board package. Confirming the takeoff does not switch
+ * this house back to a saved library $/SF.
+ */
+export function drywallGypsumBarometerPackageDollars(
+  measurements: Record<string, unknown>,
+  options?: {
+    packageSqft?: number | null;
+    templateKey?: string | null;
+    checklistItems?: Array<{ id: string; choiceId?: string | null }> | null;
+  }
+): {
+  material: number;
+  labor: number;
+  total: number;
+  sourceLabel: string;
+} | null {
+  if (
+    !isDrywallCompletePackageScope({
+      templateKey: options?.templateKey,
+      planImportMode:
+        (measurements.planImportMode as string | null | undefined) ?? null,
+      planImportTradeKey:
+        (measurements.planImportTradeKey as string | null | undefined) ?? null,
+    })
+  ) {
+    return null;
+  }
+  const living = positiveNumber(measurements.floorAreaSqft);
+  const packageSf =
+    positiveNumber(options?.packageSqft) ??
+    positiveNumber(measurements.drywallSqft);
+  if (living == null || packageSf == null) return null;
+  const baseline = resolveDrywallProductionAssemblyBaseline({
+    livingSf: living,
+    packageSurfaceSqft: packageSf,
+  });
+  if (!(baseline.barometerTotal != null && baseline.barometerTotal > 0)) {
+    return null;
+  }
+  const planFacts = measurements.planFacts as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const buildingAreas = planFacts?.buildingAreas as
+    | Record<string, unknown>
+    | undefined;
+  const garage =
+    positiveNumber(measurements.garageSqft) ??
+    positiveNumber(buildingAreas?.garageSqft);
+  const expected = drywallPackageSurfacePlanningQuantity(living, garage);
+  if (expected == null || Math.abs(packageSf - expected) / expected > 0.1) {
+    return null;
+  }
+  let material = roundRate(
+    baseline.barometerTotal * DRYWALL_INSTALLED_MATERIAL_SHARE
+  );
+  let labor = roundRate(
+    baseline.barometerTotal * (1 - DRYWALL_INSTALLED_MATERIAL_SHARE)
+  );
+  const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
+    measurements,
+    packageSf,
+    { planFacts, completePackage: true }
+  );
+  const laborMultiplier = resolveDrywallPackageLaborMultiplier(
+    measurements,
+    packageSf,
+    {
+      planFacts,
+      completePackage: true,
+      checklistItems: options?.checklistItems,
+    }
+  );
+  if (materialMultiplier !== 1) {
+    material = roundRate(material * materialMultiplier);
+  }
+  if (laborMultiplier !== 1) labor = roundRate(labor * laborMultiplier);
+  return {
+    material,
+    labor,
+    total: roundRate(material + labor),
+    sourceLabel: baseline.sourceLabel,
+  };
 }

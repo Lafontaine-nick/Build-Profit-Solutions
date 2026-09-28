@@ -21,6 +21,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewMeasurementDetailLine,
   planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
   planReviewCheckboxBlockedMessage,
@@ -376,6 +377,20 @@ describe('plan takeoff review UI polish', () => {
     expect(measurementDisplayLabel('fireRatedDrywallSqft').subtext).toMatch(
       /Type X/i
     );
+    expect(
+      planReviewMeasurementDetailLine({
+        provenanceLabel: 'Planning estimate',
+        sourceLabel: 'Planning estimate',
+        subtext: measurementDisplayLabel('fireRatedDrywallSqft').subtext,
+      })
+    ).toMatch(/Type X/i);
+    expect(
+      planReviewMeasurementDetailLine({
+        provenanceLabel: 'Needs review',
+        sourceLabel: 'Planning estimate',
+        subtext: 'Conditioned wall surface',
+      })
+    ).toBe('Planning estimate');
   });
 
   it('filters internal quick measurement metadata from review rows', () => {
@@ -452,12 +467,14 @@ describe('plan takeoff review UI polish', () => {
       }).some(l => /Needs wall and ceiling takeoff/i.test(l))
     ).toBe(true);
 
-    expect(
-      scopeTakeoffStatusLines({
-        itemId: 'drywall',
-        evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some(l => /Needs wall and ceiling takeoff/i.test(l))
-    ).toBe(true);
+    const drywallLines = scopeTakeoffStatusLines({
+      itemId: 'drywall',
+      evidence: 'Standard ground-up scope for a full residential plan set',
+    });
+    expect(drywallLines.some(l => /Needs wall and ceiling takeoff/i.test(l))).toBe(
+      true
+    );
+    expect(drywallLines.join(' ')).not.toMatch(/standard ground-up scope/i);
   });
 
   it('distinguishes insulation review readiness from confirmation', () => {
@@ -481,8 +498,11 @@ describe('plan takeoff review UI polish', () => {
     const ready = scopeTakeoffStatusLines({
       itemId: 'drywall',
       hasDrywallPrimaryTakeoff: true,
+      evidence:
+        'Standard ground-up scope for a full residential plan set — confirm what is in your bid',
     });
     expect(ready.some(l => /ready for review/i.test(l))).toBe(true);
+    expect(ready.join(' ')).not.toMatch(/standard ground-up scope/i);
 
     const confirmed = scopeTakeoffStatusLines({
       itemId: 'drywall',

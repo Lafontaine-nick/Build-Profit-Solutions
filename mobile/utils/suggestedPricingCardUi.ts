@@ -326,7 +326,11 @@ export function displayPriceSourceLabel(
       ? `${stripped.slice(0, 45).trimEnd()}…`
       : stripped;
   }
-  if (/southern\s*utah|local\s*benchmark/i.test(stripped)) {
+  if (
+    /southern\s*utah|local\s*benchmark|gypsum board benchmark|production planning rate/i.test(
+      stripped
+    )
+  ) {
     return 'Local benchmark';
   }
   if (/^saved pricing$/i.test(stripped) || /^pricing library$/i.test(stripped)) {
