@@ -282,6 +282,14 @@ export function resolveQuickMeasurementFields(params: {
       const typedKey = key as QuickMeasurementFieldKey;
       return noteKeySet.has(typedKey) && Boolean(noteValues[typedKey]);
     });
+    const planTrade = String(
+      (params.measurements as { planImportTradeKey?: string })
+        .planImportTradeKey || ''
+    );
+    const paintingPlanSurface =
+      planTrade === 'painting' &&
+      (field.key === 'wallPaintSqft' || field.key === 'ceilingPaintSqft') &&
+      String(params.measurements[field.key] ?? '').trim() !== '';
     const sourceTag = params.sourceMap?.[field.key];
     const drywallHasCurrentNoteArea =
       field.key === 'drywallSqft' && Boolean(noteValues.drywallSqft);
@@ -299,7 +307,8 @@ export function resolveQuickMeasurementFields(params: {
     const displayValue =
       isPaintAreaField &&
       !hasNoteBackedPaintArea &&
-      !params.userOverrides?.[field.key]
+      !params.userOverrides?.[field.key] &&
+      !paintingPlanSurface
         ? ''
         : clearStaleDrywallValue
           ? ''

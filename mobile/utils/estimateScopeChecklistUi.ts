@@ -5829,6 +5829,12 @@ export function checklistDisplayHelper(
   if (templateKey === 'electrical' && item.id === 'electrical_trim') {
     return ELECTRICAL_TRIM_CARD_HELPER;
   }
+  if (tk === 'painting' && item.id === 'interior_paint') {
+    return 'Paint the interior wall area from the plan takeoff.';
+  }
+  if (tk === 'painting' && item.id === 'ceiling_paint') {
+    return 'Paint the ceiling area from the plan takeoff.';
+  }
   if (String(templateKey || '').toLowerCase() === 'hvac' && item.id === 'cleanup') {
     return (
       hvacCardForItemId('cleanup')?.helper ||

@@ -357,6 +357,15 @@ export function step2TierNeedsInlineTakeoffEntry(
     // exists; do not also ask for a meaningless 0 sqft area.
     return false;
   }
+  if (
+    template === 'painting' &&
+    (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
+    Number(resolved?.quantity) > 0
+  ) {
+    // The plan area is already on the measurement card. Do not add a second
+    // box that can stay at 0 while the suggestion prices the plan quantity.
+    return false;
+  }
   if (itemId === 'interior_door_install') {
     // Door installation is priced per door. The confirmed door count is
     // already shown on the card; never add a duplicate sqft takeoff field.

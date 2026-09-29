@@ -15423,6 +15423,58 @@ export function resolveInsulationAssemblyScopeSuggestedPricing(
 }
 
 /** National rate-card assembly total for the same rows — comparison only. */
+/** Living SF that matches a known paint package, including a living-area ceiling. */
+function paintingPlanPackageLivingSqft(
+  measurements: ScopeMeasurementsInputExtended
+): number | null {
+  if (String(measurements.planImportTradeKey || '') !== 'painting') return null;
+  const areas = measurements.planFacts?.buildingAreas;
+  const candidates = [
+    areas?.totalLivingSqft,
+    areas?.mainFloorLivingSqft,
+    measurements.floorAreaSqft,
+    measurements.ceilingPaintSqft,
+  ];
+  for (const raw of candidates) {
+    const value = parseScopeMeasurementInput(String(raw ?? ''));
+    if (value && matchSouthernUtahProjectByLivingSf(value)) return value;
+  }
+  return null;
+}
+
+/** National surface mix used only to divide the installed paint package. */
+const PAINTING_PACKAGE_SHARE_WEIGHTS = {
+  door_paint: 2125,
+  ceiling_paint: 9569,
+  trim_paint: 2872,
+  interior_paint: 12509,
+} as const;
+
+function paintingPlanPackageShares(total: number): Record<
+  keyof typeof PAINTING_PACKAGE_SHARE_WEIGHTS,
+  number
+> {
+  const weightSum = Object.values(PAINTING_PACKAGE_SHARE_WEIGHTS).reduce(
+    (sum, weight) => sum + weight,
+    0
+  );
+  const door = Math.round(
+    (total * PAINTING_PACKAGE_SHARE_WEIGHTS.door_paint) / weightSum
+  );
+  const ceiling = Math.round(
+    (total * PAINTING_PACKAGE_SHARE_WEIGHTS.ceiling_paint) / weightSum
+  );
+  const trim = Math.round(
+    (total * PAINTING_PACKAGE_SHARE_WEIGHTS.trim_paint) / weightSum
+  );
+  return {
+    door_paint: door,
+    ceiling_paint: ceiling,
+    trim_paint: trim,
+    interior_paint: Math.round(total - door - ceiling - trim),
+  };
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -16329,6 +16381,75 @@ export function resolveScopeItemSuggestedPricing(
     // Legacy concrete checklist IDs are retained for migration, but their
     // standard work is included in the base flatwork rate.
     return empty;
+  }
+
+  if (
+    (itemId === 'interior_paint' ||
+      itemId === 'ceiling_paint' ||
+      itemId === 'trim_paint' ||
+      itemId === 'door_paint') &&
+    String(templateKey || '').toLowerCase() === 'painting'
+  ) {
+    const packageLiving = paintingPlanPackageLivingSqft(measurementsInput);
+    if (packageLiving) {
+      const packageFill = resolveSouthernUtahPaintTrimSuggestedFill({
+        itemId: 'interior_paint',
+        templateKey,
+        measurementsInput: {
+          ...measurementsInput,
+          floorAreaSqft: String(packageLiving),
+        },
+        paintableOrCount: parseScopeMeasurementInput(
+          measurementsInput.wallPaintSqft
+        ),
+        unit: 'sqft',
+        pricingContext,
+        originalNotes,
+      });
+      if (packageFill) {
+        const share = paintingPlanPackageShares(packageFill.total)[
+          itemId as keyof typeof PAINTING_PACKAGE_SHARE_WEIGHTS
+        ];
+        const basisQuantity =
+          itemId === 'ceiling_paint'
+            ? parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft)
+            : itemId === 'trim_paint'
+              ? parseScopeMeasurementInput(measurementsInput.baseboardLf)
+              : itemId === 'door_paint'
+                ? parseScopeMeasurementInput(measurementsInput.interiorDoorCount)
+                : parseScopeMeasurementInput(measurementsInput.wallPaintSqft);
+        const basisUnit =
+          itemId === 'trim_paint' ? 'lf' : itemId === 'door_paint' ? 'each' : 'sqft';
+        return {
+          fill: {
+            ...packageFill,
+            material: 0,
+            labor: share,
+            total: share,
+            lumpSumOnly: false,
+            installedBudgetBenchmark: false,
+            benchmarkLivingSf: null,
+            helper: `Share of the $${Math.round(packageFill.total).toLocaleString()} installed paint package.`,
+            basis:
+              basisQuantity && basisQuantity > 0
+                ? { quantity: basisQuantity, unit: basisUnit }
+                : packageFill.basis,
+            storedTotalExact: share,
+            pricingRecordId: `${packageFill.pricingRecordId}:${itemId}`,
+            costBuckets: [
+              {
+                key: 'allowance',
+                label: 'Installed paint package',
+                amount: share,
+                rate: null,
+                source: 'local_benchmark',
+              },
+            ],
+          },
+          comparison: null,
+        };
+      }
+    }
   }
 
   if (itemId === 'trim_paint' && Number(resolved.quantity) > 0) {

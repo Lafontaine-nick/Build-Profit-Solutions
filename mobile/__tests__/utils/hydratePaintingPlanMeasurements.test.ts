@@ -276,6 +276,25 @@ describe('hydratePaintingPlanMeasurements', () => {
     expect(hydrated.measurements.wallPaintSqft).toBe(972);
     expect(hydrated.measurements.baseboardLf).toBe(108);
   });
+
+  it('restores wall paint from trim length and plate height when the wall field was cleared', () => {
+    const hydrated = hydratePaintingPlanMeasurements({
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'painting',
+      measurements: {
+        ceilingPaintSqft: 2571,
+        baseboardLf: 410.3,
+        interiorDoorCount: 18,
+      },
+      planFacts: { plateHeightFt: 9.1, storyCount: 1 },
+      rooms: [],
+    });
+    expect(hydrated.measurements.wallPaintSqft).toBe(3734);
+    expect(hydrated.measurements.interiorDoorCount).toBe(18);
+    expect(hydrated.measurementProvenance?.wallPaintSqft?.coverage).toBe(
+      'complete'
+    );
+  });
 });
 
 describe('resolvePaintingPlanTakeoffApiSelection', () => {

@@ -130,6 +130,37 @@ describe('resolveQuickMeasurementFields', () => {
     expect(byKey.wallPaintSqft.state).toBe('confirmed');
   });
 
+  test('painting plan walls stay confirmed while the living-area ceiling stays open', () => {
+    const rows = quickMeasurementRowsForInput(
+      'painting',
+      'painting',
+      emptyQuickMeasurementInput(),
+      ['interior_paint', 'ceiling_paint']
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      planImportTradeKey: 'painting',
+      wallPaintSqft: '3734',
+      ceilingPaintSqft: '2571',
+    };
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      sourceMap: {
+        wallPaintSqft: 'contractor_confirmed_from_plan_review',
+        ceilingPaintSqft: 'needs_confirmation',
+      },
+      includedScopeKeys: ['interior_paint', 'ceiling_paint'],
+      templateKey: 'painting',
+      notes: 'Interior paint for the new house.',
+    });
+    const byKey = Object.fromEntries(results.map(r => [r.key, r]));
+    expect(byKey.wallPaintSqft.filled).toBe(true);
+    expect(byKey.wallPaintSqft.state).toBe('confirmed');
+    expect(byKey.ceilingPaintSqft.filled).toBe(true);
+    expect(byKey.ceilingPaintSqft.state).toBe('needs_confirmation');
+  });
+
   test('kitchen paint stays manual when notes have no paint area', () => {
     const rows = quickMeasurementRowsForInput(
       'kitchen',

@@ -85,6 +85,17 @@ describe('confirmScopeStep2Pricing tiers', () => {
     }
   });
 
+  it('does not add a second wall-area box when the painting plan quantity is already priced', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('interior_paint', 'painting', {
+        pricingReady: true,
+        unit: 'sqft',
+        quantity: 3734,
+        quantitySource: 'plan_vision',
+      })
+    ).toBe(false);
+  });
+
   it('classifies ground-up framing as auto_planning without on-card SF box', () => {
     expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
     expect(

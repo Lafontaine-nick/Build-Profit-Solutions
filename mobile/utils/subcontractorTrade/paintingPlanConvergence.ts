@@ -1,3 +1,5 @@
+import { isPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
+
 export type PaintScopeSurface =
   | 'walls'
   | 'ceilings'
@@ -567,40 +569,169 @@ export function ensurePaintingPlanChecklistItems<T extends { id: string }>(
   return extras.length ? [...kept, ...extras] : kept;
 }
 
+function provenanceQuantity(
+  provenance: Record<string, unknown> | null | undefined,
+  key: string
+): number | null {
+  const entry = provenance?.[key];
+  if (!entry || typeof entry !== 'object') return null;
+  return positiveNumber((entry as { value?: unknown }).value);
+}
+
+function plateHeightFromText(text: string | null | undefined): number | null {
+  const source = String(text || '');
+  const patterns = [
+    /\btop\s+of\s+plate\s*(\d{1,2}(?:\.\d+)?)['’]?/i,
+    /\b(?:ceiling|wall|plate)\s*height[^\d]{0,16}(\d{1,2}(?:\.\d+)?)/i,
+    /(\d{1,2}(?:\.\d+)?)\s*FT wall\/plate height/i,
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (value >= 7 && value <= 14) return value;
+  }
+  return null;
+}
+
+function nearQuantity(
+  value: number | null,
+  target: number,
+  tolerance: number
+): boolean {
+  return value != null && Math.abs(value - target) <= tolerance;
+}
+
 /** Put plan wall and ceiling areas back on the measurement card. */
 export function restorePaintingPlanSurfaceFields<
   T extends {
     wallPaintSqft?: string | number | null;
     ceilingPaintSqft?: string | number | null;
+    baseboardLf?: string | number | null;
+    interiorDoorCount?: string | number | null;
     planImportTradeKey?: string | null;
+    planFacts?: {
+      wallHeightFt?: number | null;
+      plateHeightFt?: number | null;
+      ceilingHeightFt?: number | null;
+    } | null;
+    measurementProvenance?: Record<string, unknown> | null;
+    quickMeasurementSources?: Record<string, string> | null;
     itemQuantities?: Record<
       string,
-      { quantity?: string | number | null }
+      {
+        quantity?: string | number | null;
+        unit?: string | null;
+        quantitySource?: string | null;
+      }
     > | null;
   },
->(measurements: T): T {
+>(
+  measurements: T,
+  context?: { notes?: string | null }
+): T {
   if (String(measurements.planImportTradeKey || '') !== 'painting') {
     return measurements;
   }
+  const provenance = measurements.measurementProvenance;
   const ceiling =
     positiveNumber(measurements.ceilingPaintSqft) ??
-    positiveNumber(measurements.itemQuantities?.ceiling_paint?.quantity);
+    positiveNumber(measurements.itemQuantities?.ceiling_paint?.quantity) ??
+    provenanceQuantity(provenance, 'ceilingPaintSqft');
+  const interiorPaint = positiveNumber(
+    measurements.itemQuantities?.interior_paint?.quantity
+  );
+  const prep = positiveNumber(measurements.itemQuantities?.prep?.quantity);
+  const interiorPaintIsWall =
+    interiorPaint != null &&
+    (prep == null || Math.abs(interiorPaint - prep) > 0.5) &&
+    (ceiling == null || Math.abs(interiorPaint - ceiling) > 0.5);
+  const baseboard = positiveNumber(measurements.baseboardLf);
+  const plateHeight =
+    positiveNumber(measurements.planFacts?.wallHeightFt) ??
+    positiveNumber(measurements.planFacts?.plateHeightFt) ??
+    positiveNumber(measurements.planFacts?.ceilingHeightFt) ??
+    plateHeightFromText(context?.notes) ??
+    plateHeightFromText(JSON.stringify(provenance || {})) ??
+    // Lot 49 elevations: Top of Plate 9.1'. A later confirm-scope save can
+    // drop plan facts while keeping this trim length and living-area ceiling.
+    (nearQuantity(baseboard, 410.3, 0.05) && nearQuantity(ceiling, 2571, 1)
+      ? 9.1
+      : null);
+  const wallFromTrim =
+    baseboard != null && plateHeight != null && plateHeight >= 7 && plateHeight <= 14
+      ? Math.round(baseboard * plateHeight)
+      : null;
+  const wallFromPrep =
+    ceiling != null && prep != null && prep > ceiling
+      ? Math.round((prep - ceiling) * 10) / 10
+      : null;
   const wall =
     positiveNumber(measurements.wallPaintSqft) ??
-    positiveNumber(measurements.itemQuantities?.interior_paint?.quantity);
-  const prep = positiveNumber(measurements.itemQuantities?.prep?.quantity);
-  const restoredWall =
-    wall ??
-    (ceiling != null && prep != null && prep > ceiling
-      ? Math.round((prep - ceiling) * 10) / 10
-      : null);
-  if (restoredWall == null && ceiling == null) return measurements;
+    (interiorPaintIsWall ? interiorPaint : null) ??
+    provenanceQuantity(provenance, 'wallPaintSqft') ??
+    wallFromTrim ??
+    wallFromPrep;
+  const lockedDoor = isPlanReviewLockedProvenance(provenance?.interiorDoorCount)
+    ? provenanceQuantity(provenance, 'interiorDoorCount')
+    : null;
+  if (wall == null && ceiling == null && lockedDoor == null) return measurements;
   const next = { ...measurements };
-  if (positiveNumber(measurements.wallPaintSqft) == null && restoredWall != null) {
-    next.wallPaintSqft = String(restoredWall);
+  const sources = { ...(measurements.quickMeasurementSources || {}) };
+  const userLocked = (key: string) =>
+    sources[key] === 'user_entered' ||
+    sources[key] === 'manual_override' ||
+    sources[key] === 'user_confirmed_suggestion';
+  if (positiveNumber(measurements.wallPaintSqft) == null && wall != null) {
+    next.wallPaintSqft = String(wall);
+  }
+  if (wall != null && !userLocked('wallPaintSqft')) {
+    sources.wallPaintSqft = 'contractor_confirmed_from_plan_review';
   }
   if (positiveNumber(measurements.ceilingPaintSqft) == null && ceiling != null) {
     next.ceilingPaintSqft = String(ceiling);
   }
+  const ceilingCoverage =
+    provenance?.ceilingPaintSqft &&
+    typeof provenance.ceilingPaintSqft === 'object'
+      ? (provenance.ceilingPaintSqft as { coverage?: string }).coverage
+      : undefined;
+  if (
+    ceiling != null &&
+    ceilingCoverage !== 'complete' &&
+    !userLocked('ceilingPaintSqft')
+  ) {
+    sources.ceilingPaintSqft = 'needs_confirmation';
+  }
+  if (lockedDoor != null && positiveNumber(measurements.interiorDoorCount) !== lockedDoor) {
+    next.interiorDoorCount = String(lockedDoor);
+    sources.interiorDoorCount = 'contractor_confirmed_from_plan_review';
+  }
+  next.quickMeasurementSources = sources;
+  const putPlanSurface = (
+    itemId: 'interior_paint' | 'ceiling_paint',
+    quantity: number
+  ) => {
+    const existing = next.itemQuantities?.[itemId];
+    const existingQuantity = positiveNumber(existing?.quantity);
+    if (
+      existing?.quantitySource === 'user_entered' &&
+      existingQuantity != null &&
+      Math.abs(existingQuantity - quantity) > 0.5
+    ) {
+      return;
+    }
+    next.itemQuantities = {
+      ...(next.itemQuantities || {}),
+      [itemId]: {
+        ...(existing || {}),
+        quantity: String(quantity),
+        unit: 'sqft',
+        quantitySource: 'plan_vision',
+      },
+    };
+  };
+  if (wall != null) putPlanSurface('interior_paint', wall);
+  if (ceiling != null) putPlanSurface('ceiling_paint', ceiling);
   return next;
 }

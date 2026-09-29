@@ -8241,7 +8241,12 @@ function QuantitySection({
         {!hideInlineTakeoff &&
         !showGrossFloorPlanning &&
         !cardOwnsMissingCopy &&
-        rule.quantityHelper ? (
+        rule.quantityHelper &&
+        !(
+          String(templateKey || '').toLowerCase() === 'painting' &&
+          (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
+          Number(resolved?.quantity) > 0
+        ) ? (
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -8277,12 +8282,21 @@ function QuantitySection({
               originalNotes
             )}
             value={
-              itemInput?.quantity ??
-              (itemId === 'window_install' || itemId === 'exterior_trim_paint'
-                ? String(resolved.quantity ?? '')
-                : repairSystemCard
-                  ? String(measurementsInput.stuccoRepairAffectedSqft ?? '')
-                  : '')
+              itemId === 'interior_paint' &&
+              String(templateKey || '').toLowerCase() === 'painting' &&
+              !(
+                Number(String(itemInput?.quantity ?? '').replace(/,/g, '')) > 0
+              ) &&
+              Number(
+                String(measurementsInput.wallPaintSqft ?? '').replace(/,/g, '')
+              ) > 0
+                ? String(measurementsInput.wallPaintSqft)
+                : itemInput?.quantity ??
+                  (itemId === 'window_install' || itemId === 'exterior_trim_paint'
+                    ? String(resolved.quantity ?? '')
+                    : repairSystemCard
+                      ? String(measurementsInput.stuccoRepairAffectedSqft ?? '')
+                      : '')
             }
             unit={resolved.unit || rule.defaultUnit}
             onFocus={() => focusQuantityField(quantityEntryItemId, 'count')}
@@ -15026,6 +15040,28 @@ function CollapsibleQuickMeasurements({
     singleTradeImport,
   ]);
   useEffect(() => {
+    if (String(measurements.planImportTradeKey || '') !== 'painting') return;
+    if (measurements.quickMeasurementUserOverrides?.wallPaintSqft) return;
+    const currentWall = Number(
+      String(measurements.wallPaintSqft || '').replace(/,/g, '')
+    );
+    if (currentWall > 0) return;
+    const restored = restorePaintingPlanSurfaceFields(measurementsRef.current, {
+      notes,
+    });
+    const restoredWall = String(restored.wallPaintSqft ?? '').trim();
+    if (!restoredWall || Number(restoredWall.replace(/,/g, '')) <= 0) return;
+    measurementsRef.current = restored;
+    setMeasurements(restored);
+  }, [
+    measurements.planImportTradeKey,
+    measurements.wallPaintSqft,
+    measurements.baseboardLf,
+    measurements.ceilingPaintSqft,
+    notes,
+    setMeasurements,
+  ]);
+  useEffect(() => {
     if (!notesTradeFlow) return;
     const plumbingNoteKeys = [
       'serviceCallCount',
@@ -18613,12 +18649,21 @@ function CollapsibleQuickMeasurements({
   const concreteStructurePrompt = concreteStructureQuantityPrompt(
     measurements as Record<string, unknown>
   );
+  const paintingConfirmationFilled =
+    (String(measurements.planImportTradeKey || '') === 'painting' ||
+      (singleTradeImport && tradeKey === 'painting')) &&
+    headerSummary.needsConfirmation > 0 &&
+    fieldResults
+      .filter(result => result.state === 'needs_confirmation')
+      .every(result => result.filled);
   const subtitle =
     headerSummary.relevantTotal > 0
       ? headerSummary.needsConfirmation > 0
         ? electricalPlanCountsFilled
           ? 'Confirm the plan counts before they are priced.'
-          : 'Add missing measurements to improve pricing.'
+          : paintingConfirmationFilled
+            ? 'Confirm the highlighted measurements before they are priced.'
+            : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
           ? 'Review suggestions to apply planning estimates.'
           : concreteStructurePrompt ||
@@ -18735,6 +18780,13 @@ function CollapsibleQuickMeasurements({
       }
       const direct = String(measurements[field.key] ?? '').trim();
       if (direct) return direct;
+      if (field.key === 'wallPaintSqft') {
+        const restored = restorePaintingPlanSurfaceFields(measurements, {
+          notes,
+        });
+        const restoredWall = String(restored.wallPaintSqft ?? '').trim();
+        if (restoredWall) return restoredWall;
+      }
       const itemId =
         field.key === 'wallPaintSqft' ? 'interior_paint' : 'ceiling_paint';
       const quantity = measurements.itemQuantities?.[itemId]?.quantity;
@@ -23839,7 +23891,21 @@ export default function AIEstimateScopeAssumptionsModal({
           [],
       };
       if (hydrateTradeContext.tradeKey === 'painting') {
-        nextMeasurements = restorePaintingPlanSurfaceFields(nextMeasurements);
+        nextMeasurements = restorePaintingPlanSurfaceFields(
+          {
+            ...nextMeasurements,
+            planFacts:
+              nextMeasurements.planFacts ||
+              planImport?.planFacts ||
+              draft?.scopeMeasurements?.planFacts ||
+              null,
+          },
+          {
+            notes: [planImport?.notesBlock, measurementNotes]
+              .filter(Boolean)
+              .join('\n'),
+          }
+        );
         const sourceMeasurements: Record<string, number | string> = {
           ...(planImport?.measurements || {}),
         };
@@ -23867,7 +23933,10 @@ export default function AIEstimateScopeAssumptionsModal({
           planFacts:
             planImport?.planFacts ||
             draft?.scopeMeasurements?.planFacts ||
+            nextMeasurements.planFacts ||
             null,
+          notesBlock: planImport?.notesBlock || null,
+          mergedNotes: measurementNotes,
           estimatingMode: 'selected_trade',
           selectedTrade: 'painting',
           measurementProvenance:
@@ -23886,6 +23955,14 @@ export default function AIEstimateScopeAssumptionsModal({
             nextMeasurements = {
               ...nextMeasurements,
               [key]: String(value),
+              ...(key === 'wallPaintSqft'
+                ? {
+                    quickMeasurementSources: {
+                      ...(nextMeasurements.quickMeasurementSources || {}),
+                      wallPaintSqft: 'contractor_confirmed_from_plan_review',
+                    },
+                  }
+                : {}),
             };
           }
         };

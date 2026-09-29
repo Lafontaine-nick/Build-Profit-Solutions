@@ -20,6 +20,11 @@ import {
   scopeMeasurementsPayloadForPersist,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import { blendBarometerLump } from '@/utils/builderBudgetLumpBlend';
+import {
+  INTERIOR_PAINT_INSTALLED_BY_PROJECT,
+  INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL,
+} from '@/utils/southernUtahPaintTrimComparables';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
 
@@ -73,6 +78,46 @@ describe('painting plan convergence', () => {
     expect(restored.wallPaintSqft).toBe('3734');
     expect(restored.ceilingPaintSqft).toBe('2571');
 
+    const fromReview = restorePaintingPlanSurfaceFields({
+      planImportTradeKey: 'painting',
+      wallPaintSqft: '',
+      ceilingPaintSqft: '2571',
+      baseboardLf: '410.3',
+      interiorDoorCount: '17',
+      planFacts: { plateHeightFt: 9.1 },
+      measurementProvenance: {
+        interiorDoorCount: {
+          value: 18,
+          source: 'contractor_confirmed_from_plan_review',
+          normalizedSource: 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW',
+        },
+      },
+    });
+    expect(fromReview.wallPaintSqft).toBe('3734');
+    expect(fromReview.quickMeasurementSources?.wallPaintSqft).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(fromReview.interiorDoorCount).toBe('18');
+
+    const withoutPlateHeight = restorePaintingPlanSurfaceFields({
+      planImportTradeKey: 'painting',
+      wallPaintSqft: '',
+      ceilingPaintSqft: '2571',
+      baseboardLf: '410.3',
+      interiorDoorCount: '17',
+    });
+    expect(withoutPlateHeight.wallPaintSqft).toBe('3734');
+    expect(withoutPlateHeight.quickMeasurementSources?.wallPaintSqft).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(withoutPlateHeight.quickMeasurementSources?.ceilingPaintSqft).toBe(
+      'needs_confirmation'
+    );
+    expect(withoutPlateHeight.itemQuantities?.interior_paint).toMatchObject({
+      quantity: '3734',
+      quantitySource: 'plan_vision',
+    });
+
     const persisted = scopeMeasurementsPayloadForPersist(
       inputWith({
         planImportTradeKey: 'painting',
@@ -110,6 +155,37 @@ describe('painting plan convergence', () => {
       }
     );
     expect(prep.fill).toBeNull();
+  });
+
+  it('prices a matched painting plan as one installed package', () => {
+    const measurements = inputWith({
+      planImportTradeKey: 'painting',
+      ceilingPaintSqft: '2571',
+      wallPaintSqft: '3734',
+      baseboardLf: '410.3',
+      interiorDoorCount: '17',
+    });
+    const expected = blendBarometerLump(
+      INTERIOR_PAINT_INSTALLED_BY_PROJECT.lot49,
+      INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL
+    );
+    const priced = ['interior_paint', 'ceiling_paint', 'trim_paint', 'door_paint'].map(
+      itemId =>
+        resolveScopeItemSuggestedPricing(itemId, measurements, 'painting', {
+          quantity: 3734,
+          unit: 'sqft',
+          quantitySource: 'plan_vision',
+        }).fill?.total || 0
+    );
+    expect(priced.reduce((sum, amount) => sum + amount, 0)).toBe(expected);
+    expect(priced.every(amount => amount > 0)).toBe(true);
+    const walls = resolveScopeItemSuggestedPricing(
+      'interior_paint',
+      measurements,
+      'painting',
+      { quantity: 3734, unit: 'sqft', quantitySource: 'plan_vision' }
+    );
+    expect(walls.fill?.helper).toMatch(/installed paint package/i);
   });
 
   it('drops generic ground-up cleanup and keeps an explicit painting cleanup line', () => {

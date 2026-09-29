@@ -144,6 +144,13 @@ function parseHeightFromText(text: string | null | undefined): number | null {
     const value = Number(decimal[1]);
     if (value >= 7 && value <= 14) return roundTenth(value);
   }
+  const plateCallout = t.match(
+    /\btop\s+of\s+plate\s*(\d{1,2}(?:\.\d+)?)['’]?/i
+  );
+  if (plateCallout) {
+    const value = Number(plateCallout[1]);
+    if (value >= 7 && value <= 14) return roundTenth(value);
+  }
   const derived = t.match(
     /(\d{1,2}(?:\.\d+)?)\s*FT wall\/plate height/i
   );
@@ -437,6 +444,14 @@ export function hydratePaintingPlanMeasurements<T extends PaintingHydrationInput
         )
       : null;
   const existingWall = positive(next.measurements?.wallPaintSqft);
+  const baseboardForWalls = positive(next.measurements?.baseboardLf);
+  const wallFromBaseboard =
+    !(existingWall > 0) &&
+    computedWallSqft == null &&
+    baseboardForWalls != null &&
+    wallHeightFt != null
+      ? Math.round(baseboardForWalls * wallHeightFt)
+      : null;
   if (!(existingWall > 0) && computedWallSqft != null && computedWallSqft > 0) {
     next = markDerived(
       next,
@@ -446,6 +461,14 @@ export function hydratePaintingPlanMeasurements<T extends PaintingHydrationInput
         ? `Interior wall paint ${computedWallSqft.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height. Partial room geometry versus labeled living area — confirm remaining walls.`
         : `Interior wall paint ${computedWallSqft.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height.`,
       { coverage: geometryIncomplete ? 'incomplete' : 'complete' }
+    );
+  } else if (wallFromBaseboard != null && wallFromBaseboard > 0) {
+    next = markDerived(
+      next,
+      'wallPaintSqft',
+      wallFromBaseboard,
+      `Interior wall paint ${wallFromBaseboard.toLocaleString()} SF calculated from ${baseboardForWalls} LF of interior trim × ${wallHeightFt} FT wall/plate height.`,
+      { coverage: 'complete' }
     );
   } else if (
     existingWall != null &&

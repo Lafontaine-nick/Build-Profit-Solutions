@@ -548,9 +548,17 @@ export function stripScopeInputForSingleTrade<
       else if (key in next) delete next[key];
     }
   }
-  delete next.planRooms;
-  // Insulation and drywall derive quantities from plan facts / room geometry.
-  if (tradeKey !== 'insulation' && tradeKey !== 'drywall' && tradeKey !== 'windows_doors' && tradeKey !== 'garage_doors') delete next.planFacts;
+  // Painting, insulation, and drywall derive quantities from plan facts / room geometry.
+  if (
+    tradeKey !== 'insulation' &&
+    tradeKey !== 'drywall' &&
+    tradeKey !== 'painting' &&
+    tradeKey !== 'windows_doors' &&
+    tradeKey !== 'garage_doors'
+  ) {
+    delete next.planRooms;
+    delete next.planFacts;
+  }
   delete next.areaReconciliation;
   if (tradeKey !== 'garage_doors') {
     delete next.garageDoorSingleCount;
