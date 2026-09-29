@@ -191,6 +191,7 @@ const TRADE_SCOPE_ALLOWLISTS = {
     "cabinet_paint",
     "exterior_prep",
     "exterior_paint",
+    "exterior_door_paint",
     "cleanup",
   ],
   windows_doors: [

@@ -1991,7 +1991,7 @@ describe("estimatePlanToMeasurements", () => {
     ]);
   });
 
-  test("derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only", () => {
+  test("derivePaintingGeometryMeasurements paints stucco elevations and keeps a labeled siding area", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2400 },
       [],
@@ -2015,8 +2015,36 @@ describe("estimatePlanToMeasurements", () => {
       },
       { buildingAreas: { totalLivingSqft: 2400 } },
     );
-    expect(derived.measurements.exteriorPaintSqft).toBe(320);
+    expect(derived.measurements.exteriorPaintSqft).toBe(720);
     expect(derived.measurements.exteriorPaintSqft).not.toBe(2400);
+  });
+
+  test("exterior paint deducts openings on stucco and skips unpainted brick", () => {
+    const derived = derivePaintingGeometryMeasurements(
+      {},
+      [],
+      {
+        elevationFaces: [
+          {
+            id: "front",
+            widthFt: 40,
+            heightFt: 10,
+            finish: "stucco",
+            windowDoorOpeningsSqft: 80,
+            garageOpeningsSqft: 120,
+          },
+          {
+            id: "side",
+            widthFt: 20,
+            heightFt: 10,
+            finish: "brick",
+          },
+        ],
+      },
+      {},
+    );
+    expect(derived.measurements.exteriorPaintSqft).toBe(200);
+    expect(derived.derivedKeys).toContain("exteriorPaintSqft");
   });
 
   test("explicit R4 instance tags win and stay in the measurements", () => {

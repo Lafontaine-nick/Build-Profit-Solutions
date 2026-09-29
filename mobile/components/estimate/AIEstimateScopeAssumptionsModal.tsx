@@ -72,6 +72,8 @@ import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeas
 import {
   applyPaintPricingMethodChoice,
   ensurePaintingPlanChecklistItems,
+  keepPaintingBidOnPaintOnly,
+  PAINTING_REVIEW_MEASUREMENT_KEYS,
   restorePaintingPlanSurfaceFields,
 } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
@@ -5932,10 +5934,18 @@ function QuantitySection({
   ].some(key =>
     Boolean(measurementsInput.quickMeasurementUserOverrides?.[key])
   );
+  const planWallPaintSqft = Number(
+    String(measurementsInput.wallPaintSqft ?? '').replace(/,/g, '')
+  );
+  const hasPlanWallPaint =
+    (itemId === 'interior_paint' || itemId === 'paint') &&
+    Number.isFinite(planWallPaintSqft) &&
+    planWallPaintSqft > 0;
   if (
     ['paint', 'interior_paint', 'paint_repair'].includes(itemId) &&
     !explicitPaintAreaInNotes &&
-    !paintMeasurementManuallyEntered
+    !paintMeasurementManuallyEntered &&
+    !hasPlanWallPaint
   ) {
     // Never reuse drywall/insulation/flooring sqft as an unquantified paint
     // takeoff. Keep the scope visible, but require manual paint measurement.
@@ -5945,6 +5955,15 @@ function QuantitySection({
       dualCount: undefined,
       showInput: true,
       pricingReady: false,
+    };
+  } else if (hasPlanWallPaint && !(Number(resolved.quantity) > 0)) {
+    resolved = {
+      ...resolved,
+      quantity: planWallPaintSqft,
+      unit: resolved.unit || 'sqft',
+      showInput: true,
+      pricingReady: true,
+      quantitySource: resolved.quantitySource || 'plan_vision',
     };
   }
   const hasPrimaryTakeoffForDisplay = hasPrimaryTakeoffFromResolved(resolved);
@@ -14668,7 +14687,8 @@ function CollapsibleQuickMeasurements({
     );
   const paintingPlanMeasurements =
     String(measurements.planImportTradeKey || '') === 'painting' ||
-    (singleTradeImport && tradeKey === 'painting');
+    (singleTradeImport && tradeKey === 'painting') ||
+    String(checklist?.templateKey || '').toLowerCase() === 'painting';
   const quickMeasurementTemplateKey = paintingPlanMeasurements
     ? 'painting'
     : stuccoTradeFlow
@@ -15475,7 +15495,6 @@ function CollapsibleQuickMeasurements({
           'cabinetLowerLf',
           'cabinetRunLf',
           'cabinetPaintSqft',
-          'exteriorPaintSqft',
         ]);
         return filteredRows
           .map(row =>
@@ -15916,7 +15935,9 @@ function CollapsibleQuickMeasurements({
     (String(measurements.planImportMode || '') === 'selected_trade' &&
       String(measurements.planImportTradeKey || '') === 'concrete');
   const mixedExteriorQmJob =
-    isMixedExteriorScopeNotes(notes) && !concretePlanExport;
+    !paintingPlanMeasurements &&
+    isMixedExteriorScopeNotes(notes) &&
+    !concretePlanExport;
   const explicitHvacScopeInNotes =
     /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       String(notes || '')
@@ -15926,6 +15947,7 @@ function CollapsibleQuickMeasurements({
       String(notes || '')
     );
   const deckQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     ((String(effectiveTemplateKey || '').toLowerCase() === 'deck_patio' &&
       (!mixedExteriorQmJob || explicitDeckScopeMentioned)) ||
@@ -15938,6 +15960,7 @@ function CollapsibleQuickMeasurements({
         Number(measurements.hvacSystemTons) > 0 ||
         Number(measurements.hvacDuctworkLf) > 0));
   const hvacQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'hvac' ||
       mixedHvacScope);
@@ -16044,6 +16067,7 @@ function CollapsibleQuickMeasurements({
       String(notes || '')
     );
   const roofingQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'roofing' ||
       roofingNotesFlow ||
@@ -16179,6 +16203,7 @@ function CollapsibleQuickMeasurements({
       String(notes || '')
     );
   const kitchenInstallQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     !isWholeHomeMixedRemodel &&
     (compactMixedScope
@@ -16186,6 +16211,7 @@ function CollapsibleQuickMeasurements({
       : String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
         mixedTradeSet.has('kitchen'));
   const kitchenDemoQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     compactMixedScope &&
     isWholeHomeMixedRemodel &&
@@ -16195,6 +16221,7 @@ function CollapsibleQuickMeasurements({
     );
   const kitchenQmJob = kitchenInstallQmJob || kitchenDemoQmJob;
   const flooringQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'flooring' ||
       mixedTradeSet.has('flooring'));
@@ -16202,6 +16229,7 @@ function CollapsibleQuickMeasurements({
     Array.isArray(measurements.flooringExistingTypes) &&
     measurements.flooringExistingTypes.length > 0;
   const landscapingQmJob =
+    !paintingPlanMeasurements &&
     !concretePlanExport &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'landscaping' ||
@@ -16209,6 +16237,7 @@ function CollapsibleQuickMeasurements({
       (mixedTradeSet.has('landscaping') &&
         (!compactMixedScope || explicitLandscapingScopeInNotes)));
   const concreteQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'concrete' ||
       mixedExteriorQmJob ||
@@ -16218,6 +16247,7 @@ function CollapsibleQuickMeasurements({
     (singleTradeImport && tradeKey === 'windows_doors') ||
     String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors';
   const stuccoQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
       stuccoTradeFlow ||
@@ -16271,9 +16301,11 @@ function CollapsibleQuickMeasurements({
     return next;
   }, [measurements, noteQuickMeasurements.values, roofingQmJob]);
   const paintingQmJob =
+    !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
   const bathroomFixturesQmJob =
+    !paintingPlanMeasurements &&
     !notesTradeFlow &&
     !wholeHomeLayout &&
     !isWholeHomeMixedRemodel &&
@@ -16281,6 +16313,7 @@ function CollapsibleQuickMeasurements({
       mixedTradeSet.has('bathroom')) &&
     (!compactMixedScope || explicitBathroomScopeInNotes);
   const showWetAreaFinishSteppers = useMemo(() => {
+    if (paintingPlanMeasurements) return false;
     if (notesTradeFlow) return false;
     if (singleTradeImport) return false;
     const noteText = String(notes || '');
@@ -16322,6 +16355,7 @@ function CollapsibleQuickMeasurements({
     }
     return false;
   }, [
+    paintingPlanMeasurements,
     notesTradeFlow,
     notes,
     isWholeHomeMixedRemodel,
@@ -19139,11 +19173,13 @@ function CollapsibleQuickMeasurements({
         result.key === 'flooringSqft') ||
       (compactBathroomPlumbingFlow && result.key === 'cabinetLf') ||
       (compactMixedScope &&
+        !paintingPlanMeasurements &&
         result.key === 'ceilingPaintSqft' &&
         !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
           String(notes || '')
         )) ||
       (compactMixedScope &&
+        !paintingPlanMeasurements &&
         result.key === 'exteriorPaintSqft' &&
         !/\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\s+(?:the\s+)?(?:exterior|outside)\b/i.test(
           String(notes || '')
@@ -21094,7 +21130,7 @@ function CollapsibleQuickMeasurements({
                 ? renderCompactBathroomPlumbingPanel()
                 : null}
 
-              {compactMixedScope ? (
+              {compactMixedScope && !paintingPlanMeasurements ? (
                 <Text
                   style={{
                     color: darkMode ? '#cbd5e1' : Colors.text,
@@ -21990,6 +22026,12 @@ export default function AIEstimateScopeAssumptionsModal({
       (measurements.planImportTradeKey as PlanTradeKey | null | undefined) ||
       singleTradeKey ||
       null;
+    if (
+      tradeKeyForPending === 'painting' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'painting'
+    ) {
+      return new Set<string>(PAINTING_REVIEW_MEASUREMENT_KEYS);
+    }
     if (tradeKeyForPending === 'hvac') {
       return new Set<string>(HVAC_PLAN_REVIEW_CANONICAL_KEYS);
     }
@@ -22002,7 +22044,7 @@ export default function AIEstimateScopeAssumptionsModal({
       : null;
     const keys = trade?.reviewMeasurementKeys;
     return keys?.length ? new Set(keys) : undefined;
-  }, [measurements.planImportTradeKey, singleTradeKey]);
+  }, [measurements.planImportTradeKey, singleTradeKey, checklist?.templateKey]);
   const explicitBathroomRemodelNotes =
     /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
     /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
@@ -22383,7 +22425,7 @@ export default function AIEstimateScopeAssumptionsModal({
     };
     const withDrywallLayout = (list: ScopeChecklistItem[]) =>
       finalizeDrywallScopeChecklistLayout(
-        list,
+        keepPaintingBidOnPaintOnly(list),
         checklist?.templateKey,
         drywallLayoutCtx
       );
@@ -30366,6 +30408,7 @@ export default function AIEstimateScopeAssumptionsModal({
             hasSitePhotos={hasSitePhotos}
         singleTradeImport={
           (singleTradePlanImport && singleTradeKey === 'painting') ||
+          String(checklist?.templateKey || '').toLowerCase() === 'painting' ||
           ((singleTradePlanImport || stuccoTradeFlow) &&
             !notesContainStructuralMixedScope)
         }
@@ -30374,7 +30417,10 @@ export default function AIEstimateScopeAssumptionsModal({
                 ? 'plumbing'
                 : singleTradePlanImport
                   ? singleTradeKey
-                  : 'stucco'
+                  : String(checklist?.templateKey || '').toLowerCase() ===
+                      'painting'
+                    ? 'painting'
+                    : 'stucco'
             }
             notesTradeFlow={notesPlumbingFlow}
             notesScopeSelectorVisible={notesScopeSelectorVisible}
@@ -30829,7 +30875,7 @@ export default function AIEstimateScopeAssumptionsModal({
                         },
                       ]}
                     >
-                      Some are planning estimates until you add a takeoff
+                      Some prices are planning estimates. Review them before you send the bid.
                     </Text>
                   </ReliableFlowPress>
                 ) : null}

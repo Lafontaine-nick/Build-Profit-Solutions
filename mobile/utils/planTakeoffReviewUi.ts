@@ -674,6 +674,7 @@ const PAINTING_PLAN_REVIEW_KEYS = new Set([
   'combinedPaintableAreaSqft',
   'baseboardLf',
   'interiorDoorCount',
+  'exteriorDoorCount',
   'cabinetRunLf',
   'cabinetPaintSqft',
   'exteriorPaintSqft',
@@ -840,6 +841,7 @@ export function planReviewProvenanceFlags(input: {
   provenanceEntry?: unknown;
   hasConflict?: boolean;
   pricingEligible?: boolean;
+  tradeKey?: string | null;
 }): {
   hasExplicitPlanSource: boolean;
   hasReliableDimensions: boolean;
@@ -880,6 +882,7 @@ export function planReviewProvenanceFlags(input: {
       evidenceKind === 'schedule' ||
       evidenceKind === 'explicit_label');
   const fromOpeningSymbols =
+    input.tradeKey !== 'painting' &&
     windowsDoorsKey &&
     (evidenceKind === 'elevation_symbols' ||
       evidenceKind === 'plan_count' ||
@@ -1030,7 +1033,12 @@ export function buildPlanReviewMeasurementRowState(input: {
   provenance: PlanMeasurementProvenance;
   includeDefault: boolean;
 } {
-  const pricingEligible =
+  const paintingBidQuantity =
+    input.tradeKey === 'painting' &&
+    (input.key === 'interiorDoorCount' ||
+      input.key === 'exteriorDoorCount' ||
+      input.key === 'exteriorPaintSqft');
+  let pricingEligible =
     input.tradeKey === 'electrical'
       ? electricalPlanQuantityPricingEligible(
           input.key,
@@ -1043,11 +1051,15 @@ export function buildPlanReviewMeasurementRowState(input: {
             .pricingEligible === false
         ? false
         : true;
+  if (paintingBidQuantity && !input.hasConflict) {
+    pricingEligible = true;
+  }
   const provenanceFlags = planReviewProvenanceFlags({
     key: input.key,
     provenanceEntry: input.provenanceEntry,
     hasConflict: input.hasConflict,
     pricingEligible,
+    tradeKey: input.tradeKey,
   });
   const provenance = resolvePlanMeasurementProvenance({
     key: input.key,
@@ -1063,7 +1075,15 @@ export function buildPlanReviewMeasurementRowState(input: {
     pricingEligible,
   });
   const displayProvenance =
-    input.tradeKey === 'insulation'
+    paintingBidQuantity &&
+    (input.key === 'interiorDoorCount' || input.key === 'exteriorDoorCount') &&
+    !input.hasConflict
+      ? {
+          ...provenance,
+          status: 'plan_verified' as const,
+          label: 'From plan',
+        }
+      : input.tradeKey === 'insulation'
       ? {
           ...provenance,
           label:
@@ -1176,6 +1196,7 @@ export function buildPaintingPlanReviewSummary(
     positiveMeasurement(measurements.combinedPaintableAreaSqft) ??
     positiveMeasurement(measurements.paintAreaSqft);
   const doors = positiveMeasurement(measurements.interiorDoorCount);
+  const exteriorDoors = positiveMeasurement(measurements.exteriorDoorCount);
   const trim = positiveMeasurement(measurements.baseboardLf);
   const cabinets =
     positiveMeasurement(measurements.cabinetRunLf) ??
@@ -1186,6 +1207,7 @@ export function buildPaintingPlanReviewSummary(
     ceilings != null ||
     combined != null ||
     doors != null ||
+    exteriorDoors != null ||
     trim != null ||
     cabinets != null;
 
@@ -1216,8 +1238,16 @@ export function buildPaintingPlanReviewSummary(
     if (doors != null) {
       const note = paintingQuantityNote('interiorDoorCount', provenance);
       lines.push({
-        label: 'Doors',
+        label: 'Interior doors',
         value: `${formatSfWithCommas(doors)} EA`,
+        ...(note ? { note } : {}),
+      });
+    }
+    if (exteriorDoors != null) {
+      const note = paintingQuantityNote('exteriorDoorCount', provenance);
+      lines.push({
+        label: 'Exterior doors',
+        value: `${formatSfWithCommas(exteriorDoors)} EA`,
         ...(note ? { note } : {}),
       });
     }
@@ -1246,9 +1276,15 @@ export function buildPaintingPlanReviewSummary(
   if (exterior != null) {
     const note = paintingQuantityNote('exteriorPaintSqft', provenance);
     lines.push({
-      label: 'Exterior walls',
+      label: 'Exterior paint',
       value: `${formatSfWithCommas(exterior)} sqft`,
       ...(note ? { note } : {}),
+    });
+  } else if (hasInterior) {
+    lines.push({
+      label: 'Exterior paint',
+      value: 'On this bid',
+      note: 'Elevation square footage was not printed — enter it before pricing',
     });
   }
 
@@ -2541,6 +2577,25 @@ export function confirmedPlanTakeoffLines(input: {
     if (!label) return [];
     return [`${label} · ${planTakeoffQuantityText(key, value)}`];
   });
+  const paintingSurfaces =
+    tradeKey === 'painting' ||
+    numeric.has('wallPaintSqft') ||
+    numeric.has('ceilingPaintSqft');
+  if (paintingSurfaces && !numeric.has('exteriorPaintSqft')) {
+    const wallIndex = lines.findIndex(line =>
+      /^(Interior walls|Wall Paint) ·/.test(line)
+    );
+    const ceilingIndex = lines.findIndex(line =>
+      /^(Ceilings|Ceiling Paint) ·/.test(line)
+    );
+    const insertAt =
+      wallIndex >= 0
+        ? wallIndex + 1
+        : ceilingIndex >= 0
+          ? ceilingIndex + 1
+          : lines.length;
+    lines.splice(insertAt, 0, 'Exterior paint · Needs SF');
+  }
   const roomCount = (input.rooms || []).filter(room =>
     String(room?.name || '').trim()
   ).length;

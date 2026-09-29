@@ -603,6 +603,31 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('keeps a painting plan export as one painting scope', () => {
+    const draft = {
+      projectTitle: 'Concrete',
+      projectType: 'concrete',
+      originalNotes:
+        'Covered Patio 322 sqft, concrete flatwork, and exterior doors from the architectural set. --- Plan takeoff ---',
+      scopeChecklist: { templateKey: 'painting', items: [] },
+      scopeMeasurements: { planImportTradeKey: 'painting', planImportMode: 'selected_trade' },
+      classification: {
+        scopeMode: 'dedicated',
+        detectedTrades: [
+          'concrete',
+          'windows_doors',
+          'painting',
+          'trim',
+          'bathroom',
+        ],
+        scopeSummary: null,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Painting');
+    expect(getInitialRevealTagline(draft)).toBeNull();
+  });
+
   it('does not let a flooring project title hide mixed insulation work', () => {
     const notes =
       'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';

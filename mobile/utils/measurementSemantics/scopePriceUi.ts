@@ -567,7 +567,7 @@ export function scopeHasCommittedConfirmScopePrice(params: {
 }
 
 export const FOOTER_PLANNING_BENCHMARK_INFO =
-  'Some applied prices are planning estimates until you add a detailed takeoff or quote. You can edit any price after applying.';
+  'Some prices are planning estimates from a comparable package or a national average. Review them before you send the bid. You can edit any price after applying.';
 
 /** Gross floor area copied from living SF is not a finish takeoff. */
 export function isGrossFlooringDerivedFromLiving(input: {

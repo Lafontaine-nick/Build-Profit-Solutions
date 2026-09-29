@@ -125,7 +125,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
       'trim_paint',
     ],
     windowCount: ['windows'],
-    exteriorDoorCount: ['exterior_doors'],
+    exteriorDoorCount: ['exterior_doors', 'exterior_door_paint'],
     slidingDoorCount: ['sliding_doors'],
     cabinetPaintSqft: ['cabinet_paint'],
     cabinetRunLf: ['cabinet_paint'],
@@ -240,6 +240,7 @@ export function getMeasurementRelevance(params: {
   templateKey?: string | null;
   projectType?: string | null;
   notes?: string | null;
+  planImportTradeKey?: string | null;
   /** Retile walls only — existing tub/pan stays; shower floor SF is not used. */
   keepingExistingWetArea?: boolean;
   wetAreaInstallChoiceId?: string | null;
@@ -689,6 +690,25 @@ export function getMeasurementRelevance(params: {
       relatedScopeKeys,
       reason:
         'Not needed unless bath floor tile or flooring demo/install is in this bid.',
+    };
+  }
+
+  if (
+    (String(params.planImportTradeKey || '') === 'painting' ||
+      String(params.templateKey || '').toLowerCase() === 'painting') &&
+    (measurementKey === 'exteriorPaintSqft' ||
+      measurementKey === 'exteriorDoorCount' ||
+      measurementKey === 'wallPaintSqft' ||
+      measurementKey === 'ceilingPaintSqft' ||
+      measurementKey === 'baseboardLf' ||
+      measurementKey === 'interiorDoorCount')
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason:
+        'Painting plan — exterior wall paint and exterior doors are part of this bid.',
     };
   }
 

@@ -3,6 +3,8 @@ import {
   buildPaintingPdfMeasurementLines,
   buildPaintingStructuredMeasurements,
   ensurePaintingPlanChecklistItems,
+  keepPaintingBidOnPaintOnly,
+  exteriorPaintSqftFromElevationFaces,
   normalizePaintingScalarMeasurements,
   paintingPlanNeedsAreaConfirmation,
   restorePaintingPlanSurfaceFields,
@@ -57,15 +59,85 @@ describe('painting plan convergence', () => {
       ceilingPaintSqft: '2571',
     });
     expect(items.map(item => item.id)).toEqual([
-      'door_paint',
-      'trim_paint',
+      'interior_paint',
       'ceiling_paint',
       'prep',
-      'interior_paint',
+      'exterior_paint',
+      'exterior_prep',
+      'trim_paint',
+      'door_paint',
+      'exterior_door_paint',
     ]);
   });
 
-  it('restores plan wall and ceiling areas and does not price prep from their sum', () => {
+  it('puts stucco elevation area on the exterior paint card and deducts openings', () => {
+    expect(
+      exteriorPaintSqftFromElevationFaces([
+        {
+          finish: 'stucco',
+          widthFt: 40,
+          heightFt: 10,
+          windowDoorOpeningsSqft: 80,
+          garageOpeningsSqft: 120,
+        },
+        { finish: 'brick', widthFt: 20, heightFt: 10 },
+        { finish: 'siding', paintAreaSqft: 320 },
+      ])
+    ).toBe(520);
+
+    const restored = restorePaintingPlanSurfaceFields({
+      planImportTradeKey: 'painting',
+      wallPaintSqft: '3734',
+      ceilingPaintSqft: '2571',
+      planFacts: {
+        elevationFaces: [
+          {
+            finish: 'stucco',
+            stuccoAreaSqft: 1800,
+            windowDoorOpeningsSqft: 200,
+          },
+        ],
+      },
+    });
+    expect(restored.exteriorPaintSqft).toBe('1600');
+    expect(restored.quickMeasurementSources?.exteriorPaintSqft).toBe(
+      'needs_confirmation'
+    );
+    expect(restored.itemQuantities?.exterior_paint).toMatchObject({
+      quantity: '1600',
+      unit: 'sqft',
+      quantitySource: 'plan_vision',
+    });
+    const items = ensurePaintingPlanChecklistItems(
+      [{ id: 'exterior_paint', state: 'unsure' }, { id: 'interior_paint' }],
+      restored
+    );
+    expect(items.find(item => item.id === 'exterior_paint')).toMatchObject({
+      state: 'included',
+    });
+  });
+
+  it('keeps a painting bid on door paint and leaves door installation off', () => {
+    const items = keepPaintingBidOnPaintOnly([
+      { id: 'exterior_doors', state: 'included' },
+      { id: 'interior_door_install', state: 'included' },
+      { id: 'exterior_paint', state: 'unsure' },
+      { id: 'exterior_door_paint', state: 'included' },
+      { id: 'door_paint', state: 'included' },
+      { id: 'trim_paint', state: 'included' },
+    ]);
+    expect(items.map(item => item.id)).toEqual([
+      'exterior_paint',
+      'exterior_door_paint',
+      'door_paint',
+      'trim_paint',
+    ]);
+    expect(items.find(item => item.id === 'exterior_paint')?.state).toBe(
+      'included'
+    );
+  });
+
+  it('restores plan wall and ceiling areas and prices interior masking from those surfaces', () => {
     const restored = restorePaintingPlanSurfaceFields({
       planImportTradeKey: 'painting',
       wallPaintSqft: '',
@@ -154,7 +226,22 @@ describe('painting plan convergence', () => {
         quantitySource: 'user_entered',
       }
     );
-    expect(prep.fill).toBeNull();
+    expect(prep.fill?.total).toBe(1576.25);
+    expect(prep.fill?.basis).toMatchObject({ quantity: 6305, unit: 'sqft' });
+    const exteriorMasking = resolveScopeItemSuggestedPricing(
+      'exterior_prep',
+      inputWith({
+        planImportTradeKey: 'painting',
+        exteriorPaintSqft: '3000',
+      }),
+      'painting',
+      {
+        quantity: 3000,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
+    expect(exteriorMasking.fill?.total).toBe(600);
   });
 
   it('prices a matched painting plan as one installed package', () => {

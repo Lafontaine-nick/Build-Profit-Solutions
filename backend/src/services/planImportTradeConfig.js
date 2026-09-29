@@ -331,6 +331,7 @@ const TRADE_CONFIGS = {
       "interiorDoorCount",
       "cabinetRunLf",
       "cabinetPaintSqft",
+      "exteriorDoorCount",
       "exteriorPaintSqft",
     ],
     reviewScopeKeywords: [

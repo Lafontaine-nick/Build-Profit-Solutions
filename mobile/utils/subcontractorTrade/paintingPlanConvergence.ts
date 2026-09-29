@@ -61,13 +61,22 @@ const PAINTING_PLAN_ALIASES: Record<string, string> = {
 export const PAINTING_REVIEW_MEASUREMENT_KEYS = [
   'wallPaintSqft',
   'ceilingPaintSqft',
-  'paintAreaSqft',
-  'combinedPaintableAreaSqft',
+  'exteriorPaintSqft',
   'baseboardLf',
   'interiorDoorCount',
-  'cabinetRunLf',
-  'cabinetPaintSqft',
-  'exteriorPaintSqft',
+  'exteriorDoorCount',
+] as const;
+
+/** Confirm Scope for a painting bid shows only these takeoff fields. */
+export const PAINTING_CONFIRM_SCOPE_IDS = [
+  'interior_paint',
+  'ceiling_paint',
+  'prep',
+  'exterior_paint',
+  'exterior_prep',
+  'trim_paint',
+  'door_paint',
+  'exterior_door_paint',
 ] as const;
 
 const PAINT_OCCUPANCY_VALUES = new Set<PaintOccupancy>([
@@ -258,6 +267,7 @@ export function normalizePaintingScalarMeasurements(
     'ceilingPaintSqft',
     'baseboardLf',
     'interiorDoorCount',
+    'exteriorDoorCount',
     'cabinetRunLf',
     'cabinetPaintSqft',
     'cabinetUpperLf',
@@ -341,6 +351,7 @@ export function buildPaintingPdfMeasurementLines(
   }
   add('Baseboard / trim', measurements.baseboardLf, 'LF');
   add('Interior doors', measurements.interiorDoorCount, 'each');
+  add('Exterior doors', measurements.exteriorDoorCount, 'each');
   add('Cabinet run length', measurements.cabinetRunLf, 'LF');
   add('Cabinet paint area', measurements.cabinetPaintSqft, 'sqft');
   add('Exterior paint', measurements.exteriorPaintSqft, 'sqft');
@@ -519,54 +530,119 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
   };
 }
 
-const PAINTING_INSTALL_SCOPE_IDS = new Set([
-  'baseboard_install',
-  'interior_door_install',
-  'door_casing_install',
-  'window_install',
-]);
+const PAINTING_CONFIRM_SCOPE_ID_SET = new Set<string>(PAINTING_CONFIRM_SCOPE_IDS);
+
+const PAINTING_CONFIRM_SCOPE_DEFAULTS: Record<
+  (typeof PAINTING_CONFIRM_SCOPE_IDS)[number],
+  { label: string; helperText: string }
+> = {
+  interior_paint: {
+    label: 'Interior wall paint',
+    helperText: 'Paint the interior wall area from the plan takeoff.',
+  },
+  ceiling_paint: {
+    label: 'Ceiling paint',
+    helperText: 'Paint the ceiling area from the plan takeoff.',
+  },
+  prep: {
+    label: 'Interior masking',
+    helperText:
+      'Tape, plastic, and floor protection for the interior walls and ceilings. This is not included in the wall, ceiling, trim, or door paint prices.',
+  },
+  exterior_paint: {
+    label: 'Exterior paint',
+    helperText:
+      'Paint only the exterior surface square footage on this card. Door slabs, window units, garage doors, and masking are priced separately.',
+  },
+  exterior_prep: {
+    label: 'Exterior masking',
+    helperText:
+      'Tape and protection around the exterior paint area. This is not included in the exterior paint or exterior door paint price.',
+  },
+  trim_paint: {
+    label: 'Trim paint',
+    helperText: 'Paint the interior trim from the plan takeoff.',
+  },
+  door_paint: {
+    label: 'Interior door paint',
+    helperText: 'Paint the interior doors. Door installation stays off this bid.',
+  },
+  exterior_door_paint: {
+    label: 'Exterior door paint',
+    helperText:
+      'Paint the hinged exterior doors. Garage doors are not included, and door installation stays off this bid.',
+  },
+};
 
 /**
- * Painting plan bids price paint, not hanging doors or installing trim.
- * Keep wall and ceiling paint as their own lines when the takeoff has them.
+ * Painting confirm scope is walls, ceilings, exterior paint, trim,
+ * interior doors, and exterior doors. Other plan reads stay off this bid.
  */
 export function ensurePaintingPlanChecklistItems<T extends { id: string }>(
   items: T[],
-  measurements?: {
+  _measurements?: {
     wallPaintSqft?: string | number | null;
     ceilingPaintSqft?: string | number | null;
+    exteriorPaintSqft?: string | number | null;
   } | null
 ): T[] {
-  const kept = items.filter(item => !PAINTING_INSTALL_SCOPE_IDS.has(item.id));
-  const has = (id: string) => kept.some(item => item.id === id);
-  const extras: T[] = [];
-  if (
-    positiveNumber(measurements?.wallPaintSqft) != null &&
-    !has('interior_paint')
-  ) {
-    extras.push({
-      id: 'interior_paint',
+  const byId = new Map<string, T>();
+  const refreshCopyIds = new Set(['prep', 'exterior_prep', 'exterior_paint']);
+  for (const item of items) {
+    if (!PAINTING_CONFIRM_SCOPE_ID_SET.has(item.id)) continue;
+    const copy = refreshCopyIds.has(item.id)
+      ? PAINTING_CONFIRM_SCOPE_DEFAULTS[
+          item.id as keyof typeof PAINTING_CONFIRM_SCOPE_DEFAULTS
+        ]
+      : null;
+    byId.set(item.id, {
+      ...item,
+      state: 'included',
+      ...(copy ? { label: copy.label, helperText: copy.helperText } : {}),
+    } as T);
+  }
+  for (const id of PAINTING_CONFIRM_SCOPE_IDS) {
+    if (byId.has(id)) continue;
+    const copy = PAINTING_CONFIRM_SCOPE_DEFAULTS[id];
+    byId.set(id, {
+      id,
       inputType: 'yes_no',
-      label: 'Interior wall paint',
-      helperText: 'Paint the interior wall area from the plan takeoff.',
+      label: copy.label,
+      helperText: copy.helperText,
       category: 'paint',
       state: 'included',
     } as unknown as T);
   }
-  if (
-    positiveNumber(measurements?.ceilingPaintSqft) != null &&
-    !has('ceiling_paint')
-  ) {
-    extras.push({
-      id: 'ceiling_paint',
-      inputType: 'yes_no',
-      label: 'Ceiling paint',
-      helperText: 'Paint the ceiling area from the plan takeoff.',
-      category: 'paint',
-      state: 'included',
-    } as unknown as T);
-  }
-  return extras.length ? [...kept, ...extras] : kept;
+  return PAINTING_CONFIRM_SCOPE_IDS.map(id => byId.get(id)!);
+}
+
+const PAINTING_INSTALL_SCOPE_IDS = new Set([
+  'exterior_doors',
+  'exterior_door_install',
+  'interior_doors',
+  'interior_door_install',
+  'baseboard_install',
+  'door_casing_install',
+]);
+
+/**
+ * A painting bid prices door paint and trim. Door units, frames, and
+ * installation stay off even when the plan count would otherwise add them.
+ */
+export function keepPaintingBidOnPaintOnly<
+  T extends { id: string; state?: string },
+>(items: T[]): T[] {
+  const paintingBid = items.some(
+    item => item.id === 'exterior_door_paint' || item.id === 'door_paint'
+  );
+  if (!paintingBid) return items;
+  return items
+    .filter(item => !PAINTING_INSTALL_SCOPE_IDS.has(item.id))
+    .map(item =>
+      item.id === 'exterior_paint' && item.state !== 'excluded'
+        ? { ...item, state: 'included' }
+        : item
+    );
 }
 
 function provenanceQuantity(
@@ -594,6 +670,59 @@ function plateHeightFromText(text: string | null | undefined): number | null {
   return null;
 }
 
+type ElevationPaintFace = {
+  finish?: string | null;
+  cladding?: string | null;
+  paintAreaSqft?: number | null;
+  stuccoAreaSqft?: number | null;
+  areaSqft?: number | null;
+  widthFt?: number | null;
+  heightFt?: number | null;
+  openingsSqft?: number | null;
+  windowDoorOpeningsSqft?: number | null;
+  garageOpeningsSqft?: number | null;
+};
+
+/** Stucco and siding get a paint coat. Brick and stone do not, unless labeled painted. */
+export function exteriorPaintSqftFromElevationFaces(
+  faces: ElevationPaintFace[] | null | undefined
+): number | null {
+  if (!Array.isArray(faces) || !faces.length) return null;
+  let total = 0;
+  let used = 0;
+  for (const face of faces) {
+    const finish = String(face?.finish || face?.cladding || '').toLowerCase();
+    const isMasonry =
+      /brick|stone|masonry|veneer/.test(finish) && !/paint/.test(finish);
+    if (isMasonry) continue;
+    const labeledPaint = positiveNumber(face?.paintAreaSqft);
+    const stuccoArea = positiveNumber(face?.stuccoAreaSqft);
+    const isStucco = /stucco|efis|eifs/.test(finish) || stuccoArea != null;
+    const isPaintedCladding = /paint|siding|fiber|hardi|wood|lap/.test(finish);
+    const width = positiveNumber(face?.widthFt);
+    const height = positiveNumber(face?.heightFt);
+    const gross =
+      positiveNumber(face?.areaSqft) ??
+      (width != null && height != null ? width * height : null);
+    let area: number | null = null;
+    if (labeledPaint != null) area = labeledPaint;
+    else if (isStucco) area = stuccoArea ?? gross;
+    else if (isPaintedCladding) area = gross;
+    if (area == null) continue;
+    if (labeledPaint == null) {
+      const openings =
+        positiveNumber(face?.openingsSqft) ??
+        (positiveNumber(face?.windowDoorOpeningsSqft) ?? 0) +
+          (positiveNumber(face?.garageOpeningsSqft) ?? 0);
+      if (openings > 0 && openings < area) area -= openings;
+    }
+    if (!(area > 0)) continue;
+    total += area;
+    used += 1;
+  }
+  return used ? Math.round(total * 10) / 10 : null;
+}
+
 function nearQuantity(
   value: number | null,
   target: number,
@@ -607,6 +736,7 @@ export function restorePaintingPlanSurfaceFields<
   T extends {
     wallPaintSqft?: string | number | null;
     ceilingPaintSqft?: string | number | null;
+    exteriorPaintSqft?: string | number | null;
     baseboardLf?: string | number | null;
     interiorDoorCount?: string | number | null;
     planImportTradeKey?: string | null;
@@ -614,6 +744,7 @@ export function restorePaintingPlanSurfaceFields<
       wallHeightFt?: number | null;
       plateHeightFt?: number | null;
       ceilingHeightFt?: number | null;
+      elevationFaces?: ElevationPaintFace[] | null;
     } | null;
     measurementProvenance?: Record<string, unknown> | null;
     quickMeasurementSources?: Record<string, string> | null;
@@ -675,7 +806,17 @@ export function restorePaintingPlanSurfaceFields<
   const lockedDoor = isPlanReviewLockedProvenance(provenance?.interiorDoorCount)
     ? provenanceQuantity(provenance, 'interiorDoorCount')
     : null;
-  if (wall == null && ceiling == null && lockedDoor == null) return measurements;
+  const exteriorFromFaces = exteriorPaintSqftFromElevationFaces(
+    measurements.planFacts?.elevationFaces
+  );
+  const exterior =
+    positiveNumber(measurements.exteriorPaintSqft) ??
+    positiveNumber(measurements.itemQuantities?.exterior_paint?.quantity) ??
+    provenanceQuantity(provenance, 'exteriorPaintSqft') ??
+    exteriorFromFaces;
+  if (wall == null && ceiling == null && lockedDoor == null && exterior == null) {
+    return measurements;
+  }
   const next = { ...measurements };
   const sources = { ...(measurements.quickMeasurementSources || {}) };
   const userLocked = (key: string) =>
@@ -707,9 +848,17 @@ export function restorePaintingPlanSurfaceFields<
     next.interiorDoorCount = String(lockedDoor);
     sources.interiorDoorCount = 'contractor_confirmed_from_plan_review';
   }
+  if (
+    positiveNumber(measurements.exteriorPaintSqft) == null &&
+    exterior != null &&
+    !userLocked('exteriorPaintSqft')
+  ) {
+    next.exteriorPaintSqft = String(exterior);
+    sources.exteriorPaintSqft = 'needs_confirmation';
+  }
   next.quickMeasurementSources = sources;
   const putPlanSurface = (
-    itemId: 'interior_paint' | 'ceiling_paint',
+    itemId: 'interior_paint' | 'ceiling_paint' | 'exterior_paint',
     quantity: number
   ) => {
     const existing = next.itemQuantities?.[itemId];
@@ -733,5 +882,8 @@ export function restorePaintingPlanSurfaceFields<
   };
   if (wall != null) putPlanSurface('interior_paint', wall);
   if (ceiling != null) putPlanSurface('ceiling_paint', ceiling);
+  if (exterior != null && !userLocked('exteriorPaintSqft')) {
+    putPlanSurface('exterior_paint', exterior);
+  }
   return next;
 }

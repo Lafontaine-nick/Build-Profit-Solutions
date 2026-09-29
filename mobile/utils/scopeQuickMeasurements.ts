@@ -1956,43 +1956,29 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('ceilingPaintSqft', 'Ceilings', '1200', 'sqft', 'interior')
     ),
     row(
-      F(
-        'paintAreaSqft',
-        'Paint area — confirm basis',
-        '1500',
-        'sqft',
-        'interior'
-      )
-    ),
-    row(
+      F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior'),
       F(
         'baseboardLf',
-        'Baseboard / trim',
+        'Trim',
         '200',
         'LF',
         'interior',
         undefined,
-        'Include baseboards, window casing, door casing, crown, and other interior trim. Exclude door slabs and door jambs/frames.'
-      ),
-      F('interiorDoorCount', 'Interior doors', '6', 'each', 'interior')
-    ),
-    row(
-      F('cabinetUpperLf', 'Upper Cabinets', '15', 'LF', 'interior'),
-      F('cabinetLowerLf', 'Lower Cabinets', '15', 'LF', 'interior')
-    ),
-    row(F('cabinetRunLf', 'Cabinet Run Length', '30', 'LF', 'interior')),
-    row(
-      F(
-        'cabinetPaintSqft',
-        'Paintable Cabinet Surface Area',
-        '200',
-        'sqft',
-        'interior',
-        undefined,
-        'Enter total paintable surface area for selected doors, drawer fronts, face frames, and exposed cabinet panels. Do not use kitchen floor area.'
+        'Baseboard and other interior trim. Door slabs are counted separately.'
       )
     ),
-    row(F('exteriorPaintSqft', 'Exterior Paint', '2200', 'sqft', 'exterior')),
+    row(
+      F('interiorDoorCount', 'Interior doors', '6', 'each', 'interior'),
+      F(
+        'exteriorDoorCount',
+        'Exterior doors',
+        'e.g. 3',
+        'each',
+        'exterior',
+        undefined,
+        'Hinged exterior doors to paint. Garage doors are not included.'
+      )
+    ),
   ],
   concrete: [
     row(
@@ -3397,7 +3383,6 @@ export function quickMeasurementRowsForInput(
   }
   if (
     resolvedKey === 'room_remodel' ||
-    resolvedKey === 'painting' ||
     resolvedKey === 'framing'
   ) {
     const structuralFramingMention =
@@ -4071,6 +4056,13 @@ export function wholeProjectPlanQuickMeasurementRows(
     const rightIndex = order.indexOf(right as QuickMeasurementFieldKey);
     return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
   });
+  if (
+    (confirmed.has('wallPaintSqft') || confirmed.has('ceilingPaintSqft')) &&
+    !keys.includes('exteriorPaintSqft')
+  ) {
+    const wallIndex = keys.indexOf('wallPaintSqft');
+    keys.splice(wallIndex >= 0 ? wallIndex + 1 : keys.length, 0, 'exteriorPaintSqft');
+  }
   return keys.flatMap(key => {
     const field =
       quickMeasurementFieldDef(key as QuickMeasurementFieldKey) ||

@@ -158,6 +158,16 @@ export function PlanTakeoffPendingConfirmationStrip({
 
   if (!displayReads.length) return null;
 
+  const unconfirmedPlanReads = displayReads.filter(
+    read =>
+      pendingPlanConfirmationSelectedValue(
+        measurements,
+        read.field,
+        localSelections[read.field]
+      ) == null
+  );
+  const allPlanReadsConfirmed = unconfirmedPlanReads.length === 0;
+
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
     : 'rgba(100,116,139,0.24)';
@@ -187,24 +197,28 @@ export function PlanTakeoffPendingConfirmationStrip({
     });
   const reviewTitle = offeredSystemOnly
     ? 'HVAC system'
-    : hasPlanContext
-      ? 'Unverified plan reads'
-      : 'Measurements to confirm';
+    : allPlanReadsConfirmed
+      ? 'Plan quantities'
+      : hasPlanContext
+        ? 'Unverified plan reads'
+        : 'Measurements to confirm';
   const reviewDescription = offeredSystemOnly
     ? offeredSystemConfirmed
       ? '1 system is in this bid.'
       : 'This plan does not print a system count. Confirm 1 system for the install.'
-    : hasPlanContext
-      ? displayReads.length === 1
-        ? 'One quantity from plan takeoff still needs confirmation.'
-        : `${displayReads.length} quantities from plan takeoff still need confirmation.`
-      : displayReads.length === 1
-        ? 'One derived measurement still needs confirmation.'
-        : `${displayReads.length} derived measurements still need confirmation.`;
+    : allPlanReadsConfirmed
+      ? 'These quantities are confirmed from the plan takeoff.'
+      : hasPlanContext
+        ? unconfirmedPlanReads.length === 1
+          ? 'One quantity from plan takeoff still needs confirmation.'
+          : `${unconfirmedPlanReads.length} quantities from plan takeoff still need confirmation.`
+        : unconfirmedPlanReads.length === 1
+          ? 'One derived measurement still needs confirmation.'
+          : `${unconfirmedPlanReads.length} derived measurements still need confirmation.`;
 
   return (
     <View style={styles.wrap}>
-      {offeredSystemConfirmed ? null : (
+      {offeredSystemConfirmed || allPlanReadsConfirmed ? null : (
         <Text style={styles.eyebrow}>Needs review</Text>
       )}
       <Text style={[styles.title, { color: titleColor }]}>
@@ -212,7 +226,7 @@ export function PlanTakeoffPendingConfirmationStrip({
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
         {reviewDescription}
-        {offeredSystemConfirmed
+        {offeredSystemConfirmed || allPlanReadsConfirmed
           ? ''
           : ' Tap a count to confirm it, or edit it.'}
       </Text>

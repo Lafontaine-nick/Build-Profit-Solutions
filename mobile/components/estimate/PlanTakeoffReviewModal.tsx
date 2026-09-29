@@ -831,6 +831,12 @@ export default function PlanTakeoffReviewModal({
         : []
     );
     const measurementEntries = Object.entries(visibleMeasurements);
+    if (
+      effectiveTradeKey === 'painting' &&
+      !measurementEntries.some(([key]) => key === 'exteriorPaintSqft')
+    ) {
+      measurementEntries.push(['exteriorPaintSqft', '']);
+    }
     if (effectiveTradeKey === 'electrical') {
       const seen = new Set(measurementEntries.map(([key]) => key));
       for (const reading of takeoff.lowConfidence || []) {
@@ -1037,7 +1043,12 @@ export default function PlanTakeoffReviewModal({
           : rowState.provenance;
         return {
           key,
-          label: display.label,
+          label:
+            effectiveTradeKey === 'painting' && key === 'exteriorDoorCount'
+              ? 'Exterior doors'
+              : effectiveTradeKey === 'painting' && key === 'exteriorPaintSqft'
+                ? 'Exterior paint'
+                : display.label,
           subtext:
             [display.subtext, fieldDef?.helperText, ceilingBoundaryText]
               .filter(Boolean)
@@ -1447,13 +1458,28 @@ export default function PlanTakeoffReviewModal({
     return tradeReview ? tradeReviewKeys.has(key) : true;
   });
   const conflictFieldSet = planTakeoffConflictFieldSet(measurementConflicts);
+  const paintingBidReviewKey = (key: string) =>
+    key === 'wallPaintSqft' ||
+    key === 'ceilingPaintSqft' ||
+    key === 'exteriorPaintSqft' ||
+    key === 'baseboardLf' ||
+    key === 'interiorDoorCount' ||
+    key === 'exteriorDoorCount';
   const reviewLowConfidence = filterLowConfidenceForReview(
     lowConfidence,
     conflictFieldSet
+  ).filter(
+    field =>
+      effectiveTradeKey !== 'painting' ||
+      !paintingBidReviewKey(String(field.field || ''))
   );
   const reviewUnreadable = filterUnreadableForReview(
     unreadable,
     conflictFieldSet
+  ).filter(
+    field =>
+      effectiveTradeKey !== 'painting' ||
+      !paintingBidReviewKey(String(field.field || ''))
   );
   const hvacReadingOverrides =
     effectiveTradeKey === 'hvac'

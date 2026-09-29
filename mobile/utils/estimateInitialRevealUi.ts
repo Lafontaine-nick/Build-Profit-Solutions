@@ -1,6 +1,7 @@
 import { filterBathroomRevealAttentionItems } from '@/utils/bathroomPlanningMeasurements';
 import {
   filterConcreteRevealAttentionItems,
+  notesAreImportedPlanSummary,
   summarizeConcreteNoteBullets,
   concreteRevealHasPlanningInputs,
 } from '@/utils/concretePlanningMeasurements';
@@ -2217,6 +2218,9 @@ export function getInitialRevealStatusLabel(
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   const classification = getRevealClassification(draft);
+  if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
+    return 'Painting';
+  }
   if (classification.scopeMode === 'mixed') {
     return classification.scopeSummary?.trim() || 'Mixed-scope remodel';
   }
@@ -2263,7 +2267,26 @@ function getRevealClassification(draft: EstimateAiDraft) {
     trim: 'Trim',
   };
   const notes = String(draft.originalNotes || '');
+  const planRecord = draft.scopeMeasurements as
+    | { planImportMode?: string | null; planImportTradeKey?: string | null }
+    | null
+    | undefined;
+  const checklistKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+  const planTradeKey = String(planRecord?.planImportTradeKey || '').toLowerCase();
+  const paintingExport =
+    planTradeKey === 'painting' || checklistKey === 'painting';
+  if (paintingExport) {
+    return {
+      scopeMode: 'dedicated',
+      scopeSummary: null,
+      scopeTradeLabels: ['Painting'],
+    };
+  }
+  const importedPlanSummary = notesAreImportedPlanSummary(notes);
+  const selectedTradePlan = planRecord?.planImportMode === 'selected_trade';
   const hasMixedExteriorHardscape =
+    !importedPlanSummary &&
+    !selectedTradePlan &&
     /\b(?:concrete|flatwork|patio|pavers?|retaining\s+walls?)\b/i.test(
       notes
     ) &&
@@ -2278,6 +2301,8 @@ function getRevealClassification(draft: EstimateAiDraft) {
     /\bwindows?\b|\b(?:interior\s+)?doors?\b/i,
   ].filter(pattern => pattern.test(notes)).length;
   const notesImplyMixedScope =
+    !importedPlanSummary &&
+    !selectedTradePlan &&
     mixedNoteSignals >= 3 &&
     !/\b(?:new\s+build|ground[-\s]?up|addition|adu|garage\s+conversion)\b/i.test(
       notes
@@ -2447,6 +2472,9 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     return 'Read from the sheets. Unprinted trades stay planning allowances.';
   }
   const classification = getRevealClassification(draft);
+  if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
+    return null;
+  }
   if (classification.scopeMode === 'mixed') {
     const summary =
       classification.scopeSummary?.trim() || 'Mixed-scope remodel';

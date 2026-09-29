@@ -752,6 +752,7 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       'paintAreaSqft',
       'baseboardLf',
       'interiorDoorCount',
+      'exteriorDoorCount',
       'cabinetRunLf',
       'exteriorPaintSqft',
     ],

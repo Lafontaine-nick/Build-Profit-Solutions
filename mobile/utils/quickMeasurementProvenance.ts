@@ -286,6 +286,16 @@ export function resolveQuickMeasurementFields(params: {
       (params.measurements as { planImportTradeKey?: string })
         .planImportTradeKey || ''
     );
+    const paintingTakeoffPresent =
+      String(params.templateKey || '').toLowerCase() === 'painting' ||
+      planTrade === 'painting' ||
+      (Number(String(params.measurements.wallPaintSqft ?? '').replace(/,/g, '')) >
+        0 &&
+        Number(
+          String(params.measurements.ceilingPaintSqft ?? '').replace(/,/g, '')
+        ) > 0);
+    const suppressExteriorPaintSuggestion =
+      field.key === 'exteriorPaintSqft' && paintingTakeoffPresent;
     const paintingPlanSurface =
       planTrade === 'painting' &&
       (field.key === 'wallPaintSqft' || field.key === 'ceilingPaintSqft') &&
@@ -414,6 +424,10 @@ export function resolveQuickMeasurementFields(params: {
       wholeHomeLayout: params.wholeHomeLayout,
       projectType: params.projectType,
       notes: params.notes,
+      planImportTradeKey: String(
+        (params.measurements as { planImportTradeKey?: string })
+          .planImportTradeKey || ''
+      ),
       bathCount: params.measurements.bathCount,
       tilePanBathCount: params.measurements.tilePanBathCount,
       keepingExistingWetArea: keepingExisting,
@@ -437,6 +451,7 @@ export function resolveQuickMeasurementFields(params: {
     const estimate =
       !filled &&
       relevance.relevant &&
+      !suppressExteriorPaintSuggestion &&
       (!isPaintAreaField || hasNoteBackedPaintArea)
         ? getQuickMeasurementEstimate(
             field.key,

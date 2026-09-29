@@ -5835,6 +5835,15 @@ export function checklistDisplayHelper(
   if (tk === 'painting' && item.id === 'ceiling_paint') {
     return 'Paint the ceiling area from the plan takeoff.';
   }
+  if (tk === 'painting' && item.id === 'exterior_paint') {
+    return 'Paint the exterior stucco or siding area from the elevation takeoff. Window, door, and garage openings are deducted.';
+  }
+  if (tk === 'painting' && item.id === 'exterior_door_paint') {
+    return 'Paint the hinged exterior doors. Garage doors are not included, and door installation stays off this bid.';
+  }
+  if (tk === 'painting' && item.id === 'cleanup') {
+    return 'Final cleanup and disposal for the painting work. Dumpsters, excessive hauling, and hazardous-material handling are separate.';
+  }
   if (String(templateKey || '').toLowerCase() === 'hvac' && item.id === 'cleanup') {
     return (
       hvacCardForItemId('cleanup')?.helper ||
@@ -5845,7 +5854,8 @@ export function checklistDisplayHelper(
 }
 
 const PAINT_SCOPE_LABEL_OVERRIDES: Record<string, string> = {
-  prep: 'Paint prep & masking',
+  prep: 'Interior masking',
+  exterior_prep: 'Exterior masking',
   interior_paint: 'Interior paint — walls & ceilings',
   paint: 'Interior paint',
   ceiling_paint: 'Interior paint — ceilings',
@@ -6429,11 +6439,13 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'trim_paint',
         'door_casing_paint',
         'cabinet_paint',
-        'exterior_prep',
-        'exterior_paint',
         'baseboard_install',
         'door_casing_install',
       ],
+    },
+    {
+      title: 'Exterior painting',
+      itemIds: ['exterior_paint', 'exterior_prep', 'exterior_door_paint'],
     },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
@@ -6560,7 +6572,7 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
     test: id =>
       /drywall|floor|tile|cabinet|counter|paint|trim|door|appliance|vanity|backsplash|glass_door|texture|hang|finish_tape|interior_finishes/.test(
         id
-      ),
+      ) || id === 'prep',
   },
   {
     title: 'Closeout',

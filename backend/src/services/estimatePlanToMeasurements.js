@@ -779,6 +779,20 @@ function looksLikeLivingAreaProxy(
   return false;
 }
 
+function elevationFaceOpeningSqft(face) {
+  const explicit = positive(face?.openingsSqft);
+  if (explicit) return explicit;
+  return (
+    (positive(face?.windowDoorOpeningsSqft) || 0) +
+    (positive(face?.garageOpeningsSqft) || 0)
+  );
+}
+
+/**
+ * Exterior paint is the field coat on siding or stucco. Brick and stone stay
+ * out unless the elevation says that face is painted. Openings come off the
+ * gross face unless the sheet already printed a net paint area.
+ */
 function deriveExteriorPaintFromFaces(planFacts = {}) {
   const faces = Array.isArray(planFacts.elevationFaces)
     ? planFacts.elevationFaces
@@ -786,23 +800,28 @@ function deriveExteriorPaintFromFaces(planFacts = {}) {
   let total = 0;
   let used = 0;
   for (const face of faces) {
-    const paintArea = positive(face?.paintAreaSqft);
-    if (paintArea) {
-      total += paintArea;
-      used += 1;
-      continue;
-    }
     const finish = String(face?.finish || face?.cladding || "").toLowerCase();
-    const isMasonry = /brick|stone|masonry|veneer/.test(finish);
-    const isStucco =
-      /stucco|efis|eifs/.test(finish) || positive(face?.stuccoAreaSqft);
+    const isMasonry =
+      /brick|stone|masonry|veneer/.test(finish) && !/paint/.test(finish);
+    if (isMasonry) continue;
+    const labeledPaint = positive(face?.paintAreaSqft);
+    const stuccoArea = positive(face?.stuccoAreaSqft);
+    const isStucco = /stucco|efis|eifs/.test(finish) || stuccoArea;
     const isPaintedCladding = /paint|siding|fiber|hardi|wood|lap/.test(finish);
-    if (isMasonry || isStucco || !isPaintedCladding) continue;
     const width = positive(face?.widthFt);
     const height = positive(face?.heightFt);
-    const area =
+    const gross =
       positive(face?.areaSqft) || (width && height ? width * height : null);
+    let area = null;
+    if (labeledPaint) area = labeledPaint;
+    else if (isStucco) area = stuccoArea || gross;
+    else if (isPaintedCladding) area = gross;
     if (!area) continue;
+    if (!labeledPaint) {
+      const openings = elevationFaceOpeningSqft(face);
+      if (openings > 0 && openings < area) area -= openings;
+    }
+    if (!(area > 0)) continue;
     total += area;
     used += 1;
   }
@@ -1555,7 +1574,7 @@ Rules:
 9a. Painting takeoff from plan geometry IS allowed when the inputs are explicit: wallPaintSqft = sum of dimensioned room perimeters × explicit wall/plate height (gross; each room's perimeter is a valid finish takeoff — do not use floorAreaSqft). ceilingPaintSqft = sum of dimensioned interior room areas when those rooms have painted ceilings. baseboardLf = sum of dimensioned room perimeters when finish/base geometry supports it. Put those keys in measurements and geometryDerived; set fieldEvidence sourceType to measured_from_geometry. If wall/plate height is not readable, omit wallPaintSqft. If room dimensions are incomplete, omit rather than guess. Never assume 9' ceilings.
 9b. Prefer separate measurements.wallPaintSqft and measurements.ceilingPaintSqft when walls and ceilings can be taken off separately. Only use measurements.paintAreaSqft when the sheet gives one combined paintable total without a wall/ceiling split. Do not collapse separate wall and ceiling areas into paintAreaSqft.
 9c. interiorDoorCount from a door schedule or reliably identifiable interior door symbols (exclude exterior doors). Prefill the count even without a schedule; do not assume every door is in the bid. Add interiorDoorCount to geometryDerived or explicitlyLabeled. cabinetRunLf / cabinetPaintSqft ONLY when painted cabinetry or paint-grade millwork is explicit — never map generic kitchen cabinet LF into painting.
-9d. exteriorPaintSqft from labeled exterior paint/finish area or dimensioned elevation width × supported wall height for painted cladding (set elevationFaces[].paintAreaSqft / finish). Never from footprint or living SF. If the cladding is stucco/brick/stone and paint is trim/eaves/doors only, omit exterior wall paint area.
+9d. exteriorPaintSqft from a labeled paint area, painted siding, or stucco wall area on dimensioned elevations (elevationFaces[].paintAreaSqft, stuccoAreaSqft, or width × height). Subtract windowDoorOpeningsSqft, garageOpeningsSqft, or openingsSqft unless paintAreaSqft is already net. Brick and stone stay out unless that face is labeled painted. Never from footprint or living SF. Stucco install is not this quantity; this is the paint coat on that wall.
 9e. Do NOT infer paint occupancy, application method, prep severity, or masking complexity from plan geometry.
 9f. Electrical takeoff from electrical sheets IS allowed when Electrical is the selected trade. Count device/fixture/panel symbols on E sheets, legends, and panel schedules. Map onto existing keys only: mainPanelCount, serviceAmperage, standardReceptacleCount, gfciReceptacleCount, recessedLightCount, and the other ElectricalQuantityKey values. Never invent electrical_rough or electrical_trim packages, living-SF electrical totals, homeruns from device counts, conduit LF, or trench LF.
 9g. Count the semantic item, not every visual mark. GFCI symbol → gfciReceptacleCount only. Labeled range circuit → rangeHookupCount only (not also circuit50aCount). 3-way switch devices → threeWaySwitchCount only (not an extra branch circuit).
@@ -4406,8 +4425,8 @@ async function analyzePlanForMeasurements({
   const paintingVisionInstructions = [
     "For Painting, relevant sheets are floor plans, RCPs / reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork, and exterior elevations — not only sheets that say Paint.",
     "Perform a painting takeoff when geometry supports it. wallPaintSqft = dimensioned room perimeter × explicit wall/plate height (gross). ceilingPaintSqft = dimensioned interior room areas. baseboardLf = dimensioned room perimeters when base/trim is supported. Never use living SF, floor SF, or an arbitrary multiplier. Never assume 9' height if it is not labeled.",
-    "Count interiorDoorCount from a door schedule or identifiable interior door symbols (exclude exterior doors) and add it to geometryDerived. Cabinet paint keys only when paint-grade millwork is explicit.",
-    "For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.",
+    "Count interiorDoorCount from a door schedule or identifiable interior door symbols and add it to geometryDerived. Also return exteriorDoorCount for hinged, swing, or French exterior doors. Do not count garage doors as exterior doors. Cabinet paint keys only when paint-grade millwork is explicit.",
+    "For exterior paint, use a labeled paint area, painted siding, or stucco wall area on dimensioned elevations. Subtract window, door, and garage openings on that face unless the paint area is already net. Do not count brick or stone unless the elevation says it is painted. Do not use living SF or the building footprint.",
   ].join("\n");
   const electricalVisionParts = electricalSheetImages.length
     ? electricalSheetImages.map(toVisionContentPart)
@@ -4718,7 +4737,7 @@ async function analyzePlanForMeasurements({
                                 ? ELECTRICAL_VISION_INSTRUCTIONS
                                 : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
                 paintingSelected
-                  ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
+                  ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, exteriorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Return elevationFaces for exterior paint. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
                   : windowsDoorsSelected
                     ? "Return window, exterior swing, explicit sliding, and interior door unit counts plus planFacts.openingSchedules. Do not return garage door counts. Do not treat hinged French/patio doors as sliders."
                     : garageDoorsSelected

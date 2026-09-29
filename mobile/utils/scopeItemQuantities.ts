@@ -1543,6 +1543,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel:
       'Suggested · National Average · interior door slab, edges, and frame paint',
   },
+  exterior_door_paint: {
+    unit: 'each',
+    material: 20,
+    labor: 105,
+    sourceLabel:
+      'Suggested · National Average · exterior door slab, edges, and frame paint',
+  },
   door_casing_paint: {
     unit: 'each',
     material: 20,
@@ -7105,6 +7112,15 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter the number of interior doors and frames.',
     missingMessage: 'Enter interior door count.',
   },
+  exterior_door_paint: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorDoorCount',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter hinged exterior doors to paint. Garage doors are not included.',
+    missingMessage: 'Enter exterior door count.',
+  },
   door_casing_paint: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
@@ -9554,6 +9570,10 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
     trim_paint: { unit: 'lf', measurementKeys: ['baseboardLf'] },
     door_paint: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    exterior_door_paint: {
+      unit: 'each',
+      measurementKeys: ['exteriorDoorCount'],
+    },
     cabinet_paint: {
       unit: 'lf',
       measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'],
@@ -16479,10 +16499,38 @@ export function resolveScopeItemSuggestedPricing(
   if (
     itemId === 'prep' &&
     String(templateKey || '').toLowerCase() === 'painting' &&
-    String(measurementsInput.planImportTradeKey || '') === 'painting'
+    String(measurementsInput.planImportTradeKey || '') === 'painting' &&
+    (parseScopeMeasurementInput(measurementsInput.wallPaintSqft) || 0) +
+      (parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0) >
+      0
   ) {
-    // Plan takeoff leaves job condition, application method, and prep open.
-    return empty;
+    const wallSurface =
+      parseScopeMeasurementInput(measurementsInput.wallPaintSqft) || 0;
+    const ceilingSurface =
+      parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0;
+    const quantity = wallSurface + ceilingSurface;
+    // Tape, plastic, and floor protection only. The installed interior paint
+    // package already covers ordinary prep, so this is not the $1/sf prep rate.
+    const material = round2(quantity * 0.08);
+    const labor = round2(quantity * 0.17);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested · National Average · interior tape, plastic, and floor protection',
+        helper: `${quantity.toLocaleString()} sqft · masking only`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:prep:painting_masking',
+      },
+      comparison: null,
+    };
   }
 
   if (
@@ -16713,8 +16761,12 @@ export function resolveScopeItemSuggestedPricing(
     }
     const quantity = Number(resolved.quantity);
     if (itemId === 'exterior_prep') {
-      const material = round2(quantity * 0.15);
-      const labor = round2(quantity * 0.65);
+      const planMaskingOnly =
+        String(measurementsInput.planImportTradeKey || '') === 'painting';
+      const materialRate = planMaskingOnly ? 0.05 : 0.15;
+      const laborRate = planMaskingOnly ? 0.15 : 0.65;
+      const material = round2(quantity * materialRate);
+      const labor = round2(quantity * laborRate);
       return {
         fill: {
           material,
@@ -16722,9 +16774,12 @@ export function resolveScopeItemSuggestedPricing(
           total: round2(material + labor),
           materialSource: 'national_average',
           laborSource: 'national_average',
-          rateSourceLabel:
-            'Suggested · National Average · exterior prep and masking',
-          helper: `${quantity.toLocaleString()} sqft exterior surface`,
+          rateSourceLabel: planMaskingOnly
+            ? 'Suggested · National Average · exterior tape and protection'
+            : 'Suggested · National Average · exterior prep and masking',
+          helper: planMaskingOnly
+            ? `${quantity.toLocaleString()} sqft · masking only`
+            : `${quantity.toLocaleString()} sqft exterior surface`,
           mode: 'suggested_price',
           lumpSumOnly: false,
           basis: { quantity, unit: resolved.unit || 'sqft' },

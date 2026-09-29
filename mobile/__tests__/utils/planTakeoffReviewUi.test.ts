@@ -778,13 +778,71 @@ describe('plan takeoff review UI polish', () => {
       expect.arrayContaining([
         { label: 'Walls', value: '8,500 sqft' },
         { label: 'Ceilings', value: '3,200 sqft' },
-        { label: 'Doors', value: '16 EA' },
+        { label: 'Interior doors', value: '16 EA' },
         { label: 'Baseboard / trim', value: '1,150 LF' },
         { label: 'Cabinet painting', value: '62 LF' },
-        { label: 'Exterior walls', value: '3,800 sqft' },
+        { label: 'Exterior paint', value: '3,800 sqft' },
         { label: 'Job condition', value: 'Needs confirmation' },
         { label: 'Application method', value: 'Needs confirmation' },
         { label: 'Prep / masking', value: 'Needs confirmation' },
+      ])
+    );
+  });
+
+  it('keeps exterior paint on Scope found when the elevation area is missing', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'painting',
+          wallPaintSqft: 3734,
+          ceilingPaintSqft: 2571,
+          baseboardLf: 410.3,
+          interiorDoorCount: 19,
+          exteriorDoorCount: 4,
+        },
+        wholeProject: false,
+      })
+    ).toEqual([
+      'Exterior doors · 4',
+      'Interior doors · 19',
+      'Baseboard · 410.3 LF',
+      'Ceilings · 2,571 SF',
+      'Interior walls · 3,734 SF',
+      'Exterior paint · Needs SF',
+    ]);
+  });
+
+  it('includes painting door counts and exterior paint on the bid', () => {
+    const doors = buildPlanReviewMeasurementRowState({
+      key: 'exteriorDoorCount',
+      tradeKey: 'painting',
+      provenanceEntry: {
+        source: 'calculated_from_symbols',
+        evidenceKind: 'elevation_symbols',
+        pricingEligible: false,
+      },
+    });
+    expect(doors.pricingEligible).toBe(true);
+    expect(doors.includeDefault).toBe(true);
+    expect(doors.provenance.label).toBe('From plan');
+
+    const summary = buildPaintingPlanReviewSummary({
+      wallPaintSqft: 3734,
+      ceilingPaintSqft: 2571,
+      interiorDoorCount: 18,
+      exteriorDoorCount: 4,
+      baseboardLf: 410.3,
+    });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Interior doors', value: '18 EA' },
+        { label: 'Exterior doors', value: '4 EA' },
+        {
+          label: 'Exterior paint',
+          value: 'On this bid',
+          note: 'Elevation square footage was not printed — enter it before pricing',
+        },
       ])
     );
   });
@@ -833,7 +891,7 @@ describe('plan takeoff review UI polish', () => {
           value: '2,000 sqft',
           note: 'Calculated from plan geometry',
         },
-        { label: 'Doors', value: '12 EA', note: 'From plan' },
+        { label: 'Interior doors', value: '12 EA', note: 'From plan' },
         {
           label: 'Baseboard / trim',
           value: '800 LF',
