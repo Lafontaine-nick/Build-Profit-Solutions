@@ -569,6 +569,19 @@ describe('planPdfTextTakeoff', () => {
     expect(pages.map(page => page.page)).toEqual([3, 6, 10]);
   });
 
+  test('windows and doors symbol pages prefer the floor plan and elevations', () => {
+    const { selectWindowsDoorsSymbolPages } = require('../planPdfTextTakeoff');
+    const pages = selectWindowsDoorsSymbolPages({
+      windowsDoorsRelevantPages: [
+        { page: 1, score: 4, reasons: ['opening labels'] },
+        { page: 3, score: 12, reasons: ['floor plan'] },
+        { page: 6, score: 16, reasons: ['elevation', 'opening labels'] },
+        { page: 7, score: 12, reasons: ['elevation'] },
+      ],
+    });
+    expect(pages.map(page => page.page)).toEqual([6, 3, 7]);
+  });
+
   test('repeated R6 instance tags on an electrical plan count as recessed lights', () => {
     const page = countElectricalInstanceTagsOnPage(
       [

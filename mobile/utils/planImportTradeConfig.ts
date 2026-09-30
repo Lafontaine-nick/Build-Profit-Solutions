@@ -338,6 +338,11 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
         if (tradeKey === 'painting' && paintingInstallIds.has(item.id)) {
           return false;
         }
+        // Architectural-plan notes mention "plans", which is not a flooring
+        // allowance. Plans / engineering stays off a flooring bid.
+        if (tradeKey === 'flooring' && item.id === 'plans_engineering') {
+          return false;
+        }
         if (allowed.includes(item.id)) return true;
         if (String(item.id || '').startsWith('custom_')) return true;
         // Plan notes mention drainage, permits, and MEP words. Those are not

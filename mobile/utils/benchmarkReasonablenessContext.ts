@@ -705,7 +705,8 @@ export function wholeProjectGroupDisplayTotal(params: {
       params.measurements,
       params.templateKey,
       resolved,
-      null,
+      { checklistItems: params.items },
+      item.choiceId,
       params.notes
     );
     const suggestedTotal = Number(suggested.fill?.total);

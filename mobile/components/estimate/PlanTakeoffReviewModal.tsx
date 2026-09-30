@@ -163,6 +163,7 @@ import {
   resolveWindowsDoorsReviewTier,
   windowsDoorsReviewProvenanceLabel,
   windowsDoorsReviewSelectionAppearance,
+  windowsDoorsReviewShowsSelection,
   augmentWindowsDoorsScopeDetections,
   windowsDoorsMeasurementKeyForScopeItem,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -2617,13 +2618,15 @@ export default function PlanTakeoffReviewModal({
                           ? 'verified'
                           : 'plan_derived'
                       : null;
-                  const windowsDoorsAppearance = windowsDoorsTier
-                    ? windowsDoorsReviewSelectionAppearance({
-                        include: row.include,
-                        tier: windowsDoorsTier,
-                        colors: Colors,
-                      })
-                    : null;
+                  const windowsDoorsAppearance =
+                    windowsDoorsTier &&
+                    windowsDoorsReviewShowsSelection(windowsDoorsTier)
+                      ? windowsDoorsReviewSelectionAppearance({
+                          include: row.include,
+                          tier: windowsDoorsTier,
+                          colors: Colors,
+                        })
+                      : null;
                   const needsSingleOpeningConfirmation =
                     (effectiveTradeKey === 'windows_doors' ||
                       effectiveTradeKey === 'garage_doors') &&
@@ -2688,6 +2691,7 @@ export default function PlanTakeoffReviewModal({
                         </>
                       ) : (
                         <View style={styles.quantityHeader}>
+                          {windowsDoorsTier === 'not_found' ? null : (
                           <TouchableOpacity
                             onPress={() => {
                               if (
@@ -2763,6 +2767,7 @@ export default function PlanTakeoffReviewModal({
                               }
                             />
                           </TouchableOpacity>
+                          )}
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text
                               style={[
@@ -2777,10 +2782,12 @@ export default function PlanTakeoffReviewModal({
                             <Text
                               style={{
                                 color:
-                                  windowsDoorsAppearance?.color ||
-                                  (confirmRow
+                                  windowsDoorsTier === 'not_found'
                                     ? CONFIRM_YELLOW
-                                    : provenanceColor),
+                                    : windowsDoorsAppearance?.color ||
+                                      (confirmRow
+                                        ? CONFIRM_YELLOW
+                                        : provenanceColor),
                                 fontSize: 12,
                                 fontWeight: '700',
                                 marginTop: 4,

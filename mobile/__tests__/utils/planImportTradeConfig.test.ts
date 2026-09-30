@@ -35,6 +35,22 @@ describe('stripScopeInputForSingleTrade', () => {
     ).toBe('plan_detected');
     expect(stripped.mainPanelCount).toBe('1');
   });
+
+  it('keeps the plan living area on a flooring import', () => {
+    const stripped = stripScopeInputForSingleTrade(
+      {
+        floorAreaSqft: '2571',
+        flooringSqft: '2571',
+        garageSqft: '1427',
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'flooring',
+      },
+      'flooring'
+    );
+
+    expect(stripped.floorAreaSqft).toBe('2571');
+    expect(stripped.garageSqft).toBe('');
+  });
 });
 
 describe('roofing plan scope filtering', () => {

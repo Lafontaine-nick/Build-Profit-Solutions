@@ -35,6 +35,18 @@ export type FlooringDemoCounts = {
 
 export const FLOORING_QM_EMBEDDED_IDS = new Set<string>();
 
+/** Install quantities are entered once on the New Flooring card. */
+export const FLOORING_INSTALL_MEASUREMENT_ITEM_IDS = new Set([
+  'flooring',
+  'flooring_lvp',
+  'flooring_laminate',
+  'flooring_engineered_hardwood',
+  'flooring_solid_hardwood',
+  'tile_flooring',
+  'flooring_carpet',
+  'flooring_sheet_vinyl',
+]);
+
 /** Confirm Scope cards that use the included-line layout (no Yes/No row). */
 export const FLOORING_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
   'floor_demo',
@@ -245,6 +257,8 @@ export function flooringScopeCardLabel(
   itemId: string,
   measurements: Record<string, unknown>
 ): string | null {
+  if (itemId === 'tile_flooring') return 'Tile installation';
+  if (itemId === 'flooring_carpet') return 'Carpet installation';
   if (itemId === 'flooring_lvp') {
     return (
       flooringNewLvpInstallMethodLabel(
@@ -602,14 +616,33 @@ export function syncFlooringQmScopeItems(
         return { ...row, state: 'included' as const, noteBacked: true };
       }
     }
-    if (
-      row.id === 'transitions' &&
-      notesMentionTransitions &&
-      row.state !== 'excluded'
-    ) {
-      if (row.state !== 'included' || row.noteBacked !== true) {
-        changed = true;
-        return { ...row, state: 'included' as const, noteBacked: true };
+    if (row.id === 'transitions') {
+      const planFlooring =
+        m.planImportMode === 'selected_trade' &&
+        m.planImportTradeKey === 'flooring';
+      const transitionCount = positiveCount(m.transitionCount);
+      if (planFlooring && !transitionCount && row.noteBacked) {
+        if (row.state !== 'unsure' || row.choiceId !== 'unsure') {
+          changed = true;
+          return {
+            ...row,
+            state: 'unsure' as const,
+            choiceId: 'unsure',
+            choiceIds: ['unsure'],
+            noteBacked: false,
+          };
+        }
+        return row;
+      }
+      if (
+        notesMentionTransitions &&
+        !planFlooring &&
+        row.state !== 'excluded'
+      ) {
+        if (row.state !== 'included' || row.noteBacked !== true) {
+          changed = true;
+          return { ...row, state: 'included' as const, noteBacked: true };
+        }
       }
     }
     if (
@@ -736,12 +769,20 @@ export function syncFlooringQmScopeItems(
   );
   if (missingAccessoryCards.length > 0) {
     changed = true;
+    const planFlooring =
+      m.planImportMode === 'selected_trade' &&
+      m.planImportTradeKey === 'flooring';
     const accessoryRows = missingAccessoryCards.map(definition => ({
       ...definition,
       inputType: 'yes_no' as const,
-      state: 'included' as const,
+      state:
+        planFlooring && definition.id === 'transitions'
+          ? ('unsure' as const)
+          : ('included' as const),
+      choiceId:
+        planFlooring && definition.id === 'transitions' ? 'unsure' : undefined,
       category: 'flooring',
-      noteBacked: true,
+      noteBacked: !(planFlooring && definition.id === 'transitions'),
     }));
     const insertAt = next.findIndex(row => row.id === 'floor_demo');
     if (insertAt >= 0) {
@@ -755,6 +796,36 @@ export function syncFlooringQmScopeItems(
     }
   }
   return changed ? next : items;
+}
+
+const FLOORING_PRODUCT_AREA_KEYS = [
+  'flooringLvpSqft',
+  'flooringLaminateSqft',
+  'flooringEngineeredHardwoodSqft',
+  'flooringSolidHardwoodSqft',
+  'flooringTileSqft',
+  'flooringCarpetSqft',
+  'flooringSheetVinylSqft',
+];
+
+function flooringInstallSqftFromProducts(
+  saved: Record<string, unknown>
+): number | null {
+  const productTotal = FLOORING_PRODUCT_AREA_KEYS.reduce(
+    (sum, key) => sum + (positiveCount(saved[key]) || 0),
+    0
+  );
+  if (productTotal > 0) return productTotal;
+  if (
+    saved.planImportMode === 'selected_trade' &&
+    saved.planImportTradeKey === 'flooring'
+  ) {
+    return null;
+  }
+  const living = positiveCount(saved.floorAreaSqft);
+  const flooring = positiveCount(saved.flooringSqft);
+  if (living && flooring && Math.abs(living - flooring) < 1) return null;
+  return flooring;
 }
 
 function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
@@ -810,10 +881,7 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
 
   return {
     ...saved,
-    flooringSqft:
-      positiveCount(saved.flooringSqft) ||
-      positiveCount(saved.floorAreaSqft) ||
-      null,
+    flooringSqft: flooringInstallSqftFromProducts(saved),
     ...existing,
     ...install,
     ...demo,

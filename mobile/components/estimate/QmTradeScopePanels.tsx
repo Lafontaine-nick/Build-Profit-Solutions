@@ -63,7 +63,6 @@ import {
 } from '@/utils/qmScopePanels/landscapingRemodel';
 import {
   FLOOR_PREP_SEVERITY_OPTIONS,
-  recommendFloorPrepSeverity,
   type FloorPrepSeverity,
 } from '@/utils/flooringDemoPrepBoundary';
 import {
@@ -1780,9 +1779,25 @@ export function QmFlooringScopePanels({
   const [demo, setDemo] = useState(() => readFlooringDemo(measurements));
   const [existingExpanded, setExistingExpanded] = useState(false);
   const [newExpanded, setNewExpanded] = useState(false);
-  const [prepExpanded, setPrepExpanded] = useState(true);
+  const [prepExpanded, setPrepExpanded] = useState(false);
+  const [showMoreNewFlooring, setShowMoreNewFlooring] = useState(false);
+  const [activeNewProductId, setActiveNewProductId] = useState<string | null>(
+    null
+  );
+  const activeNewProductIdRef = useRef<string | null>(null);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
   const [sqftEditingKey, setSqftEditingKey] = useState<string | null>(null);
+  const planFloorSqft = (() => {
+    if (measurements.planImportMode !== 'selected_trade') return 0;
+    if (measurements.planImportTradeKey !== 'flooring') return 0;
+    if (measurements.quickMeasurementSources?.floorAreaSqft === 'user_entered') {
+      return 0;
+    }
+    const living = Number(
+      String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
+    );
+    return Number.isFinite(living) && living > 0 ? living : 0;
+  })();
   const genRef = useRef(0);
   const appliedRef = useRef(0);
   const demoManualRef = useRef(false);
@@ -2043,9 +2058,19 @@ export function QmFlooringScopePanels({
       const current = Array.isArray(measurements.flooringProductScope)
         ? measurements.flooringProductScope
         : [];
+      if (current.includes(type) && activeNewProductIdRef.current !== type) {
+        activeNewProductIdRef.current = type;
+        setActiveNewProductId(type);
+        return;
+      }
       const nextProducts = current.includes(type)
         ? current.filter(value => value !== type)
         : [...current, type];
+      const nextActive = nextProducts.includes(type)
+        ? type
+        : (nextProducts[nextProducts.length - 1] ?? null);
+      activeNewProductIdRef.current = nextActive;
+      setActiveNewProductId(nextActive);
       const nextInstall = {
         flooringInstallScopeCount: nextProducts.length ? 1 : null,
       };
@@ -2265,6 +2290,15 @@ export function QmFlooringScopePanels({
   };
   const commitNewFlooringArea = (product: string, value: string) => {
     const key = newFlooringMeasurementKey[product];
+    const scopeItemId: Record<string, string> = {
+      lvp: 'flooring_lvp',
+      laminate: 'flooring_laminate',
+      engineered_hardwood: 'flooring_engineered_hardwood',
+      solid_hardwood: 'flooring_solid_hardwood',
+      tile: 'tile_flooring',
+      carpet: 'flooring_carpet',
+      sheet_vinyl_vct: 'flooring_sheet_vinyl',
+    };
     const numericValue = Number(value.replace(/,/g, ''));
     const prev = measurementsRef.current;
     const itemQuantities = { ...(prev.itemQuantities || {}) };
@@ -2277,6 +2311,14 @@ export function QmFlooringScopePanels({
         unit: 'sqft',
         quantitySource: 'user_entered',
       };
+      const checklistId = scopeItemId[product];
+      if (checklistId) {
+        itemQuantities[checklistId] = {
+          quantity: numericValue,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        };
+      }
     } else {
       delete itemQuantities[quantityKey];
     }
@@ -2292,28 +2334,12 @@ export function QmFlooringScopePanels({
         : {}),
       itemQuantities,
     };
-    const products = Array.isArray(next.flooringProductScope)
-      ? next.flooringProductScope
-      : [];
-    const total = products.reduce((sum, selectedProduct) => {
-      const selectedKey = newFlooringMeasurementKey[selectedProduct];
-      const direct = selectedKey ? Number(next[selectedKey] || 0) : 0;
-      const fallback = Number(
-        itemQuantities[`floor_install__${selectedProduct}`]?.quantity || 0
-      );
-      return sum + (direct || fallback);
-    }, 0);
     const snapshot = {
       ...next,
-      floorAreaSqft: total > 0 ? total : next.floorAreaSqft,
-      flooringSqft: total > 0 ? total : next.flooringSqft,
       quickMeasurementSources: {
         ...(prev.quickMeasurementSources || {}),
         ...(key
           ? { [key]: numericValue > 0 ? 'user_entered' : 'needs_confirmation' }
-          : {}),
-        ...(total > 0
-          ? { floorAreaSqft: 'user_entered', flooringSqft: 'user_entered' }
           : {}),
       },
     };
@@ -2321,19 +2347,13 @@ export function QmFlooringScopePanels({
     syncScopeFromSnapshot(snapshot);
   };
   const newFlooringSubtypeOptions = (product: string) =>
-    product === 'lvp'
+    product === 'sheet_vinyl_vct'
       ? [
-          ['floating', 'Floating / click-lock'],
-          ['glue_down', 'Glue-down LVP'],
+          ['sheet_vinyl', 'Sheet vinyl'],
+          ['vct', 'VCT (vinyl composition tile)'],
           ['unknown', 'Not sure'],
         ]
-      : product === 'sheet_vinyl_vct'
-        ? [
-            ['sheet_vinyl', 'Sheet vinyl'],
-            ['vct', 'VCT (vinyl composition tile)'],
-            ['unknown', 'Not sure'],
-          ]
-        : [];
+      : [];
   const selectedExistingTypes = existing.flooringExistingTypes || [];
   const selectedNewProducts = Array.isArray(measurements.flooringProductScope)
     ? measurements.flooringProductScope
@@ -2341,6 +2361,14 @@ export function QmFlooringScopePanels({
   const selectedNewFlooringOptions = newFlooringOptions.filter(option =>
     selectedNewProducts.includes(option.id)
   );
+  const openNewProductId = selectedNewProducts.includes(
+    activeNewProductId as (typeof selectedNewProducts)[number]
+  )
+    ? activeNewProductId
+    : (selectedNewProducts[selectedNewProducts.length - 1] ?? null);
+  if (activeNewProductIdRef.current !== openNewProductId) {
+    activeNewProductIdRef.current = openNewProductId;
+  }
   return (
     <>
       {showExistingPanel ? (
@@ -2764,55 +2792,87 @@ export function QmFlooringScopePanels({
                   (sum, product) => sum + Number(newFlooringArea(product) || 0),
                   0
                 );
-                const planArea = Number(
-                  measurements.flooringSqft || measurements.floorAreaSqft || 0
-                );
                 if (installArea > 0) {
                   return `${selectedNewProducts.length} selected · ${installArea.toLocaleString()} SF installation`;
                 }
-                if (planArea > 0) {
-                  return `${planArea.toLocaleString()} SF from the plan · choose a product`;
+                const planCaption =
+                  planFloorSqft > 0
+                    ? `${planFloorSqft.toLocaleString()} SF from the plan`
+                    : '';
+                if (selectedNewProducts.length > 0) {
+                  const productCaption =
+                    selectedNewProducts.length === 1
+                      ? '1 product · enter the area'
+                      : `${selectedNewProducts.length} products · enter the area`;
+                  return planCaption
+                    ? `${planCaption} · ${productCaption}`
+                    : productCaption;
                 }
-                return `${selectedNewProducts.length} selected · 0 SF installation`;
+                return planCaption
+                  ? `${planCaption} · choose a product`
+                  : 'Choose a product';
               })()}
             </Text>
           )}
         </TouchableOpacity>
         {newExpanded ? (
           <>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b' },
-              ]}
-            >
-              Select what is being installed. Multiple products are allowed.
-            </Text>
+            {planFloorSqft > 0 ? (
+              <View style={{ marginTop: 10, marginBottom: 4 }}>
+                <Text
+                  style={[
+                    styles.qmPanelTitle,
+                    { color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14 },
+                  ]}
+                >
+                  Flooring area
+                </Text>
+                <Text
+                  style={{
+                    color: darkMode ? '#F5F7FA' : Colors.text,
+                    fontSize: 16,
+                    fontWeight: '700',
+                    marginTop: 4,
+                  }}
+                >
+                  {planFloorSqft.toLocaleString()} SF
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: '#34d399', marginTop: 2 },
+                  ]}
+                >
+                  Detected from the plan
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 4 },
+                  ]}
+                >
+                  Enter how much of this area is carpet, tile, or another
+                  product.
+                </Text>
+              </View>
+            ) : (
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  { color: darkMode ? '#94a3b8' : '#64748b' },
+                ]}
+              >
+                Select what is being installed. Multiple products are allowed.
+              </Text>
+            )}
             <View style={styles.qmOptionWrap}>
-              {[...newFlooringOptions]
-                .sort(
-                  (a, b) =>
-                    Number(selectedNewProducts.includes(b.id)) -
-                    Number(selectedNewProducts.includes(a.id))
-                )
-                .map((option, index) => {
+              {(selectedNewProducts.length === 0 || showMoreNewFlooring
+                ? newFlooringOptions
+                : selectedNewFlooringOptions
+              ).map((option, index) => {
                   const selected = selectedNewProducts.includes(option.id);
                   return (
                     <React.Fragment key={option.id}>
-                      {!selected &&
-                      index === selectedNewFlooringOptions.length ? (
-                        <Text
-                          style={[
-                            styles.qmPanelCaption,
-                            {
-                              color: darkMode ? '#CBD5E1' : '#64748b',
-                              marginTop: 4,
-                            },
-                          ]}
-                        >
-                          Other flooring options
-                        </Text>
-                      ) : null}
                       <View
                         style={{
                           width: '100%',
@@ -2861,11 +2921,15 @@ export function QmFlooringScopePanels({
                             {option.label}
                           </Text>
                         </TouchableOpacity>
-                        {selected ? (
+                        {selected && option.id === openNewProductId ? (
                           <>
                             <QmSqftMeasurementRow
                               label={`${option.label} installation area`}
-                              helperText='Enter the area of this new flooring product being installed.'
+                              helperText={
+                                planFloorSqft > 0
+                                  ? 'Enter how much of the plan flooring area is this product.'
+                                  : 'Enter the area of this new flooring product being installed.'
+                              }
                               value={displaySqftDraft(
                                 'new',
                                 option.id,
@@ -2985,6 +3049,25 @@ export function QmFlooringScopePanels({
                     </React.Fragment>
                   );
                 })}
+              {selectedNewProducts.length > 0 && !showMoreNewFlooring ? (
+                <TouchableOpacity
+                  onPress={() => setShowMoreNewFlooring(true)}
+                  activeOpacity={0.75}
+                  style={{ width: '100%', marginTop: 8 }}
+                >
+                  <Text
+                    style={[
+                      styles.qmPanelCaption,
+                      {
+                        color: darkMode ? '#94a3b8' : '#64748b',
+                        textAlign: 'center',
+                      },
+                    ]}
+                  >
+                    Add another product
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </>
         ) : null}
@@ -3051,7 +3134,7 @@ export function QmFlooringScopePanels({
                   { color: darkMode ? '#CBD5E1' : '#64748b', marginTop: 2 },
                 ]}
               >
-                Confirm additional preparation after demolition
+                Only if the substrate needs more than a normal install
               </Text>
             ) : (
               <Text
@@ -3074,8 +3157,7 @@ export function QmFlooringScopePanels({
                   { color: darkMode ? '#E2E8F0' : '#64748b' },
                 ]}
               >
-                How much of each installed area needs additional preparation
-                after demolition?
+                Enter prep only for the area that needs extra substrate work.
               </Text>
               <View style={{ gap: 16, marginTop: 12 }}>
                 {selectedNewFlooringOptions.map(option => {
@@ -3087,10 +3169,6 @@ export function QmFlooringScopePanels({
                     installSqft > 0 &&
                     prepEntry.severity !== 'none' &&
                     Number(prepEntry.sqft || 0) > installSqft + 0.01;
-                  const suggestedSeverity = recommendFloorPrepSeverity(
-                    option.id,
-                    measurements
-                  );
                   return (
                     <View
                       key={`${option.id}-prep`}
@@ -3117,22 +3195,9 @@ export function QmFlooringScopePanels({
                       >
                         {option.label}
                       </Text>
-                      {!prepEntry.severity ? (
-                        <Text
-                          style={[
-                            styles.qmPanelCaption,
-                            { color: darkMode ? '#CBD5E1' : '#94a3b8' },
-                          ]}
-                        >
-                          Suggested starting point:{' '}
-                          {FLOOR_PREP_SEVERITY_OPTIONS.find(
-                            row => row.id === suggestedSeverity
-                          )?.label || 'Medium'}
-                        </Text>
-                      ) : null}
                       <QmSqftMeasurementRow
                         label='Affected prep area'
-                        helperText='Enter only the SF needing extra substrate work after ordinary demolition cleanup.'
+                        helperText='Enter only the SF that needs extra substrate work.'
                         value={displaySqftDraft('prep', option.id, prepSqft)}
                         placeholder='Enter'
                         onFocus={() =>
@@ -6812,10 +6877,26 @@ function reconcileStuccoNetWall(
 }
 
 const STUCCO_SYSTEM_OPTIONS = [
-  { id: 'three_coat', label: '3-coat traditional' },
-  { id: 'one_coat', label: '1-coat stucco' },
-  { id: 'eifs', label: 'EIFS / synthetic' },
-  { id: 'finish_only', label: 'Finish coat only' },
+  {
+    id: 'three_coat',
+    label: '3-coat traditional',
+    detail: 'Scratch, brown, and finish over lath.',
+  },
+  {
+    id: 'one_coat',
+    label: '1-coat stucco',
+    detail: 'One base coat, then a finish coat.',
+  },
+  {
+    id: 'eifs',
+    label: 'EIFS / synthetic',
+    detail: 'Foam, mesh, and an acrylic finish.',
+  },
+  {
+    id: 'finish_only',
+    label: 'Finish coat only',
+    detail: 'Color coat over a base that is already there.',
+  },
 ] as const;
 
 export function QmStuccoScopePanels({
@@ -6823,6 +6904,7 @@ export function QmStuccoScopePanels({
   setMeasurements,
   systemChoiceId = null,
   onSystemChoice,
+  onStoriesChange,
   applying,
   darkMode,
   Colors,
@@ -6833,6 +6915,7 @@ export function QmStuccoScopePanels({
   >;
   systemChoiceId?: string | null;
   onSystemChoice?: (choiceId: string | null) => void;
+  onStoriesChange?: () => void;
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
@@ -6905,6 +6988,17 @@ export function QmStuccoScopePanels({
   const showAddons =
     showSoffits || showParapets || showFoamTrim || showControlJoints;
   const showAccessExtras = showAccessArea || showRepairArea;
+  const newHousePlanExport =
+    String(
+      (measurements as { planImportMode?: string }).planImportMode || ''
+    ) === 'selected_trade' &&
+    String(
+      (measurements as { planImportTradeKey?: string }).planImportTradeKey ||
+        ''
+    ) === 'stucco';
+  const systemOptions = newHousePlanExport
+    ? STUCCO_SYSTEM_OPTIONS.filter(option => option.id !== 'finish_only')
+    : STUCCO_SYSTEM_OPTIONS;
 
   return (
     <View style={{ gap: 12 }}>
@@ -6942,18 +7036,11 @@ export function QmStuccoScopePanels({
                 { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
               ]}
             >
-              Pick the system, then enter gross wall area. A complete system
-              includes the weather barrier, lath, coats, and standard joints.
+              Pick the system, then enter the exterior wall area. Scaffolding
+              is included in the price.
             </Text>
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 8,
-                marginTop: 4,
-              }}
-            >
-              {STUCCO_SYSTEM_OPTIONS.map(option => {
+            <View style={{ gap: 8, marginTop: 4 }}>
+              {systemOptions.map(option => {
                 const selected = systemChoiceId === option.id;
                 return (
                   <TouchableOpacity
@@ -6964,20 +7051,18 @@ export function QmStuccoScopePanels({
                       onSystemChoice?.(selected ? null : option.id)
                     }
                     style={{
-                      width: '48%',
-                      flexGrow: 1,
                       borderWidth: 1,
                       borderRadius: 10,
-                      paddingHorizontal: 10,
+                      paddingHorizontal: 12,
                       paddingVertical: 12,
                       alignItems: 'center',
                       borderColor: selected
-                        ? '#22c55e'
+                        ? '#34d399'
                         : darkMode
                           ? 'rgba(255,255,255,0.22)'
                           : Colors.line,
                       backgroundColor: selected
-                        ? 'rgba(34,197,94,0.14)'
+                        ? 'rgba(52, 211, 153, 0.12)'
                         : darkMode
                           ? '#3A3A3C'
                           : '#F4F4F5',
@@ -6986,24 +7071,39 @@ export function QmStuccoScopePanels({
                     <Text
                       style={{
                         color: selected
-                          ? '#22c55e'
+                          ? '#34d399'
                           : darkMode
                             ? '#F5F7FA'
                             : Colors.text,
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: '700',
                         textAlign: 'center',
                       }}
                     >
                       {option.label}
                     </Text>
+                    <Text
+                      style={{
+                        color: selected
+                          ? '#6ee7b7'
+                          : darkMode
+                            ? '#94a3b8'
+                            : '#64748b',
+                        fontSize: 12,
+                        lineHeight: 16,
+                        marginTop: 2,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {option.detail}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
             <QmSqftMeasurementRow
-              label='Exterior wall area — gross'
-              helperText='Total exterior wall surface before opening deductions.'
+              label='Exterior wall area'
+              helperText='This is the area the Stucco card prices.'
               value={stuccoMeasurementInputValue(measurements.stuccoGrossWallSqft)}
               placeholder='Enter'
               unitLabel='sqft'
@@ -7066,13 +7166,13 @@ export function QmStuccoScopePanels({
                 Colors={Colors}
               />
             ) : null}
+            {showWindowOpenings ||
+            showGarageOpenings ||
+            showOtherDeductions ||
+            (grossWall > 0 && netWall > 0 && Math.abs(netWall - grossWall) > 0.05) ? (
             <QmSqftMeasurementRow
               label='Net stucco wall area'
-              helperText={
-                netWall > 0
-                  ? 'This is the area the Stucco card prices.'
-                  : 'Calculated from the gross wall area.'
-              }
+              helperText='Gross wall area minus opening deductions. This is the area the Stucco card prices.'
               value={stuccoMeasurementInputValue(measurements.stuccoNetWallSqft)}
               placeholder='Calculated'
               unitLabel='sqft'
@@ -7083,6 +7183,7 @@ export function QmStuccoScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
+            ) : null}
           </>
         ) : null}
       </View>
@@ -7217,21 +7318,22 @@ export function QmStuccoScopePanels({
                 ]}
               >
                 {showAccessExtras
-                  ? 'Story count and plate height do not add a price. Access and repair areas do.'
-                  : 'Story count and plate height do not add a separate price.'}
+                  ? 'Scaffolding is included in the system price. Access and repair areas are separate.'
+                  : 'Scaffolding is included in the price. Two-story access adds $1.00/sqft. Three-story access adds $2.00/sqft.'}
               </Text>
             </TouchableOpacity>
             {accessExpanded ? (
               <>
                 <QmSqftMeasurementRow
                   label='Stories'
-                  helperText='From the plan. Story count does not add a separate price.'
+                  helperText='Scaffolding is included. One story stays in the system rate. Two-story access adds $1.00/sqft. Three-story access adds $2.00/sqft.'
                   value={stuccoMeasurementInputValue(measurements.stuccoStories)}
                   placeholder='1'
                   unitLabel='story'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoStories', value)
-                  }
+                  onChangeText={value => {
+                    updateMeasurement('stuccoStories', value);
+                    onStoriesChange?.();
+                  }}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}

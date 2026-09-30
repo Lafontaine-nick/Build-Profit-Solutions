@@ -44,6 +44,7 @@ import {
   syncWindowsDoorsScopeItems,
   windowsDoorsReviewProvenanceLabel,
   windowsDoorsReviewSelectionAppearance,
+  windowsDoorsReviewShowsSelection,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
@@ -1257,6 +1258,24 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ]);
   });
 
+  it('drops plans and engineering from a flooring plan even when notes mention plans', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'flooring', noteBacked: true },
+        { id: 'plans_engineering', noteBacked: true },
+        { id: 'flooring_carpet', noteBacked: true },
+        { id: 'cleanup', noteBacked: true },
+      ],
+      'selected_trade',
+      'flooring'
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'flooring',
+      'flooring_carpet',
+      'cleanup',
+    ]);
+  });
+
   it('keeps explicitly note-backed cross-trade cards during selected-trade filtering', () => {
     const filtered = filterChecklistItemsForTrade(
       [
@@ -1582,6 +1601,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(windowsDoorsReviewProvenanceLabel('not_found')).toBe(
       'Not found · Enter manually'
     );
+    expect(windowsDoorsReviewShowsSelection('not_found')).toBe(false);
+    expect(windowsDoorsReviewShowsSelection('plan_derived')).toBe(true);
+    expect(windowsDoorsReviewShowsSelection('verified')).toBe(true);
     expect(
       windowsDoorsReviewSelectionAppearance({
         include: true,

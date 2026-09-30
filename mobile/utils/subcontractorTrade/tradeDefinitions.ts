@@ -665,6 +665,7 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       'hardwood',
     ],
     quickMeasurementFieldKeys: [
+      'floorAreaSqft',
       'flooringSqft',
       'flooringLvpSqft',
       'flooringLaminateSqft',

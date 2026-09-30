@@ -8188,9 +8188,26 @@ function QuantitySection({
   if (!showEditor) {
     const livingSf = Number(norm.floorAreaSqft);
     const flooringSf = Number(norm.flooringSqft);
+    const allocatedFlooringSqft = [
+      'flooringLvpSqft',
+      'flooringLaminateSqft',
+      'flooringEngineeredHardwoodSqft',
+      'flooringSolidHardwoodSqft',
+      'flooringTileSqft',
+      'flooringCarpetSqft',
+      'flooringSheetVinylSqft',
+    ].reduce(
+      (sum, key) =>
+        sum +
+        (Number(String(measurementsInput[key] ?? '').replace(/,/g, '')) || 0),
+      0
+    );
+    const flooringProductsAllocated =
+      itemId === 'flooring' && allocatedFlooringSqft > 0;
     const showGrossFloorPlanning =
       measurementSemanticsV1Enabled() &&
       (itemId === 'tile_flooring' || itemId === 'flooring') &&
+      !flooringProductsAllocated &&
       !hasFlooringProductTakeoff(itemId, measurementsInput) &&
       isGrossFlooringDerivedFromLiving({
         flooringSqft: flooringSf,
@@ -8220,7 +8237,19 @@ function QuantitySection({
       <View
         style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}
       >
-        {showGrossFloorPlanning ? (
+        {flooringProductsAllocated ? (
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 12,
+              lineHeight: 17,
+              marginBottom: 8,
+            }}
+          >
+            {allocatedFlooringSqft.toLocaleString()} SF allocated to products.
+            Each product is priced on its own line.
+          </Text>
+        ) : showGrossFloorPlanning ? (
           <View style={{ marginBottom: 8 }}>
             <Text
               style={{
@@ -8253,6 +8282,7 @@ function QuantitySection({
           </View>
         ) : hideInlineTakeoff ||
           cardOwnsMissingCopy ||
+          flooringProductsAllocated ||
           suggestedBudgetSplit ? null : (
           <Text
             style={{
@@ -14383,6 +14413,7 @@ function CollapsibleQuickMeasurements({
   onHvacScopeSelectionChange,
   stuccoSystemChoiceId = null,
   onStuccoSystemChange,
+  onStuccoStoriesChange,
   Colors,
   darkMode,
   applying,
@@ -14480,6 +14511,7 @@ function CollapsibleQuickMeasurements({
   onHvacScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   stuccoSystemChoiceId?: string | null;
   onStuccoSystemChange?: (choiceId: string | null) => void;
+  onStuccoStoriesChange?: () => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -16268,13 +16300,18 @@ function CollapsibleQuickMeasurements({
   const flooringHasExistingType =
     Array.isArray(measurements.flooringExistingTypes) &&
     measurements.flooringExistingTypes.length > 0;
-  const flooringPlanOmitsExistingWork =
+  const flooringPlanExport =
     flooringQmJob &&
-    measurements.planImportMode === 'selected_trade' &&
-    measurements.planImportTradeKey === 'flooring' &&
-    !/\b(?:remodel|renovat|existing\s+floor|demo|demolition|tear[\s-]?out|remov(?:e|al))\b/i.test(
+    ((measurements.planImportMode === 'selected_trade' &&
+      measurements.planImportTradeKey === 'flooring') ||
+      (String(effectiveTemplateKey || '').toLowerCase() === 'flooring' &&
+        Boolean(measurements.planImportFingerprint)));
+  const notesCallOutExistingFloor =
+    /\b(?:existing|current|old)\s+(?:floor|flooring|carpet|tile|hardwood|lvp|vinyl)\b/i.test(
       String(notes || '')
     );
+  const flooringPlanOmitsExistingWork =
+    flooringPlanExport && !notesCallOutExistingFloor;
   const landscapingQmJob =
     !paintingPlanMeasurements &&
     !concretePlanExport &&
@@ -16606,10 +16643,42 @@ function CollapsibleQuickMeasurements({
   const confirmedNonRoofingResults = displayGroups.confirmed.filter(
     result => !roofingMeasurementKeys.has(result.key)
   );
-  const summary = useMemo(
-    () => summarizeQuickMeasurementFieldStates(fieldResultsForSummary),
-    [fieldResultsForSummary]
-  );
+  const summary = useMemo(() => {
+    const hiddenPlanFloorKeys = new Set<string>([
+      'floorAreaSqft',
+      'flooringSqft',
+      'floorDemoSqft',
+      'floorPrepSqft',
+      'underlaymentSqft',
+      'moistureBarrierSqft',
+      'quarterRoundLf',
+      'baseboardLf',
+      'bathroomFloorSqft',
+      'kitchenFloorSqft',
+      'flooringLvpSqft',
+      'flooringLaminateSqft',
+      'flooringEngineeredHardwoodSqft',
+      'flooringSolidHardwoodSqft',
+      'flooringTileSqft',
+      'flooringCarpetSqft',
+      'flooringSheetVinylSqft',
+    ]);
+    const visible = flooringPlanOmitsExistingWork
+      ? fieldResultsForSummary.filter(result => {
+          if (!hiddenPlanFloorKeys.has(result.key)) return true;
+          return Number(measurements[result.key]) > 0 && result.key !== 'floorAreaSqft';
+        })
+      : fieldResultsForSummary;
+    const next = summarizeQuickMeasurementFieldStates(visible);
+    const planFloor = Number(
+      String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
+    );
+    if (flooringPlanOmitsExistingWork && planFloor > 0) {
+      next.detected += 1;
+      next.relevantTotal += 1;
+    }
+    return next;
+  }, [fieldResultsForSummary, flooringPlanOmitsExistingWork, measurements]);
   const measurementConflicts = useMemo(
     () =>
       (measurements.measurementConflicts || []).filter(
@@ -19195,6 +19264,8 @@ function CollapsibleQuickMeasurements({
       (flooringQmJob &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
+      (flooringQmJob && result.key === 'flooringSqft') ||
+      (flooringPlanOmitsExistingWork && result.key === 'floorAreaSqft') ||
       (flooringPlanOmitsExistingWork &&
         [
           'floorDemoSqft',
@@ -21195,6 +21266,7 @@ function CollapsibleQuickMeasurements({
                   setMeasurements={setMeasurements}
                   systemChoiceId={stuccoSystemChoiceId}
                   onSystemChoice={onStuccoSystemChange}
+                  onStoriesChange={onStuccoStoriesChange}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -22005,65 +22077,6 @@ export default function AIEstimateScopeAssumptionsModal({
   const pendingQmDoneScrollRef = useRef(false);
   const qmDoneFirstScopeItemIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
-      return;
-    const productMeasurementKeys: Record<
-      string,
-      keyof ScopeMeasurementsInputExtended
-    > = {
-      lvp: 'flooringLvpSqft',
-      laminate: 'flooringLaminateSqft',
-      engineered_hardwood: 'flooringEngineeredHardwoodSqft',
-      solid_hardwood: 'flooringSolidHardwoodSqft',
-      tile: 'flooringTileSqft',
-      carpet: 'flooringCarpetSqft',
-    };
-    const products = Array.isArray(measurements.flooringProductScope)
-      ? measurements.flooringProductScope
-      : [];
-    const total = products.reduce((sum, product) => {
-      const key = productMeasurementKeys[product];
-      const directQuantity = key ? Number(measurements[key] || 0) : 0;
-      const itemQuantity = Number(
-        measurements.itemQuantities?.[`floor_install__${product}`]?.quantity ||
-          0
-      );
-      return sum + (directQuantity || itemQuantity);
-    }, 0);
-    const currentTotal = Number(
-      String(measurements.floorAreaSqft || '').replace(/,/g, '')
-    );
-    if (total <= 0 || Math.abs(currentTotal - total) < 0.01) return;
-    setMeasurements(prev => ({
-      ...prev,
-      floorAreaSqft: total,
-      flooringSqft: total,
-      quickMeasurementSources: {
-        ...(prev.quickMeasurementSources || {}),
-        floorAreaSqft: 'user_entered',
-        flooringSqft: 'user_entered',
-      },
-      quickMeasurementUserOverrides: {
-        ...(prev.quickMeasurementUserOverrides || {}),
-        floorAreaSqft: true,
-        flooringSqft: true,
-      },
-    }));
-  }, [
-    checklist?.templateKey,
-    measurements.flooringProductScope,
-    measurements.flooringLvpSqft,
-    measurements.flooringLaminateSqft,
-    measurements.flooringEngineeredHardwoodSqft,
-    measurements.flooringSolidHardwoodSqft,
-    measurements.flooringTileSqft,
-    measurements.flooringCarpetSqft,
-    measurements.flooringSqft,
-    measurements.floorAreaSqft,
-    measurements.itemQuantities,
-  ]);
-
   const reasonablenessLivingSf = useMemo(
     () =>
       resolveBenchmarkLivingSf({
@@ -22831,6 +22844,7 @@ export default function AIEstimateScopeAssumptionsModal({
       return 3;
     };
     return groupedOpeningItems
+      .filter(item => item.id !== 'plans_engineering')
       .map((item, index) => ({
         item:
           item.id === 'floor_demo'
@@ -24161,6 +24175,40 @@ export default function AIEstimateScopeAssumptionsModal({
           planImport?.missingInfo ??
           [],
       };
+      if (hydrateTradeContext.tradeKey === 'flooring') {
+        const importedFloor = Number(
+          String(planImport?.measurements?.floorAreaSqft ?? '').replace(
+            /,/g,
+            ''
+          )
+        );
+        const currentFloor = Number(
+          String(nextMeasurements.floorAreaSqft ?? '').replace(/,/g, '')
+        );
+        const rolledIntoProducts =
+          nextMeasurements.quickMeasurementSources?.floorAreaSqft ===
+          'user_entered';
+        const planFloor =
+          importedFloor > 0 &&
+          (rolledIntoProducts || !(currentFloor > 0) || importedFloor > currentFloor)
+            ? importedFloor
+            : currentFloor;
+        if (planFloor > 0) {
+          nextMeasurements.floorAreaSqft = String(Math.round(planFloor));
+          if (rolledIntoProducts && importedFloor > 0) {
+            nextMeasurements.quickMeasurementSources = {
+              ...(nextMeasurements.quickMeasurementSources || {}),
+              floorAreaSqft: 'plan_detected',
+            };
+            if (nextMeasurements.quickMeasurementUserOverrides) {
+              nextMeasurements.quickMeasurementUserOverrides = {
+                ...nextMeasurements.quickMeasurementUserOverrides,
+                floorAreaSqft: false,
+              };
+            }
+          }
+        }
+      }
       if (hydrateTradeContext.tradeKey === 'painting') {
         nextMeasurements = restorePaintingPlanSurfaceFields(
           {
@@ -30587,6 +30635,7 @@ export default function AIEstimateScopeAssumptionsModal({
               );
               handleClearAcceptedPricing('stucco');
             }}
+            onStuccoStoriesChange={() => handleClearAcceptedPricing('stucco')}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
             onElectricalAttributesPreview={previewElectricalAttributes}
@@ -30984,7 +31033,8 @@ export default function AIEstimateScopeAssumptionsModal({
                     measurementsForAppliedPricing,
                     groupPricingTemplateKey,
                     resolved,
-                    null,
+                    enrichedPricingContext,
+                    item.choiceId,
                     scopeNotes
                   );
                   const fill = suggested.fill;

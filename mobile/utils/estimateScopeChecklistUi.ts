@@ -5907,11 +5907,11 @@ export function checklistDisplayLabel(
   if (item.id === 'interior_paint' && item.label === 'Interior paint — walls') {
     return item.label;
   }
-  if (
-    tk === 'flooring' &&
-    (item.id === 'tile_flooring' || item.id === 'flooring' || item.id === 'tile')
-  ) {
-    return 'Flooring';
+  if (tk === 'flooring' && item.id === 'tile_flooring') {
+    return 'Tile installation';
+  }
+  if (tk === 'flooring' && item.id === 'tile') {
+    return 'Tile';
   }
   if (PAINT_LABEL_TEMPLATES.has(tk) && PAINT_SCOPE_LABEL_OVERRIDES[item.id]) {
     return PAINT_SCOPE_LABEL_OVERRIDES[item.id];

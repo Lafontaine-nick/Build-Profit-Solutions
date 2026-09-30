@@ -33,6 +33,7 @@ import {
   shouldSuppressSuggestedPricingAfterApply,
 } from '@/utils/scopeItemQuantities';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import { FLOORING_INSTALL_MEASUREMENT_ITEM_IDS } from '@/utils/qmScopePanels/flooringRemodel';
 import { isElectricalServicePanelItemId } from '@/utils/subcontractorTrade/electricalServicePanelPricing';
 import { isElectricalCircuitItemId } from '@/utils/subcontractorTrade/electricalCircuitPricing';
 import { isElectricalReceptacleItemId } from '@/utils/subcontractorTrade/electricalReceptaclePricing';
@@ -345,6 +346,14 @@ export function step2TierNeedsInlineTakeoffEntry(
   if (template === 'ground_up') {
     // Plan quantities and planning allowances already show on the card.
     // Do not add a second measurement box inside the pricing card.
+    return false;
+  }
+  if (
+    template === 'flooring' &&
+    FLOORING_INSTALL_MEASUREMENT_ITEM_IDS.has(itemId)
+  ) {
+    // Product area is entered on the New Flooring card. The pricing card
+    // must not add a second sqft box for the same scope.
     return false;
   }
   if (

@@ -1991,6 +1991,8 @@ describe('estimateInitialRevealUi', () => {
   it('keeps stucco plan export scope to plan facts and wall-area confirmation', () => {
     const draft = {
       projectType: 'stucco',
+      projectTitle: 'Stucco / Exterior Finish Estimate Draft',
+      whatAiDid: ['Detected stucco.'],
       requiresScopeConfirmation: true,
       originalNotes:
         'Suggested scope from plans:\nPermit responsibility\nExisting substrate condition and required repairs\nSurface preparation and repair scope\nColors, texture, and coating requirements',
@@ -2018,6 +2020,8 @@ describe('estimateInitialRevealUi', () => {
       ],
     } as EstimateAiDraft;
 
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Stucco');
+    expect(getInitialRevealTagline(draft)).toBeNull();
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
       {
         name: 'Stucco / exterior wall finish',
@@ -2054,13 +2058,14 @@ describe('estimateInitialRevealUi', () => {
     } as EstimateAiDraft;
 
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Living area', amount: 0, quantity: '2,571 SF' },
       { name: 'Flooring', amount: 0, quantity: 'Needs measurement' },
     ]);
     expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
       'Flooring: needs measurement',
     ]);
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
-    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(2);
   });
 
   it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {

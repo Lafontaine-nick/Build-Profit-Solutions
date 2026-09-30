@@ -276,11 +276,13 @@ export function getInitialRevealConfirmItems(
     ]);
   }
   if (flooringPlanExport(draft)) {
-    const row = flooringPlanScopeRows(draft)[0];
+    const flooringRow = flooringPlanScopeRows(draft).find(
+      row => row.name === 'Flooring'
+    );
     return splitInitialRevealConfirmItems([
-      row?.quantity === 'Needs measurement'
+      flooringRow?.quantity === 'Needs measurement'
         ? 'Flooring: needs measurement'
-        : `Pricing for ${row?.name || 'Flooring'}${row?.quantity ? ` · ${row.quantity}` : ''}`,
+        : `Pricing for ${flooringRow?.name || 'Flooring'}${flooringRow?.quantity ? ` · ${flooringRow.quantity}` : ''}`,
     ]);
   }
   const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
@@ -587,15 +589,20 @@ function flooringPlanScopeRows(
     flooring != null && living != null && Math.abs(flooring - living) < 1;
   const quantity =
     productTotal > 0 ? productTotal : flooring != null && !livingCopy ? flooring : null;
-  return [
-    {
-      name: 'Flooring',
+  const rows: Array<{ name: string; amount: number; quantity?: string }> = [];
+  if (living) {
+    rows.push({
+      name: 'Living area',
       amount: 0,
-      quantity: quantity
-        ? `${quantity.toLocaleString()} sqft`
-        : 'Needs measurement',
-    },
-  ];
+      quantity: `${living.toLocaleString()} SF`,
+    });
+  }
+  rows.push({
+    name: 'Flooring',
+    amount: 0,
+    quantity: quantity ? `${quantity.toLocaleString()} sqft` : 'Needs measurement',
+  });
+  return rows;
 }
 
 function isConcreteRevealDraft(draft: EstimateAiDraft): boolean {
@@ -2439,6 +2446,9 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
     return 'Painting';
   }
+  if (stuccoPlanExport(draft)) {
+    return 'Stucco';
+  }
   if (classification.scopeMode === 'mixed') {
     return classification.scopeSummary?.trim() || 'Mixed-scope remodel';
   }
@@ -2690,7 +2700,10 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     return 'Read from the sheets. Unprinted trades stay planning allowances.';
   }
   const classification = getRevealClassification(draft);
-  if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
+  if (
+    classification.scopeTradeLabels.join(' · ') === 'Painting' ||
+    stuccoPlanExport(draft)
+  ) {
     return null;
   }
   if (classification.scopeMode === 'mixed') {

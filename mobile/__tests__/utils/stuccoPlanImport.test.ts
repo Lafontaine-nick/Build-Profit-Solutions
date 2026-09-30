@@ -22,6 +22,7 @@ import {
   summarizeQuickMeasurementFieldStates,
 } from '@/utils/quickMeasurementProvenance';
 import { hydrateScopeChecklistFromNotes } from '@/utils/estimateScopeChecklistUi';
+import { wholeProjectGroupDisplayTotal } from '@/utils/benchmarkReasonablenessContext';
 
 describe('Stucco plan import', () => {
   it('calculates net stucco wall area and preserves the pricing alias', () => {
@@ -400,6 +401,84 @@ describe('Stucco plan import', () => {
       'one_coat'
     );
     expect(oneCoatPricing.fill?.total).toBe(21113.4);
+  });
+
+  it('includes two-story scaffolding in the system price and steps up at three stories', () => {
+    const input = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist({
+        stuccoNetWallSqft: '3000',
+        stuccoStories: '2',
+      })
+    );
+    const resolved = resolveChecklistItemQuantity(
+      'stucco',
+      normalizeScopeMeasurements(input as any),
+      { templateKey: 'stucco', choiceId: 'three_coat' }
+    );
+    const twoStory = resolveScopeItemSuggestedPricing(
+      'stucco',
+      input as any,
+      'stucco',
+      resolved,
+      {
+        checklistItems: [
+          { id: 'stucco', state: 'included', choiceId: 'three_coat' },
+        ],
+      },
+      'three_coat'
+    );
+    const threeStory = resolveScopeItemSuggestedPricing(
+      'stucco',
+      {
+        ...input,
+        stuccoStories: '3',
+      } as any,
+      'stucco',
+      resolved,
+      {
+        checklistItems: [
+          { id: 'stucco', state: 'included', choiceId: 'three_coat' },
+        ],
+      },
+      'three_coat'
+    );
+
+    expect(twoStory.fill?.total).toBe(30000);
+    expect(JSON.stringify(twoStory)).toContain('two-story access included');
+    expect(threeStory.fill?.total).toBe(33000);
+    expect(JSON.stringify(threeStory)).toContain('three-story access included');
+  });
+
+  it('changes the collapsed stucco card total when stories change', () => {
+    const items = [
+      {
+        id: 'stucco',
+        label: 'Stucco system',
+        inputType: 'choice' as const,
+        state: 'included' as const,
+        choiceId: 'three_coat',
+      },
+    ];
+    const measurements = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist({
+        stuccoGrossWallSqft: '3000',
+        stuccoNetWallSqft: '3000',
+        stuccoStories: '2',
+      })
+    );
+    const twoStory = wholeProjectGroupDisplayTotal({
+      items,
+      measurements: measurements as any,
+      templateKey: 'stucco',
+    });
+    const oneStory = wholeProjectGroupDisplayTotal({
+      items,
+      measurements: { ...measurements, stuccoStories: '1' } as any,
+      templateKey: 'stucco',
+    });
+
+    expect(twoStory).toBe(30000);
+    expect(oneStory).toBe(27000);
   });
 
   it('prices separate repair/re-stucco add-ons from affected area and severity', () => {

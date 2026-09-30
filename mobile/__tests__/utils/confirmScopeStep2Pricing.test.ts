@@ -186,6 +186,18 @@ describe('confirmScopeStep2Pricing tiers', () => {
       })
     ).toBe(false);
     expect(
+      step2TierNeedsInlineTakeoffEntry('flooring_laminate', 'flooring', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(false);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('flooring_lvp', 'flooring', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(false);
+    expect(
       step2TierNeedsInlineTakeoffEntry('landscaping', 'addition', {
         pricingReady: false,
         unit: 'sqft',

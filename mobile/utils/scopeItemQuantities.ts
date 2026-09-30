@@ -13180,7 +13180,7 @@ function flooringInstallNationalAverage(
     }
     return null;
   }
-  if (itemId !== 'flooring_lvp') return null;
+  if (itemId === 'flooring_lvp') {
   if (measurementsInput.flooringNewLvpInstallMethod === 'floating') {
     return {
       material: 3.5,
@@ -13194,6 +13194,21 @@ function flooringInstallNationalAverage(
       material: 4.25,
       labor: 4.75,
       sourceLabel: 'Suggested budget split · National Average · glue-down LVP',
+    };
+  }
+    return null;
+  }
+  const split = NATIONAL_AVERAGE_BUDGET_SPLITS[itemId];
+  if (
+    itemId !== 'flooring' &&
+    split?.unit === 'sqft' &&
+    split.material != null &&
+    split.labor != null
+  ) {
+    return {
+      material: split.material,
+      labor: split.labor,
+      sourceLabel: split.sourceLabel,
     };
   }
   return null;
@@ -15527,6 +15542,25 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  if (itemId === 'flooring') {
+    const allocatedProductSqft = [
+      'flooringLvpSqft',
+      'flooringLaminateSqft',
+      'flooringEngineeredHardwoodSqft',
+      'flooringSolidHardwoodSqft',
+      'flooringTileSqft',
+      'flooringCarpetSqft',
+      'flooringSheetVinylSqft',
+    ].reduce(
+      (sum, key) =>
+        sum +
+        (parseScopeMeasurementInput(
+          (measurementsInput as Record<string, unknown>)[key]
+        ) || 0),
+      0
+    );
+    if (allocatedProductSqft > 0) return empty;
+  }
   const notesText = String(originalNotes || '');
   if (
     (itemId === 'drip_edge' || itemId === 'ridge_cap') &&
@@ -18463,7 +18497,15 @@ export function resolveScopeItemSuggestedPricing(
         label: 'finish coat only',
       },
     };
-    const selectedRate = systemRates[String(choiceId || '')];
+    const systemChoiceIds = ['three_coat', 'one_coat', 'eifs', 'finish_only'];
+    const checklistChoice = String(stuccoSystem?.choiceId || '');
+    const passedChoice = String(choiceId || '');
+    const resolvedSystemChoice = systemChoiceIds.includes(passedChoice)
+      ? passedChoice
+      : systemChoiceIds.includes(checklistChoice)
+        ? checklistChoice
+        : passedChoice;
+    const selectedRate = systemRates[resolvedSystemChoice];
     if (selectedRate) {
       const componentShares: Record<string, number> = {
         stucco_wrb: 0.1,
@@ -18484,15 +18526,58 @@ export function resolveScopeItemSuggestedPricing(
         0
       );
       const retainedShare = Math.max(0, 1 - excludedShare);
+      const storyCount = Number(
+        String(measurementsInput.stuccoStories ?? '').replace(/,/g, '')
+      );
+      const accessArea = Number(
+        String(measurementsInput.stuccoAccessAffectedSqft ?? '').replace(
+          /,/g,
+          ''
+        )
+      );
+      const accessItem = pricingContext?.checklistItems?.find(
+        row => row.id === 'stucco_access'
+      );
+      const separateAccessCharge =
+        Number.isFinite(accessArea) &&
+        accessArea > 0 &&
+        (accessItem?.state === 'included' ||
+          ['two_story', 'difficult_single_story', 'major_scaffolding'].includes(
+            String(accessItem?.choiceId || '')
+          ));
+      // One story: ground setup is already in the system labor.
+      // Two stories: +$1.00/sf access premium. Three or more: +$2.00/sf.
+      const scaffold =
+        separateAccessCharge || !(storyCount >= 2)
+          ? null
+          : storyCount >= 3
+            ? {
+                material: 0.5,
+                labor: 1.5,
+                note: 'three-story access included',
+              }
+            : {
+                material: 0.25,
+                labor: 0.75,
+                note: 'two-story access included',
+              };
+      const scaffoldNote =
+        scaffold?.note ||
+        (storyCount > 0 && storyCount < 2 ? 'scaffolding included' : null);
       average = {
         ...(average || {}),
-        material: selectedRate.material * retainedShare,
-        labor: selectedRate.labor * retainedShare,
+        material:
+          selectedRate.material * retainedShare + (scaffold?.material || 0),
+        labor: selectedRate.labor * retainedShare + (scaffold?.labor || 0),
         unit: 'sqft',
-        sourceLabel:
-          excludedShare > 0
-            ? `BPS national planning rate · ${selectedRate.label} · standard components excluded`
-            : `BPS national planning rate · ${selectedRate.label}`,
+        sourceLabel: [
+          'BPS national planning rate',
+          selectedRate.label,
+          excludedShare > 0 ? 'standard components excluded' : null,
+          scaffoldNote,
+        ]
+          .filter(Boolean)
+          .join(' · '),
       };
     }
   }
@@ -19231,12 +19316,31 @@ export function resolveScopeItemSuggestedPricing(
     }
 
     if (itemId === 'tile_flooring' || itemId === 'flooring') {
+      const allocatedProductSqft = [
+        'flooringLvpSqft',
+        'flooringLaminateSqft',
+        'flooringEngineeredHardwoodSqft',
+        'flooringSolidHardwoodSqft',
+        'flooringTileSqft',
+        'flooringCarpetSqft',
+        'flooringSheetVinylSqft',
+      ].reduce(
+        (sum, key) =>
+          sum +
+          (parseScopeMeasurementInput(
+            (measurementsInput as Record<string, unknown>)[key]
+          ) || 0),
+        0
+      );
       const floorQty =
-        resolved.quantity != null && Number(resolved.quantity) > 0
+        itemId === 'flooring' && allocatedProductSqft > 0
+          ? null
+          : resolved.quantity != null && Number(resolved.quantity) > 0
           ? Number(resolved.quantity)
           : parseScopeMeasurementInput(measurementsInput.flooringSqft) ||
             parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
       if (
+        !(itemId === 'flooring' && allocatedProductSqft > 0) &&
         flooringUsesBarometerLumpPackage({
           itemId,
           livingSf,

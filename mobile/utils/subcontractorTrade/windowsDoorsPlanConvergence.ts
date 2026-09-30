@@ -383,6 +383,13 @@ export function windowsDoorsReviewProvenanceLabel(
   return 'Not found · Enter manually';
 }
 
+/** A checkbox only belongs on a row that already has a count to accept or leave out. */
+export function windowsDoorsReviewShowsSelection(
+  tier: WindowsDoorsReviewTier
+): boolean {
+  return tier !== 'not_found';
+}
+
 export function windowsDoorsReviewSelectionAppearance(input: {
   include: boolean;
   tier: WindowsDoorsReviewTier;

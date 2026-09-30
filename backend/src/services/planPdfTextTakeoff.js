@@ -1998,6 +1998,26 @@ function scoreInsulationRelevantPage(text) {
   return { score, reasons: [...new Set(reasons)] };
 }
 
+function selectWindowsDoorsSymbolPages(pdfTakeoff) {
+  const pages = (Array.isArray(pdfTakeoff?.windowsDoorsRelevantPages)
+    ? pdfTakeoff.windowsDoorsRelevantPages
+    : []
+  ).filter(page => Number(page?.score) >= 12 && Number(page?.page) >= 1);
+  const ranked = (pages.length
+    ? pages
+    : (Array.isArray(pdfTakeoff?.windowsDoorsRelevantPages)
+        ? pdfTakeoff.windowsDoorsRelevantPages
+        : []
+      ).filter(page => Number(page?.page) >= 1)
+  ).sort((a, b) => Number(b.score) - Number(a.score) || a.page - b.page);
+  if (ranked.length) return ranked.slice(0, 8);
+  const pageCount = Number(pdfTakeoff?.pageCount) || 0;
+  return Array.from({ length: Math.min(pageCount, 8) }, (_, index) => ({
+    page: index + 1,
+    score: 0,
+  }));
+}
+
 function selectWholeProjectSymbolPages(pdfTakeoff) {
   const openings = (Array.isArray(pdfTakeoff?.windowsDoorsRelevantPages)
     ? pdfTakeoff.windowsDoorsRelevantPages
@@ -3224,6 +3244,7 @@ module.exports = {
   electricalSymbolCropRects,
   renderWindowsDoorsPlanPages: renderElectricalPlanPages,
   renderRoofingPlanPages,
+  selectWindowsDoorsSymbolPages,
   selectWholeProjectSymbolPages,
   renderPlumbingPlanPages,
   renderInsulationPlanPages,

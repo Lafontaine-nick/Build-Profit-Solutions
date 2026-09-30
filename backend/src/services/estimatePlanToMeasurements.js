@@ -4670,18 +4670,15 @@ async function analyzePlanForMeasurements({
   let windowsDoorsSheetImages = [];
   if (windowsDoorsSelected && pdfBuffers.length) {
     try {
-      const { renderWindowsDoorsPlanPages } = require("./planPdfTextTakeoff");
-      const selectedPages =
-        pdfTakeoff?.windowsDoorsRelevantPages?.length
-          ? pdfTakeoff.windowsDoorsRelevantPages
-          : Array.from(
-              { length: Math.min(Number(pdfTakeoff?.pageCount) || 0, 8) },
-              (_, index) => ({ page: index + 1 }),
-            );
+      const {
+        renderWindowsDoorsPlanPages,
+        selectWindowsDoorsSymbolPages,
+      } = require("./planPdfTextTakeoff");
+      const selectedPages = selectWindowsDoorsSymbolPages(pdfTakeoff);
       windowsDoorsSheetImages = await renderWindowsDoorsPlanPages(
         pdfBuffers,
         selectedPages,
-        { maxPages: 8, maxDimension: 4200 },
+        { maxPages: 8, maxDimension: 2200 },
       );
     } catch (err) {
       console.warn("Windows & doors sheet raster skipped:", err?.message || err);
@@ -5152,12 +5149,53 @@ async function analyzePlanForMeasurements({
         },
       ],
     });
+  const createWindowsDoorsSymbolCompletion = (symbolImages) =>
+    createOpenAiChatCompletion(openai, {
+      model: aiModels.assistant.vision,
+      response_format: aiRuntime.assistant.vision.responseFormat,
+      temperature: 0,
+      reasoning_effort: "none",
+      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+      messages: [
+        {
+          role: "system",
+          content:
+            "Count visible window and door openings. Return JSON only, with every count inside measurements. A visible window, swing door, or interior door with no count is a failed takeoff. Omit a count only when that opening type is not on the attached sheets. Never invent a count from living area or a missing schedule.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                `The attached images are the floor plan and exterior elevations (pages ${symbolImages
+                  .map((page) => page.page)
+                  .filter(Boolean)
+                  .join(", ")}). There may be no window or door schedule.`,
+                "Count each physical opening once. Windows, exterior swing doors, and sliders come from the elevation sheets only. Do not add the same window again from the floor plan. Interior doors come from the floor plan only.",
+                "Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount. Count opening units, not door leaves. A hinged or French door is an exterior door. Return slidingDoorCount only for a visible track, multi-slide, bypass, or slider symbol, and omit it when none is visible.",
+                "Do not return garage door counts. Put every returned count in measurements and list those keys in geometryDerived.",
+                'Example shape: {"measurements":{"windowCount":12,"exteriorDoorCount":4,"interiorDoorCount":18},"geometryDerived":["windowCount","exteriorDoorCount","interiorDoorCount"]}',
+              ].join("\n\n"),
+            },
+            ...symbolImages.map((page) => {
+              const part = toVisionContentPart(page);
+              if (part?.image_url) part.image_url.detail = "high";
+              return part;
+            }),
+          ],
+        },
+      ],
+    });
   let wholeProjectSymbolPass = false;
+  let windowsDoorsSymbolPass = false;
   let wholeProjectElectricalSymbolKeys = [];
   const tradeVisualPromise =
     planSelection.mode === "whole_project" || planSelection.trade
       ? (async () => {
-          const symbolImages = await wholeProjectSymbolRasterPromise;
+          const symbolImages = windowsDoorsSelected
+            ? windowsDoorsSheetImages
+            : await wholeProjectSymbolRasterPromise;
           console.log(
             "[plan symbol pages]",
             symbolImages.length
@@ -5167,7 +5205,19 @@ async function analyzePlanForMeasurements({
                 }))
               : "none",
           );
-          if (symbolImages.length) {
+          if (symbolImages.length && windowsDoorsSelected) {
+            try {
+              windowsDoorsSymbolPass = true;
+              return await createWindowsDoorsSymbolCompletion(symbolImages);
+            } catch (err) {
+              windowsDoorsSymbolPass = false;
+              console.warn(
+                "Windows & doors symbol count pass failed:",
+                err?.message || err,
+              );
+            }
+          }
+          if (symbolImages.length && !windowsDoorsSelected) {
             try {
               wholeProjectSymbolPass = true;
               return await createWholeProjectSymbolCompletion(symbolImages);
@@ -5264,7 +5314,7 @@ async function analyzePlanForMeasurements({
       const focused = JSON.parse(
         tradeVisualCompletion.choices?.[0]?.message?.content || "{}",
       );
-      if (wholeProjectSymbolPass) {
+      if (wholeProjectSymbolPass || windowsDoorsSymbolPass) {
         console.log("[plan symbol count]", {
           topLevelKeys: Object.keys(focused || {}),
           measurementKeys: Object.keys(focused.measurements || {}),
@@ -5272,7 +5322,13 @@ async function analyzePlanForMeasurements({
             ? focused.planFacts.openingEvidence.length
             : 0,
         });
-        focused.measurements = filterWholeProjectSymbolMeasurements(focused);
+        focused.measurements = windowsDoorsSymbolPass
+          ? Object.fromEntries(
+              Object.entries(
+                filterWholeProjectSymbolMeasurements(focused),
+              ).filter(([key]) => WINDOWS_DOORS_COUNT_KEYS.includes(key)),
+            )
+          : filterWholeProjectSymbolMeasurements(focused);
         const symbolKeys = Object.keys(focused.measurements);
         wholeProjectElectricalSymbolKeys = symbolKeys.filter((key) =>
           WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
