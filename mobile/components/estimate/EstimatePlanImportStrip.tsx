@@ -98,6 +98,32 @@ function keepPaintingPlanGeometry(
   return mode === 'selected_trade' && tradeKey === 'painting';
 }
 
+function roofingPlanFactMeasurements(
+  tradeKey: string | null | undefined,
+  input: {
+    planFacts?: { roofPitch?: unknown; storyCount?: unknown } | null;
+    measurements?: Record<string, unknown> | null;
+    values?: Record<string, string> | null;
+  }
+): { roofPitch?: string; storyCount?: number } {
+  if (tradeKey !== 'roofing') return {};
+  const pitch = String(
+    input.planFacts?.roofPitch ||
+      input.measurements?.roofPitch ||
+      input.values?.roofPitch ||
+      ''
+  ).trim();
+  const stories = Number(
+    input.planFacts?.storyCount ??
+      input.measurements?.storyCount ??
+      input.values?.storyCount
+  );
+  return {
+    ...(pitch ? { roofPitch: pitch } : {}),
+    ...(Number.isFinite(stories) && stories > 0 ? { storyCount: stories } : {}),
+  };
+}
+
 function keepSelectedTradePlanContext(
   mode: PlanEstimatingMode,
   tradeKey?: PlanTradeKey | null
@@ -997,12 +1023,11 @@ export default function EstimatePlanImportStrip({
                     Object.entries({
                       ...takeoff.measurements,
                       ...values,
-                      ...(selection.trade.key === 'roofing'
-                        ? {
-                            roofPitch: takeoff.planFacts?.roofPitch,
-                            storyCount: takeoff.planFacts?.storyCount,
-                          }
-                        : {}),
+                      ...roofingPlanFactMeasurements(selection.trade.key, {
+                        planFacts: takeoff.planFacts,
+                        measurements: takeoff.measurements,
+                        values,
+                      }),
                     })
                       .map(([key, value]) => [
                         key,
@@ -1074,16 +1099,11 @@ export default function EstimatePlanImportStrip({
               selection.trade.key,
               {
                 ...tradeMeasurements,
-                ...(selection.trade.key === 'roofing'
-                  ? {
-                      roofPitch:
-                        takeoff.planFacts?.roofPitch ||
-                        tradeMeasurements.roofPitch,
-                      storyCount:
-                        takeoff.planFacts?.storyCount ||
-                        tradeMeasurements.storyCount,
-                    }
-                  : {}),
+                ...roofingPlanFactMeasurements(selection.trade.key, {
+                  planFacts: takeoff.planFacts,
+                  measurements: tradeMeasurements,
+                  values,
+                }),
               },
               'plan'
             )
@@ -1929,7 +1949,6 @@ export default function EstimatePlanImportStrip({
         estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
           marginHorizontal: -8,
-          ready: planReady,
         }),
         importing || disabled || (plumbingPlanDisabled && showPlanRouting)
           ? { opacity: 0.55 }

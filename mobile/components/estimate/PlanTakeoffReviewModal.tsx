@@ -527,6 +527,16 @@ export default function PlanTakeoffReviewModal({
       effectiveMode,
       effectiveTradeKey
     );
+    if (
+      effectiveTradeKey === 'roofing' &&
+      Number(filtered.roofSquares) <= 0 &&
+      Number(filtered.roofAreaSqft) <= 0
+    ) {
+      return {
+        ...filtered,
+        roofSquares: '',
+      };
+    }
     if (effectiveTradeKey === 'hvac') {
       return resolveHvacPlanReviewMeasurements(takeoff);
     }
@@ -837,6 +847,12 @@ export default function PlanTakeoffReviewModal({
     ) {
       measurementEntries.push(['exteriorPaintSqft', '']);
     }
+    if (
+      effectiveTradeKey === 'roofing' &&
+      !measurementEntries.some(([key]) => key === 'roofSquares')
+    ) {
+      measurementEntries.push(['roofSquares', '']);
+    }
     if (effectiveTradeKey === 'electrical') {
       const seen = new Set(measurementEntries.map(([key]) => key));
       for (const reading of takeoff.lowConfidence || []) {
@@ -908,6 +924,10 @@ export default function PlanTakeoffReviewModal({
               .filter(Boolean)
               .join(' + ')
           : null;
+        const roofQuantityNeedsConfirmation =
+          effectiveTradeKey === 'roofing' &&
+          key === 'roofSquares' &&
+          !(Number(value) > 0);
         const openingDeductionSqft = resolveInsulationOpeningDeductionForReview(
           takeoff.measurements,
           mergeInsulationPlanFactsFromTakeoff(
@@ -921,7 +941,9 @@ export default function PlanTakeoffReviewModal({
           Math.abs(Number(value) - ceilingBoundary.calculatedSqft) <=
             Math.max(25, ceilingBoundary.calculatedSqft * 0.02);
         const sourceLabel = semanticsOn
-          ? key === 'atticInsulationSqft' &&
+          ? roofQuantityNeedsConfirmation
+            ? 'Not found on plan — enter roof squares'
+            : key === 'atticInsulationSqft' &&
             Number(value) > 0 &&
             !(Number(takeoff.measurements?.atticInsulationSqft) > 0) &&
             !takeoff.measurementProvenance?.[key]
@@ -969,7 +991,15 @@ export default function PlanTakeoffReviewModal({
           !(Number(takeoff.measurements?.[key]) > 0) &&
           scheduleDocumented;
         const provenanceEntry =
-          (effectiveTradeKey === 'painting'
+          (roofQuantityNeedsConfirmation
+            ? {
+                source: 'plan_takeoff',
+                normalizedSource: 'NEEDS_CONFIRMATION',
+                pricingEligible: false,
+                reason:
+                  'The plan did not provide a complete readable roof-area takeoff.',
+              }
+            : effectiveTradeKey === 'painting'
             ? paintingHydration?.measurementProvenance?.[key]
             : undefined) ??
           takeoff.measurementProvenance?.[key] ??
@@ -1048,6 +1078,10 @@ export default function PlanTakeoffReviewModal({
               ? 'Exterior doors'
               : effectiveTradeKey === 'painting' && key === 'exteriorPaintSqft'
                 ? 'Exterior paint'
+                : effectiveTradeKey === 'roofing' &&
+                    key === 'roofSquares' &&
+                    !(Number(value) > 0)
+                  ? 'Roof surface area / squares'
                 : display.label,
           subtext:
             [display.subtext, fieldDef?.helperText, ceilingBoundaryText]
@@ -1070,6 +1104,7 @@ export default function PlanTakeoffReviewModal({
           conflictValue,
           include:
             conflictValue == null &&
+            !roofQuantityNeedsConfirmation &&
             (openingCountTrade
               ? windowsDoorsTier != null && windowsDoorsTier !== 'not_found'
               : effectiveTradeKey === 'hvac'
@@ -1513,13 +1548,12 @@ export default function PlanTakeoffReviewModal({
     reviewLowConfidence.length > 0 || reviewUnreadable.length > 0;
   const plumbingMissingItems =
     effectiveTradeKey === 'plumbing'
-      ? [
-          ...unreadable.map(field => {
+      ? unreadable
+          .map(field => {
             const label = quickMeasurementFieldMeta(field.field).label;
-            return `${label}: ${field.reason}`;
-          }),
-          ...(takeoff.plumbingReviewStatus ? [] : takeoff.missingInfo || []),
-        ]
+            const reason = String(field.reason || '').trim();
+            return reason ? `${label}: ${reason}` : '';
+          })
           .map(item => String(item).trim())
           .filter(Boolean)
           .slice(0, 8)
@@ -1574,7 +1608,9 @@ export default function PlanTakeoffReviewModal({
     row => row.provenance.status === 'ai_inferred'
   );
   const plumbingUtilityConnections = takeoff.utilityConnections || [];
-  const plumbingComplexityFactors = takeoff.complexityFactors || [];
+  const plumbingNeedsConfirmation = (
+    plumbingReviewStatus?.needsConfirmation || []
+  ).filter(item => !/review only$/i.test(String(item || '')));
 
   const setRow = (key: string, patch: Partial<PlanReviewRow>) => {
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
@@ -1617,6 +1653,11 @@ export default function PlanTakeoffReviewModal({
       effectiveTradeKey == null ? wholeProjectDrawingCountApply(rows) : null;
     for (const row of rows) {
       if (unresolvedFields.has(row.key)) continue;
+      if (effectiveTradeKey === 'roofing' && row.key === 'roofPitch') {
+        const pitch = String(row.value || '').trim();
+        if (pitch) values.roofPitch = pitch;
+        continue;
+      }
       const n = Number(row.value);
       if (!(Number.isFinite(n) && n > 0)) continue;
       values[row.key] = String(n);
@@ -2188,10 +2229,7 @@ export default function PlanTakeoffReviewModal({
               plumbingGasLines.length ||
               plumbingDerivedRows.length ||
               plumbingUtilityConnections.length ||
-              plumbingComplexityFactors.length ||
               plumbingReviewStatus?.detected?.length ||
-              plumbingReviewStatus?.needsConfirmation?.length ||
-              plumbingReviewStatus?.notFound?.length ||
               plumbingMissingItems.length) ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
@@ -2330,28 +2368,7 @@ export default function PlanTakeoffReviewModal({
                       ))}
                     </>
                   ) : null}
-                  {plumbingComplexityFactors.length ? (
-                    <>
-                      <Text
-                        style={[
-                          styles.summaryLabel,
-                          { color: Colors.sub, marginTop: 10 },
-                        ]}
-                      >
-                        Complexity flags — review only
-                      </Text>
-                      {plumbingComplexityFactors.map((factor, index) => (
-                        <Text
-                          key={`complexity-${factor.label}-${index}`}
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                        >
-                          {factor.label} — does not automatically change labor
-                          pricing
-                        </Text>
-                      ))}
-                    </>
-                  ) : null}
-                  {plumbingReviewStatus?.needsConfirmation?.length ? (
+                  {plumbingNeedsConfirmation.length ? (
                     <>
                       <Text
                         style={[
@@ -2361,35 +2378,35 @@ export default function PlanTakeoffReviewModal({
                       >
                         Needs confirmation
                       </Text>
-                      {plumbingReviewStatus.needsConfirmation.map(
-                        (item, index) => (
-                          <Text
-                            key={`plumbing-confirm-${index}`}
-                            style={[
-                              styles.evidenceText,
-                              { color: CONFIRM_YELLOW },
-                            ]}
-                          >
-                            {item}
-                          </Text>
-                        )
-                      )}
+                      {plumbingNeedsConfirmation.map((item, index) => (
+                        <Text
+                          key={`plumbing-confirm-${index}`}
+                          style={[
+                            styles.evidenceText,
+                            { color: CONFIRM_YELLOW },
+                          ]}
+                        >
+                          {item}
+                        </Text>
+                      ))}
                     </>
                   ) : null}
-                  {plumbingReviewStatus?.notFound?.length ? (
+                  {plumbingReviewStatus?.notFound?.length &&
+                  (plumbingInventory.length ||
+                    plumbingReviewStatus?.detected?.length) ? (
                     <>
                       <Text
                         style={[
                           styles.summaryLabel,
-                          { color: CONFIRM_RED, marginTop: 10 },
+                          { color: Colors.sub, marginTop: 10 },
                         ]}
                       >
-                        Not found
+                        Not on these sheets
                       </Text>
                       {plumbingReviewStatus.notFound.map((item, index) => (
                         <Text
                           key={`plumbing-notfound-${index}`}
-                          style={[styles.evidenceText, { color: CONFIRM_RED }]}
+                          style={[styles.evidenceText, { color: Colors.text }]}
                         >
                           {item}
                         </Text>
@@ -2630,6 +2647,17 @@ export default function PlanTakeoffReviewModal({
                         <View style={styles.quantityHeader}>
                           <TouchableOpacity
                             onPress={() => {
+                              if (
+                                effectiveTradeKey === 'roofing' &&
+                                row.key === 'roofSquares' &&
+                                !(Number(row.value) > 0)
+                              ) {
+                                Alert.alert(
+                                  'Enter roof squares',
+                                  'This plan does not include a roof area. Type the squares in the field, then apply the takeoff.'
+                                );
+                                return;
+                              }
                               if (row.pricingEligible) {
                                 setRow(row.key, { include: !row.include });
                                 return;
@@ -2836,20 +2864,35 @@ export default function PlanTakeoffReviewModal({
                         >
                           <TextInput
                             value={row.value}
-                            onChangeText={t =>
+                            onChangeText={t => {
+                              const next = t.replace(/[^0-9.]/g, '');
+                              const hasQuantity = Number(next) > 0;
                               setRow(row.key, {
-                                value: t,
-                                provenance: resolvePlanMeasurementProvenance({
-                                  key: row.key,
-                                  userConfirmed: true,
-                                }),
-                                pricingEligible: true,
-                                include: true,
-                              })
+                                value: next,
+                                provenance: hasQuantity
+                                  ? resolvePlanMeasurementProvenance({
+                                      key: row.key,
+                                      userConfirmed: true,
+                                    })
+                                  : row.provenance,
+                                pricingEligible: hasQuantity
+                                  ? true
+                                  : row.pricingEligible,
+                                include: hasQuantity,
+                              });
+                            }}
+                            placeholder={
+                              effectiveTradeKey === 'roofing' &&
+                              row.key === 'roofSquares'
+                                ? 'Enter'
+                                : undefined
                             }
-                            {...aiScopeConfirmNumericKeyboardProps}
+                            placeholderTextColor={
+                              darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
+                            }
                             keyboardType='decimal-pad'
                             style={[styles.valueInput, { color: Colors.text }]}
+                            {...aiScopeConfirmNumericKeyboardProps}
                           />
                           <Text
                             style={[styles.unitText, { color: Colors.sub }]}
@@ -3007,7 +3050,7 @@ export default function PlanTakeoffReviewModal({
                 <ReviewPanel darkMode={darkMode}>
                   <Text style={[styles.emptyText, { color: Colors.sub }]}>
                     {effectiveTradeKey === 'plumbing'
-                      ? 'AI reviewed available plumbing sheets. Confirm quantities before applying pricing.'
+                      ? 'No fixture counts, water length, or sewer length on these sheets. Apply, then enter the counts you want priced.'
                       : tradeLabel
                         ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
                             takeoff.missingInfo?.length

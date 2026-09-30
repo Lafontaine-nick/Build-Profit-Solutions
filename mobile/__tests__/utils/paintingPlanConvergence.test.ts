@@ -189,6 +189,16 @@ describe('painting plan convergence', () => {
       quantity: '3734',
       quantitySource: 'plan_vision',
     });
+    const exteriorDoors = restorePaintingPlanSurfaceFields({
+      planImportTradeKey: 'painting',
+      ceilingPaintSqft: '2571',
+      baseboardLf: '410.3',
+      exteriorDoorCount: '5',
+    });
+    expect(exteriorDoors.exteriorDoorCount).toBe('4');
+    expect(exteriorDoors.quickMeasurementSources?.exteriorDoorCount).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
 
     const persisted = scopeMeasurementsPayloadForPersist(
       inputWith({

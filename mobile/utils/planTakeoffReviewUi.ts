@@ -867,6 +867,7 @@ export function planReviewProvenanceFlags(input: {
   const fromPlan =
     fromInstanceTags ||
     source.includes('detected_from_plan') ||
+    source.includes('plan_fact') ||
     source.includes('labeled') ||
     source === 'from_plan';
   const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
@@ -997,7 +998,10 @@ export function planReviewProvenanceFlags(input: {
           (fromInstanceTags || (fromPlan && !electricalReview))) ||
         (windowsDoorsKey &&
           !fromOpeningSymbols &&
-          (fromSchedule || fromPlan))),
+          (fromSchedule || fromPlan)) ||
+        (input.tradeKey === 'roofing' &&
+          (input.key === 'roofPitch' || input.key === 'storyCount') &&
+          fromPlan)),
     hasReliableDimensions:
       !input.hasConflict &&
       (input.key === 'kitchenFloorSqft' ||
@@ -1074,8 +1078,16 @@ export function buildPlanReviewMeasurementRowState(input: {
     userConfirmed: input.userConfirmed,
     pricingEligible,
   });
-  const displayProvenance =
-    paintingBidQuantity &&
+  const roofingPlanFact =
+    input.tradeKey === 'roofing' &&
+    (input.key === 'roofPitch' || input.key === 'storyCount') &&
+    provenance.status === 'plan_verified';
+  const displayProvenance = roofingPlanFact
+    ? {
+        ...provenance,
+        label: 'Detected from plan',
+      }
+    : paintingBidQuantity &&
     (input.key === 'interiorDoorCount' || input.key === 'exteriorDoorCount') &&
     !input.hasConflict
       ? {
@@ -2556,12 +2568,37 @@ export function confirmedPlanTakeoffLines(input: {
     if (!/(Sqft|Lf|Count|Cy|Tons|Inches)$/i.test(key) && key !== 'serviceAmperage') {
       continue;
     }
-    if (isDerivedPlanTakeoffKey(key, value, measurements)) continue;
+    if (
+      tradeKey === 'framing' &&
+      !wholeProject &&
+      (key === 'floorAreaSqft' || key === 'garageSqft' || key === 'deckSqft')
+    ) {
+      continue;
+    }
+    if (
+      tradeKey === 'framing' &&
+      !wholeProject &&
+      key === 'sheathingSqft' &&
+      shellPackageIncludesSheathing(measurements)
+    ) {
+      continue;
+    }
+    if (
+      !(tradeKey === 'framing' && !wholeProject && key === 'framedAreaSqft') &&
+      isDerivedPlanTakeoffKey(key, value, measurements)
+    ) {
+      continue;
+    }
     if (wholeProject) {
       if (/^(stucco|elevationFaces|soffit|parapet)/i.test(key)) continue;
       if (/elevation/i.test(key) && /width/i.test(key)) continue;
     }
     numeric.set(key, value);
+  }
+
+  if (tradeKey === 'framing' && !wholeProject && !numeric.has('framedAreaSqft')) {
+    const framed = resolveCoveredFramedAreaSqft(measurements);
+    if (framed != null && framed > 0) numeric.set('framedAreaSqft', framed);
   }
 
   const ordered = [
@@ -2573,7 +2610,11 @@ export function confirmedPlanTakeoffLines(input: {
   const living = numeric.get('floorAreaSqft') ?? null;
   const lines = ordered.flatMap(key => {
     const value = numeric.get(key) as number;
-    const label = planTakeoffLabel(key, value, living).trim();
+    const label = (
+      tradeKey === 'framing' && !wholeProject && key === 'framedAreaSqft'
+        ? 'Framing (lumber + labor)'
+        : planTakeoffLabel(key, value, living)
+    ).trim();
     if (!label) return [];
     return [`${label} · ${planTakeoffQuantityText(key, value)}`];
   });

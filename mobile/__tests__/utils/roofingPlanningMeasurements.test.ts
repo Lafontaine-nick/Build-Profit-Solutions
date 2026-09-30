@@ -16,6 +16,10 @@ import {
 } from '@/utils/scopeItemQuantities';
 import { mergeConfirmScopeSavedMeasurements } from '@/utils/benchmarkReasonablenessContext';
 import { SCOPE_PLANNING_ESTIMATE_LABEL } from '@/constants/scopeNoteSourceLabels';
+import {
+  ensureGroundUpRoofingPlanChecklistItems,
+  finalizeRoofingScopeSelections,
+} from '@/utils/qmScopePanels/simpleTradeRemodel';
 
 const REPAIR_50_SQFT_NOTES =
   'I need to build a roofing repair bid, about 50 sqft area, asphalt shingles tear off and replace';
@@ -274,6 +278,132 @@ describe('roofingPlanningMeasurements', () => {
       notes
     );
     expect(input.tradeScopeSelections?.roofing || []).toContain('roof_repairs');
+  });
+
+  test('selects the standard new-roof chips for a ground-up plan export', () => {
+    const selected = finalizeRoofingScopeSelections(
+      {
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'roofing',
+          planImportFingerprint: 'shv-lot-49',
+          roofPitch: '2:12',
+          storyCount: 2,
+        },
+        notes: 'SHV Lot 49 Architectural Plans',
+        checklistItems: [],
+      },
+      [],
+      [],
+      []
+    );
+    expect(selected).toEqual([
+      'shingles',
+      'drip_edge',
+      'ridge_cap',
+      'ridge_vent',
+      'pipe_boots',
+      'gutters',
+      'downspouts',
+    ]);
+  });
+
+  test('drops inferred tear-off on a new-construction roofing plan', () => {
+    const selected = finalizeRoofingScopeSelections(
+      {
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'roofing',
+          planImportFingerprint: 'shv-lot-49',
+          tradeScopeSelections: { roofing: ['tear_off'] },
+        },
+        notes: 'Remove temporary bracing. Roof plan.',
+        checklistItems: [],
+      },
+      ['tear_off'],
+      ['tear_off', 'shingles'],
+      []
+    );
+    expect(selected).toEqual([
+      'shingles',
+      'drip_edge',
+      'ridge_cap',
+      'ridge_vent',
+      'pipe_boots',
+      'gutters',
+      'downspouts',
+    ]);
+  });
+
+  test('replaces the wide auto-selection with the necessary new-roof chips', () => {
+    const selected = finalizeRoofingScopeSelections(
+      {
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'roofing',
+          planImportFingerprint: 'shv-lot-49',
+          tradeScopeSelections: {
+            roofing: [
+              'shingles',
+              'ice_water_shield',
+              'valley_flashing',
+              'chimney_flashing',
+            ],
+          },
+        },
+        notes: '',
+        checklistItems: [],
+      },
+      ['shingles', 'ice_water_shield', 'valley_flashing', 'chimney_flashing'],
+      [],
+      []
+    );
+    expect(selected).toEqual([
+      'shingles',
+      'drip_edge',
+      'ridge_cap',
+      'ridge_vent',
+      'pipe_boots',
+      'gutters',
+      'downspouts',
+    ]);
+  });
+
+  test('builds new-roof pricing cards even when the checklist omitted them', () => {
+    const cards = ensureGroundUpRoofingPlanChecklistItems([
+      { id: 'roofing_system', state: 'included', label: 'Roofing system' },
+      { id: 'tear_off', state: 'included', label: 'Tear-off' },
+    ]);
+    expect(cards.map(card => card.id)).toEqual([
+      'shingles_roofing',
+      'ridge_vent',
+      'pipe_boots',
+      'gutters',
+      'downspouts',
+    ]);
+    expect(cards.find(card => card.id === 'shingles_roofing')?.helperText).toMatch(
+      /drip edge, and ridge cap/i
+    );
+    expect(cards.every(card => card.state === 'included')).toBe(true);
+  });
+
+  test('keeps a contractor roofing selection instead of restoring ground-up defaults', () => {
+    const selected = finalizeRoofingScopeSelections(
+      {
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'roofing',
+          planImportFingerprint: 'shv-lot-49',
+          tradeScopeSelections: { roofing: ['shingles'] },
+        },
+        notes: '',
+        checklistItems: [],
+      },
+      ['shingles'],
+      [],
+      []
+    );
+    expect(selected).toEqual(['shingles']);
   });
 
   test('reconcileRoofingQuickMeasurements leaves explicit square jobs alone', () => {

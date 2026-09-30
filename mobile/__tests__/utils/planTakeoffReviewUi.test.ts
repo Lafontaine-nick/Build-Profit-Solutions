@@ -1572,4 +1572,28 @@ describe('plan takeoff review UI polish', () => {
       }).includeDefault
     ).toBe(false);
   });
+
+  test('roof pitch and stories read from plan facts are detected from plan', () => {
+    const provenance = {
+      source: 'plan_facts',
+      normalizedSource: 'FROM_PLAN',
+    };
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'roofPitch',
+        tradeKey: 'roofing',
+        provenanceEntry: { ...provenance, value: '2:12' },
+      }).provenance
+    ).toMatchObject({
+      status: 'plan_verified',
+      label: 'Detected from plan',
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'storyCount',
+        tradeKey: 'roofing',
+        provenanceEntry: { ...provenance, value: 2 },
+      }).provenance.label
+    ).toBe('Detected from plan');
+  });
 });

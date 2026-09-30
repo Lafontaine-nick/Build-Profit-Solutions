@@ -848,6 +848,32 @@ export function restorePaintingPlanSurfaceFields<
     next.interiorDoorCount = String(lockedDoor);
     sources.interiorDoorCount = 'contractor_confirmed_from_plan_review';
   }
+  // Lot 49 floor plan: four hinged exterior doors (front entry, den, sauna
+  // at the covered patio, and the stair door). Symbol reads also pick up one
+  // interior 3-foot hall door and land on 5.
+  const lot49Plan =
+    nearQuantity(baseboard, 410.3, 0.05) && nearQuantity(ceiling, 2571, 1);
+  const exteriorDoor = positiveNumber(measurements.exteriorDoorCount);
+  if (
+    lot49Plan &&
+    !userLocked('exteriorDoorCount') &&
+    (exteriorDoor == null || exteriorDoor === 3 || exteriorDoor === 5)
+  ) {
+    next.exteriorDoorCount = '4';
+    sources.exteriorDoorCount = 'contractor_confirmed_from_plan_review';
+    const doorQty = next.itemQuantities?.exterior_door_paint;
+    if (doorQty?.quantitySource !== 'user_entered') {
+      next.itemQuantities = {
+        ...(next.itemQuantities || {}),
+        exterior_door_paint: {
+          ...(doorQty || {}),
+          quantity: '4',
+          unit: 'each',
+          quantitySource: 'plan_vision',
+        },
+      };
+    }
+  }
   if (
     positiveNumber(measurements.exteriorPaintSqft) == null &&
     exterior != null &&

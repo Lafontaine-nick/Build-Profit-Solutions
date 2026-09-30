@@ -216,6 +216,23 @@ export function explicitHvacCleanupScopeDetection(detection: {
   return /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i.test(text);
 }
 
+/** Generic ground-up cleanup is not roofing evidence. Keep only explicit roofing cleanup. */
+export function explicitRoofingCleanupScopeDetection(detection: {
+  label?: string | null;
+  evidence?: string | null;
+}): boolean {
+  const text = `${detection.label || ''} ${detection.evidence || ''}`;
+  if (isGenericGroundUpCleanupEvidence(text)) return false;
+  return (
+    /\b(?:roof|roofing|shingle|tear[\s-]?off)\b[^.;\n]{0,80}\b(?:cleanup|disposal|haul[\s-]?off)\b/i.test(
+      text
+    ) ||
+    /\b(?:cleanup|disposal|haul[\s-]?off)\b[^.;\n]{0,80}\b(?:roof|roofing|shingle|tear[\s-]?off)\b/i.test(
+      text
+    )
+  );
+}
+
 /** A foundation sheet is not an excavation quantity. Keep the line only with CY. */
 export function explicitConcreteExcavationScopeDetection(detection: {
   label?: string | null;
@@ -259,9 +276,17 @@ export function filterPlanScopesForTrade<
       return false;
     }
     if (
+      tradeKey === 'roofing' &&
+      itemId === 'cleanup' &&
+      !explicitRoofingCleanupScopeDetection(detection)
+    ) {
+      return false;
+    }
+    if (
       (tradeKey === 'drywall' ||
         tradeKey === 'insulation' ||
-        tradeKey === 'painting') &&
+        tradeKey === 'painting' ||
+        tradeKey === 'framing') &&
       itemId === 'cleanup' &&
       isGenericGroundUpCleanupEvidence(
         `${detection.label || ''} ${detection.evidence || ''}`

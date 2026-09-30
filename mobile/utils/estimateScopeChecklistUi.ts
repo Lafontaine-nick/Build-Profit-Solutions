@@ -5664,8 +5664,8 @@ export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
 const PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
   plumbing_rough: 'Plumbing rough-in points',
   plumbing_trim: 'Trim / hookups',
-  water_line: 'Underground water service / under-slab piping',
-  sewer_line: 'Underground sewer / drain / under-slab DWV',
+  water_line: 'Underground water service',
+  sewer_line: 'Underground sewer',
   gas_line: 'Gas piping',
   plumbing_fixtures_hardware: 'Plumbing fixture allowance',
   water_heater: 'Water heater',

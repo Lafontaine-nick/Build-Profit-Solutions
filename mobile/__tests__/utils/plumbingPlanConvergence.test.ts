@@ -52,6 +52,10 @@ import {
   repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
 import {
+  getInitialRevealChecklistScopePreview,
+  getInitialRevealConfirmItems,
+} from '@/utils/estimateInitialRevealUi';
+import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
@@ -740,6 +744,75 @@ describe('plumbing canonical architecture', () => {
         'gas_line',
       ])
     );
+  });
+
+  it('keeps a ground-up plumbing plan on rough-in and fixtures instead of Plumbing work', () => {
+    const draft = {
+      projectTitle: 'Plumbing Estimate Draft',
+      projectType: 'room_remodel',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        title: 'Interior remodel',
+        intro: '',
+        items: [
+          { id: 'plumbing', label: 'Plumbing work', state: 'included' },
+          { id: 'electrical', label: 'Electrical work', state: 'unsure' },
+        ],
+      },
+      scopeMeasurements: {},
+      scopePackages: [
+        { checklistItemId: 'plumbing', name: 'Plumbing work', scope: 'Plumbing work' },
+      ],
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      plumbingWorkflowMode: 'new_construction',
+      measurements: {},
+      scopeDetections: [
+        { itemId: 'plumbing_rough', state: 'included', label: 'Plumbing rough-in' },
+        {
+          itemId: 'plumbing_trim',
+          state: 'included',
+          label: 'Plumbing fixtures & trim',
+        },
+      ],
+    });
+    const included = (next.scopeChecklist?.items || []).filter(
+      item => item.state === 'included'
+    );
+    expect(included.map(item => item.id)).toEqual([
+      'water_line',
+      'sewer_line',
+      'plumbing_rough',
+      'gas_line',
+      'plumbing_trim',
+      'water_heater',
+    ]);
+    expect(included.map(item => item.label)).toEqual([
+      'Underground water service',
+      'Underground sewer',
+      'Plumbing rough-in',
+      'Gas piping',
+      'Plumbing fixtures & trim',
+      'Water heater',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(next).map(row => row.name)).toEqual([
+      'Underground water service',
+      'Underground sewer',
+      'Plumbing rough-in',
+      'Gas piping',
+      'Plumbing fixtures & trim',
+      'Water heater',
+    ]);
+    expect(getInitialRevealConfirmItems(next).pricingScope).toEqual([
+      'Count needed for Underground water service',
+      'Count needed for Underground sewer',
+      'Count needed for Plumbing rough-in',
+      'Count needed for Gas piping',
+      'Count needed for Plumbing fixtures & trim',
+      'Count needed for Water heater',
+    ]);
   });
 
   it('preserves applied equipment pricing when API payload omits filtered measurement keys', () => {

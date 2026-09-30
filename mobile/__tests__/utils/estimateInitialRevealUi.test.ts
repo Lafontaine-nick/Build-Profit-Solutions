@@ -351,6 +351,42 @@ describe('estimateInitialRevealUi', () => {
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
   });
 
+  it('lists the framing package on Scope found instead of living area and garage', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: false,
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          {
+            id: 'framing',
+            label: 'Framing (lumber + labor)',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'lot-49',
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'framing',
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        framedAreaSqft: 3998,
+        quickMeasurementSources: {
+          floorAreaSqft: 'plan_verified',
+          garageSqft: 'plan_verified',
+          framedAreaSqft: 'plan_detected',
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Price needed for Framing (lumber + labor) · 3,998 SF',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual([
+      'Framing (lumber + labor) · 3,998 SF',
+    ]);
+  });
+
   it('builds primary CTA from attention count', () => {
     expect(getInitialRevealPrimaryCtaLabel(0)).toBe('Review & apply estimate');
     expect(getInitialRevealPrimaryCtaLabel(3)).toBe(
@@ -1905,6 +1941,51 @@ describe('estimateInitialRevealUi', () => {
         row => row.amount === 0
       )
     ).toBe(true);
+  });
+
+  it('keeps roofing plan export scope to verified facts and roof-area confirmation', () => {
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          { id: 'roofing_system', label: 'Roofing system', state: 'included' },
+          { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included' },
+          { id: 'cleanup', label: 'Cleanup, haul-off & disposal', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'roofing',
+        planImportFingerprint: 'shv-lot-49',
+        planFacts: { roofPitch: '2:12', storyCount: 2 },
+      },
+      scopePackages: [
+        { name: 'Existing roof condition and number of tear-off layers' },
+        { name: 'Material pricing' },
+      ],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Roof pitch', amount: 0, quantity: '2:12' },
+      { name: 'Stories', amount: 0, quantity: '2 stories' },
+      {
+        name: 'Roof surface area / squares',
+        amount: 0,
+        quantity: 'Needs measurement',
+      },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Roof surface area / squares: needs measurement',
+    ]);
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
+      'Roof pitch · 2:12',
+      'Stories · 2 stories',
+      'Roof surface area / squares · Needs measurement',
+    ]);
+    expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(3);
   });
 
   it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {

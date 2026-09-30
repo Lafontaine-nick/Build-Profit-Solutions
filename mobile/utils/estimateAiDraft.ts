@@ -89,6 +89,8 @@ import {
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   buildPlumbingStructuredMeasurements,
   buildStandalonePlumbingChecklistItems,
+  ensurePlumbingPlanChecklistItems,
+  groundUpPlumbingPlanLockedIds,
   finalizeStandalonePlumbingChecklist,
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
@@ -3208,6 +3210,13 @@ export function planMeasurementsToScopeMeasurements(
   if (!measurements) return out;
   const detectedKeys: string[] = [];
   for (const [key, value] of Object.entries(measurements)) {
+    if (key === 'roofPitch') {
+      const pitch = String(value ?? '').trim();
+      if (!pitch) continue;
+      out.roofPitch = pitch;
+      detectedKeys.push(key);
+      continue;
+    }
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) continue;
     (out as Record<string, number>)[key] = n;
@@ -4043,11 +4052,14 @@ function normalizeImportedTradeMeasurements(
     tradeKey !== 'hvac'
   )
     return null;
+  const definedExtras = Object.fromEntries(
+    Object.entries(extras).filter(([, value]) => value != null && value !== '')
+  );
   return normalizeTradeMeasurements(
     tradeKey,
     {
       ...measurements,
-      ...extras,
+      ...definedExtras,
     },
     source
   );
@@ -4885,7 +4897,12 @@ export function applyPlanImportToDraft(
                     tradeChecklistItems,
                     scopeMeasurements
                   )
-                : tradeChecklistItems;
+                : planImportTradeKey === 'plumbing' && !standalonePlumbingWorkflow
+                  ? ensurePlumbingPlanChecklistItems(
+                      tradeChecklistItems,
+                      payload.scopeDetections
+                    )
+                  : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,
@@ -5420,11 +5437,15 @@ export function applyPlanImportToDraft(
     };
   }
   if (planImportTradeKey === 'plumbing') {
+    const planIncludedIds = standalonePlumbingWorkflow
+      ? []
+      : groundUpPlumbingPlanLockedIds(payload.scopeDetections);
     const syncedItems = finalizeStandalonePlumbingChecklist(items, {
       notes: next.originalNotes,
       mode: scopeMeasurements.plumbingWorkflowMode,
       plumbingScope: scopeMeasurements.plumbingScope,
       quantities: scopeMeasurements as Record<string, unknown>,
+      lockedIncludedIds: planIncludedIds,
     });
     items = syncedItems;
     next = {
@@ -5557,6 +5578,9 @@ export function applyPlanImportToDraft(
         mode: next.scopeMeasurements.plumbingWorkflowMode,
         plumbingScope: next.scopeMeasurements.plumbingScope,
         quantities: next.scopeMeasurements as Record<string, unknown>,
+        lockedIncludedIds: standalonePlumbingWorkflow
+          ? []
+          : groundUpPlumbingPlanLockedIds(payload.scopeDetections),
       }
     );
     next = {

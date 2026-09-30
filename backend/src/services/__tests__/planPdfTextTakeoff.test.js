@@ -12,6 +12,7 @@ const {
   scoreElectricalRelevantPage,
   scoreWindowsDoorsRelevantPage,
   scorePlumbingRelevantPage,
+  scoreRoofingRelevantPage,
   expandElectricalRelevantPages,
   expandPlumbingRelevantPages,
   countElectricalInstanceTagsOnPage,
@@ -32,6 +33,19 @@ const {
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('planPdfTextTakeoff', () => {
+  test('identifies roof plans and related roof geometry sheets', () => {
+    expect(scoreRoofingRelevantPage('A-9 ROOF PLAN 2:12 RIDGE VALLEY')).toMatchObject({
+      score: expect.any(Number),
+      reasons: expect.arrayContaining(['roof plan', 'roof accessories']),
+    });
+    expect(
+      scoreRoofingRelevantPage('A-4 FRONT ELEVATION HIGHEST RIDGE CROSS SECTION')
+    ).toMatchObject({
+      score: expect.any(Number),
+      reasons: expect.arrayContaining(['elevation / section', 'roof geometry']),
+    });
+  });
+
   test('electrical symbol crops cover the sheet without overlap', () => {
     const rects = electricalSymbolCropRects(3000, 2000);
     expect(rects).toHaveLength(6);
@@ -225,6 +239,13 @@ describe('planPdfTextTakeoff', () => {
     expect(parseLabeledPerimeter('FOUNDATION PERIMETER 198\'-6"', 'foundation')?.value).toBeCloseTo(198.5, 1);
     expect(parseNonPaintedExteriorPercent('STONE 20% BRICK 10%')?.value).toBe(30);
     expect(parsePitch('ROOF PLAN 5:12 5:12 5:12')?.value).toBe('5:12');
+    expect(parsePitch('R O O F  P L A N  2 : 1 2')?.value).toBe('2:12');
+    expect(
+      parsePageFactsFromText('T O P  O F  S U B F L O O R  -  2 N D  F L O O R', {
+        page: 6,
+        sheet: 'A-4',
+      }).planFacts
+    ).toMatchObject({ storyCount: 2 });
     expect(normalizeCadCallouts("TOPOFPLATE 10.2'")).toContain('TOP OF PLATE');
     expect(
       parseOverallEnvelopePerimeter('FOUNDATION PLAN 70\'-6" 45\'-8" 26\'-8" 13\'-6" 70\'-6" 45\'-8"')?.value

@@ -261,6 +261,25 @@ export const PLUMBING_INVENTORY_DERIVED_ITEM_IDS = [
   'gas_appliance_connections',
 ] as const;
 
+/** Always on a ground-up plumbing plan export. Quantities stay empty until entered. */
+export const GROUND_UP_PLUMBING_PLAN_INCLUDED_IDS = [
+  'plumbing_rough',
+  'plumbing_trim',
+  'water_line',
+  'sewer_line',
+  'water_heater',
+  'gas_line',
+] as const;
+
+const GROUND_UP_PLUMBING_PLAN_LABELS: Record<string, string> = {
+  plumbing_rough: 'Plumbing rough-in',
+  plumbing_trim: 'Plumbing fixtures & trim',
+  water_line: 'Underground water service',
+  sewer_line: 'Underground sewer',
+  water_heater: 'Water heater',
+  gas_line: 'Gas piping',
+};
+
 /** Scope cards that can be confirmed from a ground-up/addition plan. */
 export const PLUMBING_PLAN_SCOPE_ALLOWLIST = [
   'plumbing_rough',
@@ -1572,6 +1591,7 @@ export function applyStandalonePlumbingChecklistDefaults<
     notes?: string | null;
     mode?: PlumbingWorkflowMode | null;
     quantities?: Record<string, unknown> | null;
+    lockedIncludedIds?: Iterable<string> | null;
   }
 ): T[] {
   const notes = String(params.notes || '').trim();
@@ -1609,6 +1629,8 @@ export function applyStandalonePlumbingChecklistDefaults<
     });
   }
 
+  const lockedIncluded = new Set(params.lockedIncludedIds || []);
+
   return items.map(item => {
     const card = PLUMBING_CARDS.find(entry => entry.itemId === item.id);
     if (!card) return item;
@@ -1616,6 +1638,7 @@ export function applyStandalonePlumbingChecklistDefaults<
     const qty = quantityFor(item.id);
     if (qty != null && qty > 0) return withState(item, 'included', true);
     if (noteScope.has(item.id)) return withState(item, 'included', true);
+    if (lockedIncluded.has(item.id)) return withState(item, 'included', true);
 
     if (item.id === 'plumbing_fixtures_hardware') {
       if (customerSuppliesFixtures) return withState(item, 'excluded');
@@ -1733,6 +1756,7 @@ export function finalizeStandalonePlumbingChecklist<
     mode?: PlumbingWorkflowMode | null;
     plumbingScope?: string[] | null;
     quantities?: Record<string, unknown> | null;
+    lockedIncludedIds?: Iterable<string> | null;
   }
 ): T[] {
   const synced = syncPlumbingScopeItems(items, {
@@ -1743,6 +1767,86 @@ export function finalizeStandalonePlumbingChecklist<
     notes: params.notes,
     mode: params.mode,
     quantities: params.quantities,
+    lockedIncludedIds: params.lockedIncludedIds,
+  });
+}
+
+const PLUMBING_PLAN_CARD_IDS = new Set<string>(PLUMBING_PLAN_SCOPE_ALLOWLIST);
+
+/**
+ * Ground-up plumbing plan export uses the plumbing cards, not the generic
+ * "Plumbing work" remodel row. Cards the review checked stay included.
+ */
+export function groundUpPlumbingPlanLockedIds(
+  detections?: Array<{ itemId?: string | null; state?: string | null }> | null
+): string[] {
+  const ids = new Set<string>(GROUND_UP_PLUMBING_PLAN_INCLUDED_IDS);
+  for (const detection of detections || []) {
+    if (
+      detection?.state === 'included' &&
+      detection.itemId &&
+      (PLUMBING_PLAN_SCOPE_ALLOWLIST as readonly string[]).includes(
+        String(detection.itemId)
+      )
+    ) {
+      ids.add(String(detection.itemId));
+    }
+  }
+  return [...ids];
+}
+
+export function ensurePlumbingPlanChecklistItems<
+  T extends {
+    id: string;
+    label?: string;
+    helperText?: string;
+    category?: string;
+    inputType?: string;
+    state?: string;
+    noteBacked?: boolean;
+  },
+>(
+  items: T[],
+  detections?: Array<{ itemId?: string | null; state?: string | null }> | null
+): T[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const included = new Set<string>(GROUND_UP_PLUMBING_PLAN_INCLUDED_IDS);
+  for (const detection of detections || []) {
+    if (
+      detection?.state === 'included' &&
+      detection.itemId &&
+      PLUMBING_PLAN_CARD_IDS.has(String(detection.itemId))
+    ) {
+      included.add(String(detection.itemId));
+    }
+  }
+  const orderedIds = PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS.flatMap(group =>
+    group.itemIds
+  ).filter(id => PLUMBING_PLAN_CARD_IDS.has(id));
+  return orderedIds.flatMap(itemId => {
+    const card = PLUMBING_CARDS.find(entry => entry.itemId === itemId);
+    if (!card) return [];
+    const existing = byId.get(card.itemId);
+    const state = included.has(card.itemId)
+      ? 'included'
+      : existing?.state === 'included'
+        ? 'included'
+        : 'excluded';
+    return [
+      {
+        ...(existing || ({} as T)),
+        id: card.itemId,
+        label:
+          GROUND_UP_PLUMBING_PLAN_LABELS[card.itemId] ||
+          existing?.label ||
+          card.label,
+        helperText: existing?.helperText || card.helper,
+        category: existing?.category || card.groupId,
+        inputType: existing?.inputType || 'yes_no',
+        state,
+        ...(state === 'included' ? { noteBacked: true } : {}),
+      },
+    ];
   });
 }
 

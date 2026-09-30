@@ -270,6 +270,11 @@ export function splitInitialRevealConfirmItems(
 export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
+  if (roofingPlanOnlyExport(draft)) {
+    return splitInitialRevealConfirmItems([
+      'Roof surface area / squares: needs measurement',
+    ]);
+  }
   const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
     line =>
       !/spaces detected on the plan/i.test(line) &&
@@ -279,6 +284,10 @@ export function getInitialRevealConfirmItems(
     return splitInitialRevealConfirmItems(
       planPriceLines.map(line => `Pricing for ${line}`)
     );
+  }
+  const plumbingPlanCounts = plumbingPlanCountAttention(draft);
+  if (plumbingPlanCounts.length > 0) {
+    return splitInitialRevealConfirmItems(plumbingPlanCounts);
   }
   // Before Confirm Scope, one package can generate several generic "still
   // needed" messages. Keep the attention card aligned to actual scope rows so
@@ -398,7 +407,10 @@ function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
 
 /** Plan export already lists these quantities under Pricing needed and Scope. */
 export function planRevealOmitsWhatWeFound(draft: EstimateAiDraft): boolean {
-  return confirmedPlanLinesForDraft(draft).length > 0;
+  return (
+    roofingPlanOnlyExport(draft) ||
+    confirmedPlanLinesForDraft(draft).length > 0
+  );
 }
 
 export function getInitialRevealScopeMetaLabel(count: number): string {
@@ -427,6 +439,73 @@ function isRoofingRevealDraft(draft: EstimateAiDraft): boolean {
     draft.scopeChecklist?.templateKey || draft.projectType || ''
   ).toLowerCase();
   return templateKey === 'roofing';
+}
+
+function roofingPlanOnlyExport(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportMode?: string | null;
+        planImportTradeKey?: string | null;
+        planImportFingerprint?: string | null;
+        roofSquares?: string | number | null;
+        roofAreaSqft?: string | number | null;
+      }
+    | null
+    | undefined;
+  if (
+    measurements?.planImportMode !== 'selected_trade' ||
+    measurements?.planImportTradeKey !== 'roofing' ||
+    !measurements?.planImportFingerprint
+  ) {
+    return false;
+  }
+  if (
+    positiveRevealNumber(measurements.roofSquares) ||
+    positiveRevealNumber(measurements.roofAreaSqft)
+  ) {
+    return false;
+  }
+  const notes = String(draft.originalNotes || '');
+  // A plan export can have a generated title or file note without being a
+  // note-backed roofing scope. Preserve this dedicated plan-only flow unless
+  // the notes explicitly document roofing work.
+  return !(
+    /\b(?:roof(?:ing)?|shingles?)\b/i.test(notes) &&
+    /\b(?:replace|replacement|install|remove|removal|tear[\s-]?off|repair|reroof|squares?|underlayment|flashing|gutters?|vents?)\b/i.test(
+      notes
+    )
+  );
+}
+
+function roofingPlanOnlyScopeRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string }> {
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const planFacts =
+    measurements.planFacts && typeof measurements.planFacts === 'object'
+      ? (measurements.planFacts as Record<string, unknown>)
+      : {};
+  const pitch = String(
+    measurements.roofPitch || planFacts.roofPitch || ''
+  ).trim();
+  const stories =
+    positiveRevealNumber(measurements.storyCount) ||
+    positiveRevealNumber(planFacts.storyCount);
+  const rows: Array<{ name: string; amount: number; quantity?: string }> = [];
+  if (pitch) rows.push({ name: 'Roof pitch', amount: 0, quantity: pitch });
+  if (stories) {
+    rows.push({
+      name: 'Stories',
+      amount: 0,
+      quantity: `${stories} ${stories === 1 ? 'story' : 'stories'}`,
+    });
+  }
+  rows.push({
+    name: 'Roof surface area / squares',
+    amount: 0,
+    quantity: 'Needs measurement',
+  });
+  return rows;
 }
 
 function isConcreteRevealDraft(draft: EstimateAiDraft): boolean {
@@ -759,6 +838,9 @@ function revealChecklistItemVisible(
 }
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  if (roofingPlanOnlyExport(draft)) {
+    return roofingPlanOnlyScopeRows(draft).length;
+  }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) return planLines.length;
   const checklistCount = getInitialRevealScopeRows(draft).length;
@@ -798,6 +880,31 @@ function plumbingNoteScopeRows(
     ids.add(id);
   }
   return rows;
+}
+
+function plumbingPlanImportReveal(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | { planImportTradeKey?: string | null; planImportMode?: string | null }
+    | null
+    | undefined;
+  return (
+    measurements?.planImportTradeKey === 'plumbing' &&
+    measurements?.planImportMode === 'selected_trade'
+  );
+}
+
+function plumbingPlanCountAttention(draft: EstimateAiDraft): string[] {
+  if (!plumbingPlanImportReveal(draft)) return [];
+  const measurements = initialScopeMeasurementInputExtended(draft) as Record<
+    string,
+    unknown
+  >;
+  return getInitialRevealScopeRows(draft)
+    .filter(row => {
+      const key = plumbingMeasurementKeyForItemId(row.id);
+      return Boolean(key && !(Number(measurements[key]) > 0));
+    })
+    .map(row => `Count needed for ${row.name}`);
 }
 
 function plumbingMissingQuantityAttentionItems(
@@ -2022,6 +2129,9 @@ function getInitialRevealScopeRows(
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
+  if (roofingPlanOnlyExport(draft)) {
+    return roofingPlanOnlyScopeRows(draft);
+  }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) {
     return planLines.map(name => ({ name, amount: 0 }));
@@ -2089,12 +2199,18 @@ export function getInitialRevealChecklistScopePreview(
       .filter(row => row.name);
     const representedIds = new Set(scopeRows.map(row => row.id));
     const packageOnlyRows = packages
-      .filter(
-        pkg =>
-          !representedIds.has(
-            String(pkg.checklistItemId || pkg.costCode || '').trim()
-          )
-      )
+      .filter(pkg => {
+        const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
+        if (representedIds.has(id)) return false;
+        if (
+          plumbingPlanImportReveal(draft) &&
+          (id === 'plumbing' ||
+            /^plumbing work$/i.test(String(pkg.name || pkg.scope || '')))
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map(pkg => {
         const quantity = formatScopeQuantity(pkg, draft);
         return {
@@ -2571,6 +2687,11 @@ export function getInitialRevealUnderstoodBullets(
   draft: EstimateAiDraft,
   max = 3
 ): string[] {
+  if (roofingPlanOnlyExport(draft)) {
+    return roofingPlanOnlyScopeRows(draft)
+      .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)
+      .slice(0, Math.max(max, 3));
+  }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) return planLines.slice(0, Math.max(max, 8));
   const classification = getRevealClassification(draft);

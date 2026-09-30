@@ -17525,6 +17525,13 @@ router.post('/plan-to-measurements', async (req, res) => {
         selectedTrade: planSelection.trade?.key || null,
         routerStatus: planSelection.trade?.status || null,
       },
+      fieldEvidence: result.fieldEvidence || null,
+      fixtureInventory: result.fixtureInventory || null,
+      utilityConnections: result.utilityConnections || [],
+      complexityFactors: result.complexityFactors || [],
+      plumbingReviewStatus: result.plumbingReviewStatus || null,
+      waterHeaterDetail: result.waterHeaterDetail || null,
+      gasApplianceScope: result.gasApplianceScope || null,
       missingInfo: result.missingInfo || planSelection.trade?.missingInfo || [],
     });
   } catch (err) {

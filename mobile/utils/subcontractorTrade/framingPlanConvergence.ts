@@ -620,6 +620,9 @@ export function syncFramingScopeItems<T extends { id: string; state?: string }>(
   const hiddenOnShell = new Set<string>();
   const quantities = (params.quantities || {}) as Record<string, unknown>;
   if (isShellFramingPackageBid(quantities)) {
+    if (positiveNumber(quantities.framingCleanupCount) == null) {
+      hiddenOnShell.add('cleanup');
+    }
     if (shellIncludesSheathing) hiddenOnShell.add('shear_sheathing');
     for (const key of FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS) {
       const itemId = key === 'wallFramingLf' ? 'wall_framing' : 'openings';

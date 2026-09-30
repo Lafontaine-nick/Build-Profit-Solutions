@@ -298,14 +298,13 @@ export function estimateStep1GhostActionStyle(
   };
 }
 
-/** Step 1 input cards — same shell as Review draft; green ring when ready. */
+/** Step 1 input cards — same shell as Review draft. */
 export function estimateStep1InputCardStyle(
   Colors: FlowCardColors,
   darkMode: boolean,
   options?: {
     marginBottom?: number;
     marginHorizontal?: number;
-    ready?: boolean;
   }
 ): ViewStyle {
   return {
@@ -314,12 +313,6 @@ export function estimateStep1InputCardStyle(
     }),
     ...(options?.marginHorizontal != null
       ? { marginHorizontal: options.marginHorizontal }
-      : {}),
-    ...(options?.ready
-      ? {
-          borderWidth: 1.5,
-          borderColor: 'rgba(34, 197, 94, 0.35)',
-        }
       : {}),
   };
 }

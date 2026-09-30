@@ -23,6 +23,7 @@ const {
   MIN_FIELD_CONFIDENCE,
   MEASUREMENT_KEYS,
   buildElectricalSystemPrompt,
+  buildRoofingSystemPrompt,
   buildHvacSystemPrompt,
   mergeElectricalEvidenceSources,
   mergePlumbingFieldEvidence,
@@ -33,6 +34,7 @@ const {
 const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  explicitRoofingCleanupScopeDetection,
   applyConcreteCoverPatioToTrade,
   concretePlanLabelsRvOrToyGarage,
   ensureConcreteCoverPatioScope,
@@ -41,6 +43,14 @@ const {
 const shvPlanFacts = require("../testFixtures/shvPlanFacts");
 
 describe("estimatePlanToMeasurements", () => {
+  test("roofing prompt requires plan-backed roof quantities and missing-info reporting", () => {
+    const prompt = buildRoofingSystemPrompt();
+    expect(prompt).toMatch(/roof plan/i);
+    expect(prompt).toMatch(/roofSquares/);
+    expect(prompt).toMatch(/do not derive roof squares from living area/i);
+    expect(prompt).toMatch(/generic ground-up scope language is not roofing evidence/i);
+  });
+
   test("sums electrical symbol counts across zoomed sheet regions", () => {
     expect(
       sumElectricalSymbolCropCounts(
@@ -1657,6 +1667,46 @@ describe("estimatePlanToMeasurements", () => {
       "cleanup",
     ]);
     expect(filtered.detections[1].label).toBe("HVAC cleanup");
+  });
+
+  test("roofing plan scope drops generic cleanup but keeps explicit roofing disposal", () => {
+    expect(
+      explicitRoofingCleanupScopeDetection({
+        label: "Cleanup & disposal",
+        evidence: "Standard ground-up scope for a full residential plan set",
+      }),
+    ).toBe(false);
+    expect(
+      explicitRoofingCleanupScopeDetection({
+        label: "Roofing cleanup",
+        evidence: "Remove roofing debris and haul off shingles",
+      }),
+    ).toBe(true);
+
+    const filtered = filterPlanScopesForTrade(
+      {
+        detections: [
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "Cleanup & disposal",
+            evidence:
+              "Standard ground-up scope for a full residential plan set",
+          },
+          {
+            itemId: "cleanup",
+            state: "included",
+            label: "Roofing cleanup",
+            evidence: "Remove roofing debris and haul off shingles",
+          },
+        ],
+      },
+      "selected_trade",
+      TRADE_CONFIGS.roofing,
+    );
+    expect(filtered.detections.map((row) => row.label)).toEqual([
+      "Roofing cleanup",
+    ]);
   });
 
   test("painting plan scope keeps interior paint and drops generic ground-up cleanup", () => {

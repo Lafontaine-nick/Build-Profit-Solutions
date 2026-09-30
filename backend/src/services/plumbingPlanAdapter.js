@@ -842,12 +842,6 @@ function buildPlumbingReviewStatus(input = {}) {
     }
   }
 
-  for (const factor of Array.isArray(input.complexityFactors) ? input.complexityFactors : []) {
-    if (factor?.label) {
-      needsConfirmation.push(`${factor.label} — review only`);
-    }
-  }
-
   const pages = Array.isArray(input.plumbingRelevantPages) ? input.plumbingRelevantPages : [];
   const pageReasons = pages.flatMap(page => (Array.isArray(page.reasons) ? page.reasons : []));
   const evidenceSheets = Object.values(input.fieldEvidence || {})

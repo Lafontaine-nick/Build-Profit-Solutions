@@ -17,6 +17,7 @@ import {
   wholeProjectCoverQuantity,
 } from '@/utils/scopeQuickMeasurements';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
+import { shellPackageIncludesSheathing } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   getQuickMeasurementEstimate,
   type QuickMeasurementEstimate,
@@ -400,12 +401,18 @@ export function resolveQuickMeasurementFields(params: {
         confirmedFromMatchingNoteValue) &&
       filled &&
       !isUserOverride;
+    const shellSheathingIncluded =
+      field.key === 'sheathingSqft' &&
+      shellPackageIncludesSheathing(
+        params.measurements as Record<string, unknown>
+      );
     const optionalGasLine =
       field.key === 'gasLineLf' &&
       !filled &&
       !fromNotes &&
       !sourceTag &&
-      !conflictFields.has(field.key);
+      !conflictFields.has(field.key) &&
+      !includedScopeKeySet.has('gas_line');
     const optionalBlankDrywall =
       (field.key === 'moistureResistantDrywallSqft' ||
         field.key === 'highCeilingDrywallSqft' ||
@@ -474,7 +481,7 @@ export function resolveQuickMeasurementFields(params: {
           ? 'detected_from_plan'
           : sourceTag,
       relevant:
-        optionalGasLine || optionalBlankDrywall
+        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
           ? false
           : manuallyEntered && filled
             ? true
@@ -508,9 +515,11 @@ export function resolveQuickMeasurementFields(params: {
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
       relevant:
-        optionalGasLine || optionalBlankDrywall ? false : relevance.relevant,
+        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
+          ? false
+          : relevance.relevant,
       blockingPrice:
-        optionalGasLine || optionalBlankDrywall
+        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
           ? false
           : relevance.blockingPrice && !filled,
       estimate,

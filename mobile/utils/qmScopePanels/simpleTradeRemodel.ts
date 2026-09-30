@@ -651,6 +651,104 @@ function mergeRoofingScopeSelectionIds(
   return [...merged];
 }
 
+/**
+ * Pieces on almost every new shingle roof. One vent type only, so ridge vent
+ * and box vents are not both waiting for a count. Ice & water, flashing, and
+ * penetrations stay off until the roof actually needs them.
+ */
+export const GROUND_UP_ROOFING_PLAN_SELECTION_IDS = [
+  'shingles',
+  'drip_edge',
+  'ridge_cap',
+  'ridge_vent',
+  'pipe_boots',
+  'gutters',
+  'downspouts',
+] as const;
+
+/** Checklist ids for the pricing cards under a new-construction roofing plan. */
+export const GROUND_UP_ROOFING_PLAN_CARD_IDS = [
+  'shingles_roofing',
+  'ridge_vent',
+  'pipe_boots',
+  'gutters',
+  'downspouts',
+] as const;
+
+export const NEW_ROOF_SHINGLE_PRICE_INCLUDES =
+  'Includes shingles, underlayment, drip edge, and ridge cap.';
+
+/** Remodel, upgrade, and site-specific chips. A new-construction plan must not turn these on. */
+const GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS = new Set([
+  'tear_off',
+  'decking_repair',
+  'roof_repairs',
+  'underlayment',
+  'ice_water_shield',
+  'valley_flashing',
+  'step_flashing',
+  'wall_flashing',
+  'roof_vents',
+  'turbine_vents',
+  'chimney_flashing',
+  'skylight_flashing',
+  'roof_penetrations',
+  'cleanup',
+]);
+
+function notesExplicitlyRequestRoofTearOff(notes?: string | null): boolean {
+  return /\b(?:tear[\s-]?off|tear\s+off|strip\s+roof|roof\s+demo|remove\s+shingles?)\b/i.test(
+    String(notes || '')
+  );
+}
+
+/** Pricing cards for a new-construction roofing plan. Quantities stay on the measurement rows. */
+export function ensureGroundUpRoofingPlanChecklistItems<
+  T extends {
+    id: string;
+    label?: string;
+    helperText?: string;
+    category?: string;
+    inputType?: string;
+    state?: string;
+    noteBacked?: boolean;
+  },
+>(items: T[]): T[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const cards = GROUND_UP_ROOFING_PLAN_CARD_IDS.map(id => {
+    const option = ROOFING_OPTIONS.find(
+      candidate => candidate.canonicalId === id || candidate.id === id
+    );
+    const existing = byId.get(id);
+    return {
+      ...(existing || ({} as T)),
+      id,
+      label: existing?.label || option?.label || id,
+      helperText:
+        id === 'shingles_roofing'
+          ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
+          : existing?.helperText || option?.measurementHelper,
+      category: existing?.category || 'roofing',
+      inputType: existing?.inputType || 'yes_no',
+      state: 'included' as const,
+      noteBacked: true,
+    };
+  });
+  const extras = items.filter(item => String(item.id).startsWith('custom_'));
+  return [...cards, ...extras];
+}
+
+/** Architectural plan import with no tear-off language is a new roof, not a reroof. */
+export function isGroundUpRoofingPlanImport(
+  measurements: Record<string, unknown>,
+  notes?: string | null
+): boolean {
+  if (measurements.planImportMode !== 'selected_trade') return false;
+  if (measurements.planImportTradeKey !== 'roofing') return false;
+  if (!String(measurements.planImportFingerprint || '').trim()) return false;
+  return !notesExplicitlyRequestRoofTearOff(notes);
+}
+
 /** Union saved chips with note + measurement inference — never drop explicit picks. */
 export function finalizeRoofingScopeSelections(
   ctx: QmPanelHydrateContext,
@@ -677,6 +775,31 @@ export function finalizeRoofingScopeSelections(
   const fromMeasurements = inferRoofingScopeSelectionsFromMeasurements(
     ctx.measurements
   ).filter(id => id !== 'shingles' || roofingInstallMentioned);
+  if (isGroundUpRoofingPlanImport(ctx.measurements, ctx.notes)) {
+    const savedAssembly = saved.filter(
+      id => !GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS.has(id)
+    );
+    const carriedOverAutoSelection = saved.some(id =>
+      GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS.has(id)
+    );
+    const noted = [...fromNotes, ...fromMeasurements].filter(
+      id => !GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS.has(id)
+    );
+    const kept = mergeRoofingScopeSelectionIds(
+      carriedOverAutoSelection ? [] : savedAssembly,
+      noted
+    );
+    // Measurement rows stay blank until the contractor types an amount.
+    // The standard new-roof pricing cards still show so each one can say it
+    // needs a price. A narrower saved set is kept as the contractor left it.
+    if (carriedOverAutoSelection || saved.length === 0) {
+      return mergeRoofingScopeSelectionIds(
+        GROUND_UP_ROOFING_PLAN_SELECTION_IDS,
+        noted
+      );
+    }
+    return kept;
+  }
   if (!saved.length) {
     return filterRoofingScopeSelectionsForTearOffInstall(
       mergeRoofingScopeSelectionIds(

@@ -95,6 +95,8 @@ import {
   inferPlumbingWorkflowModeFromNotes,
   inferPlumbingRoomContextFromNotes,
   filterChecklistItemsToPlumbingScope,
+  ensurePlumbingPlanChecklistItems,
+  groundUpPlumbingPlanLockedIds,
   plumbingQuickMeasurementKeysForIncludedScope,
   parsePlumbingProjectContextFromNotes,
   parsePlumbingMeasurementsFromNotes,
@@ -529,6 +531,9 @@ import {
   hvacFieldHasTakeoffEvidence,
   inferHvacScopeSelectionsFromNotes,
   simpleTradePanelFor,
+  ensureGroundUpRoofingPlanChecklistItems,
+  isGroundUpRoofingPlanImport,
+  NEW_ROOF_SHINGLE_PRICE_INCLUDES,
 } from '@/utils/qmScopePanels';
 import {
   QmBathroomFixturesPanels,
@@ -553,6 +558,9 @@ import {
 
 import {
   CONFIRM_SCOPE_PRICE_TEXT,
+  ESTIMATE_FLOW_APPLY_GREEN_BG,
+  ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+  ESTIMATE_FLOW_GREEN,
   confirmScopeApplyButtonStyle,
   confirmScopeApplyButtonTextStyle,
   confirmScopeChoiceSelectedYesColors,
@@ -8262,6 +8270,12 @@ function QuantitySection({
         !cardOwnsMissingCopy &&
         rule.quantityHelper &&
         !(
+          (itemId === 'plumbing_rough' || itemId === 'plumbing_trim') &&
+          !['bathroom', 'kitchen'].includes(
+            String(templateKey || '').toLowerCase()
+          )
+        ) &&
+        !(
           String(templateKey || '').toLowerCase() === 'painting' &&
           (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
           Number(resolved?.quantity) > 0
@@ -14688,7 +14702,7 @@ function CollapsibleQuickMeasurements({
   const paintingPlanMeasurements =
     String(measurements.planImportTradeKey || '') === 'painting' ||
     (singleTradeImport && tradeKey === 'painting') ||
-    String(checklist?.templateKey || '').toLowerCase() === 'painting';
+    String(templateKey || '').toLowerCase() === 'painting';
   const quickMeasurementTemplateKey = paintingPlanMeasurements
     ? 'painting'
     : stuccoTradeFlow
@@ -19227,9 +19241,7 @@ function CollapsibleQuickMeasurements({
     .filter((result): result is QuickMeasurementFieldResult =>
       Boolean(
         result &&
-        (result.relevant ||
-          result.key === 'gasLineLf' ||
-          standaloneNewConstructionPlumbingNotesFlow) &&
+        (result.relevant || standaloneNewConstructionPlumbingNotesFlow) &&
         shouldRenderGeneralResult(result)
       )
     );
@@ -21433,6 +21445,11 @@ function ScopeGroupSection({
   renderItem,
   noteSummary,
   priceLabel,
+  cardHeader = false,
+  includesNote = null,
+  statusLabel = 'Needs count',
+  showApply = false,
+  onApply,
   Colors,
   darkMode,
 }: {
@@ -21443,6 +21460,11 @@ function ScopeGroupSection({
   renderItem: (item: ScopeChecklistItem) => React.ReactNode;
   noteSummary?: { fromNotes: number; toConfirm: number };
   priceLabel?: string | null;
+  cardHeader?: boolean;
+  includesNote?: string | null;
+  statusLabel?: string;
+  showApply?: boolean;
+  onApply?: () => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -21459,45 +21481,59 @@ function ScopeGroupSection({
       {title ? (
         <TouchableOpacity
           style={[
-            styles.groupHeader,
-            {
-              borderBottomColor: dividerColor(darkMode),
-              opacity: headerOpacity,
-            },
+            priceLabel || cardHeader ? styles.groupHeaderCard : styles.groupHeader,
+            priceLabel || cardHeader
+              ? {
+                  backgroundColor: darkMode ? '#3A3A3C' : '#F8F8F8',
+                  borderWidth: 1,
+                  borderColor: darkMode
+                    ? 'rgba(255,255,255,0.16)'
+                    : 'rgba(15,23,42,0.1)',
+                  opacity: headerOpacity,
+                }
+              : {
+                  borderBottomColor: dividerColor(darkMode),
+                  opacity: headerOpacity,
+                },
           ]}
           onPress={onToggle}
           activeOpacity={0.7}
         >
-          <View style={{ flex: 1 }}>
+          {priceLabel || cardHeader ? (
+            <View
+              style={{
+                width: 3,
+                alignSelf: 'stretch',
+                borderRadius: 2,
+                backgroundColor: '#22c55e',
+                marginRight: 12,
+              }}
+            />
+          ) : null}
+          <View style={{ flex: 1, paddingRight: 12 }}>
             <Text
               style={{
                 color: darkMode ? '#F5F7FA' : Colors.text,
-                fontSize: priceLabel ? 16 : 13,
-                fontWeight: '800',
+                fontSize: priceLabel || cardHeader ? 15 : 13,
+                fontWeight: '700',
+                letterSpacing: -0.2,
               }}
             >
               {title}
             </Text>
-            {priceLabel ? (
+            {priceLabel || cardHeader ? (
               <Text
                 style={{
-                  color: darkMode ? '#F5F7FA' : Colors.text,
-                  fontSize: 15,
-                  fontWeight: '800',
-                  marginTop: 3,
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 12,
+                  fontWeight: '600',
+                  marginTop: 2,
                 }}
               >
-                {priceLabel}
-                <Text
-                  style={{
-                    color: captionColor(darkMode, Colors),
-                    fontSize: 13,
-                    fontWeight: '600',
-                  }}
-                >
-                  {' · '}
-                  {items.length} {items.length === 1 ? 'item' : 'items'}
-                </Text>
+                {includesNote ||
+                  `${items.length} ${items.length === 1 ? 'item' : 'items'}${
+                    collapsed ? ' · Tap for detail' : ''
+                  }`}
               </Text>
             ) : noteSummary &&
               (noteSummary.fromNotes > 0 || noteSummary.toConfirm > 0) ? (
@@ -21520,7 +21556,34 @@ function ScopeGroupSection({
               </Text>
             ) : null}
           </View>
-          {priceLabel ? null : (
+          {priceLabel ? (
+            <Text
+              style={{
+                color: darkMode ? '#F5F7FA' : Colors.text,
+                fontSize: 17,
+                fontWeight: '800',
+                fontVariant: ['tabular-nums'],
+                letterSpacing: -0.3,
+                marginRight: 8,
+              }}
+            >
+              {priceLabel}
+            </Text>
+          ) : cardHeader ? (
+            <View
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 8,
+                backgroundColor: 'rgba(251, 191, 36, 0.16)',
+                marginRight: 8,
+              }}
+            >
+              <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '800' }}>
+                {statusLabel}
+              </Text>
+            </View>
+          ) : (
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -21531,11 +21594,56 @@ function ScopeGroupSection({
             {items.length}
           </Text>
           )}
-          <Ionicons
-            name={collapsed ? 'chevron-down' : 'chevron-up'}
-            size={16}
-            color={captionColor(darkMode, Colors)}
-          />
+          {showApply && onApply ? (
+            <TouchableOpacity
+              onPress={event => {
+                event.stopPropagation?.();
+                onApply();
+              }}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`Apply ${title}`}
+              style={{
+                marginRight: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+                backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
+                borderWidth: 1,
+                borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+              }}
+            >
+              <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>
+                Apply
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {priceLabel || cardHeader ? (
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: darkMode
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'rgba(15,23,42,0.06)',
+              }}
+            >
+              <Ionicons
+                name={collapsed ? 'chevron-down' : 'chevron-up'}
+                size={16}
+                color={darkMode ? '#F5F7FA' : Colors.text}
+              />
+            </View>
+          ) : (
+            <Ionicons
+              name={collapsed ? 'chevron-down' : 'chevron-up'}
+              size={18}
+              color={captionColor(darkMode, Colors)}
+            />
+          )}
         </TouchableOpacity>
       ) : null}
       {!collapsed || !title
@@ -21783,7 +21891,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const [collapsedGroups, setCollapsedGroups] = useState<
     Record<string, boolean>
   >({});
-  const [expandedWholeProjectGroups, setExpandedWholeProjectGroups] =
+  const [expandedPlumbingPlanGroups, setExpandedPlumbingPlanGroups] =
     useState<Record<string, boolean>>({});
   const [expandedCollapsedScopeItemIds, setExpandedCollapsedScopeItemIds] =
     useState<Set<string>>(() => new Set());
@@ -22105,8 +22213,39 @@ export default function AIEstimateScopeAssumptionsModal({
       'selected_trade' &&
       (measurements.planImportTradeKey || planImport?.selectedTrade) ===
         'concrete');
+  const plumbingPlanExport =
+    (singleTradePlanImport && singleTradeKey === 'plumbing') ||
+    ((measurements.planImportMode || planImport?.estimatingMode) ===
+      'selected_trade' &&
+      (measurements.planImportTradeKey || planImport?.selectedTrade) ===
+        'plumbing');
+  const framingPlanExport =
+    (singleTradePlanImport && singleTradeKey === 'framing') ||
+    ((measurements.planImportMode || planImport?.estimatingMode) ===
+      'selected_trade' &&
+      (measurements.planImportTradeKey || planImport?.selectedTrade) ===
+        'framing');
+  const roofingPlanExport =
+    ((singleTradePlanImport && singleTradeKey === 'roofing') ||
+      ((measurements.planImportMode || planImport?.estimatingMode) ===
+        'selected_trade' &&
+        (measurements.planImportTradeKey || planImport?.selectedTrade) ===
+          'roofing')) &&
+    isGroundUpRoofingPlanImport(
+      {
+        planImportMode:
+          measurements.planImportMode || planImport?.estimatingMode,
+        planImportTradeKey:
+          measurements.planImportTradeKey || planImport?.selectedTrade,
+        planImportFingerprint:
+          measurements.planImportFingerprint ||
+          planImport?.planImportFingerprint,
+      },
+      scopeNotes
+    );
   const collapsedScopeGroupSummary =
     !concretePlanExport &&
+    !plumbingPlanExport &&
     (wholeProjectPlanChecklist ||
       (mixedScopeReviewMode && !dedicatedElectricalChecklist));
   const scopeCardTemplateKey = useCallback(
@@ -22449,12 +22588,39 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     if (singleTradePlanImport && singleTradeKey) {
-      return withDrywallLayout(
-        filterChecklistItemsForTrade(
-          groupedOpeningItems,
-          'selected_trade',
-          singleTradeKey
+      const traded = filterChecklistItemsForTrade(
+        groupedOpeningItems,
+        'selected_trade',
+        singleTradeKey
+      );
+      const plumbingReady =
+        singleTradeKey === 'plumbing'
+          ? ensurePlumbingPlanChecklistItems(
+              traded,
+              planImport?.scopeDetections
+            )
+          : traded;
+      const roofingReady =
+        singleTradeKey === 'roofing' &&
+        isGroundUpRoofingPlanImport(
+          measurements as Record<string, unknown>,
+          currentUserNote
         )
+          ? ensureGroundUpRoofingPlanChecklistItems(plumbingReady)
+          : plumbingReady;
+      const framingReady =
+        singleTradeKey === 'framing'
+          ? syncFramingScopeItems(roofingReady, {
+              framingScope: measurements.framingScope,
+              quantities: measurements as Record<string, unknown>,
+            })
+          : roofingReady;
+      return withDrywallLayout(
+        singleTradeKey === 'plumbing'
+          ? plumbingReady.filter(
+              item => item.state !== 'excluded' && item.id !== 'plumbing'
+            )
+          : framingReady
       );
     }
     if (notesPlumbingFlow) {
@@ -22646,6 +22812,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringSheetVinylSqft,
     measurements.planImportMode,
     measurements.planImportTradeKey,
+    measurements.planImportFingerprint,
     wholeProjectPlanChecklist,
     measurements.recessedLightCount,
     measurements.singlePoleSwitchCount,
@@ -24516,12 +24683,27 @@ export default function AIEstimateScopeAssumptionsModal({
       hydrateTradeContext.tradeKey === 'plumbing' ||
       (notesSuggestPlumbingBid(scopeNotes) && !explicitBathroomRemodelNotes)
     ) {
-      normalized = filterChecklistItemsToPlumbingScope(normalized);
+      const plumbingPlanHydrate =
+        (hydratedPlanTrade === 'plumbing' ||
+          hydrateTradeContext.tradeKey === 'plumbing') &&
+        nextMeasurements.plumbingWorkflowMode !== 'service' &&
+        nextMeasurements.tradeWorkflowSource !== 'standalone_trade';
+      if (plumbingPlanHydrate) {
+        normalized = ensurePlumbingPlanChecklistItems(
+          normalized,
+          planImport?.scopeDetections
+        );
+      } else {
+        normalized = filterChecklistItemsToPlumbingScope(normalized);
+      }
       normalized = finalizeStandalonePlumbingChecklist(normalized, {
         notes: scopeNotes,
         mode: nextMeasurements.plumbingWorkflowMode,
         plumbingScope: nextMeasurements.plumbingScope,
         quantities: nextMeasurements as Record<string, unknown>,
+        lockedIncludedIds: plumbingPlanHydrate
+          ? groundUpPlumbingPlanLockedIds(planImport?.scopeDetections)
+          : undefined,
       });
     }
     if (
@@ -24847,6 +25029,7 @@ export default function AIEstimateScopeAssumptionsModal({
         draft?.projectType
       )
     );
+    setExpandedPlumbingPlanGroups({});
     hydratedVisibleSessionRef.current = true;
     setScopeHydrated(true);
     setScopeDisplayReady(true);
@@ -24987,6 +25170,7 @@ export default function AIEstimateScopeAssumptionsModal({
       itemQuantities: {},
     });
     setCollapsedGroups({});
+    setExpandedPlumbingPlanGroups({});
     setExpandedCollapsedScopeItemIds(new Set());
     setCustomItemLabel('');
     setShowCustomItemInput(false);
@@ -25688,7 +25872,11 @@ export default function AIEstimateScopeAssumptionsModal({
   const groupedItems = useMemo(() => {
     const grouped = groupScopeChecklistItems(
       templateDisplayItems,
-      wholeProjectPlanChecklist ? 'ground_up' : checklist?.templateKey,
+      roofingPlanExport
+        ? 'roofing'
+        : wholeProjectPlanChecklist
+          ? 'ground_up'
+          : checklist?.templateKey,
       scopeGroupingContext
     );
     const pricedGroups = collapsedScopeGroupSummary
@@ -25701,6 +25889,7 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     templateDisplayItems,
     checklist?.templateKey,
+    roofingPlanExport,
     collapsedScopeGroupSummary,
     scopeGroupingContext,
     pinnedDrywallFinishItem,
@@ -25887,6 +26076,23 @@ export default function AIEstimateScopeAssumptionsModal({
       if (String(checklist?.templateKey || '').toLowerCase() !== 'roofing') {
         return false;
       }
+      if (
+        isGroundUpRoofingPlanImport(
+          measurements as Record<string, unknown>,
+          scopeNotes
+        )
+      ) {
+        const visibleOnGroundUpPlan = new Set([
+          'shingles_roofing',
+          'drip_edge',
+          'ridge_cap',
+          'ridge_vent',
+          'pipe_boots',
+          'gutters',
+          'downspouts',
+        ]);
+        if (visibleOnGroundUpPlan.has(itemId)) return false;
+      }
       const selectionAliases: Record<string, string[]> = {
         tear_off: ['tear_off'],
         underlayment: ['underlayment'],
@@ -25926,7 +26132,7 @@ export default function AIEstimateScopeAssumptionsModal({
         aliases.some(alias => selections.includes(alias))
       );
     },
-    [checklist?.templateKey, measurements.tradeScopeSelections]
+    [checklist?.templateKey, measurements, scopeNotes]
   );
   const roofingQmJob =
     !isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey) &&
@@ -26087,7 +26293,9 @@ export default function AIEstimateScopeAssumptionsModal({
           Number(b.hasPricing) - Number(a.hasPricing) ||
           a.index - b.index
       )
-      .map(entry => entry.group);
+      .map(entry =>
+        entry.group.title ? entry.group : { ...entry.group, title: 'Scope' }
+      );
   }, [
     groupedItems,
     displayItems,
@@ -26103,25 +26311,33 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.itemQuantities,
     measurements.pricingAcceptance,
   ]);
-  const wholeProjectGroupTotals = useMemo(() => {
-    if (!collapsedScopeGroupSummary) return {} as Record<string, number>;
+  const scopeGroupPriceTotals = useMemo(() => {
     const totals: Record<string, number> = {};
+    const templateKey = framingPlanExport
+      ? 'framing'
+      : plumbingPlanExport
+        ? 'plumbing'
+        : roofingPlanExport
+          ? 'roofing'
+          : scopePricingTemplateKey;
     for (const group of scopeGroupedItems) {
       if (!group.title) continue;
       totals[group.title] = wholeProjectGroupDisplayTotal({
         items: group.items,
         measurements: measurementsForAppliedPricing,
-        templateKey: scopePricingTemplateKey,
+        templateKey,
         notes: scopeNotes,
       });
     }
     return totals;
   }, [
+    framingPlanExport,
+    plumbingPlanExport,
+    roofingPlanExport,
     measurementsForAppliedPricing,
     scopeGroupedItems,
     scopeNotes,
     scopePricingTemplateKey,
-    collapsedScopeGroupSummary,
   ]);
 
   const electricalPreviewScopeGroups = useMemo(() => {
@@ -30627,38 +30843,105 @@ export default function AIEstimateScopeAssumptionsModal({
                 const regularItems = group.items.filter(
                   item => !collapsedTradeItemsAtBottom.includes(item)
                 );
+                const groupPricingTemplateKey = framingPlanExport
+                  ? 'framing'
+                  : plumbingPlanExport
+                    ? 'plumbing'
+                    : roofingPlanExport
+                      ? 'roofing'
+                      : scopePricingTemplateKey;
+                const pendingGroupApplies = regularItems.flatMap(item => {
+                  if (!checklistItemInScope(item)) return [];
+                  if (
+                    scopeHasCommittedConfirmScopePrice({
+                      itemId: item.id,
+                      itemQuantities: measurements.itemQuantities,
+                      pricingAcceptance: measurements.pricingAcceptance,
+                    }) ||
+                    hasAcceptedScopePricing(
+                      item.id,
+                      measurements.itemQuantities,
+                      measurements.pricingAcceptance
+                    )
+                  ) {
+                    return [];
+                  }
+                  const resolved = resolveChecklistItemQuantity(
+                    item.id,
+                    measurementsForAppliedPricing,
+                    {
+                      choiceId: item.choiceId,
+                      templateKey: groupPricingTemplateKey,
+                      notes: scopeNotes,
+                    }
+                  );
+                  const suggested = resolveScopeItemSuggestedPricing(
+                    item.id,
+                    measurementsForAppliedPricing,
+                    groupPricingTemplateKey,
+                    resolved,
+                    null,
+                    scopeNotes
+                  );
+                  const fill = suggested.fill;
+                  if (!fill || fill.isComparison || !(Number(fill.total) > 0)) {
+                    return [];
+                  }
+                  return [{ itemId: item.id, block: fill }];
+                });
+                const groupPrice = group.title
+                  ? scopeGroupPriceTotals[group.title] || 0
+                  : 0;
+                const shinglePriceIncludesStandardEdge =
+                  scopeGroupsToRender.some(entry =>
+                    entry.items.some(item => item.id === 'shingles_roofing')
+                  ) &&
+                  !scopeGroupsToRender.some(entry =>
+                    entry.items.some(
+                      item =>
+                        item.id === 'drip_edge' || item.id === 'ridge_cap'
+                    )
+                  );
+                const groupCollapsed = group.title
+                  ? !expandedPlumbingPlanGroups[group.title]
+                  : false;
                 return (
                   <ScopeGroupSection
                     key={group.title || 'all'}
                     title={group.title}
                     items={regularItems}
-                    collapsed={
-                      collapsedScopeGroupSummary
-                        ? !expandedWholeProjectGroups[group.title]
-                        : Boolean(collapsedGroups[group.title])
-                    }
+                    collapsed={groupCollapsed}
                     priceLabel={
-                      collapsedScopeGroupSummary &&
-                      group.title &&
-                      (wholeProjectGroupTotals[group.title] || 0) > 0
-                        ? formatPlanningMoney(wholeProjectGroupTotals[group.title])
+                      group.title && groupPrice > 0
+                        ? formatPlanningMoney(groupPrice)
                         : null
                     }
-                    onToggle={() => {
-                      if (collapsedScopeGroupSummary) {
-                        setExpandedWholeProjectGroups(prev => ({
-                          ...prev,
-                          [group.title]: !prev[group.title],
-                        }));
-                        return;
+                    cardHeader={Boolean(group.title) && groupPrice <= 0}
+                    includesNote={
+                      group.title === 'Roofing System' &&
+                      shinglePriceIncludesStandardEdge
+                        ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
+                        : null
+                    }
+                    statusLabel={
+                      plumbingPlanExport || notesPlumbingFlow
+                        ? 'Needs count'
+                        : 'Price needed'
+                    }
+                    showApply={groupCollapsed && pendingGroupApplies.length > 0}
+                    onApply={() => {
+                      for (const row of pendingGroupApplies) {
+                        handleApplySuggestedPricing(row.itemId, row.block);
                       }
-                      const isCollapsed = Boolean(collapsedGroups[group.title]);
-                      if (isCollapsed) {
+                    }}
+                    onToggle={() => {
+                      if (!group.title) return;
+                      if (groupCollapsed) {
                         flushStagedElectricalMeasurements();
                       }
-                      setCollapsedGroups(prev => ({
+                      setExpandedPlumbingPlanGroups(prev => ({
                         ...prev,
-                        [group.title]: !isCollapsed,
+                        [group.title]: !prev[group.title],
                       }));
                     }}
                     renderItem={renderItem}
@@ -31193,6 +31476,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  groupHeaderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingVertical: 14,
+    marginBottom: 10,
+    borderRadius: 16,
   },
   card: {
     marginHorizontal: -8,

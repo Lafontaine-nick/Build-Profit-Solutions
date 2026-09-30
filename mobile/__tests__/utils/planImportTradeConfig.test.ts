@@ -1,4 +1,7 @@
-import { stripScopeInputForSingleTrade } from '@/utils/planImportTradeConfig';
+import {
+  filterPlanScopesForTrade,
+  stripScopeInputForSingleTrade,
+} from '@/utils/planImportTradeConfig';
 import { PLAN_MEASUREMENT_LOTS } from '@/testFixtures/planMeasurementLots';
 
 describe('stripScopeInputForSingleTrade', () => {
@@ -31,5 +34,31 @@ describe('stripScopeInputForSingleTrade', () => {
       (stripped.quickMeasurementSources as Record<string, string>).storyCount
     ).toBe('plan_detected');
     expect(stripped.mainPanelCount).toBe('1');
+  });
+});
+
+describe('roofing plan scope filtering', () => {
+  it('drops generic ground-up cleanup but keeps explicit roofing disposal', () => {
+    const filtered = filterPlanScopesForTrade(
+      [
+        {
+          itemId: 'cleanup',
+          state: 'included',
+          label: 'Cleanup & disposal',
+          evidence:
+            'Standard ground-up scope for a full residential plan set',
+        },
+        {
+          itemId: 'cleanup',
+          state: 'included',
+          label: 'Roofing cleanup',
+          evidence: 'Remove roofing debris and haul off shingles',
+        },
+      ],
+      'selected_trade',
+      'roofing'
+    );
+
+    expect(filtered.map(item => item.label)).toEqual(['Roofing cleanup']);
   });
 });

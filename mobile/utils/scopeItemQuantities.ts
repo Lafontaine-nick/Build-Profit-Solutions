@@ -4234,7 +4234,19 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
         'underlayment',
         'included',
         'Underlayment',
-        'Standard underlayment is included.'
+        'Standard underlayment is included in the shingle price.'
+      ),
+      assumption(
+        'drip_edge',
+        'included',
+        'Drip edge',
+        'Standard drip edge is included in the shingle price.'
+      ),
+      assumption(
+        'ridge_cap',
+        'included',
+        'Ridge cap',
+        'Standard ridge cap is included in the shingle price.'
       ),
       assumption(
         'roof_installation',
@@ -15516,6 +15528,17 @@ export function resolveScopeItemSuggestedPricing(
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const notesText = String(originalNotes || '');
+  if (
+    (itemId === 'drip_edge' || itemId === 'ridge_cap') &&
+    measurementsInput.planImportMode === 'selected_trade' &&
+    measurementsInput.planImportTradeKey === 'roofing' &&
+    String(measurementsInput.planImportFingerprint || '').trim() &&
+    !/\b(?:tear[\s-]?off|tear\s+off|strip\s+roof|roof\s+demo|remove\s+shingles?)\b/i.test(
+      notesText
+    )
+  ) {
+    return empty;
+  }
   if (itemId === 'paver_demo') {
     const storedQuantity = Number(
       measurementsInput.itemQuantities?.paver_demo?.quantity

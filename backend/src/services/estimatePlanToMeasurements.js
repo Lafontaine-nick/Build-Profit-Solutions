@@ -1178,6 +1178,28 @@ HVAC takeoff rules:
 - Put schedule/label quantities in explicitlyLabeled and directly counted symbols or measured ductwork in geometryDerived. Include fieldEvidence with page, sheet, and readable source text. Omit unreadable values and list the missing field in unreadableFields or missingInfo.
 `;
 
+const ROOFING_VISION_INSTRUCTIONS = `
+Roofing takeoff rules:
+- Review the roof plan, roof details, exterior elevations, building sections, cover sheet, and any roofing/material schedules. The roof plan is usually the primary source for roof geometry.
+- Return only these canonical roofing measurements when supported: roofAreaSqft, roofSquares, roofPitch, roofDeckingReplacementSqft, roofDripEdgeLf, roofRidgeCapLf, roofRidgeVentLf, roofValleyFlashingLf, roofStepFlashingLf, roofWallFlashingLf, roofChimneyFlashingCount, roofPipeBootCount, roofVentCount, roofTurbineVentCount, roofSkylightCount, roofPenetrationCount, roofRepairAffectedSqft, roofGutterLf, and roofDownspoutCount.
+- roofSquares means the actual sloped roof surface divided by 100, not living area, garage area, patio area, or a footprint proxy. Populate roofAreaSqft when the actual surface area is readable or calculated from complete dimensioned roof planes; roofSquares may be calculated from that same supported surface area.
+- A roof pitch and story count are plan facts, not a roof-area quantity. Do not derive roof squares from living area, building footprint, or a typical waste factor. A pitch multiplier is allowed only when the complete horizontal roof-plane area is explicitly supported and the calculation is recorded in geometryDerived and assumptions.
+- Read every distinct roof plane and preserve plan-backed geometry in fieldEvidence with page, sheet, and sourceText. If the roof boundary, plane dimensions, or material cannot be read completely, omit the quantity and list the field in unreadableFields or missingInfo for contractor confirmation.
+- Count or measure drip edge, ridge/cap, ridge vent, valleys, step/wall/chimney flashing, pipe boots, vents, skylights, penetrations, gutters, and downspouts only when explicitly labeled or directly countable on the drawings. Do not infer accessories from roof area or typical residential practice.
+- Do not return roofing material, tear-off, decking repair, disposal, cleanup, permits, or scope packages unless the plan or notes explicitly document them. Generic ground-up scope language is not roofing evidence.
+- Put printed schedule/label quantities in explicitlyLabeled, supported dimension calculations in geometryDerived, and include fieldEvidence for every returned measurement. Return missingInfo rather than a guessed value.
+`;
+
+function buildRoofingSystemPrompt() {
+  return `You are a construction estimator performing a focused Roofing takeoff from architectural plans.
+
+Return ONLY valid JSON (no markdown).
+
+${ROOFING_VISION_INSTRUCTIONS}
+
+Return the existing plan-takeoff JSON envelope with measurements, fieldConfidence, explicitlyLabeled, geometryDerived, unreadableFields, fieldEvidence, assumptions, and notesBlock.`;
+}
+
 function buildHvacSystemPrompt() {
   return `You are a construction estimator performing a focused HVAC takeoff from mechanical plans, equipment schedules, HVAC layouts, sections, and notes.
 
@@ -1899,10 +1921,12 @@ function visionSystemPrompt(
   windowsDoorsSelected,
   garageDoorsSelected,
   hvacSelected,
+  roofingSelected,
 ) {
   if (electricalSelected) return buildElectricalSystemPrompt();
   if (plumbingSelected) return buildPlumbingSystemPrompt();
   if (hvacSelected) return buildHvacSystemPrompt();
+  if (roofingSelected) return buildRoofingSystemPrompt();
   return `${buildSystemPrompt()}${
     insulationSelected ? `\n${INSULATION_VISION_INSTRUCTIONS}` : ""
   }${drywallSelected ? `\n${DRYWALL_VISION_INSTRUCTIONS}` : ""}${
@@ -4217,6 +4241,9 @@ async function analyzePlanForMeasurements({
   const hvacSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "hvac";
+  const roofingSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "roofing";
   const framingSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "framing";
@@ -4359,6 +4386,25 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  let roofingSheetImages = [];
+  if (
+    roofingSelected &&
+    pdfBuffers.length &&
+    pdfTakeoff?.roofingRelevantPages?.length
+  ) {
+    try {
+      const { renderRoofingPlanPages } = require("./planPdfTextTakeoff");
+      roofingSheetImages = await renderRoofingPlanPages(
+        pdfBuffers,
+        pdfTakeoff.roofingRelevantPages,
+        { maxPages: 12, maxDimension: 4200 },
+      );
+    } catch (err) {
+      console.warn("Roofing sheet raster skipped:", err?.message || err);
+      roofingSheetImages = [];
+    }
+  }
+
   // Architectural PDFs often contain the sliding-door evidence only as tiny
   // graphical symbols. Send the relevant sheets as raster images so vision
   // can inspect tracks/panels instead of relying on the PDF text layer.
@@ -4440,6 +4486,9 @@ async function analyzePlanForMeasurements({
   const hvacVisionParts = hvacSheetImages.length
     ? hvacSheetImages.map(toVisionContentPart)
     : null;
+  const roofingVisionParts = roofingSheetImages.length
+    ? roofingSheetImages.map(toVisionContentPart)
+    : null;
   const windowsDoorsVisionParts = windowsDoorsSheetImages.length
     ? windowsDoorsSheetImages.map(toVisionContentPart)
     : null;
@@ -4455,6 +4504,7 @@ async function analyzePlanForMeasurements({
     electricalVisionParts ||
     plumbingVisionParts ||
     hvacVisionParts ||
+    roofingVisionParts ||
     windowsDoorsVisionParts ||
     compatible.map(toVisionContentPart);
   const electricalSheetCountHint = electricalVisionParts
@@ -4478,6 +4528,13 @@ async function analyzePlanForMeasurements({
           .join(", ") || "M / mechanical sheets"
       }). Count supply registers, return grilles, thermostats, ventilation equipment, and labeled ductwork on every attached page. Reconcile equipment schedules with plan tags.`
     : "Prioritize M sheets, equipment schedules, duct layouts, and floor plans with mechanical callouts inside the attached plan file.";
+  const roofingSheetCountHint = roofingVisionParts
+    ? `The attached images are Roofing-relevant sheets (pages ${
+        (pdfTakeoff?.roofingRelevantPages || [])
+          .map((page) => page.page)
+          .join(", ") || "roof plan / elevations"
+      }). Inspect every attached roof plan, elevation, section, and detail; do not infer missing roof quantities.`
+    : "Prioritize the roof plan, elevations, sections, and roofing details inside the attached plan file.";
 
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
@@ -4527,6 +4584,7 @@ async function analyzePlanForMeasurements({
           windowsDoorsSelected,
           garageDoorsSelected,
           hvacSelected,
+          roofingSelected,
         ),
       },
       {
@@ -4550,6 +4608,15 @@ async function analyzePlanForMeasurements({
                       ? hintBits.join("\n\n")
                       : "No extra context.",
                   ].join("\n\n")
+                : roofingSelected
+                  ? [
+                      ROOFING_VISION_INSTRUCTIONS,
+                      roofingSheetCountHint,
+                      "Inspect every roof plan, roof detail, elevation, section, and roofing/material schedule attached. Return only plan-backed roofing quantities and list each missing quantity for contractor confirmation.",
+                      hintBits.length
+                        ? hintBits.join("\n\n")
+                        : "No extra context.",
+                    ].join("\n\n")
                 : plumbingSelected
                   ? [
                       PLUMBING_VISION_INSTRUCTIONS,
@@ -4670,13 +4737,15 @@ async function analyzePlanForMeasurements({
               windowsDoorsSelected,
               garageDoorsSelected,
               hvacSelected,
+              roofingSelected,
             ) +
             (planSelection.trade &&
             !electricalSelected &&
             !plumbingSelected &&
             !windowsDoorsSelected &&
             !garageDoorsSelected &&
-            !hvacSelected
+            !hvacSelected &&
+            !roofingSelected
               ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
               : electricalSelected
                 ? "\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images."
@@ -4690,6 +4759,8 @@ async function analyzePlanForMeasurements({
                         ? "\nThis is a focused Garage doors pass. Count single, double, and RV doors from the schedule or elevation; count openers only when labeled."
                         : hvacSelected
                           ? "\nThis is a focused HVAC quantity pass. Count only readable mechanical equipment, thermostats, ventilation, and labeled ductwork."
+                          : roofingSelected
+                            ? "\nThis is a focused Roofing quantity pass. Inspect the complete roof plan and related elevations/details; calculate roof surface only from complete supported geometry and never use living area as a proxy."
                           : plumbingSelected
                             ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
                             : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
@@ -4725,6 +4796,8 @@ async function analyzePlanForMeasurements({
                     ? DRYWALL_VISION_INSTRUCTIONS
                     : hvacSelected
                       ? HVAC_VISION_INSTRUCTIONS
+                          : roofingSelected
+                            ? ROOFING_VISION_INSTRUCTIONS
                       : windowsDoorsSelected
                         ? WINDOWS_DOORS_VISION_INSTRUCTIONS
                         : garageDoorsSelected
@@ -4746,6 +4819,8 @@ async function analyzePlanForMeasurements({
                         ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
                         : plumbingSelected
                           ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
+                          : roofingSelected
+                            ? `${roofingSheetCountHint} Return only supported roof quantities and list missing roof area/squares and accessories for contractor confirmation.`
                           : electricalSelected
                             ? `${electricalSheetCountHint} Return Electrical canonical counts only. standardReceptacleCount, gfciReceptacleCount, singlePoleSwitchCount, and ceilingFanCount must be integers whenever those symbols are drawn. A missing legend is not a reason to return null. Omit only serviceAmperage, panels, conduit, rough/trim, job condition, and unlabeled homeruns.`
                             : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
@@ -4754,6 +4829,7 @@ async function analyzePlanForMeasurements({
             ...(electricalSelected ||
             plumbingSelected ||
             hvacSelected ||
+            roofingSelected ||
             windowsDoorsSelected
               ? visionParts
               : insulationSelected && insulationVisionParts
@@ -6377,6 +6453,22 @@ async function analyzePlanForMeasurements({
       );
     }
   }
+  if (roofingSelected) {
+    if (
+      !(positive(tradeMeasurementInput.roofSquares) > 0) &&
+      !(positive(tradeMeasurementInput.roofAreaSqft) > 0)
+    ) {
+      tradeMissingInfo.unshift(
+        "Roof surface area / squares: no explicit quantity or complete dimensioned roof-plane takeoff",
+      );
+    }
+    if (!(positive(tradeMeasurementInput.roofPitch) > 0) &&
+        !String(tradeMeasurementInput.roofPitch || "").trim()) {
+      tradeMissingInfo.unshift(
+        "Roof pitch: no readable pitch callout",
+      );
+    }
+  }
 
   return {
     success: true,
@@ -6483,6 +6575,7 @@ module.exports = {
   normalizeDrywallPlanMeasurements,
   buildSystemPrompt,
   buildElectricalSystemPrompt,
+  buildRoofingSystemPrompt,
   buildHvacSystemPrompt,
   mergeElectricalEvidenceSources,
   mergeElectricalSheetEvidence,

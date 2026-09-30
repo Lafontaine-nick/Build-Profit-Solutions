@@ -2280,7 +2280,18 @@ export const PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
       'LF',
       'structure',
       undefined,
-      'Count only explicit gas piping or gas stubs shown or noted on the plan.'
+      'Enter gas piping length when this bid includes it. Do not infer LF from the floor plan.'
+    )
+  ),
+  row(
+    F(
+      'waterHeaterCount',
+      'Water heater',
+      'e.g. 1',
+      'each',
+      'interior',
+      undefined,
+      'Count the water heater for this house. Do not assume one from living area.'
     )
   ),
 ];

@@ -17,7 +17,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
+import {
+  aiScopeConfirmNumericKeyboardProps,
+  resolveTextInputKeyboardProps,
+} from '@/constants/inputKeyboardPresets';
 import { getColors } from '@/theme/getColors';
 import {
   QM_MEASUREMENT_SHELL_BORDER_DARK,
@@ -853,6 +856,7 @@ export function QmSqftMeasurementRow({
   Colors,
   highlighted = false,
   keyboardType = 'decimal-pad',
+  textEntry = false,
   compact = false,
   sectionLead = false,
   sectionEnd = false,
@@ -871,6 +875,7 @@ export function QmSqftMeasurementRow({
   Colors: Colors;
   highlighted?: boolean;
   keyboardType?: 'decimal-pad' | 'number-pad';
+  textEntry?: boolean;
   compact?: boolean;
   sectionLead?: boolean;
   sectionEnd?: boolean;
@@ -879,9 +884,11 @@ export function QmSqftMeasurementRow({
   const defaultPlaceholder =
     unitLabel.toLowerCase() === 'lf' ? 'Enter LF' : 'Enter sqft';
   const formattedValue = (() => {
-    const raw = String(value || '').replace(/,/g, '');
-    if (!raw) return '';
-    const match = raw.match(/^(-?)(\d*)(\.\d*)?$/);
+    const raw = String(value || '');
+    if (textEntry) return raw;
+    const numeric = raw.replace(/,/g, '');
+    if (!numeric) return '';
+    const match = numeric.match(/^(-?)(\d*)(\.\d*)?$/);
     if (!match) return value;
     const [, sign, integerPart, decimalPart = ''] = match;
     const integer = integerPart || '0';
@@ -918,12 +925,12 @@ export function QmSqftMeasurementRow({
           <View style={[inputShellStyle, { width: 132, flexShrink: 0 }]}>
             <TextInput
               value={formattedValue}
-              onChangeText={text => onChangeText(text.replace(/,/g, ''))}
+              onChangeText={text =>
+                onChangeText(textEntry ? text : text.replace(/,/g, ''))
+              }
               onFocus={onFocus}
               onBlur={onBlur}
               editable={!applying}
-              keyboardType={keyboardType}
-              {...aiScopeConfirmNumericKeyboardProps}
               placeholder={placeholder || defaultPlaceholder}
               placeholderTextColor={
                 darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
@@ -937,6 +944,12 @@ export function QmSqftMeasurementRow({
                 minWidth: 0,
                 textAlign: 'right',
               }}
+              {...(textEntry
+                ? resolveTextInputKeyboardProps()
+                : {
+                    keyboardType,
+                    ...aiScopeConfirmNumericKeyboardProps,
+                  })}
             />
             <Text
               style={{
@@ -996,12 +1009,12 @@ export function QmSqftMeasurementRow({
       <View style={[inputShellStyle, { minHeight: 42, paddingHorizontal: 12 }]}>
         <TextInput
           value={formattedValue}
-          onChangeText={text => onChangeText(text.replace(/,/g, ''))}
+          onChangeText={text =>
+            onChangeText(textEntry ? text : text.replace(/,/g, ''))
+          }
           onFocus={onFocus}
           onBlur={onBlur}
           editable={!applying}
-          keyboardType={keyboardType}
-          {...aiScopeConfirmNumericKeyboardProps}
           placeholder={placeholder || defaultPlaceholder}
           placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
           style={{
@@ -1012,6 +1025,12 @@ export function QmSqftMeasurementRow({
             fontWeight: '700',
             minWidth: 0,
           }}
+          {...(textEntry
+            ? resolveTextInputKeyboardProps()
+            : {
+                keyboardType,
+                ...aiScopeConfirmNumericKeyboardProps,
+              })}
         />
         <Text
           style={{
@@ -6129,6 +6148,8 @@ function QmTradeScopeOptionList({
             ? roofingQmOptionAllowanceAmount(option.id, measurementPayload)
             : null;
         const quantitySatisfied = optionQuantitySatisfied(option);
+        const usesSharedRoofSquares =
+          scopeKey === 'roofing' && option.measurementKey === 'roofSquares';
         return (
           <React.Fragment key={option.id}>
             <QmScopeChoiceChip
@@ -6140,7 +6161,7 @@ function QmTradeScopeOptionList({
               Colors={Colors}
               style={{ minWidth: '100%' }}
             />
-            {active && option.measurementKey ? (
+            {active && option.measurementKey && !usesSharedRoofSquares ? (
               allowanceAmount != null ? (
                 <Text
                   style={{
@@ -6299,6 +6320,102 @@ export function QmRoofingScopePanels({
     option =>
       selections.includes(option.id) || selections.includes(option.canonicalId)
   );
+  const planDetected = (key: string) => {
+    const source = measurements.quickMeasurementSources?.[key];
+    return (
+      source === 'plan_detected' ||
+      source === 'detected_from_plan' ||
+      source === 'plan_verified' ||
+      source === 'contractor_confirmed_from_plan_review'
+    );
+  };
+  const roofSquaresValue = String(measurements.roofSquares || '')
+    .replace(/,/g, '')
+    .trim();
+  const roofAreaValue = String(measurements.roofAreaSqft || '')
+    .replace(/,/g, '')
+    .trim();
+  const roofAreaMissing = !(Number(roofSquaresValue) > 0) && !(Number(roofAreaValue) > 0);
+  const planOnlyRoof =
+    measurements.planImportMode === 'selected_trade' &&
+    measurements.planImportTradeKey === 'roofing';
+  const markRoofingMeasurement = (
+    key: string,
+    value: string,
+    selectionId?: string
+  ) => {
+    setMeasurements(prev => {
+      const current = new Set(prev.tradeScopeSelections?.roofing || []);
+      if (selectionId) {
+        const amount = Number(String(value).replace(/,/g, ''));
+        if (Number.isFinite(amount) && amount > 0) current.add(selectionId);
+        else current.delete(selectionId);
+      }
+      return {
+        ...prev,
+        [key]: value,
+        tradeScopeSelections: {
+          ...(prev.tradeScopeSelections || {}),
+          roofing: current.size ? [...current] : null,
+        },
+        quickMeasurementSources: {
+          ...(prev.quickMeasurementSources || {}),
+          [key]: 'user_entered',
+        },
+        quickMeasurementUserOverrides: {
+          ...(prev.quickMeasurementUserOverrides || {}),
+          [key]: true,
+        },
+      };
+    });
+  };
+  const groundUpMeasurementRows: Array<{
+    key: string;
+    label: string;
+    unit: string;
+    keyboardType?: 'decimal-pad' | 'number-pad';
+    selectionId: string;
+  }> = [
+    {
+      key: 'roofDripEdgeLf',
+      label: 'Drip edge',
+      unit: 'LF',
+      selectionId: 'drip_edge',
+    },
+    {
+      key: 'roofRidgeCapLf',
+      label: 'Ridge cap',
+      unit: 'LF',
+      selectionId: 'ridge_cap',
+    },
+    {
+      key: 'roofRidgeVentLf',
+      label: 'Ridge vent',
+      unit: 'EA',
+      keyboardType: 'number-pad',
+      selectionId: 'ridge_vent',
+    },
+    {
+      key: 'roofPipeBootCount',
+      label: 'Pipe boots',
+      unit: 'EA',
+      keyboardType: 'number-pad',
+      selectionId: 'pipe_boots',
+    },
+    {
+      key: 'roofGutterLf',
+      label: 'Gutters',
+      unit: 'LF',
+      selectionId: 'gutters',
+    },
+    {
+      key: 'roofDownspoutCount',
+      label: 'Downspouts',
+      unit: 'EA',
+      keyboardType: 'number-pad',
+      selectionId: 'downspouts',
+    },
+  ];
 
   return (
     <View style={{ gap: 12 }}>
@@ -6313,7 +6430,8 @@ export function QmRoofingScopePanels({
               { color: darkMode ? '#cbd5e1' : '#475569' },
             ]}
           >
-            Roofing install scope {installExpanded ? '⌃' : '⌄'}
+            {planOnlyRoof ? 'Roofing measurements' : 'Roofing install scope'}{' '}
+            {installExpanded ? '⌃' : '⌄'}
           </Text>
           <Text
             style={[
@@ -6330,44 +6448,93 @@ export function QmRoofingScopePanels({
         </TouchableOpacity>
         {installExpanded ? (
           <>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
-              ]}
-            >
-              Select every install component included in this bid. Measurements
-              feed the corresponding pricing cards.
-            </Text>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: '#fbbf24', marginTop: 4, marginBottom: 0 },
-              ]}
-            >
-              Standard roofing includes normal underlayment, shingles, drip
-              edge, and perimeter cleanup. Add only upgrades or work beyond the
-              standard scope.
-            </Text>
+            {planOnlyRoof ? (
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                ]}
+              >
+                Enter the amounts for this new roof. Blank rows stay unpriced.
+              </Text>
+            ) : (
+              <>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                  ]}
+                >
+                  Select every install component included in this bid.
+                  Measurements feed the corresponding pricing cards.
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: '#fbbf24', marginTop: 4, marginBottom: 0 },
+                  ]}
+                >
+                  Standard roofing includes normal underlayment, shingles, drip
+                  edge, and perimeter cleanup. Add only upgrades or work beyond
+                  the standard scope.
+                </Text>
+              </>
+            )}
+            <QmSqftMeasurementRow
+              label='Roof pitch'
+              helperText={
+                planDetected('roofPitch')
+                  ? 'Detected from plan.'
+                  : 'Enter the pitch shown on the plan, such as 2:12.'
+              }
+              value={String(measurements.roofPitch || '')}
+              placeholder='e.g. 2:12'
+              unitLabel='pitch'
+              textEntry
+              onChangeText={value => markRoofingMeasurement('roofPitch', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+            />
+            <QmSqftMeasurementRow
+              label={planOnlyRoof ? 'Shingles' : 'Roof surface area / squares'}
+              helperText={
+                roofAreaMissing
+                  ? planOnlyRoof
+                    ? 'Needs measurement. Not found on plan — enter roof squares. Price includes underlayment, drip edge, and ridge cap.'
+                    : 'Needs measurement. Not found on plan — enter roof squares before pricing.'
+                  : planOnlyRoof
+                    ? 'Includes underlayment, drip edge, and ridge cap. Those are not priced again.'
+                    : 'Roof squares price the shingle install.'
+              }
+              value={roofSquaresValue}
+              placeholder='Enter roof squares'
+              unitLabel='sq'
+              onChangeText={value =>
+                markRoofingMeasurement(
+                  'roofSquares',
+                  value.replace(/,/g, ''),
+                  planOnlyRoof ? 'shingles' : undefined
+                )
+              }
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted={roofAreaMissing}
+            />
             <QmSqftMeasurementRow
               label='Stories'
-              helperText='Defaults to 1 story unless job notes specify otherwise.'
+              helperText={
+                planDetected('storyCount')
+                  ? 'Detected from plan.'
+                  : 'Enter the number of stories. This does not calculate roof area.'
+              }
               value={String(measurements.storyCount || '')}
               placeholder='1'
               unitLabel='story'
+              keyboardType='number-pad'
               onChangeText={value =>
-                setMeasurements(prev => ({
-                  ...prev,
-                  storyCount: value.replace(/,/g, ''),
-                  quickMeasurementSources: {
-                    ...(prev.quickMeasurementSources || {}),
-                    storyCount: 'user_entered',
-                  },
-                  quickMeasurementUserOverrides: {
-                    ...(prev.quickMeasurementUserOverrides || {}),
-                    storyCount: true,
-                  },
-                }))
+                markRoofingMeasurement('storyCount', value.replace(/,/g, ''))
               }
               applying={applying}
               darkMode={darkMode}
@@ -6376,34 +6543,67 @@ export function QmRoofingScopePanels({
                 measurements.storyCount
               )}
             />
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                {
-                  color: darkMode ? '#F5F7FA' : Colors.text,
-                  marginTop: 14,
-                  marginBottom: 6,
-                },
-              ]}
-            >
-              Install components
-            </Text>
-            <QmTradeScopeOptionList
-              options={visibleInstallOptions}
-              selections={selections}
-              scopeKey={scopeKey}
-              onToggle={toggle}
-              measurements={measurements}
-              setMeasurements={setMeasurements}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
+            {planOnlyRoof ? (
+              groundUpMeasurementRows.map(row => (
+                <QmSqftMeasurementRow
+                  key={row.key}
+                  label={row.label}
+                  helperText={
+                    row.key === 'roofDripEdgeLf' || row.key === 'roofRidgeCapLf'
+                      ? 'Included in the shingle price.'
+                      : undefined
+                  }
+                  value={String(
+                    (measurements as Record<string, unknown>)[row.key] || ''
+                  ).replace(/,/g, '')}
+                  placeholder='Enter'
+                  unitLabel={row.unit}
+                  keyboardType={row.keyboardType}
+                  onChangeText={value =>
+                    markRoofingMeasurement(
+                      row.key,
+                      value.replace(/,/g, ''),
+                      row.selectionId
+                    )
+                  }
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ))
+            ) : (
+              <>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    {
+                      color: darkMode ? '#F5F7FA' : Colors.text,
+                      marginTop: 14,
+                      marginBottom: 6,
+                    },
+                  ]}
+                >
+                  Install components
+                </Text>
+                <QmTradeScopeOptionList
+                  options={visibleInstallOptions}
+                  selections={selections}
+                  scopeKey={scopeKey}
+                  onToggle={toggle}
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              </>
+            )}
           </>
         ) : null}
       </View>
 
       {installExpanded &&
+      !planOnlyRoof &&
       (visibleDemoOptions.length > 0 ||
         selections.some(id =>
           (ROOFING_DEMO_OPTION_IDS as readonly string[]).includes(id)

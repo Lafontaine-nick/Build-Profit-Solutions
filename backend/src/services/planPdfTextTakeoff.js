@@ -208,6 +208,45 @@ function extractSheet(text) {
   return null;
 }
 
+function extractRoofingSheet(text) {
+  const blob = String(text || '');
+  const roofIndex = blob.search(/\broof\s*plan\b/i);
+  if (roofIndex < 0) return extractSheet(blob);
+  const afterRoofPlan = [
+    ...blob
+      .slice(roofIndex, roofIndex + 400)
+      .matchAll(/\b(A\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/gi),
+  ];
+  const afterRoofCandidate = afterRoofPlan.at(-1)?.[1];
+  if (afterRoofCandidate) {
+    const id = normalizeExtractedSheetId(afterRoofCandidate).replace(
+      /^A(?=\d)/,
+      'A-'
+    );
+    if (isArchitecturalSheetId(id)) return id;
+  }
+  const titled =
+    blob.match(
+      /\b(A\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b[\s\S]{0,400}\broof\s*plan\b/i
+    ) ||
+    blob.match(
+      /\broof\s*plan\b[\s\S]{0,400}\b(A\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/i
+    );
+  if (titled) {
+    const id = normalizeExtractedSheetId(titled[1]).replace(/^A(?=\d)/, 'A-');
+    if (isArchitecturalSheetId(id)) return id;
+  }
+  const nearby = [];
+  for (const match of blob.matchAll(/\b(A\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/gi)) {
+    const distance = Math.abs(Number(match.index) - roofIndex);
+    if (distance > 600) continue;
+    const id = normalizeExtractedSheetId(match[1]).replace(/^A(?=\d)/, 'A-');
+    if (isArchitecturalSheetId(id)) nearby.push({ id, distance });
+  }
+  nearby.sort((a, b) => a.distance - b.distance);
+  return nearby[0]?.id || extractSheet(blob);
+}
+
 function evidenceFor(label, sourceText, page, sheet) {
   return {
     page: Number.isInteger(page) && page > 0 ? page : null,
@@ -227,8 +266,15 @@ function evidenceFor(label, sourceText, page, sheet) {
  */
 function normalizeCadCallouts(text) {
   return String(text || '')
+    // Some PDF text layers emit each glyph separately (for example,
+    // "2 : 1 2" and "T O P  O F  S U B F L O O R"). Rejoin only
+    // unambiguous CAD callout glyphs before parsing plan facts.
+    .replace(/(\d)\s+([A-Z])\s+([A-Z])\b/g, '$1$2$3')
+    .replace(/\b((?:[A-Z]\s+){2,}[A-Z])\b/g, match => match.replace(/\s+/g, ''))
     .replace(/TOPOFPLATE/gi, 'TOP OF PLATE')
     .replace(/TOPOFSUBFLOOR/gi, 'TOP OF SUBFLOOR')
+    .replace(/2NDFLOOR/gi, '2ND FLOOR')
+    .replace(/SECONDFLOOR/gi, 'SECOND FLOOR')
     .replace(/BOTTOMOFFOOTING/gi, 'BOTTOM OF FOOTING')
     .replace(/HIGHESTRIDGE/gi, 'HIGHEST RIDGE')
     .replace(/ROOFPLAN/gi, 'ROOF PLAN')
@@ -243,7 +289,10 @@ function normalizeCadCallouts(text) {
 }
 
 function parsePitch(text) {
-  const t = normalizeCadCallouts(text);
+  const t = normalizeCadCallouts(text).replace(
+    /(\d{1,2})\s*[:/]\s*1\s*2\b/g,
+    '$1:12'
+  );
   const match =
     t.match(/\b(?:roof\s*)?pitch\s*[:=-]?\s*(\d{1,2})\s*[:/]\s*(12)\b/i) ||
     t.match(/\b(\d{1,2})\s*[:/]\s*(12)\s*(?:roof\s*)?pitch\b/i);
@@ -269,7 +318,9 @@ function parsePitch(text) {
         bestCount = count;
       }
     }
-    if (best && bestCount >= 2) return { value: best, sourceText: best };
+    if (best && (bestCount >= 2 || /\broof\s+plan\b/i.test(t))) {
+      return { value: best, sourceText: best };
+    }
   }
   return null;
 }
@@ -610,6 +661,21 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
         .filter(Boolean)
         .flatMap(fact => fact.evidence || []),
     };
+  } else {
+    // Elevation/section sheets may identify the second floor without a
+    // living-area schedule. This is a plan fact, not a roof-area quantity.
+    const secondFloor = t.match(
+      /\b(?:TOP\s+OF\s+SUBFLOOR\s*-\s*)?(?:2ND|SECOND)\s+(?:FLOOR|LEVEL)\b/i
+    );
+    if (secondFloor) {
+      planFacts.storyCount = 2;
+      fieldEvidence.storyCount = {
+        value: 2,
+        sourceType: 'detected_from_plan',
+        confidence: 'high',
+        evidence: [evidenceFor('storyCount', secondFloor[0], page, sourceSheet)],
+      };
+    }
   }
   return { buildingAreas, planFacts, sourceSheet };
 }
@@ -757,6 +823,27 @@ function expandHvacRelevantPages(pages, pageCount) {
     }
   }
   return [...byPage.values()].sort((a, b) => a.page - b.page);
+}
+
+const ROOFING_PAGE_SIGNALS = [
+  { re: /\broof\s*plan\b/i, label: 'roof plan', score: 16 },
+  { re: /\broof\s+(?:detail|schedule|assembly|section)\b/i, label: 'roof detail', score: 13 },
+  { re: /\b(?:roofing|shingles?|underlayment|ice\s*&?\s*water)\b/i, label: 'roofing notes', score: 10 },
+  { re: /\b(?:ridge|valley|eave|rake|flashing|roof\s+vent|skylight|pipe\s+boot)\b/i, label: 'roof accessories', score: 8 },
+  { re: /\b(?:highest\s+ridge|roof\s+pitch|roof\s+assembly)\b/i, label: 'roof geometry', score: 8 },
+  { re: /\b(?:front|back|left|right)\s+elevation\b|\bcross\s+section\b/i, label: 'elevation / section', score: 5 },
+];
+
+function scoreRoofingRelevantPage(pageText) {
+  const blob = String(pageText || '');
+  const reasons = [];
+  let score = 0;
+  for (const signal of ROOFING_PAGE_SIGNALS) {
+    if (!signal.re.test(blob)) continue;
+    score += signal.score;
+    reasons.push(signal.label);
+  }
+  return { score, reasons };
 }
 
 const INSULATION_PAGE_SIGNALS = [
@@ -2113,6 +2200,14 @@ async function renderHvacPlanPages(pdfBuffers, hvacPages, options = {}) {
   }));
 }
 
+async function renderRoofingPlanPages(pdfBuffers, roofingPages, options = {}) {
+  const images = await renderElectricalPlanPages(pdfBuffers, roofingPages, options);
+  return images.map(image => ({
+    ...image,
+    filename: String(image.filename || '').replace(/^electrical-page-/, 'roofing-page-'),
+  }));
+}
+
 async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = {}) {
   const canvasLib = loadNodeCanvas();
   if (!canvasLib?.createCanvas) {
@@ -2534,6 +2629,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const electricalRelevantPages = [];
   const plumbingRelevantPages = [];
   const hvacRelevantPages = [];
+  const roofingRelevantPages = [];
   const insulationRelevantPages = [];
   const windowsDoorsRelevantPages = [];
   const plumbingFixtureSchedulePages = [];
@@ -2584,6 +2680,16 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           score: hvacPage.score,
           reasons: hvacPage.reasons,
           sheet: extractSheet(pageText),
+        });
+      }
+      const roofingPage = scoreRoofingRelevantPage(pageText);
+      const roofingSheet = roofingPage.score > 0 ? extractRoofingSheet(pageText) : null;
+      if (roofingPage.score > 0) {
+        roofingRelevantPages.push({
+          page: pageNumber,
+          score: roofingPage.score,
+          reasons: roofingPage.reasons,
+          sheet: roofingSheet,
         });
       }
       const insulationPage = scoreInsulationRelevantPage(pageText);
@@ -2720,7 +2826,10 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           });
         }
       }
-      const parsedFacts = parsePageFactsFromText(pageText, { page: pageNumber });
+      const parsedFacts = parsePageFactsFromText(pageText, {
+        page: pageNumber,
+        sheet: roofingSheet || undefined,
+      });
       const schedule = parsedFacts.buildingAreas;
       for (const [k, v] of Object.entries(schedule)) {
         if (buildingAreas[k] == null) buildingAreas[k] = v;
@@ -2729,6 +2838,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         if (fieldEvidence[k] == null) fieldEvidence[k] = v;
       }
       for (const key of [
+        'storyCount',
         'roofPitch',
         'wallHeightFt',
         'plateHeightFt',
@@ -2822,6 +2932,9 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
     hvacRelevantPages: expandHvacRelevantPages(hvacRelevantPages, pageCount)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12),
+    roofingRelevantPages: roofingRelevantPages
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
     insulationRelevantPages: [
@@ -3085,6 +3198,7 @@ module.exports = {
   scoreElectricalRelevantPage,
   scorePlumbingRelevantPage,
   scoreHvacRelevantPage,
+  scoreRoofingRelevantPage,
   scoreInsulationRelevantPage,
   expandElectricalRelevantPages,
   expandPlumbingRelevantPages,
@@ -3109,6 +3223,7 @@ module.exports = {
   renderElectricalSymbolCrops,
   electricalSymbolCropRects,
   renderWindowsDoorsPlanPages: renderElectricalPlanPages,
+  renderRoofingPlanPages,
   selectWholeProjectSymbolPages,
   renderPlumbingPlanPages,
   renderInsulationPlanPages,

@@ -72,7 +72,7 @@ describe('framing canonical architecture', () => {
         } as any,
       }
     );
-    expect(synced.map(item => item.id)).toEqual(['framing', 'cleanup']);
+    expect(synced.map(item => item.id)).toEqual(['framing']);
   });
 
   it('defines one canonical owner for every Framing quantity', () => {

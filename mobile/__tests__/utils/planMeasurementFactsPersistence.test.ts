@@ -4,7 +4,14 @@ jest.mock('@/utils/resolveAiBackendUrl', () => ({
 }));
 
 import { PLAN_MEASUREMENT_LOTS } from '@/testFixtures/planMeasurementLots';
-import { applyPlanImportToDraft } from '@/utils/estimateAiDraft';
+import {
+  applyPlanImportToDraft,
+  planMeasurementsToScopeMeasurements,
+} from '@/utils/estimateAiDraft';
+import {
+  getInitialRevealChecklistScopePreview,
+  getInitialRevealUnderstoodBullets,
+} from '@/utils/estimateInitialRevealUi';
 import { planAreaReconciliationWarnings } from '@/utils/planMeasurementFacts';
 import {
   initialScopeMeasurementInputExtended,
@@ -65,6 +72,48 @@ describe('plan facts persistence', () => {
     const restored = scopeMeasurementsInputFromPayload(payload);
     expect(restored.planFacts?.roofPitch).toBe('5:12');
     expect(restored.quickMeasurementSuggestionMetadata?.roofSquares?.formulaVersion).toBe('2.0.0');
+  });
+
+  test('roofing plan pitch and stories stay on the draft without a roof area', () => {
+    const draft = applyPlanImportToDraft(
+      {
+        projectType: 'roofing',
+        scopeChecklist: {
+          estimateTier: 'complex',
+          templateKey: 'roofing',
+          title: 'Confirm scope',
+          intro: '',
+          items: [],
+        },
+      } as any,
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'roofing',
+        planImportFingerprint: 'shv-lot-49',
+        measurements: { roofPitch: '2:12', storyCount: 2 },
+      }
+    );
+    expect(draft.scopeMeasurements?.roofPitch).toBe('2:12');
+    expect(Number(draft.scopeMeasurements?.storyCount)).toBe(2);
+    expect(Number(draft.scopeMeasurements?.roofSquares || 0)).toBe(0);
+    expect(draft.scopeMeasurements?.floorAreaSqft).toBeUndefined();
+    expect(planMeasurementsToScopeMeasurements({ roofPitch: '2:12', storyCount: 2 }).roofPitch).toBe(
+      '2:12'
+    );
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Roof pitch', amount: 0, quantity: '2:12' },
+      { name: 'Stories', amount: 0, quantity: '2 stories' },
+      {
+        name: 'Roof surface area / squares',
+        amount: 0,
+        quantity: 'Needs measurement',
+      },
+    ]);
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
+      'Roof pitch · 2:12',
+      'Stories · 2 stories',
+      'Roof surface area / squares · Needs measurement',
+    ]);
   });
 
   test('cover and floor totals reconcile without overwriting either fact', () => {
