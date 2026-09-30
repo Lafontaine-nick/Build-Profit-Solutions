@@ -15,6 +15,7 @@ import {
 import {
   buildFlooringStructuredMeasurements,
   FLOORING_REVIEW_MEASUREMENT_KEYS,
+  flooringSqftCopiesLivingArea,
   normalizeFlooringScalarMeasurements,
 } from './flooringPlanConvergence';
 import {
@@ -261,6 +262,9 @@ export function normalizeTradeMeasurements(
     }
     for (const key of FLOORING_REVIEW_MEASUREMENT_KEYS) {
       if (measurements[key] != null) continue;
+      if (key === 'flooringSqft' && flooringSqftCopiesLivingArea(input)) {
+        continue;
+      }
       const value = input[key];
       if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
         measurements[key] = value;

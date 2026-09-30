@@ -3204,7 +3204,10 @@ export function applyPlanRoomsToScopeMeasurements(
 /** Convert plan review string/number map into ScopeMeasurements numbers. */
 export function planMeasurementsToScopeMeasurements(
   measurements: Record<string, number | string> | null | undefined,
-  options?: { wholeProjectCoverOnly?: boolean }
+  options?: {
+    wholeProjectCoverOnly?: boolean;
+    skipLivingAreaFlooringCopy?: boolean;
+  }
 ): ScopeMeasurements {
   const out: ScopeMeasurements = {};
   if (!measurements) return out;
@@ -3227,12 +3230,32 @@ export function planMeasurementsToScopeMeasurements(
   const living = Number(out.floorAreaSqft);
   if (
     !options?.wholeProjectCoverOnly &&
+    !options?.skipLivingAreaFlooringCopy &&
     Number.isFinite(living) &&
     living > 0
   ) {
     if (!(Number(out.flooringSqft) > 0)) {
       out.flooringSqft = living;
       detectedKeys.push('flooringSqft');
+    }
+  }
+  if (options?.skipLivingAreaFlooringCopy) {
+    const flooring = Number(out.flooringSqft);
+    const hasFlooringProduct = [
+      'flooringLvpSqft',
+      'flooringLaminateSqft',
+      'flooringEngineeredHardwoodSqft',
+      'flooringSolidHardwoodSqft',
+      'flooringTileSqft',
+      'flooringCarpetSqft',
+      'flooringSheetVinylSqft',
+    ].some(key => Number((out as Record<string, unknown>)[key]) > 0);
+    if (
+      !hasFlooringProduct &&
+      living > 0 &&
+      (!(flooring > 0) || Math.abs(flooring - living) < 1)
+    ) {
+      delete out.flooringSqft;
     }
   }
   if (detectedKeys.length) {
@@ -4704,7 +4727,10 @@ export function applyPlanImportToDraft(
     tradeNormalization?.measurements || filteredPlanMeasurements;
   let scopeMeasurements = planMeasurementsToScopeMeasurements(
     canonicalPlanMeasurements as Record<string, number>,
-    { wholeProjectCoverOnly: !applyAsSelectedTrade }
+    {
+      wholeProjectCoverOnly: !applyAsSelectedTrade,
+      skipLivingAreaFlooringCopy: planImportTradeKey === 'flooring',
+    }
   );
   if (standalonePlumbingWorkflow) {
     const workflowMode =

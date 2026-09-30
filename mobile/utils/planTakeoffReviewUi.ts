@@ -297,10 +297,15 @@ export function measurementDisplayLabel(
   }
   if (key === 'floorAreaSqft') return { label: 'Living area' };
   if (key === 'flooringSqft') {
+    const livingAreaCopy =
+      Number(value) > 0 &&
+      Number(livingSf) > 0 &&
+      Math.abs(Number(value) - Number(livingSf)) < 1;
     return {
-      label: 'Gross interior floor area',
-      // Single concise explanation — no second source/explanation line in the UI.
-      subtext: 'Derived from declared living area — finish allocation required',
+      label: livingAreaCopy ? 'Living area' : 'Gross interior floor area',
+      subtext: livingAreaCopy
+        ? 'Living area from the plan. Flooring area and finish still need measurement.'
+        : 'Assign the flooring type in Confirm Scope.',
     };
   }
   if (key === 'garageSqft') return { label: 'Garage' };
@@ -591,22 +596,27 @@ export function buildFlooringPlanReviewSummary(
   }
 
   const demo = positiveMeasurement(measurements.floorDemoSqft);
-  lines.push({
-    label: 'Existing floor',
-    value: formatExistingFloorSummary(measurements),
-  });
-  lines.push({
-    label: 'Demo / removal',
-    value:
-      demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
-  });
-  lines.push({
-    label: 'Subfloor prep',
-    value:
-      positiveMeasurement(measurements.floorPrepSqft) != null
-        ? `${formatSfWithCommas(positiveMeasurement(measurements.floorPrepSqft)!)} sqft`
-        : 'Needs confirmation',
-  });
+  const prep = positiveMeasurement(measurements.floorPrepSqft);
+  const existingFloor = formatExistingFloorSummary(measurements);
+  const hasExistingFloor = existingFloor !== 'Needs confirmation';
+  if (hasExistingFloor || demo != null || prep != null) {
+    lines.push({
+      label: 'Existing floor',
+      value: existingFloor,
+    });
+    lines.push({
+      label: 'Demo / removal',
+      value:
+        demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
+    });
+    lines.push({
+      label: 'Subfloor prep',
+      value:
+        prep != null
+          ? `${formatSfWithCommas(prep)} sqft`
+          : 'Needs confirmation',
+    });
+  }
 
   const baseboards = positiveMeasurement(measurements.baseboardLf);
   lines.push({
@@ -1001,6 +1011,9 @@ export function planReviewProvenanceFlags(input: {
           (fromSchedule || fromPlan)) ||
         (input.tradeKey === 'roofing' &&
           (input.key === 'roofPitch' || input.key === 'storyCount') &&
+          fromPlan) ||
+        (input.tradeKey === 'stucco' &&
+          (input.key === 'stuccoStories' || input.key === 'stuccoWallHeightFt') &&
           fromPlan)),
     hasReliableDimensions:
       !input.hasConflict &&
@@ -1032,6 +1045,8 @@ export function buildPlanReviewMeasurementRowState(input: {
     deterministicRepeatedImportStable?: boolean;
   } | null;
   tradeKey?: string | null;
+  value?: number | string | null;
+  livingSqft?: number | null;
 }): {
   pricingEligible: boolean;
   provenance: PlanMeasurementProvenance;
@@ -1058,6 +1073,49 @@ export function buildPlanReviewMeasurementRowState(input: {
   if (paintingBidQuantity && !input.hasConflict) {
     pricingEligible = true;
   }
+  const flooringLivingProxy =
+    input.tradeKey === 'flooring' &&
+    input.key === 'flooringSqft' &&
+    Number(input.livingSqft) > 0 &&
+    Math.abs(Number(input.value) - Number(input.livingSqft)) < 1;
+  const flooringPlanLiving =
+    input.tradeKey === 'flooring' &&
+    (input.key === 'floorAreaSqft' || flooringLivingProxy);
+  if (flooringLivingProxy) {
+    pricingEligible = false;
+  }
+  const stuccoPlanFactSource = provenanceSourceText(input.provenanceEntry);
+  const stuccoPlanFact =
+    input.tradeKey === 'stucco' &&
+    (input.key === 'stuccoStories' || input.key === 'stuccoWallHeightFt') &&
+    (stuccoPlanFactSource.includes('plan_fact') ||
+      stuccoPlanFactSource.includes('from_plan') ||
+      stuccoPlanFactSource.includes('plan_takeoff') ||
+      stuccoPlanFactSource.includes('detected_from_plan'));
+  if (stuccoPlanFact) {
+    pricingEligible = true;
+  }
+  const electricalSymbolCount =
+    input.tradeKey === 'electrical' &&
+    !input.hasConflict &&
+    Number(input.value) > 0 &&
+    planReviewProvenanceFlags({
+      key: input.key,
+      provenanceEntry: input.provenanceEntry,
+      hasConflict: false,
+      pricingEligible: false,
+      tradeKey: 'electrical',
+    }).fromPlanSymbols;
+  if (electricalSymbolCount) {
+    pricingEligible = true;
+  }
+  if (
+    !input.hasConflict &&
+    !flooringLivingProxy &&
+    Number(input.value) > 0
+  ) {
+    pricingEligible = true;
+  }
   const provenanceFlags = planReviewProvenanceFlags({
     key: input.key,
     provenanceEntry: input.provenanceEntry,
@@ -1067,8 +1125,10 @@ export function buildPlanReviewMeasurementRowState(input: {
   });
   const provenance = resolvePlanMeasurementProvenance({
     key: input.key,
-    fieldConfidence: input.fieldConfidence ?? null,
-    hasExplicitPlanSource: provenanceFlags.hasExplicitPlanSource,
+    fieldConfidence:
+      stuccoPlanFact ? null : input.fieldConfidence ?? null,
+    hasExplicitPlanSource:
+      provenanceFlags.hasExplicitPlanSource || stuccoPlanFact,
     hasReliableDimensions: provenanceFlags.hasReliableDimensions,
     roomDependent: provenanceFlags.roomDependent,
     fromPlanSymbols: provenanceFlags.fromPlanSymbols,
@@ -1082,11 +1142,24 @@ export function buildPlanReviewMeasurementRowState(input: {
     input.tradeKey === 'roofing' &&
     (input.key === 'roofPitch' || input.key === 'storyCount') &&
     provenance.status === 'plan_verified';
-  const displayProvenance = roofingPlanFact
+  const displayProvenance = flooringPlanLiving
     ? {
         ...provenance,
+        status: 'plan_verified' as const,
         label: 'Detected from plan',
       }
+    : roofingPlanFact || stuccoPlanFact
+    ? {
+        ...provenance,
+        status: 'plan_verified' as const,
+        label: 'Detected from plan',
+      }
+    : electricalSymbolCount
+      ? {
+          ...provenance,
+          status: 'plan_verified' as const,
+          label: 'Detected from plan',
+        }
     : paintingBidQuantity &&
     (input.key === 'interiorDoorCount' || input.key === 'exteriorDoorCount') &&
     !input.hasConflict
@@ -1117,16 +1190,19 @@ export function buildPlanReviewMeasurementRowState(input: {
     pricingEligible,
     provenance: displayProvenance,
     includeDefault:
+      !flooringLivingProxy &&
       !input.hasConflict &&
-      input.tradeKey !== 'windows_doors' &&
-      input.tradeKey !== 'garage_doors' &&
-      (input.tradeKey === 'electrical'
-        ? pricingEligible
-        : pricingEligible ||
-          input.validationField?.deterministicRepeatedImportStable === false ||
-          input.tradeKey === 'plumbing' ||
-          input.tradeKey === 'framing' ||
-          input.tradeKey === 'drywall'),
+      (Number(input.value) > 0 ||
+        (input.tradeKey !== 'windows_doors' &&
+          input.tradeKey !== 'garage_doors' &&
+          (input.tradeKey === 'electrical'
+            ? pricingEligible
+            : pricingEligible ||
+              input.validationField?.deterministicRepeatedImportStable ===
+                false ||
+              input.tradeKey === 'plumbing' ||
+              input.tradeKey === 'framing' ||
+              input.tradeKey === 'drywall'))),
   };
 }
 
@@ -1446,6 +1522,28 @@ export function electricalPlanReadinessLine(input: {
   );
   for (const key of Object.keys(input.measurements || {})) {
     if (!priceable.has(key)) blocked.add(key);
+  }
+  const conflicted = new Set(
+    (input.conflicts || [])
+      .map(conflict => String(conflict?.field || '').trim())
+      .filter(Boolean)
+  );
+  for (const key of Object.keys(input.measurements || {})) {
+    if (conflicted.has(key)) continue;
+    if (
+      !planReviewProvenanceFlags({
+        key,
+        provenanceEntry: input.provenance?.[key],
+        hasConflict: false,
+        pricingEligible: false,
+        tradeKey: 'electrical',
+      }).fromPlanSymbols ||
+      !(Number(input.measurements?.[key]) > 0)
+    ) {
+      continue;
+    }
+    blocked.delete(key);
+    priceable.add(key);
   }
   for (const conflict of input.conflicts || []) {
     const field = String(conflict?.field || '').trim();
@@ -1813,6 +1911,27 @@ export function measurementSourceLabel(input: {
   });
 }
 
+/** The one-story sentence is a manual default. Hide it once stories were read or confirmed. */
+export function planReviewFieldHelperText(input: {
+  key: string;
+  helperText?: string | null;
+  provenanceStatus?: string | null;
+  value?: number | string | null;
+}): string | null {
+  const helper = String(input.helperText || '').trim();
+  if (!helper || input.key === 'flooringSqft') return null;
+  if (input.key !== 'stuccoStories') return helper;
+  const stories = Number(input.value);
+  if (
+    input.provenanceStatus === 'plan_verified' ||
+    input.provenanceStatus === 'user_confirmed' ||
+    (Number.isFinite(stories) && stories > 0 && stories !== 1)
+  ) {
+    return null;
+  }
+  return helper;
+}
+
 /** Gray detail under the badge. Skip a source line that only repeats the badge. */
 export function planReviewMeasurementDetailLine(input: {
   provenanceLabel?: string | null;
@@ -1910,6 +2029,8 @@ export function scopeTakeoffStatusLines(input: {
   openingConflict?: boolean;
   /** Plan/AI quantity that still needs a Review choice or confirm. */
   openingDetectedCount?: number | null;
+  /** True when a labeled stucco wall area was read. Stories and plate height do not count. */
+  hasStuccoWallQuantity?: boolean;
 }): string[] {
   if (!measurementSemanticsV1Enabled()) {
     return input.evidence ? [String(input.evidence)] : [];
@@ -1931,6 +2052,8 @@ export function scopeTakeoffStatusLines(input: {
         ? `Electrical detected on page ${page}; plumbing and HVAC require trade review`
         : 'Electrical detected; plumbing and HVAC require trade review'
     );
+  } else if (id === 'flooring') {
+    lines.push(evidence || 'Living area from the cover sheet');
   } else if (
     isTileFlooring &&
     (input.hasPlanFloorAreas || !isGenericGroundUpEvidence(evidence))
@@ -1953,6 +2076,7 @@ export function scopeTakeoffStatusLines(input: {
     }
   } else if (
     evidence &&
+    id !== 'stucco' &&
     !(
       (id === 'drywall' || id === 'insulation') &&
       isGenericGroundUpEvidence(evidence)
@@ -1974,6 +2098,9 @@ export function scopeTakeoffStatusLines(input: {
     const page = pageFromAssumptions(input.assumptions, [/elevation/i]);
     const pageEnd = pageEndFromAssumptions(input.assumptions, [/elevation/i]);
     lines.push(formatPlanSourceLabel({ kind: 'elevations', page, pageEnd }));
+  } else if (id === 'stucco') {
+    if (input.hasStuccoWallQuantity && evidence) lines.push(evidence);
+    else lines.push('Wall area, openings, and finish were not read on this plan.');
   } else if (id !== 'drywall' && id !== 'insulation') {
     lines.push('Standard ground-up scope');
   }
@@ -1996,6 +2123,8 @@ export function scopeTakeoffStatusLines(input: {
     statusLine = 'Needs finish allocation and material-specific takeoff';
   } else if (id === 'exterior' || id === 'exterior_finishes') {
     statusLine = 'Needs exterior wall and opening takeoff';
+  } else if (id === 'stucco') {
+    statusLine = input.hasStuccoWallQuantity ? null : 'Needs measurement';
   } else if (id === 'insulation') {
     statusLine = input.insulationPrimaryConfirmed
       ? 'Whole-house insulation takeoff confirmed'
@@ -3673,6 +3802,60 @@ export function reconcileFramingScopeMeasurements<
   }
 
   return next as T;
+}
+
+const FLOORING_INSTALL_SCOPE_IDS = new Set([
+  'flooring',
+  'tile_flooring',
+  'tile',
+  'flooring_lvp',
+  'flooring_carpet',
+  'flooring_laminate',
+  'flooring_hardwood',
+]);
+
+export function augmentFlooringScopeDetections<
+  T extends {
+    itemId?: string | null;
+    label?: string | null;
+    evidence?: string | null;
+    state?: string | null;
+    confidence?: number | null;
+  },
+>(
+  detections: T[],
+  measurements: Record<string, number | string | null | undefined>
+): T[] {
+  const area =
+    Number(measurements.flooringSqft) || Number(measurements.floorAreaSqft);
+  const relabeled = detections.map(detection => {
+    const itemId = String(detection.itemId || '');
+    if (
+      !(Number(measurements.flooringTileSqft) > 0) &&
+      (itemId === 'tile_flooring' || itemId === 'tile' || itemId === 'flooring')
+    ) {
+      return { ...detection, label: 'Flooring' };
+    }
+    return detection;
+  });
+  if (
+    !(area > 0) ||
+    relabeled.some(detection =>
+      FLOORING_INSTALL_SCOPE_IDS.has(String(detection.itemId || ''))
+    )
+  ) {
+    return relabeled;
+  }
+  return [
+    ...relabeled,
+    {
+      itemId: 'flooring',
+      label: 'Flooring',
+      evidence: `Living area ${Math.round(area).toLocaleString()} SF`,
+      state: 'included',
+      confidence: 1,
+    } as T,
+  ];
 }
 
 export function augmentFramingScopeDetections<

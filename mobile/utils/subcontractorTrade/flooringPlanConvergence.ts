@@ -24,6 +24,26 @@ export const FLOORING_PLAN_INSTALL_AREA_KEYS: Record<
   flooringSheetVinylSqft: 'sheet_vinyl_vct',
 };
 
+function positiveFlooringArea(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Living area copied into the flooring total is not a finish takeoff. */
+export function flooringSqftCopiesLivingArea(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!measurements) return false;
+  const hasProduct = Object.keys(FLOORING_PLAN_INSTALL_AREA_KEYS).some(
+    key => positiveFlooringArea(measurements[key]) != null
+  );
+  if (hasProduct) return false;
+  const living = positiveFlooringArea(measurements.floorAreaSqft);
+  const flooring = positiveFlooringArea(measurements.flooringSqft);
+  if (living == null) return false;
+  return flooring == null || Math.abs(flooring - living) < 1;
+}
+
 /** Optional per-type demo area keys from plan export (adapter-only). */
 export const FLOORING_PLAN_DEMO_AREA_KEYS: Record<string, FlooringProductId> = {
   floorDemoCarpetSqft: 'carpet',
@@ -321,7 +341,7 @@ export function normalizeFlooringScalarMeasurements(
   if (perTypeTotal != null) {
     out.flooringSqft = perTypeTotal;
     out.floorAreaSqft = perTypeTotal;
-  } else {
+  } else if (!flooringSqftCopiesLivingArea(input)) {
     const aggregate = aggregateInstall;
     if (aggregate != null) {
       out.flooringSqft = aggregate;
@@ -329,6 +349,8 @@ export function normalizeFlooringScalarMeasurements(
         out.floorAreaSqft = positiveNumber(input.floorAreaSqft)!;
       }
     }
+  } else if (positiveNumber(input.floorAreaSqft) != null) {
+    out.floorAreaSqft = positiveNumber(input.floorAreaSqft)!;
   }
 
   const demoTotal =

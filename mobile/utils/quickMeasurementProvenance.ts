@@ -18,6 +18,7 @@ import {
 } from '@/utils/scopeQuickMeasurements';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import { shellPackageIncludesSheathing } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { flooringSqftCopiesLivingArea } from '@/utils/subcontractorTrade/flooringPlanConvergence';
 import {
   getQuickMeasurementEstimate,
   type QuickMeasurementEstimate,
@@ -315,8 +316,19 @@ export function resolveQuickMeasurementFields(params: {
       field.key === 'drywallSqft' &&
       !drywallHasCurrentNoteArea &&
       !drywallIsProtectedSource;
+    const flooringLivingProxy =
+      field.key === 'flooringSqft' &&
+      !params.userOverrides?.[field.key] &&
+      sourceTag !== 'user_entered' &&
+      sourceTag !== 'manual_override' &&
+      sourceTag !== 'user_confirmed_suggestion' &&
+      flooringSqftCopiesLivingArea(
+        params.measurements as unknown as Record<string, unknown>
+      );
     const displayValue =
-      isPaintAreaField &&
+      flooringLivingProxy
+        ? ''
+        : isPaintAreaField &&
       !hasNoteBackedPaintArea &&
       !params.userOverrides?.[field.key] &&
       !paintingPlanSurface
@@ -419,6 +431,38 @@ export function resolveQuickMeasurementFields(params: {
         field.key === 'vaultedCeilingDrywallSqft' ||
         field.key === 'level5FinishSqft') &&
       !filled;
+    const optionalStuccoDeduction =
+      (field.key === 'stuccoWindowDoorOpeningSqft' ||
+        field.key === 'stuccoGarageOpeningSqft' ||
+        field.key === 'stuccoOtherFinishDeductionSqft' ||
+        field.key === 'stuccoSoffitSqft' ||
+        field.key === 'stuccoParapetSqft' ||
+        field.key === 'stuccoFoamTrimLf' ||
+        field.key === 'stuccoControlJointLf' ||
+        field.key === 'stuccoAccessAffectedSqft' ||
+        field.key === 'stuccoRepairAffectedSqft') &&
+      !filled;
+    const stuccoPlanFact =
+      (field.key === 'stuccoStories' || field.key === 'stuccoWallHeightFt') &&
+      filled &&
+      sourceTag !== 'user_entered' &&
+      sourceTag !== 'manual_override';
+    // Net wall is gross minus optional openings. An empty net is waiting on
+    // gross, and a calculated net is not a second measurement to confirm.
+    const emptyStuccoNet = field.key === 'stuccoNetWallSqft' && !filled;
+    const calculatedStuccoNet =
+      field.key === 'stuccoNetWallSqft' &&
+      filled &&
+      sourceTag === 'calculated_from_deductions';
+    const flooringPlanArea =
+      (field.key === 'floorAreaSqft' || field.key === 'flooringSqft') &&
+      filled &&
+      String(
+        (params.measurements as { planImportTradeKey?: string } | undefined)
+          ?.planImportTradeKey || ''
+      ) === 'flooring' &&
+      sourceTag !== 'user_entered' &&
+      sourceTag !== 'manual_override';
 
     const keepingExisting =
       params.keepingExistingWetArea ||
@@ -477,13 +521,19 @@ export function resolveQuickMeasurementFields(params: {
       fromNotes: fromNotes || confirmedFromExplicitNote,
       sourceTag: isUserOverride
         ? 'user_confirmed_suggestion'
-        : usingCoverSheet
+        : stuccoPlanFact || flooringPlanArea
           ? 'detected_from_plan'
-          : sourceTag,
+          : usingCoverSheet
+            ? 'detected_from_plan'
+            : sourceTag,
       relevant:
-        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
+        optionalGasLine ||
+        optionalBlankDrywall ||
+        shellSheathingIncluded ||
+        optionalStuccoDeduction ||
+        emptyStuccoNet
           ? false
-          : manuallyEntered && filled
+          : stuccoPlanFact || (manuallyEntered && filled)
             ? true
             : relevance.relevant,
       hasEstimate: Boolean(estimate),
@@ -499,7 +549,9 @@ export function resolveQuickMeasurementFields(params: {
       );
     const resolvedState = confirmedFromExplicitNote
       ? ('confirmed' as const)
-      : roofingTemplate &&
+      : calculatedStuccoNet
+        ? ('confirmed' as const)
+        : roofingTemplate &&
           state === 'needs_confirmation' &&
           filled &&
           (sourceTag === 'estimated_from_formula' || fromNotes) &&
@@ -515,11 +567,21 @@ export function resolveQuickMeasurementFields(params: {
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
       relevant:
-        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
+        optionalGasLine ||
+        optionalBlankDrywall ||
+        shellSheathingIncluded ||
+        optionalStuccoDeduction ||
+        emptyStuccoNet
           ? false
-          : relevance.relevant,
+          : stuccoPlanFact
+            ? true
+            : relevance.relevant,
       blockingPrice:
-        optionalGasLine || optionalBlankDrywall || shellSheathingIncluded
+        optionalGasLine ||
+        optionalBlankDrywall ||
+        shellSheathingIncluded ||
+        optionalStuccoDeduction ||
+        emptyStuccoNet
           ? false
           : relevance.blockingPrice && !filled,
       estimate,
@@ -532,7 +594,11 @@ export function resolveQuickMeasurementFields(params: {
           : estimate
             ? quickMeasurementEstimateBadgeLabel(estimate)
             : quickMeasurementSourceLabel(
-                isUserOverride ? 'user_confirmed_suggestion' : sourceTag
+                isUserOverride
+                  ? 'user_confirmed_suggestion'
+                  : stuccoPlanFact
+                    ? 'detected_from_plan'
+                    : sourceTag
               ),
       sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
     });

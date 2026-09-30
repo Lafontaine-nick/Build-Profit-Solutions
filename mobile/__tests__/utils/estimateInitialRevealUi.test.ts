@@ -1988,6 +1988,81 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(3);
   });
 
+  it('keeps stucco plan export scope to plan facts and wall-area confirmation', () => {
+    const draft = {
+      projectType: 'stucco',
+      requiresScopeConfirmation: true,
+      originalNotes:
+        'Suggested scope from plans:\nPermit responsibility\nExisting substrate condition and required repairs\nSurface preparation and repair scope\nColors, texture, and coating requirements',
+      scopeChecklist: {
+        templateKey: 'stucco',
+        items: [
+          {
+            id: 'stucco_surface_prep',
+            label: 'Remove damaged stucco & prepare substrate',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'stucco',
+        planImportFingerprint: 'shv-lot-49',
+        stuccoStories: 2,
+        stuccoWallHeightFt: 9.1,
+        planFacts: { storyCount: 2, plateHeightFt: 9.1 },
+      },
+      scopePackages: [
+        { name: 'Permit responsibility' },
+        { name: 'Existing substrate condition and required repairs' },
+      ],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      {
+        name: 'Stucco / exterior wall finish',
+        amount: 0,
+        quantity: 'Needs measurement',
+      },
+    ]);
+    expect(getInitialRevealUnderstoodBullets(draft, 2)).toEqual([
+      'Stucco / exterior wall finish · Needs measurement',
+    ]);
+    expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+  });
+
+  it('keeps a flooring plan export from pricing living area as the finish quantity', () => {
+    const draft = {
+      projectType: 'flooring',
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'flooring',
+        items: [
+          { id: 'floor_demo', label: 'Demo Existing Flooring', state: 'included' },
+          { id: 'flooring', label: 'New flooring', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'flooring',
+        planImportFingerprint: 'shv-lot-49',
+        floorAreaSqft: 2571,
+        flooringSqft: 2571,
+        garageSqft: 1427,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Flooring', amount: 0, quantity: 'Needs measurement' },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Flooring: needs measurement',
+    ]);
+    expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+  });
+
   it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {
     const draft = {
       projectType: 'other',

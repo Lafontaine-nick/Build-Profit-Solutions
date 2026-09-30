@@ -13,6 +13,7 @@ import {
   conflictChooserConfirmedLine,
   emptyPlanTakeoffReadingDisplay,
   formatPlanTakeoffQuantity,
+  planTakeoffUnit,
   pendingPlanConfirmationCandidateValues,
   pendingPlanConfirmationReads,
   pendingPlanConfirmationSelectedValue,
@@ -37,6 +38,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   captionColor,
   onPlanReadConfirmed,
   includeUnresolvedConflicts = false,
+  filledReadsAsBoxes = false,
 }: {
   measurements: Record<string, unknown>;
   setMeasurements: React.Dispatch<
@@ -48,6 +50,8 @@ export function PlanTakeoffPendingConfirmationStrip({
   captionColor: string;
   onPlanReadConfirmed?: (field: string) => void;
   includeUnresolvedConflicts?: boolean;
+  /** Plan quantities that already have one value render as filled boxes. */
+  filledReadsAsBoxes?: boolean;
 }) {
   const [trackedReads, setTrackedReads] = useState<
     PendingPlanConfirmationRead[]
@@ -167,6 +171,14 @@ export function PlanTakeoffPendingConfirmationStrip({
       ) == null
   );
   const allPlanReadsConfirmed = unconfirmedPlanReads.length === 0;
+  const isFilledPlanBox = (read: PendingPlanConfirmationRead) =>
+    filledReadsAsBoxes &&
+    !isNewBuildHvacSystemOfferRead(measurements, read.field) &&
+    pendingPlanConfirmationCandidateValues(measurements, read).length <= 1;
+  const allFilledPlanBoxes =
+    filledReadsAsBoxes &&
+    displayReads.length > 0 &&
+    displayReads.every(read => isFilledPlanBox(read));
 
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
@@ -197,16 +209,18 @@ export function PlanTakeoffPendingConfirmationStrip({
     });
   const reviewTitle = offeredSystemOnly
     ? 'HVAC system'
-    : allPlanReadsConfirmed
-      ? 'Plan quantities'
-      : hasPlanContext
-        ? 'Unverified plan reads'
-        : 'Measurements to confirm';
+    : allFilledPlanBoxes
+      ? 'Confirmed'
+      : allPlanReadsConfirmed
+        ? 'Plan quantities'
+        : hasPlanContext
+          ? 'Unverified plan reads'
+          : 'Measurements to confirm';
   const reviewDescription = offeredSystemOnly
     ? offeredSystemConfirmed
       ? '1 system is in this bid.'
       : 'This plan does not print a system count. Confirm 1 system for the install.'
-    : allPlanReadsConfirmed
+    : allFilledPlanBoxes || allPlanReadsConfirmed
       ? 'These quantities are confirmed from the plan takeoff.'
       : hasPlanContext
         ? unconfirmedPlanReads.length === 1
@@ -218,7 +232,7 @@ export function PlanTakeoffPendingConfirmationStrip({
 
   return (
     <View style={styles.wrap}>
-      {offeredSystemConfirmed || allPlanReadsConfirmed ? null : (
+      {offeredSystemConfirmed || allPlanReadsConfirmed || allFilledPlanBoxes ? null : (
         <Text style={styles.eyebrow}>Needs review</Text>
       )}
       <Text style={[styles.title, { color: titleColor }]}>
@@ -226,7 +240,7 @@ export function PlanTakeoffPendingConfirmationStrip({
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
         {reviewDescription}
-        {offeredSystemConfirmed || allPlanReadsConfirmed
+        {offeredSystemConfirmed || allPlanReadsConfirmed || allFilledPlanBoxes
           ? ''
           : ' Tap a count to confirm it, or edit it.'}
       </Text>
@@ -258,6 +272,7 @@ export function PlanTakeoffPendingConfirmationStrip({
             measurements,
             reading.field
           );
+          const filledPlanBox = isFilledPlanBox(reading) && hasQuantity;
           return (
             <View
               key={reading.field}
@@ -274,21 +289,39 @@ export function PlanTakeoffPendingConfirmationStrip({
                   {shortPlanTakeoffHelper(reading.subtext)}
                 </Text>
               ) : null}
-              <Text
-                style={[
-                  styles.itemHint,
-                  { color: confirmed ? SELECTED_GREEN : '#fbbf24' },
-                ]}
-              >
-                {confirmed && hasQuantity
-                  ? conflictChooserConfirmedLine(reading.field, selectedValue)
-                  : hasQuantity
-                    ? offeredSystem
-                      ? 'Confirm this system'
-                      : 'Needs manual confirmation'
-                    : emptyDisplay.statusLine}
-              </Text>
-              {hasQuantity ? (
+              {filledPlanBox ? null : (
+                <Text
+                  style={[
+                    styles.itemHint,
+                    { color: confirmed ? SELECTED_GREEN : '#fbbf24' },
+                  ]}
+                >
+                  {confirmed && hasQuantity
+                    ? conflictChooserConfirmedLine(reading.field, selectedValue)
+                    : hasQuantity
+                      ? offeredSystem
+                        ? 'Confirm this system'
+                        : 'Needs manual confirmation'
+                      : emptyDisplay.statusLine}
+                </Text>
+              )}
+              {filledPlanBox ? (
+                <View
+                  style={[
+                    styles.filledRow,
+                    { borderColor: panelBorder, backgroundColor: inputBg },
+                  ]}
+                >
+                  <Text style={[styles.filledValue, { color: titleColor }]}>
+                    {displayValue.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.filledUnit, { color: captionColor }]}>
+                    {planTakeoffUnit(reading.field) === 'sqft'
+                      ? 'sqft'
+                      : planTakeoffUnit(reading.field)}
+                  </Text>
+                </View>
+              ) : hasQuantity ? (
                 <View style={styles.optionWrap}>
                   {candidateValues.map((value, index) => (
                     <ConfirmScopeChip
@@ -473,5 +506,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginLeft: 6,
+  },
+  filledRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    minHeight: 44,
+    marginTop: 10,
+    paddingHorizontal: 12,
+  },
+  filledValue: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  filledUnit: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

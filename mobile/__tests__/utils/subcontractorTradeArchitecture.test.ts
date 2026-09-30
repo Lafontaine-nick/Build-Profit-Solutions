@@ -1577,7 +1577,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(resolveWindowsDoorsReviewTier({ value: '' })).toBe('not_found');
     expect(windowsDoorsReviewProvenanceLabel('verified')).toBe('From schedule');
     expect(windowsDoorsReviewProvenanceLabel('plan_derived')).toBe(
-      'From plans · Confirm'
+      'Detected from plan'
     );
     expect(windowsDoorsReviewProvenanceLabel('not_found')).toBe(
       'Not found · Enter manually'
@@ -1602,7 +1602,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
         tier: 'plan_derived',
         colors: { sub: '#888' },
       }).color
-    ).toBe('#fbbf24');
+    ).toBe('#22c55e');
   });
 
   it('parses window size codes and assigns pricing tiers without requiring a dimension box', () => {

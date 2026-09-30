@@ -21,6 +21,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewFieldHelperText,
   planReviewMeasurementDetailLine,
   planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
@@ -368,8 +369,29 @@ describe('plan takeoff review UI polish', () => {
   it('shows one concise Gross interior floor area explanation', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const display = measurementDisplayLabel('flooringSqft', 1879, 1879);
-    expect(display.label).toBe('Gross interior floor area');
-    expect(display.subtext).toBe('Derived from declared living area — finish allocation required');
+    expect(display.label).toBe('Living area');
+    expect(display.subtext).toBe(
+      'Living area from the plan. Flooring area and finish still need measurement.'
+    );
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'flooringSqft',
+        tradeKey: 'flooring',
+        value: 1879,
+        livingSqft: 1879,
+      }).provenance
+    ).toMatchObject({
+      status: 'plan_verified',
+      label: 'Detected from plan',
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'flooringSqft',
+        tradeKey: 'flooring',
+        value: 1879,
+        livingSqft: 1879,
+      }).includeDefault
+    ).toBe(false);
     // No second source/explanation line for flooring derived from living SF.
     expect(
       measurementSourceLabel({
@@ -758,11 +780,18 @@ describe('plan takeoff review UI polish', () => {
           value: 'Needs confirmation',
           note: 'Assign flooring type in Confirm Scope',
         },
-        { label: 'Existing floor', value: 'Needs confirmation' },
-        { label: 'Demo / removal', value: 'Needs confirmation' },
-        { label: 'Subfloor prep', value: 'Needs confirmation' },
+        { label: 'Baseboards', value: '—' },
+        { label: 'Transitions', value: '—' },
+        { label: 'Quarter round', value: '—' },
       ])
     );
+    expect(summary.map(line => line.label)).toEqual([
+      'Total floor area',
+      'Flooring type',
+      'Baseboards',
+      'Transitions',
+      'Quarter round',
+    ]);
   });
 
   it('builds grouped Painting plan review summary with interior and exterior rows', () => {
@@ -1462,6 +1491,24 @@ describe('plan takeoff review UI polish', () => {
     expect(row.includeDefault).toBe(false);
   });
 
+  it('selects an electrical plan symbol count by default', () => {
+    const row = buildPlanReviewMeasurementRowState({
+      key: 'singlePoleSwitchCount',
+      tradeKey: 'electrical',
+      value: 43,
+      provenanceEntry: {
+        source: 'calculated_from_symbols',
+        evidenceKind: 'symbols',
+        confidenceTier: 2,
+        pricingEligible: false,
+        status: 'needs_review',
+      },
+    });
+    expect(row.pricingEligible).toBe(true);
+    expect(row.includeDefault).toBe(true);
+    expect(row.provenance.label).toBe('Detected from plan');
+  });
+
   it('keeps a calculated insulation wall suggested while ceiling remains confirmable', () => {
     const wall = buildPlanReviewMeasurementRowState({
       key: 'exteriorWallInsulationSqft',
@@ -1595,5 +1642,72 @@ describe('plan takeoff review UI polish', () => {
         provenanceEntry: { ...provenance, value: 2 },
       }).provenance.label
     ).toBe('Detected from plan');
+  });
+
+  test('stucco stories and wall height read from plan facts are detected from plan', () => {
+    const provenance = {
+      source: 'plan_facts',
+      normalizedSource: 'FROM_PLAN',
+    };
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'stuccoStories',
+        tradeKey: 'stucco',
+        provenanceEntry: { ...provenance, value: 2 },
+      }).provenance.label
+    ).toBe('Detected from plan');
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'stuccoWallHeightFt',
+        tradeKey: 'stucco',
+        provenanceEntry: { ...provenance, value: 9.1 },
+      }).provenance.label
+    ).toBe('Detected from plan');
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'stuccoStories',
+        tradeKey: 'stucco',
+        fieldConfidence: 0.2,
+        provenanceEntry: {
+          source: 'general_plan_takeoff',
+          value: 2,
+          pricingEligible: false,
+        },
+      }).provenance
+    ).toMatchObject({
+      status: 'plan_verified',
+      label: 'Detected from plan',
+    });
+    expect(
+      planReviewFieldHelperText({
+        key: 'stuccoStories',
+        helperText:
+          'Defaults to 1 story only as a planning placeholder; confirm the actual story count.',
+        provenanceStatus: 'plan_verified',
+        value: 2,
+      })
+    ).toBeNull();
+    expect(
+      planReviewMeasurementDetailLine({
+        provenanceLabel: 'Detected from plan',
+        sourceLabel: 'Detected from plan',
+        subtext: null,
+      })
+    ).toBeNull();
+  });
+
+  test('stucco scope without a wall quantity stays needs measurement', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(
+      scopeTakeoffStatusLines({
+        itemId: 'stucco',
+        evidence:
+          'Elevation sheets depict broad exterior field-wall finish across the house.',
+        hasStuccoWallQuantity: false,
+      })
+    ).toEqual([
+      'Wall area, openings, and finish were not read on this plan.',
+      'Needs measurement',
+    ]);
   });
 });

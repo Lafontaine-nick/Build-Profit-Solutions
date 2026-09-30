@@ -275,6 +275,14 @@ export function getInitialRevealConfirmItems(
       'Roof surface area / squares: needs measurement',
     ]);
   }
+  if (flooringPlanExport(draft)) {
+    const row = flooringPlanScopeRows(draft)[0];
+    return splitInitialRevealConfirmItems([
+      row?.quantity === 'Needs measurement'
+        ? 'Flooring: needs measurement'
+        : `Pricing for ${row?.name || 'Flooring'}${row?.quantity ? ` · ${row.quantity}` : ''}`,
+    ]);
+  }
   const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
     line =>
       !/spaces detected on the plan/i.test(line) &&
@@ -409,6 +417,8 @@ function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
 export function planRevealOmitsWhatWeFound(draft: EstimateAiDraft): boolean {
   return (
     roofingPlanOnlyExport(draft) ||
+    stuccoPlanExport(draft) ||
+    flooringPlanExport(draft) ||
     confirmedPlanLinesForDraft(draft).length > 0
   );
 }
@@ -506,6 +516,86 @@ function roofingPlanOnlyScopeRows(
     quantity: 'Needs measurement',
   });
   return rows;
+}
+
+function stuccoPlanExport(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportMode?: string | null;
+        planImportTradeKey?: string | null;
+        planImportFingerprint?: string | null;
+      }
+    | null
+    | undefined;
+  return (
+    measurements?.planImportMode === 'selected_trade' &&
+    measurements?.planImportTradeKey === 'stucco' &&
+    Boolean(measurements?.planImportFingerprint)
+  );
+}
+
+function stuccoPlanScopeRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string }> {
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const gross = positiveRevealNumber(measurements.stuccoGrossWallSqft);
+  const rows: Array<{ name: string; amount: number; quantity?: string }> = [];
+  rows.push({
+    name: 'Stucco / exterior wall finish',
+    amount: 0,
+    quantity: gross ? `${gross.toLocaleString()} sqft` : 'Needs measurement',
+  });
+  return rows;
+}
+
+function flooringPlanExport(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportMode?: string | null;
+        planImportTradeKey?: string | null;
+        planImportFingerprint?: string | null;
+      }
+    | null
+    | undefined;
+  return (
+    measurements?.planImportMode === 'selected_trade' &&
+    measurements?.planImportTradeKey === 'flooring' &&
+    Boolean(measurements?.planImportFingerprint)
+  );
+}
+
+function flooringPlanScopeRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string }> {
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const productKeys = [
+    'flooringLvpSqft',
+    'flooringLaminateSqft',
+    'flooringEngineeredHardwoodSqft',
+    'flooringSolidHardwoodSqft',
+    'flooringTileSqft',
+    'flooringCarpetSqft',
+    'flooringSheetVinylSqft',
+  ];
+  const productTotal = productKeys.reduce(
+    (sum, key) => sum + (positiveRevealNumber(measurements[key]) || 0),
+    0
+  );
+  const flooring = positiveRevealNumber(measurements.flooringSqft);
+  const living = positiveRevealNumber(measurements.floorAreaSqft);
+  const livingCopy =
+    flooring != null && living != null && Math.abs(flooring - living) < 1;
+  const quantity =
+    productTotal > 0 ? productTotal : flooring != null && !livingCopy ? flooring : null;
+  return [
+    {
+      name: 'Flooring',
+      amount: 0,
+      quantity: quantity
+        ? `${quantity.toLocaleString()} sqft`
+        : 'Needs measurement',
+    },
+  ];
 }
 
 function isConcreteRevealDraft(draft: EstimateAiDraft): boolean {
@@ -840,6 +930,12 @@ function revealChecklistItemVisible(
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft).length;
+  }
+  if (stuccoPlanExport(draft)) {
+    return stuccoPlanScopeRows(draft).length;
+  }
+  if (flooringPlanExport(draft)) {
+    return flooringPlanScopeRows(draft).length;
   }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) return planLines.length;
@@ -2132,6 +2228,12 @@ export function getInitialRevealChecklistScopePreview(
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft);
   }
+  if (stuccoPlanExport(draft)) {
+    return stuccoPlanScopeRows(draft);
+  }
+  if (flooringPlanExport(draft)) {
+    return flooringPlanScopeRows(draft);
+  }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) {
     return planLines.map(name => ({ name, amount: 0 }));
@@ -2691,6 +2793,16 @@ export function getInitialRevealUnderstoodBullets(
     return roofingPlanOnlyScopeRows(draft)
       .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)
       .slice(0, Math.max(max, 3));
+  }
+  if (stuccoPlanExport(draft)) {
+    return stuccoPlanScopeRows(draft)
+      .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)
+      .slice(0, Math.max(max, 4));
+  }
+  if (flooringPlanExport(draft)) {
+    return flooringPlanScopeRows(draft)
+      .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)
+      .slice(0, Math.max(max, 2));
   }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planLines.length > 0) return planLines.slice(0, Math.max(max, 8));

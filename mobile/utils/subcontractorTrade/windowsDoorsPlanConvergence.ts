@@ -379,7 +379,7 @@ export function windowsDoorsReviewProvenanceLabel(
   tier: WindowsDoorsReviewTier
 ): string {
   if (tier === 'verified') return 'From schedule';
-  if (tier === 'plan_derived') return 'From plans · Confirm';
+  if (tier === 'plan_derived') return 'Detected from plan';
   return 'Not found · Enter manually';
 }
 
@@ -391,7 +391,7 @@ export function windowsDoorsReviewSelectionAppearance(input: {
   if (!input.include) {
     return { icon: 'square-outline', color: input.colors.sub };
   }
-  if (input.tier === 'not_found' || input.tier === 'plan_derived') {
+  if (input.tier === 'not_found') {
     return { icon: 'checkbox', color: '#fbbf24' };
   }
   return { icon: 'checkbox', color: '#22c55e' };

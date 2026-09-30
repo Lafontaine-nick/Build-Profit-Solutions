@@ -458,6 +458,22 @@ function finalizeDetections(rawDetections, catalog, templateKey) {
 /**
  * Append scope package bullets under the SF takeoff notes for Job notes.
  */
+function stuccoPlanScopeText(scopeText) {
+  const lines = String(scopeText || '')
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-•*]\s*/, '').trim())
+    .filter(Boolean);
+  const speculative =
+    /\b(?:permit|substrate|repair|repairs|preparation|surface prep|texture|coating|color|colours)\b/i;
+  const kept = lines.filter(
+    (line) => !(speculative.test(line) && !/\d/.test(line)),
+  );
+  if (!kept.length) {
+    return 'Exterior stucco finish. Wall area, openings, color, and texture need measurement.';
+  }
+  return kept.join('\n');
+}
+
 function appendScopeTextToNotesBlock(notesBlock, scopeText) {
   const base = String(notesBlock || '').trim();
   const scope = String(scopeText || '').trim();
@@ -503,6 +519,14 @@ async function analyzePlanForScope({
     userBits.push(
       `SELECTED TRADE ROUTE: ${selectedTrade.label}. Keep detections limited to supported ${selectedTrade.label.toLowerCase()} scope. This increment does not produce detailed trade counts; call out missing information for contractor review.`
     );
+    if (selectedTrade.key === 'stucco') {
+      userBits.push(
+        'Stucco evidence must name a labeled wall area, labeled elevation-face dimensions, or a labeled finish. Seeing exterior elevations is not a stucco quantity. Do not describe perimeter, plate height, story count, or living area as wall area. If the area or finish is not readable, say it needs measurement.'
+      );
+      userBits.push(
+        'For scopeText, do not list permits, existing substrate, required repairs, surface preparation, color, texture, or coating unless the sheet explicitly specifies that work. A ground-up plan with no labeled wall area is new construction that needs measurement, not a repair.'
+      );
+    }
   }
   if (existingNotes?.trim()) {
     userBits.push(
@@ -577,6 +601,10 @@ async function analyzePlanForScope({
   if (templateKey === 'ground_up' && !finalScopeText) {
     finalScopeText =
       'Ground-up new construction from architectural plans — sitework through finishes (confirm what is in your bid).';
+  }
+
+  if (selectedTrade?.key === 'stucco') {
+    finalScopeText = stuccoPlanScopeText(finalScopeText);
   }
 
   if (parsed?.success === false || (!detections.length && !finalScopeText)) {

@@ -16,7 +16,11 @@ import {
   quickMeasurementFieldMeta,
   quickMeasurementRowsForInput,
 } from '@/utils/scopeQuickMeasurements';
-import { resolveQuickMeasurementFields } from '@/utils/quickMeasurementProvenance';
+import {
+  quickMeasurementSummaryLine,
+  resolveQuickMeasurementFields,
+  summarizeQuickMeasurementFieldStates,
+} from '@/utils/quickMeasurementProvenance';
 import { hydrateScopeChecklistFromNotes } from '@/utils/estimateScopeChecklistUi';
 
 describe('Stucco plan import', () => {
@@ -238,6 +242,68 @@ describe('Stucco plan import', () => {
     expect(gross?.sourceLabel).toBe(
       'Conflicting plan takeoffs — confirm measurement'
     );
+  });
+
+  it('counts plan story and plate height as from the plan and leaves gross wall as the open measurement', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      stuccoStories: '2',
+      stuccoWallHeightFt: '9.1',
+      planImportTradeKey: 'stucco',
+    };
+    const rows = quickMeasurementRowsForInput('stucco', 'stucco', input, []);
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: input,
+      includedScopeKeys: ['stucco'],
+      templateKey: 'stucco',
+    });
+    const summary = summarizeQuickMeasurementFieldStates(results);
+
+    expect(results.find(result => result.key === 'stuccoStories')?.state).toBe(
+      'detected'
+    );
+    expect(
+      results.find(result => result.key === 'stuccoWallHeightFt')?.state
+    ).toBe('detected');
+    expect(
+      results.find(result => result.key === 'stuccoGrossWallSqft')?.state
+    ).toBe('needs_confirmation');
+    expect(
+      results.find(result => result.key === 'stuccoNetWallSqft')?.state
+    ).toBe('not_relevant');
+    expect(quickMeasurementSummaryLine(summary)).toBe(
+      '2 from plan · 0 AI verified · 0 suggestions · 1 need confirmation'
+    );
+  });
+
+  it('does not ask to confirm a net wall calculated from gross', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      stuccoGrossWallSqft: '4000',
+      stuccoNetWallSqft: '4000',
+      stuccoStories: '2',
+      stuccoWallHeightFt: '9.1',
+      quickMeasurementSources: {
+        stuccoGrossWallSqft: 'user_entered',
+        stuccoNetWallSqft: 'calculated_from_deductions',
+      },
+    };
+    const rows = quickMeasurementRowsForInput('stucco', 'stucco', input, []);
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: input,
+      sourceMap: input.quickMeasurementSources,
+      includedScopeKeys: ['stucco'],
+      templateKey: 'stucco',
+    });
+
+    expect(
+      results.find(result => result.key === 'stuccoNetWallSqft')?.state
+    ).toBe('confirmed');
+    expect(
+      summarizeQuickMeasurementFieldStates(results).needsConfirmation
+    ).toBe(0);
   });
 
   it('treats optional architectural details as neutral until their scope is included', () => {

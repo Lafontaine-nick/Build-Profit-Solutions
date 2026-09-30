@@ -1778,8 +1778,8 @@ export function QmFlooringScopePanels({
     readFlooringInstall(measurements)
   );
   const [demo, setDemo] = useState(() => readFlooringDemo(measurements));
-  const [existingExpanded, setExistingExpanded] = useState(true);
-  const [newExpanded, setNewExpanded] = useState(true);
+  const [existingExpanded, setExistingExpanded] = useState(false);
+  const [newExpanded, setNewExpanded] = useState(false);
   const [prepExpanded, setPrepExpanded] = useState(true);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
   const [sqftEditingKey, setSqftEditingKey] = useState<string | null>(null);
@@ -2759,14 +2759,22 @@ export function QmFlooringScopePanels({
                 { color: darkMode ? '#94a3b8' : '#64748b' },
               ]}
             >
-              {selectedNewProducts.length} selected ·{' '}
-              {selectedNewProducts
-                .reduce(
+              {(() => {
+                const installArea = selectedNewProducts.reduce(
                   (sum, product) => sum + Number(newFlooringArea(product) || 0),
                   0
-                )
-                .toLocaleString()}{' '}
-              SF installation
+                );
+                const planArea = Number(
+                  measurements.flooringSqft || measurements.floorAreaSqft || 0
+                );
+                if (installArea > 0) {
+                  return `${selectedNewProducts.length} selected · ${installArea.toLocaleString()} SF installation`;
+                }
+                if (planArea > 0) {
+                  return `${planArea.toLocaleString()} SF from the plan · choose a product`;
+                }
+                return `${selectedNewProducts.length} selected · 0 SF installation`;
+              })()}
             </Text>
           )}
         </TouchableOpacity>
@@ -4989,7 +4997,8 @@ export function QmConcreteScopePanels({
     ? selectedFlatworkOptions
     : CONCRETE_FLATWORK_OPTIONS;
   const showSitePrepPanel =
-    !mixedExteriorScope || visibleSitePrepOptionIds.size > 0;
+    !promptGroundUpStructure &&
+    (!mixedExteriorScope || visibleSitePrepOptionIds.size > 0);
   const showOptionalPanel =
     !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
   const panelStyle = qmPanelShellStyle(darkMode);
@@ -6544,7 +6553,23 @@ export function QmRoofingScopePanels({
               )}
             />
             {planOnlyRoof ? (
-              groundUpMeasurementRows.map(row => (
+              groundUpMeasurementRows
+                .filter(row => {
+                  if (
+                    row.key === 'roofDripEdgeLf' ||
+                    row.key === 'roofRidgeCapLf'
+                  ) {
+                    return false;
+                  }
+                  return (
+                    Number(
+                      String(
+                        (measurements as Record<string, unknown>)[row.key] || ''
+                      ).replace(/,/g, '')
+                    ) > 0
+                  );
+                })
+                .map(row => (
                 <QmSqftMeasurementRow
                   key={row.key}
                   label={row.label}
@@ -6769,16 +6794,7 @@ function reconcileStuccoNetWall(
   'stuccoNetWallSqft' | 'quickMeasurementSources'
 >> {
   const gross = parseStuccoMeasurement(measurements.stuccoGrossWallSqft);
-  const hasWindowDoorInput =
-    String(measurements.stuccoWindowDoorOpeningSqft ?? '').trim() !== '';
-  const hasGarageInput =
-    String(measurements.stuccoGarageOpeningSqft ?? '').trim() !== '';
-  const hasOtherFinishInput =
-    String(measurements.stuccoOtherFinishDeductionSqft ?? '').trim() !== '';
-  if (
-    !gross ||
-    !(hasWindowDoorInput || hasGarageInput || hasOtherFinishInput)
-  ) {
+  if (!gross) {
     return {};
   }
   const openings =
@@ -6795,9 +6811,18 @@ function reconcileStuccoNetWall(
   };
 }
 
+const STUCCO_SYSTEM_OPTIONS = [
+  { id: 'three_coat', label: '3-coat traditional' },
+  { id: 'one_coat', label: '1-coat stucco' },
+  { id: 'eifs', label: 'EIFS / synthetic' },
+  { id: 'finish_only', label: 'Finish coat only' },
+] as const;
+
 export function QmStuccoScopePanels({
   measurements,
   setMeasurements,
+  systemChoiceId = null,
+  onSystemChoice,
   applying,
   darkMode,
   Colors,
@@ -6806,6 +6831,8 @@ export function QmStuccoScopePanels({
   setMeasurements: React.Dispatch<
     React.SetStateAction<ScopeMeasurementsInputExtended>
   >;
+  systemChoiceId?: string | null;
+  onSystemChoice?: (choiceId: string | null) => void;
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
@@ -6866,6 +6893,18 @@ export function QmStuccoScopePanels({
     parseStuccoMeasurement((measurements as Record<string, unknown>)[key]) > 0;
   const netWall = parseStuccoMeasurement(measurements.stuccoNetWallSqft);
   const grossWall = parseStuccoMeasurement(measurements.stuccoGrossWallSqft);
+  const showWindowOpenings = hasMeasurement('stuccoWindowDoorOpeningSqft');
+  const showGarageOpenings = hasMeasurement('stuccoGarageOpeningSqft');
+  const showOtherDeductions = hasMeasurement('stuccoOtherFinishDeductionSqft');
+  const showSoffits = hasMeasurement('stuccoSoffitSqft');
+  const showParapets = hasMeasurement('stuccoParapetSqft');
+  const showFoamTrim = hasMeasurement('stuccoFoamTrimLf');
+  const showControlJoints = hasMeasurement('stuccoControlJointLf');
+  const showAccessArea = hasMeasurement('stuccoAccessAffectedSqft');
+  const showRepairArea = hasMeasurement('stuccoRepairAffectedSqft');
+  const showAddons =
+    showSoffits || showParapets || showFoamTrim || showControlJoints;
+  const showAccessExtras = showAccessArea || showRepairArea;
 
   return (
     <View style={{ gap: 12 }}>
@@ -6903,18 +6942,65 @@ export function QmStuccoScopePanels({
                 { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
               ]}
             >
-              Enter gross wall area and deduct openings to reach net stucco wall
-              area.
+              Pick the system, then enter gross wall area. A complete system
+              includes the weather barrier, lath, coats, and standard joints.
             </Text>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: '#fbbf24', marginTop: 4, marginBottom: 0 },
-              ]}
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 8,
+                marginTop: 4,
+              }}
             >
-              Net wall area drives stucco system pricing. Deduct window, door,
-              garage, and other finish areas before pricing.
-            </Text>
+              {STUCCO_SYSTEM_OPTIONS.map(option => {
+                const selected = systemChoiceId === option.id;
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    activeOpacity={0.85}
+                    disabled={applying}
+                    onPress={() =>
+                      onSystemChoice?.(selected ? null : option.id)
+                    }
+                    style={{
+                      width: '48%',
+                      flexGrow: 1,
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingHorizontal: 10,
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      borderColor: selected
+                        ? '#22c55e'
+                        : darkMode
+                          ? 'rgba(255,255,255,0.22)'
+                          : Colors.line,
+                      backgroundColor: selected
+                        ? 'rgba(34,197,94,0.14)'
+                        : darkMode
+                          ? '#3A3A3C'
+                          : '#F4F4F5',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected
+                          ? '#22c55e'
+                          : darkMode
+                            ? '#F5F7FA'
+                            : Colors.text,
+                        fontSize: 13,
+                        fontWeight: '700',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <QmSqftMeasurementRow
               label='Exterior wall area — gross'
               helperText='Total exterior wall surface before opening deductions.'
@@ -6927,62 +7013,65 @@ export function QmStuccoScopePanels({
               applying={applying}
               darkMode={darkMode}
               Colors={Colors}
-              highlighted
+              highlighted={!hasMeasurement('stuccoGrossWallSqft')}
             />
-            <QmSqftMeasurementRow
-              label='Window & door openings'
-              helperText='Combined window and door opening area to deduct.'
-              value={stuccoMeasurementInputValue(
-                measurements.stuccoWindowDoorOpeningSqft
-              )}
-              placeholder='Enter'
-              unitLabel='sqft'
-              onChangeText={value =>
-                updateMeasurement('stuccoWindowDoorOpeningSqft', value)
-              }
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              highlighted
-            />
-            <QmSqftMeasurementRow
-              label='Garage door openings'
-              helperText='Garage opening area to deduct from gross wall area.'
-              value={stuccoMeasurementInputValue(
-                measurements.stuccoGarageOpeningSqft
-              )}
-              placeholder='Enter'
-              unitLabel='sqft'
-              onChangeText={value =>
-                updateMeasurement('stuccoGarageOpeningSqft', value)
-              }
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              highlighted
-            />
-            <QmSqftMeasurementRow
-              label='Other finish deductions'
-              helperText='Stone, brick, siding, panels, or other areas not receiving stucco.'
-              value={stuccoMeasurementInputValue(
-                measurements.stuccoOtherFinishDeductionSqft
-              )}
-              placeholder='Enter'
-              unitLabel='sqft'
-              onChangeText={value =>
-                updateMeasurement('stuccoOtherFinishDeductionSqft', value)
-              }
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              highlighted
-            />
+            {showWindowOpenings ? (
+              <QmSqftMeasurementRow
+                label='Window & door openings'
+                helperText='Combined window and door opening area to deduct.'
+                value={stuccoMeasurementInputValue(
+                  measurements.stuccoWindowDoorOpeningSqft
+                )}
+                placeholder='Enter'
+                unitLabel='sqft'
+                onChangeText={value =>
+                  updateMeasurement('stuccoWindowDoorOpeningSqft', value)
+                }
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {showGarageOpenings ? (
+              <QmSqftMeasurementRow
+                label='Garage door openings'
+                helperText='Garage opening area to deduct from gross wall area.'
+                value={stuccoMeasurementInputValue(
+                  measurements.stuccoGarageOpeningSqft
+                )}
+                placeholder='Enter'
+                unitLabel='sqft'
+                onChangeText={value =>
+                  updateMeasurement('stuccoGarageOpeningSqft', value)
+                }
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {showOtherDeductions ? (
+              <QmSqftMeasurementRow
+                label='Other finish deductions'
+                helperText='Stone, brick, siding, panels, or other areas not receiving stucco.'
+                value={stuccoMeasurementInputValue(
+                  measurements.stuccoOtherFinishDeductionSqft
+                )}
+                placeholder='Enter'
+                unitLabel='sqft'
+                onChangeText={value =>
+                  updateMeasurement('stuccoOtherFinishDeductionSqft', value)
+                }
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
             <QmSqftMeasurementRow
               label='Net stucco wall area'
               helperText={
                 netWall > 0
-                  ? 'Calculated from gross wall area minus openings.'
-                  : 'Enter gross wall area and opening deductions to calculate net area.'
+                  ? 'This is the area the Stucco card prices.'
+                  : 'Calculated from the gross wall area.'
               }
               value={stuccoMeasurementInputValue(measurements.stuccoNetWallSqft)}
               placeholder='Calculated'
@@ -6993,18 +7082,12 @@ export function QmStuccoScopePanels({
               applying={applying}
               darkMode={darkMode}
               Colors={Colors}
-              highlighted
             />
-            {grossWall > 0 && netWall <= 0 ? (
-              <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 8 }}>
-                Enter opening deductions before this scope can be priced.
-              </Text>
-            ) : null}
           </>
         ) : null}
       </View>
 
-      {wallExpanded ? (
+      {wallExpanded && showAddons ? (
         <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
@@ -7033,68 +7116,82 @@ export function QmStuccoScopePanels({
             </TouchableOpacity>
             {addonsExpanded ? (
               <>
-                <QmSqftMeasurementRow
-                  label='Soffits / stucco ceilings'
-                  helperText='Soffit or stucco ceiling area priced separately from wall area.'
-                  value={stuccoMeasurementInputValue(measurements.stuccoSoffitSqft)}
-                  placeholder='Enter'
-                  unitLabel='sqft'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoSoffitSqft', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-                <QmSqftMeasurementRow
-                  label='Parapets / raised walls'
-                  helperText='Parapet or raised wall stucco area.'
-                  value={stuccoMeasurementInputValue(measurements.stuccoParapetSqft)}
-                  placeholder='Enter'
-                  unitLabel='sqft'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoParapetSqft', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-                <QmSqftMeasurementRow
-                  label='Foam trim / architectural bands'
-                  helperText='Linear foam trim or banding.'
-                  value={stuccoMeasurementInputValue(measurements.stuccoFoamTrimLf)}
-                  placeholder='Enter'
-                  unitLabel='LF'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoFoamTrimLf', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-                <QmSqftMeasurementRow
-                  label='Control / expansion joints'
-                  helperText='Linear control or expansion joint length.'
-                  value={stuccoMeasurementInputValue(
-                    measurements.stuccoControlJointLf
-                  )}
-                  placeholder='Enter'
-                  unitLabel='LF'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoControlJointLf', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
+                {showSoffits ? (
+                  <QmSqftMeasurementRow
+                    label='Soffits / stucco ceilings'
+                    helperText='Soffit or stucco ceiling area priced separately from wall area.'
+                    value={stuccoMeasurementInputValue(
+                      measurements.stuccoSoffitSqft
+                    )}
+                    placeholder='Enter'
+                    unitLabel='sqft'
+                    onChangeText={value =>
+                      updateMeasurement('stuccoSoffitSqft', value)
+                    }
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                  />
+                ) : null}
+                {showParapets ? (
+                  <QmSqftMeasurementRow
+                    label='Parapets / raised walls'
+                    helperText='Parapet or raised wall stucco area.'
+                    value={stuccoMeasurementInputValue(
+                      measurements.stuccoParapetSqft
+                    )}
+                    placeholder='Enter'
+                    unitLabel='sqft'
+                    onChangeText={value =>
+                      updateMeasurement('stuccoParapetSqft', value)
+                    }
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                  />
+                ) : null}
+                {showFoamTrim ? (
+                  <QmSqftMeasurementRow
+                    label='Foam trim / architectural bands'
+                    helperText='Linear foam trim or banding.'
+                    value={stuccoMeasurementInputValue(
+                      measurements.stuccoFoamTrimLf
+                    )}
+                    placeholder='Enter'
+                    unitLabel='LF'
+                    onChangeText={value =>
+                      updateMeasurement('stuccoFoamTrimLf', value)
+                    }
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                  />
+                ) : null}
+                {showControlJoints ? (
+                  <QmSqftMeasurementRow
+                    label='Control / expansion joints'
+                    helperText='Linear control or expansion joint length.'
+                    value={stuccoMeasurementInputValue(
+                      measurements.stuccoControlJointLf
+                    )}
+                    placeholder='Enter'
+                    unitLabel='LF'
+                    onChangeText={value =>
+                      updateMeasurement('stuccoControlJointLf', value)
+                    }
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                  />
+                ) : null}
               </>
             ) : null}
           </View>
+        </>
+      ) : null}
 
+      {wallExpanded ? (
+        <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
               onPress={() => setAccessExpanded(value => !value)}
@@ -7109,7 +7206,9 @@ export function QmStuccoScopePanels({
                   },
                 ]}
               >
-                Access & site conditions {accessExpanded ? '⌃' : '⌄'}
+                {showAccessExtras
+                  ? `Access & site conditions ${accessExpanded ? '⌃' : '⌄'}`
+                  : `From the plan ${accessExpanded ? '⌃' : '⌄'}`}
               </Text>
               <Text
                 style={[
@@ -7117,14 +7216,16 @@ export function QmStuccoScopePanels({
                   { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
                 ]}
               >
-                Story height, access difficulty, and localized repair areas.
+                {showAccessExtras
+                  ? 'Story count and plate height do not add a price. Access and repair areas do.'
+                  : 'Story count and plate height do not add a separate price.'}
               </Text>
             </TouchableOpacity>
             {accessExpanded ? (
               <>
                 <QmSqftMeasurementRow
                   label='Stories'
-                  helperText='Number of stories affecting access and staging.'
+                  helperText='From the plan. Story count does not add a separate price.'
                   value={stuccoMeasurementInputValue(measurements.stuccoStories)}
                   placeholder='1'
                   unitLabel='story'
@@ -7134,11 +7235,11 @@ export function QmStuccoScopePanels({
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
-                  highlighted
+                  highlighted={!hasMeasurement('stuccoStories')}
                 />
                 <QmSqftMeasurementRow
                   label='Typical wall height / story'
-                  helperText='Average wall height per story for access planning.'
+                  helperText='From the plan. Plate height does not add a separate price.'
                   value={stuccoMeasurementInputValue(measurements.stuccoWallHeightFt)}
                   placeholder='Enter'
                   unitLabel='ft'
@@ -7148,48 +7249,45 @@ export function QmStuccoScopePanels({
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
-                  highlighted
+                  highlighted={!hasMeasurement('stuccoWallHeightFt')}
                 />
-                <QmSqftMeasurementRow
-                  label='Access-affected area'
-                  helperText='Wall area requiring special access, staging, or protection.'
-                  value={stuccoMeasurementInputValue(
-                    measurements.stuccoAccessAffectedSqft
-                  )}
-                  placeholder='Enter'
-                  unitLabel='sqft'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoAccessAffectedSqft', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-                <QmSqftMeasurementRow
-                  label='Localized repair area'
-                  helperText='Patch or repair-only stucco area priced separately from full system work.'
-                  value={stuccoMeasurementInputValue(
-                    measurements.stuccoRepairAffectedSqft
-                  )}
-                  placeholder='Enter'
-                  unitLabel='sqft'
-                  onChangeText={value =>
-                    updateMeasurement('stuccoRepairAffectedSqft', value)
-                  }
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-                {!hasMeasurement('stuccoGrossWallSqft') &&
-                !hasMeasurement('stuccoRepairAffectedSqft') ? (
-                  <Text
-                    style={{ color: '#fbbf24', fontSize: 11, marginTop: 8 }}
-                  >
-                    Enter gross wall area or localized repair area before
-                    pricing.
-                  </Text>
+                {showAccessExtras ? (
+                  <>
+                    {showAccessArea ? (
+                      <QmSqftMeasurementRow
+                        label='Access-affected area'
+                        helperText='Wall area requiring special access, staging, or protection.'
+                        value={stuccoMeasurementInputValue(
+                          measurements.stuccoAccessAffectedSqft
+                        )}
+                        placeholder='Enter'
+                        unitLabel='sqft'
+                        onChangeText={value =>
+                          updateMeasurement('stuccoAccessAffectedSqft', value)
+                        }
+                        applying={applying}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                      />
+                    ) : null}
+                    {showRepairArea ? (
+                      <QmSqftMeasurementRow
+                        label='Localized repair area'
+                        helperText='Patch or repair-only stucco area priced separately from full system work.'
+                        value={stuccoMeasurementInputValue(
+                          measurements.stuccoRepairAffectedSqft
+                        )}
+                        placeholder='Enter'
+                        unitLabel='sqft'
+                        onChangeText={value =>
+                          updateMeasurement('stuccoRepairAffectedSqft', value)
+                        }
+                        applying={applying}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
               </>
             ) : null}

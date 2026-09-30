@@ -286,7 +286,8 @@ export function filterPlanScopesForTrade<
       (tradeKey === 'drywall' ||
         tradeKey === 'insulation' ||
         tradeKey === 'painting' ||
-        tradeKey === 'framing') &&
+        tradeKey === 'framing' ||
+        tradeKey === 'flooring') &&
       itemId === 'cleanup' &&
       isGenericGroundUpCleanupEvidence(
         `${detection.label || ''} ${detection.evidence || ''}`

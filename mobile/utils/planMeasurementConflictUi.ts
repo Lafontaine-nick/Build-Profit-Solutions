@@ -94,6 +94,8 @@ const EVIDENCE_RANK: Record<PlanEvidenceSource, number> = {
 };
 
 export function planTakeoffUnit(field: string): PlanTakeoffUnit {
+  if (field === 'stuccoStories') return 'EA';
+  if (field === 'stuccoWallHeightFt') return 'LF';
   if (/Amperage$/i.test(field)) return 'A';
   if (/(?:Lf|LinearFeet)$/i.test(field)) return 'LF';
   if (/Tons$/i.test(field)) return 'ton';
@@ -146,6 +148,11 @@ export function formatPlanTakeoffQuantity(
 ): string {
   const unit = planTakeoffUnit(field);
   const n = unit === 'EA' || unit === 'A' ? Math.round(value) : value;
+  if (field === 'stuccoStories') {
+    const stories = Math.round(value);
+    return `${stories} ${stories === 1 ? 'story' : 'stories'}`;
+  }
+  if (field === 'stuccoWallHeightFt') return `${n} ft`;
   if (unit === 'A') return `${n}A`;
   if (unit === 'ton') {
     const label = n === 1 ? 'ton' : 'tons';
@@ -1002,7 +1009,11 @@ export function pendingPlanConfirmationReads(
         values.indexOf(value) === index
     );
   };
+  const confirmedStuccoPlanFact = (field: string) =>
+    (field === 'stuccoStories' || field === 'stuccoWallHeightFt') &&
+    Number(measurements?.[field]) > 0;
   for (const [field, source] of Object.entries(sources)) {
+    if (confirmedStuccoPlanFact(field)) continue;
     if (source !== 'needs_confirmation') continue;
     if (allowedFields?.size && !allowedFields.has(field)) continue;
     if (isPendingPlanReadConfirmed(measurements, field)) continue;
@@ -1021,6 +1032,7 @@ export function pendingPlanConfirmationReads(
     });
   }
   for (const [field, entry] of Object.entries(provenance)) {
+    if (confirmedStuccoPlanFact(field)) continue;
     if (seen.has(field)) continue;
     if (allowedFields?.size && !allowedFields.has(field)) continue;
     if (!entry || typeof entry !== 'object') continue;

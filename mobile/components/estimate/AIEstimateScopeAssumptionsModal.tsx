@@ -12042,7 +12042,11 @@ function ChoiceRow({
           Colors={Colors}
         />
       ) : null}
-      {helper ? (
+      {helper &&
+      !(
+        item.id === 'stucco' &&
+        String(templateKey || '').toLowerCase() === 'stucco'
+      ) ? (
         <Text
           style={{
             color: captionColor(darkMode, Colors),
@@ -12071,6 +12075,24 @@ function ChoiceRow({
           darkMode={darkMode}
           styles={styles}
         />
+      ) : item.id === 'stucco' &&
+        String(templateKey || '').toLowerCase() === 'stucco' ? (
+        <Text
+          style={{
+            color: captionColor(darkMode, Colors),
+            fontSize: 13,
+            fontWeight: '600',
+            marginTop: 6,
+            lineHeight: 18,
+          }}
+        >
+          {inScope
+            ? `${
+                (item.options || []).find(option => option.id === displayedChoiceId)
+                  ?.label || 'Stucco system'
+              } · priced from net wall area.`
+            : 'Choose the stucco system in Quick measurements.'}
+        </Text>
       ) : (
         <View style={styles.choiceWrap}>
           {(item.options || []).map(opt => {
@@ -14359,6 +14381,8 @@ function CollapsibleQuickMeasurements({
   notesTradeMode = 'whole_project',
   onNotesTradeModeChange,
   onHvacScopeSelectionChange,
+  stuccoSystemChoiceId = null,
+  onStuccoSystemChange,
   Colors,
   darkMode,
   applying,
@@ -14454,6 +14478,8 @@ function CollapsibleQuickMeasurements({
   onNotesTradeModeChange?: (mode: NotesScopeMode) => void;
   /** Sync HVAC Quick Measurement selections into Step 3 scope cards. */
   onHvacScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
+  stuccoSystemChoiceId?: string | null;
+  onStuccoSystemChange?: (choiceId: string | null) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -16242,6 +16268,13 @@ function CollapsibleQuickMeasurements({
   const flooringHasExistingType =
     Array.isArray(measurements.flooringExistingTypes) &&
     measurements.flooringExistingTypes.length > 0;
+  const flooringPlanOmitsExistingWork =
+    flooringQmJob &&
+    measurements.planImportMode === 'selected_trade' &&
+    measurements.planImportTradeKey === 'flooring' &&
+    !/\b(?:remodel|renovat|existing\s+floor|demo|demolition|tear[\s-]?out|remov(?:e|al))\b/i.test(
+      String(notes || '')
+    );
   const landscapingQmJob =
     !paintingPlanMeasurements &&
     !concretePlanExport &&
@@ -19162,6 +19195,31 @@ function CollapsibleQuickMeasurements({
       (flooringQmJob &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
+      (flooringPlanOmitsExistingWork &&
+        [
+          'floorDemoSqft',
+          'floorPrepSqft',
+          'underlaymentSqft',
+          'moistureBarrierSqft',
+          'quarterRoundLf',
+          'baseboardLf',
+          'bathroomFloorSqft',
+          'kitchenFloorSqft',
+        ].includes(result.key) &&
+        !(Number(measurements[result.key]) > 0)) ||
+      ((measurements.planImportMode === 'selected_trade' &&
+        (measurements.planImportTradeKey === 'drywall' ||
+          measurements.planImportTradeKey === 'insulation') &&
+        Number(measurements[result.key]) > 0 &&
+        [
+          'drywallSqft',
+          'drywallWallSqft',
+          'drywallCeilingSqft',
+          'garageWallDrywallSqft',
+          'garageCeilingDrywallSqft',
+          'exteriorWallInsulationSqft',
+          'atticInsulationSqft',
+        ].includes(result.key))) ||
       (landscapingQmJob &&
         landscapingEmbeddedMeasurementKeys.has(result.key)) ||
       (concreteQmJob && concreteEmbeddedMeasurementKeys.has(result.key)) ||
@@ -21004,7 +21062,9 @@ function CollapsibleQuickMeasurements({
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   notes={notes}
-                  showExistingPanel={!hasSitePhotos}
+                  showExistingPanel={
+                    !hasSitePhotos && !flooringPlanOmitsExistingWork
+                  }
                   applying={applying}
                   onFlooringQmChange={onFlooringQmChange}
                   onFlooringScopeSync={onFlooringScopeSync}
@@ -21133,6 +21193,8 @@ function CollapsibleQuickMeasurements({
                 <QmStuccoScopePanels
                   measurements={stuccoPanelMeasurements}
                   setMeasurements={setMeasurements}
+                  systemChoiceId={stuccoSystemChoiceId}
+                  onSystemChoice={onStuccoSystemChange}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -26293,9 +26355,14 @@ export default function AIEstimateScopeAssumptionsModal({
           Number(b.hasPricing) - Number(a.hasPricing) ||
           a.index - b.index
       )
-      .map(entry =>
-        entry.group.title ? entry.group : { ...entry.group, title: 'Scope' }
-      );
+      .map(entry => {
+        if (entry.group.title) return entry.group;
+        const template = String(checklist?.templateKey || '').toLowerCase();
+        if (template === 'stucco') {
+          return { ...entry.group, title: 'Stucco' };
+        }
+        return { ...entry.group, title: 'Scope' };
+      });
   }, [
     groupedItems,
     displayItems,
@@ -30394,7 +30461,24 @@ export default function AIEstimateScopeAssumptionsModal({
             </View>
           ) : null}
 
+          {String(checklist?.templateKey || '').toLowerCase() === 'painting' ||
+          String(
+            measurements.planImportTradeKey || planImport?.selectedTrade || ''
+          ) === 'painting' ||
+          singleTradeKey === 'painting' ? null : (
           <PlanTakeoffPendingConfirmationStrip
+            filledReadsAsBoxes={
+              (measurements.planImportMode || planImport?.estimatingMode) ===
+                'selected_trade' &&
+              ['drywall', 'insulation', 'concrete'].includes(
+                String(
+                  singleTradeKey ||
+                    measurements.planImportTradeKey ||
+                    planImport?.selectedTrade ||
+                    ''
+                )
+              )
+            }
             measurements={measurements as Record<string, unknown>}
             setMeasurements={updater => {
               React.startTransition(() => {
@@ -30416,6 +30500,7 @@ export default function AIEstimateScopeAssumptionsModal({
             darkMode={darkMode}
             captionColor={captionColor(darkMode, Colors)}
           />
+          )}
 
           <CollapsibleQuickMeasurements
             visible={visible}
@@ -30483,6 +30568,25 @@ export default function AIEstimateScopeAssumptionsModal({
             }
             onSummaryChange={setQuickMeasurementSummary}
             onHvacScopeSelectionChange={syncHvacQmScopeItems}
+            stuccoSystemChoiceId={
+              items.find(row => row.id === 'stucco')?.choiceId ?? null
+            }
+            onStuccoSystemChange={choiceId => {
+              setItems(prev =>
+                prev.map(row =>
+                  row.id === 'stucco'
+                    ? {
+                        ...row,
+                        choiceId,
+                        state: choiceId
+                          ? choiceIdToState(choiceId)
+                          : ('unsure' as const),
+                      }
+                    : row
+                )
+              );
+              handleClearAcceptedPricing('stucco');
+            }}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
             onElectricalAttributesPreview={previewElectricalAttributes}

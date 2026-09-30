@@ -1057,6 +1057,26 @@ export default function EstimatePlanImportStrip({
               ])
             )
           : values;
+      if (selection.trade?.key === 'flooring') {
+        const living = Number(tradeMeasurements.floorAreaSqft);
+        const flooring = Number(tradeMeasurements.flooringSqft);
+        const hasFlooringProduct = [
+          'flooringLvpSqft',
+          'flooringLaminateSqft',
+          'flooringEngineeredHardwoodSqft',
+          'flooringSolidHardwoodSqft',
+          'flooringTileSqft',
+          'flooringCarpetSqft',
+          'flooringSheetVinylSqft',
+        ].some(key => Number(tradeMeasurements[key]) > 0);
+        if (
+          !hasFlooringProduct &&
+          living > 0 &&
+          (!(flooring > 0) || Math.abs(flooring - living) < 1)
+        ) {
+          delete tradeMeasurements.flooringSqft;
+        }
+      }
       if (selection.trade?.key === 'electrical') {
         for (const key of Object.keys(tradeMeasurements)) {
           if (

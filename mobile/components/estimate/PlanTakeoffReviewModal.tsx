@@ -64,7 +64,6 @@ import {
   wholeProjectDrawingCountApply,
   buildConcretePlanReviewSummary,
   buildElectricalPlanReviewSummary,
-  buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
   buildPlanReviewMeasurementRowState,
   electricalPlanReadinessLine,
@@ -77,6 +76,7 @@ import {
   electricalPlanDeviceStaysVisible,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewFieldHelperText,
   planReviewMeasurementDetailLine,
   formatPlumbingGasApplianceScope,
   formatPlumbingWaterHeaterDetail,
@@ -84,6 +84,7 @@ import {
   hydratePlumbingPlanMeasurementsFromInventory,
   hydrateFramingPlanMeasurementsFromAreas,
   reconcileFramingScopeMeasurements,
+  augmentFlooringScopeDetections,
   augmentFramingScopeDetections,
   framingMeasurementDisplayUnit,
   plumbingFixtureInventoryLabel,
@@ -537,6 +538,18 @@ export default function PlanTakeoffReviewModal({
         roofSquares: '',
       };
     }
+    if (effectiveTradeKey === 'stucco') {
+      const next = { ...filtered };
+      for (const key of [
+        'stuccoGrossWallSqft',
+        'stuccoWindowDoorOpeningSqft',
+        'stuccoGarageOpeningSqft',
+        'stuccoOtherFinishDeductionSqft',
+      ]) {
+        if (!(Number(next[key]) > 0)) next[key] = '';
+      }
+      return next;
+    }
     if (effectiveTradeKey === 'hvac') {
       return resolveHvacPlanReviewMeasurements(takeoff);
     }
@@ -788,6 +801,9 @@ export default function PlanTakeoffReviewModal({
     if (effectiveTradeKey === 'garage_doors') {
       return augmentGarageDoorsScopeDetections(filtered, visibleMeasurements);
     }
+    if (effectiveTradeKey === 'flooring') {
+      return augmentFlooringScopeDetections(filtered, visibleMeasurements);
+    }
     return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey, visibleMeasurements]);
 
@@ -928,6 +944,19 @@ export default function PlanTakeoffReviewModal({
           effectiveTradeKey === 'roofing' &&
           key === 'roofSquares' &&
           !(Number(value) > 0);
+        const stuccoQuantityNeedsEntry =
+          effectiveTradeKey === 'stucco' &&
+          (key === 'stuccoGrossWallSqft' ||
+            key === 'stuccoWindowDoorOpeningSqft' ||
+            key === 'stuccoGarageOpeningSqft' ||
+            key === 'stuccoOtherFinishDeductionSqft') &&
+          !(Number(value) > 0);
+        const stuccoEntryLabel =
+          key === 'stuccoGrossWallSqft'
+            ? 'Not found on plan — enter gross wall area'
+            : key === 'stuccoOtherFinishDeductionSqft'
+              ? 'Not found on plan — enter other finish area'
+              : 'Not found on plan — enter opening area';
         const openingDeductionSqft = resolveInsulationOpeningDeductionForReview(
           takeoff.measurements,
           mergeInsulationPlanFactsFromTakeoff(
@@ -943,6 +972,8 @@ export default function PlanTakeoffReviewModal({
         const sourceLabel = semanticsOn
           ? roofQuantityNeedsConfirmation
             ? 'Not found on plan — enter roof squares'
+            : stuccoQuantityNeedsEntry
+              ? stuccoEntryLabel
             : key === 'atticInsulationSqft' &&
             Number(value) > 0 &&
             !(Number(takeoff.measurements?.atticInsulationSqft) > 0) &&
@@ -991,13 +1022,14 @@ export default function PlanTakeoffReviewModal({
           !(Number(takeoff.measurements?.[key]) > 0) &&
           scheduleDocumented;
         const provenanceEntry =
-          (roofQuantityNeedsConfirmation
+          (roofQuantityNeedsConfirmation || stuccoQuantityNeedsEntry
             ? {
                 source: 'plan_takeoff',
                 normalizedSource: 'NEEDS_CONFIRMATION',
                 pricingEligible: false,
-                reason:
-                  'The plan did not provide a complete readable roof-area takeoff.',
+                reason: roofQuantityNeedsConfirmation
+                  ? 'The plan did not provide a complete readable roof-area takeoff.'
+                  : 'The plan did not provide a labeled stucco wall or opening area.',
               }
             : effectiveTradeKey === 'painting'
             ? paintingHydration?.measurementProvenance?.[key]
@@ -1042,6 +1074,8 @@ export default function PlanTakeoffReviewModal({
             areaReconciliation?.livingVariancePercent,
           validationField: takeoff.electricalValidation?.fields?.[key],
           tradeKey: effectiveTradeKey,
+          value,
+          livingSqft: livingSf,
         });
         const openingCountTrade =
           effectiveTradeKey === 'windows_doors' ||
@@ -1084,7 +1118,16 @@ export default function PlanTakeoffReviewModal({
                   ? 'Roof surface area / squares'
                 : display.label,
           subtext:
-            [display.subtext, fieldDef?.helperText, ceilingBoundaryText]
+            [
+              display.subtext,
+              planReviewFieldHelperText({
+                key,
+                helperText: fieldDef?.helperText,
+                provenanceStatus: rowState.provenance.status,
+                value,
+              }),
+              ceilingBoundaryText,
+            ]
               .filter(Boolean)
               .join(' · ') || null,
           sourceLabel:
@@ -1099,17 +1142,21 @@ export default function PlanTakeoffReviewModal({
           confidence: takeoff.fieldConfidence?.[key] ?? null,
           provenance: windowsDoorsProvenance,
           pricingEligible: windowsDoorsTier
-            ? windowsDoorsTier === 'verified'
+            ? windowsDoorsTier === 'verified' ||
+              (windowsDoorsTier === 'plan_derived' && Number(value) > 0)
             : rowState.pricingEligible,
           conflictValue,
           include:
             conflictValue == null &&
             !roofQuantityNeedsConfirmation &&
-            (openingCountTrade
-              ? windowsDoorsTier != null && windowsDoorsTier !== 'not_found'
-              : effectiveTradeKey === 'hvac'
-                ? Number(value) > 0
-                : rowState.includeDefault || keepInsulationSuggestionSelected),
+            !stuccoQuantityNeedsEntry &&
+            (Number(value) > 0 ||
+              (openingCountTrade
+                ? windowsDoorsTier != null && windowsDoorsTier !== 'not_found'
+                : effectiveTradeKey === 'hvac'
+                  ? Number(value) > 0
+                  : rowState.includeDefault ||
+                    keepInsulationSuggestionSelected)),
         };
       })
       .sort((a, b) => {
@@ -1132,6 +1179,13 @@ export default function PlanTakeoffReviewModal({
             effectiveTradeKey === 'flooring' &&
             row.key === 'floorAreaSqft' &&
             positiveMeasurement(visibleMeasurements.flooringSqft) != null
+          ) &&
+          !(
+            effectiveTradeKey === 'stucco' &&
+            row.key !== 'stuccoGrossWallSqft' &&
+            row.key !== 'stuccoStories' &&
+            row.key !== 'stuccoWallHeightFt' &&
+            !(Number(row.value) > 0)
           ) &&
           !(
             effectiveTradeKey === 'painting' &&
@@ -1285,22 +1339,6 @@ export default function PlanTakeoffReviewModal({
     if (effectiveTradeKey !== 'concrete') return null;
     return buildConcretePlanReviewSummary(concreteReviewMeasurements);
   }, [effectiveTradeKey, concreteReviewMeasurements]);
-
-  const flooringReviewMeasurements = useMemo(() => {
-    const merged: Record<string, string | number> = {
-      ...(visibleMeasurements || {}),
-    };
-    for (const row of rows) {
-      const n = Number(row.value);
-      if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
-    }
-    return merged;
-  }, [visibleMeasurements, rows]);
-
-  const flooringPlanSummary = useMemo(() => {
-    if (effectiveTradeKey !== 'flooring') return null;
-    return buildFlooringPlanReviewSummary(flooringReviewMeasurements);
-  }, [effectiveTradeKey, flooringReviewMeasurements]);
 
   const paintingReviewMeasurements = useMemo(() => {
     const merged: Record<string, string | number> = {
@@ -1503,19 +1541,31 @@ export default function PlanTakeoffReviewModal({
   const reviewLowConfidence = filterLowConfidenceForReview(
     lowConfidence,
     conflictFieldSet
-  ).filter(
-    field =>
-      effectiveTradeKey !== 'painting' ||
-      !paintingBidReviewKey(String(field.field || ''))
-  );
+  ).filter(field => {
+    const key = String(field.field || '');
+    if (
+      effectiveTradeKey === 'stucco' &&
+      (key === 'stuccoStories' || key === 'stuccoWallHeightFt')
+    ) {
+      return false;
+    }
+    return (
+      effectiveTradeKey !== 'painting' || !paintingBidReviewKey(key)
+    );
+  });
   const reviewUnreadable = filterUnreadableForReview(
     unreadable,
     conflictFieldSet
-  ).filter(
-    field =>
-      effectiveTradeKey !== 'painting' ||
-      !paintingBidReviewKey(String(field.field || ''))
-  );
+  ).filter(field => {
+    const key = String(field.field || '');
+    if (
+      effectiveTradeKey === 'stucco' &&
+      (key === 'stuccoStories' || key === 'stuccoWallHeightFt')
+    ) {
+      return false;
+    }
+    return effectiveTradeKey !== 'painting' || !paintingBidReviewKey(key);
+  });
   const hvacReadingOverrides =
     effectiveTradeKey === 'hvac'
       ? {
@@ -1576,6 +1626,8 @@ export default function PlanTakeoffReviewModal({
       getPlanTradeConfiguration(effectiveTradeKey)?.label ||
       'Trade'
     : null;
+  const hasStuccoWallQuantity =
+    Number(takeoff.measurements?.stuccoGrossWallSqft) > 0;
   const hasRoofQuantity =
     Number(takeoff.measurements?.roofSquares) > 0 ||
     Number(
@@ -1660,6 +1712,14 @@ export default function PlanTakeoffReviewModal({
       }
       const n = Number(row.value);
       if (!(Number.isFinite(n) && n > 0)) continue;
+      if (
+        effectiveTradeKey === 'flooring' &&
+        row.key === 'flooringSqft' &&
+        livingSf > 0 &&
+        Math.abs(n - livingSf) < 1
+      ) {
+        continue;
+      }
       values[row.key] = String(n);
     }
     for (const [key, value] of Object.entries(resolved)) {
@@ -2453,22 +2513,6 @@ export default function PlanTakeoffReviewModal({
                 />
               </View>
             ) : null}
-            {flooringPlanSummary ? (
-              <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
-                  Project
-                </Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  Flooring
-                </Text>
-                <TradeSummaryPanel
-                  darkMode={darkMode}
-                  labelColor={Colors.sub}
-                  valueColor={Colors.text}
-                  lines={flooringPlanSummary}
-                />
-              </View>
-            ) : null}
             {paintingPlanSummary ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
@@ -2534,7 +2578,6 @@ export default function PlanTakeoffReviewModal({
                 </Text>
                 <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   {concretePlanSummary ||
-                  flooringPlanSummary ||
                   paintingPlanSummary ||
                   electricalStatusLines.length
                     ? 'Quantities'
@@ -2655,6 +2698,20 @@ export default function PlanTakeoffReviewModal({
                                 Alert.alert(
                                   'Enter roof squares',
                                   'This plan does not include a roof area. Type the squares in the field, then apply the takeoff.'
+                                );
+                                return;
+                              }
+                              if (
+                                effectiveTradeKey === 'stucco' &&
+                                (row.key === 'stuccoGrossWallSqft' ||
+                                  row.key === 'stuccoWindowDoorOpeningSqft' ||
+                                  row.key === 'stuccoGarageOpeningSqft' ||
+                                  row.key === 'stuccoOtherFinishDeductionSqft') &&
+                                !(Number(row.value) > 0)
+                              ) {
+                                Alert.alert(
+                                  'Enter the stucco quantity',
+                                  'This plan does not include that area. Type it in the field, then apply the takeoff.'
                                 );
                                 return;
                               }
@@ -2882,8 +2939,13 @@ export default function PlanTakeoffReviewModal({
                               });
                             }}
                             placeholder={
-                              effectiveTradeKey === 'roofing' &&
-                              row.key === 'roofSquares'
+                              (effectiveTradeKey === 'roofing' &&
+                                row.key === 'roofSquares') ||
+                              (effectiveTradeKey === 'stucco' &&
+                                (row.key === 'stuccoGrossWallSqft' ||
+                                  row.key === 'stuccoWindowDoorOpeningSqft' ||
+                                  row.key === 'stuccoGarageOpeningSqft' ||
+                                  row.key === 'stuccoOtherFinishDeductionSqft'))
                                 ? 'Enter'
                                 : undefined
                             }
@@ -3273,6 +3335,7 @@ export default function PlanTakeoffReviewModal({
                     itemId: d.itemId,
                     evidence: d.evidence,
                     hasRoofQuantity,
+                    hasStuccoWallQuantity,
                     assumptions: takeoff.assumptions,
                     hasPlanFloorAreas,
                     hasInsulationPrimaryTakeoff:

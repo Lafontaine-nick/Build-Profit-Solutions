@@ -51,6 +51,57 @@ describe("estimatePlanToMeasurements", () => {
     expect(prompt).toMatch(/generic ground-up scope language is not roofing evidence/i);
   });
 
+  test("stucco prompt rejects perimeter and living-area wall formulas on every plan", () => {
+    const { buildStuccoSystemPrompt } = require("../estimatePlanToMeasurements");
+    const prompt = buildStuccoSystemPrompt();
+    expect(prompt).toMatch(/every plan/i);
+    expect(prompt).toMatch(/stuccoGrossWallSqft/);
+    expect(prompt).toMatch(/do not derive wall area from living area/i);
+    expect(prompt).toMatch(/not a wall-area formula/i);
+    expect(prompt).not.toMatch(/perimeter × story/i);
+  });
+
+  test("stucco sanitizer keeps labeled faces and drops perimeter, living-area, and unlabeled guesses", () => {
+    const { sanitizeStuccoPlanMeasurements } = require("../estimatePlanToMeasurements");
+    const planFacts = {
+      storyCount: 2,
+      plateHeightFt: 9.1,
+      foundationPerimeterLf: 180,
+      totalLivingSqft: 2571,
+      elevationFaces: [
+        { widthFt: 40, heightFt: 18, windowDoorOpeningsSqft: 48 },
+        { widthFt: 30, heightFt: 10, finish: "stone" },
+      ],
+    };
+    const invented = sanitizeStuccoPlanMeasurements(
+      {
+        stuccoGrossWallSqft: Math.round(180 * 9.1 * 2),
+        stuccoWindowDoorOpeningSqft: 900,
+        stuccoSoffitSqft: 120,
+        stuccoStories: 1,
+        stuccoWallHeightFt: 8,
+        floorAreaSqft: 2571,
+      },
+      planFacts,
+    );
+    expect(invented.measurements.stuccoGrossWallSqft).toBe(720);
+    expect(invented.measurements.stuccoWindowDoorOpeningSqft).toBe(48);
+    expect(invented.measurements.stuccoSoffitSqft).toBeUndefined();
+    expect(invented.measurements.stuccoStories).toBe(2);
+    expect(invented.measurements.stuccoWallHeightFt).toBe(9.1);
+    expect(invented.provenance.stuccoStories.normalizedSource).toBe("FROM_PLAN");
+    expect(invented.droppedKeys).toEqual(
+      expect.arrayContaining(["stuccoSoffitSqft"]),
+    );
+
+    const livingProxy = sanitizeStuccoPlanMeasurements(
+      { stuccoGrossWallSqft: 2571, stuccoNetWallSqft: 2571 },
+      { totalLivingSqft: 2571, storyCount: 2, plateHeightFt: 9.1 },
+    );
+    expect(livingProxy.measurements.stuccoGrossWallSqft).toBeUndefined();
+    expect(livingProxy.measurements.stuccoNetWallSqft).toBeUndefined();
+  });
+
   test("sums electrical symbol counts across zoomed sheet regions", () => {
     expect(
       sumElectricalSymbolCropCounts(

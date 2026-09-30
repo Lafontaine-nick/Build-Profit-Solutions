@@ -450,7 +450,15 @@ export function buildElectricalQuickMeasurementGroups(input: {
   for (const groupId of QM_GROUP_ORDER) {
     const title = QM_GROUP_TITLES[groupId];
     const extra = groupId === 'lighting' ? byGroup.get('fans') || [] : [];
-    const fields = [...(byGroup.get(groupId) || []), ...extra];
+    const planElectrical =
+      String(measurements.planImportTradeKey || '') === 'electrical';
+    const fields = [...(byGroup.get(groupId) || []), ...extra].filter(
+      field =>
+        !planElectrical ||
+        field.value != null ||
+        field.confirmInput ||
+        field.selected
+    );
     if (!fields.length) continue;
     const existing = merged.get(title);
     if (existing) {
