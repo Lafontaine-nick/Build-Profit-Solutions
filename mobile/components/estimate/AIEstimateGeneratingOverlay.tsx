@@ -28,7 +28,7 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [elapsedSec, setElapsedSec] = useState(0);
-  const accent = darkMode ? '#00A6FF' : '#0284c7';
+  const accent = '#2dcc9a';
 
   useEffect(() => {
     if (!visible) {
@@ -81,7 +81,7 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
               return (
                 <View key={stepId} style={styles.stepRow}>
                   {done ? (
-                    <MaterialIcons name="check-circle" size={18} color="#22c55e" />
+                    <MaterialIcons name="check-circle" size={18} color="#2dcc9a" />
                   ) : active ? (
                     <ActivityIndicator size={16} color={accent} />
                   ) : (

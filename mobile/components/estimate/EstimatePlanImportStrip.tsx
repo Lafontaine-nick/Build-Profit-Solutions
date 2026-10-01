@@ -31,10 +31,8 @@ import {
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import EstimateFlowActionButton from '@/components/estimate/EstimateFlowActionButton';
 import {
-  aiFlowCardBackground,
   estimateStep1IconBadgeStyle,
   estimateStep1InputCardStyle,
-  ESTIMATE_FLOW_BLUE,
 } from '@/utils/estimateFlowCardStyle';
 import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 import {
@@ -1544,11 +1542,16 @@ export default function EstimatePlanImportStrip({
           style={{ marginTop: 2 }}
         />
       ) : embedded ? (
-        <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
+        <View
+          style={[
+            estimateStep1IconBadgeStyle(darkMode, 'green'),
+            { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#F1F5F9' },
+          ]}
+        >
           <Ionicons
             name={planReady ? 'checkmark-circle' : 'map-outline'}
             size={18}
-            color={planReady ? '#38d39f' : '#22c55e'}
+            color="#2dcc9a"
           />
         </View>
       ) : (
@@ -1617,14 +1620,7 @@ export default function EstimatePlanImportStrip({
       style={
         embedded
           ? {
-              marginTop: 10,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: darkMode
-                ? 'rgba(148, 163, 184, 0.12)'
-                : Colors.line,
-              backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
-              padding: 12,
+              marginTop: 14,
             }
           : undefined
       }
@@ -1760,7 +1756,7 @@ export default function EstimatePlanImportStrip({
               Select your trade
             </Text>
             {embedded && selectedTradeLabel ? (
-              <Text style={{ color: ESTIMATE_FLOW_BLUE, fontSize: 11, fontWeight: '700' }}>
+              <Text style={{ color: '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
                 {selectedTradeLabel}
               </Text>
             ) : null}
@@ -1977,13 +1973,18 @@ export default function EstimatePlanImportStrip({
     >
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
         {importing ? (
-          <ActivityIndicator size='small' color='#22c55e' style={{ marginTop: 2 }} />
+          <ActivityIndicator size='small' color='#94a3b8' style={{ marginTop: 2 }} />
         ) : (
-          <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
+          <View
+            style={[
+              estimateStep1IconBadgeStyle(darkMode, 'green'),
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#F1F5F9' },
+            ]}
+          >
             <Ionicons
               name={planReady ? 'checkmark-circle' : 'map-outline'}
               size={18}
-              color={planReady ? '#38d39f' : '#22c55e'}
+              color="#2dcc9a"
             />
           </View>
         )}

@@ -371,9 +371,8 @@ export function confirmScopeApplyButtonStyle(): ViewStyle {
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
-    borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    backgroundColor: '#2dcc9a',
+    borderWidth: 0,
     paddingVertical: 10,
     paddingHorizontal: 16,
   };
@@ -381,18 +380,18 @@ export function confirmScopeApplyButtonStyle(): ViewStyle {
 
 export function confirmScopeApplyButtonTextStyle(): TextStyle {
   return {
-    color: ESTIMATE_FLOW_GREEN,
+    color: '#050B13',
     fontSize: 14,
     fontWeight: '700',
   };
 }
 
-/** Confirm Scope — Yes / included choice (matches ghost Apply). */
+/** Confirm Scope — selected Yes / No / Not sure. */
 export function confirmScopeChoiceSelectedYesColors() {
   return {
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
-    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
-    textColor: ESTIMATE_FLOW_GREEN,
+    borderColor: '#2dcc9a',
+    backgroundColor: '#2dcc9a',
+    textColor: '#050B13',
   };
 }
 

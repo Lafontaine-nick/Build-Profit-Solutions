@@ -1,13 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, ActivityIndicator, type ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import {
-  estimateStep1ActionButtonStyle,
-  estimateStep1ActionButtonSelectedStyle,
-  ESTIMATE_FLOW_BLUE,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_GREEN,
-} from '@/utils/estimateFlowCardStyle';
+import { estimateStep1ActionButtonStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   line: string;
@@ -36,24 +30,17 @@ type Props = {
 export default function EstimateFlowActionButton({
   label,
   icon,
-  iconColor = ESTIMATE_FLOW_GREEN,
-  iconAccent,
+  iconColor,
   Colors,
   darkMode,
   disabled = false,
   loading = false,
   selected = false,
-  selectedAccent,
   onPress,
   style,
   labelStyle,
 }: Props) {
-  const resolvedIconColor =
-    iconAccent === 'green'
-      ? ESTIMATE_FLOW_GREEN
-      : iconAccent === 'blue'
-        ? ESTIMATE_FLOW_BLUE
-        : iconColor;
+  const resolvedIconColor = selected ? '#050B13' : iconColor || '#94a3b8';
   const shellLayout = {
     flex: 1 as const,
     minHeight: 44,
@@ -66,10 +53,12 @@ export default function EstimateFlowActionButton({
     opacity: disabled || loading ? 0.45 : 1,
   };
   const shellStyle =
-    selected && selectedAccent
+    selected
       ? {
           ...shellLayout,
-          ...estimateStep1ActionButtonSelectedStyle(darkMode, selectedAccent),
+          borderWidth: 1,
+          borderColor: '#2dcc9a',
+          backgroundColor: '#2dcc9a',
         }
       : {
           ...shellLayout,
@@ -94,12 +83,7 @@ export default function EstimateFlowActionButton({
       ) : null}
       <Text
         style={{
-          color:
-            selected && !icon
-              ? selectedAccent === 'blue'
-                ? ESTIMATE_FLOW_BLUE
-                : ESTIMATE_FLOW_CHIP_GREEN
-              : Colors.text,
+          color: selected ? '#050B13' : Colors.text,
           fontSize: labelStyle?.fontSize ?? 13,
           fontWeight: '700',
           textAlign: icon ? undefined : 'center',

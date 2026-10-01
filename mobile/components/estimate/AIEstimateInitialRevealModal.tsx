@@ -60,19 +60,19 @@ type Props = {
 
 const STATUS_COLORS = {
   ready: { bg: 'rgba(34, 197, 94, 0.14)', color: '#4ade80' },
-  mostly: { bg: 'rgba(45, 255, 196, 0.1)', color: '#2DFFC4' },
+  mostly: { bg: 'rgba(45, 204, 154, 0.14)', color: '#2dcc9a' },
   review: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
 };
 
-/** Muted teal→blue wash — same angle as back arrow, much lower opacity than the ring. */
-const HERO_GRADIENT_DARK = ['rgba(45, 255, 196, 0.05)', 'rgba(0, 166, 255, 0.035)'] as const;
-const HERO_GRADIENT_LIGHT = ['rgba(45, 255, 196, 0.07)', 'rgba(0, 166, 255, 0.04)'] as const;
-const HERO_BG_DARK = '#0e141c';
-/** Brand cyan — links, totals, secondary accents (blue end of back-arrow gradient). */
-const BRAND_ACCENT = '#00A6FF';
-const BRAND_ACCENT_LIGHT = '#0284c7';
-/** Emerald — primary CTA only. */
-const FLOW_ACCENT = '#22c55e';
+/** Visible mint wash on the summary card. */
+const HERO_GRADIENT_DARK = ['rgba(45, 204, 154, 0.22)', 'rgba(45, 204, 154, 0.08)'] as const;
+const HERO_GRADIENT_LIGHT = ['rgba(45, 204, 154, 0.2)', 'rgba(45, 204, 154, 0.06)'] as const;
+const HERO_BG_DARK = '#202022';
+/** Mint — links and totals on this summary. */
+const BRAND_ACCENT = '#2dcc9a';
+const BRAND_ACCENT_LIGHT = '#0f766e';
+/** Mint — primary CTA only. */
+const FLOW_ACCENT = '#2dcc9a';
 
 function fireHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS === 'web') return;
@@ -286,7 +286,7 @@ function AIEstimateInitialRevealModal({
         <MaterialIcons
           name={viewModel?.needsScopeConfirmation ? 'chevron-right' : 'arrow-forward'}
           size={22}
-          color="#0f172a"
+          color="#050B13"
         />
       </ReliablePress>
     </View>
@@ -330,7 +330,11 @@ function AIEstimateInitialRevealModal({
                 end={BRAND_FRAME_GRADIENT_END}
                 style={[
                   styles.heroShell,
-                  { backgroundColor: darkMode ? HERO_BG_DARK : Colors.bg },
+                  {
+                    backgroundColor: darkMode ? HERO_BG_DARK : Colors.bg,
+                    borderWidth: 1,
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                  },
                 ]}
               >
                 <View style={styles.heroTopRow}>
@@ -853,7 +857,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   primaryBtnText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: -0.2,

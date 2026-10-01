@@ -4,13 +4,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { LinearGradient } from 'expo-linear-gradient';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 
 type Props = {
   title: string;
@@ -46,7 +39,7 @@ export default function AIEstimateFlowHeader({
       ? 6
       : 4
     : Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
-  // Always use Build with AI chrome: theme bg + gradient-ring back (not the old teal bar + X).
+  // Gray circle back, same as the other refined estimate forms.
   return (
     <View
       style={[
@@ -60,31 +53,31 @@ export default function AIEstimateFlowHeader({
     >
       <View style={styles.assistantHeaderRow}>
         <View style={styles.headerSide}>
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
-            style={styles.backButtonBorder}
+          <TouchableOpacity
+            onPress={() => {
+              if (!disabled) onBack();
+            }}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
+            hitSlop={12}
+            style={[
+              styles.backButton,
+              {
+                backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : (Colors.surface2 ?? '#f3f4f6'),
+              },
+            ]}
           >
-            <GradientRingBackInner
-              darkMode={darkMode}
-              onPress={() => {
-                if (!disabled) onBack();
-              }}
-              accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
-              style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-            >
-              <MaterialIcons
-                name="arrow-back"
-                size={24}
-                color={darkMode ? '#FFFFFF' : Colors.text}
-              />
-            </GradientRingBackInner>
-          </LinearGradient>
+            <MaterialIcons
+              name="chevron-left"
+              size={26}
+              color={darkMode ? '#e2e8f0' : Colors.text}
+            />
+          </TouchableOpacity>
         </View>
         <View style={{ flex: 1, alignItems: 'center' }}>
           {step != null ? (
-            <Text style={[styles.stepLabel, { color: Colors.sub }]}>
+            <Text style={styles.stepLabel}>
               Step {step} of {stepTotal}
             </Text>
           ) : null}
@@ -141,26 +134,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonBorder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
-  },
   backButton: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stepLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
     marginBottom: 2,
+    color: '#94a3b8',
   },
   assistantTitle: {
     fontSize: 17,

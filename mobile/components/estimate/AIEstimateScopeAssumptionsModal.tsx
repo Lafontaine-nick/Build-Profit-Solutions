@@ -925,7 +925,7 @@ function ScopeItemTitleRow({
             : noteBadge === 'review'
               ? 'Review'
               : null;
-  const badgeColor = noteBadge === 'review' ? '#f59e0b' : '#22c55e';
+  const badgeColor = noteBadge === 'review' ? '#fbbf24' : '#2dcc9a';
 
   return (
     <View style={styles.cardTitleRow}>
@@ -1653,24 +1653,20 @@ function ScopeIntelligenceNotice({
               style={[
                 styles.formulaActionButton,
                 {
-                  borderColor: darkMode
-                    ? 'rgba(34,197,94,0.28)'
-                    : 'rgba(22,163,74,0.32)',
-                  backgroundColor: darkMode
-                    ? 'rgba(34,197,94,0.05)'
-                    : 'rgba(34,197,94,0.04)',
+                  borderColor: '#2dcc9a',
+                  backgroundColor: '#2dcc9a',
                 },
               ]}
             >
               <Ionicons
                 name='checkmark-circle-outline'
                 size={16}
-                color={darkMode ? 'rgba(110,231,160,0.9)' : '#16a34a'}
+                color='#050B13'
               />
               <Text
                 style={[
                   styles.formulaActionText,
-                  { color: darkMode ? 'rgba(110,231,160,0.92)' : '#15803d' },
+                  { color: '#050B13' },
                 ]}
               >
                 {applyTarget.buttonLabel}
@@ -6333,6 +6329,55 @@ function QuantitySection({
           suggestedTotal:
             (pricingAlternativeBlock ?? suggestedBudgetSplit)?.total ?? null,
         });
+      const displayedMaterial = Number(
+        displayResolved.dualMaterial?.quantity || 0
+      );
+      const displayedLabor = Number(displayResolved.dualLabor?.quantity || 0);
+      const displayedAllowance = Number(
+        displayResolved.dualAllowance?.quantity || 0
+      );
+      const displayedPriceTotal =
+        displayedMaterial + displayedLabor > 0
+          ? displayedMaterial + displayedLabor
+          : displayedAllowance;
+      // Notes that already price both legs hide the suggestion fill, and the
+      // national comparison is not shown on the card. The planning price is
+      // still on screen, so Apply has to commit that amount.
+      const displayedPriceApplyBlock: SuggestedPricingBlock | null =
+        !hideSuggestion && !suggestedBudgetSplit && displayedPriceTotal > 0
+          ? {
+              material: displayedMaterial,
+              labor: displayedLabor,
+              total: displayedPriceTotal,
+              materialSource:
+                displayResolved.quantitySource === 'notes'
+                  ? 'notes'
+                  : 'national_average',
+              laborSource:
+                displayResolved.quantitySource === 'notes'
+                  ? 'notes'
+                  : 'national_average',
+              rateSourceLabel: 'Planning estimate',
+              helper: 'Apply the planning price shown on this card.',
+              mode: 'suggested_price',
+              lumpSumOnly: !(displayedMaterial > 0 || displayedLabor > 0),
+              basis:
+                displayResolved.dualCount &&
+                Number(displayResolved.dualCount.quantity) > 0
+                  ? {
+                      quantity: displayResolved.dualCount.quantity,
+                      unit: displayResolved.dualCount.unit,
+                    }
+                  : displayResolved.quantity != null && displayResolved.unit
+                    ? {
+                        quantity: Number(displayResolved.quantity),
+                        unit: displayResolved.unit,
+                      }
+                    : null,
+              benchmarkAction: 'price_ready',
+              productionStatus: 'review_required',
+            }
+          : null;
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -6690,6 +6735,15 @@ function QuantitySection({
                     ) || null
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                />
+              ) : displayedPriceApplyBlock ? (
+                <SuggestedPricingApplyButton
+                  label='Apply'
+                  onPress={() =>
+                    applySuggestedPricingBlock(displayedPriceApplyBlock)
+                  }
+                  style={styles.useSuggestedPricingBtn}
+                  textStyle={styles.useSuggestedPricingBtnText}
                 />
               ) : null}
               {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
@@ -8698,22 +8752,10 @@ function YesNoChip({
   let textColor = inactiveStyle.textColor;
 
   if (active) {
-    if (variant === 'yes') {
-      const selectedYes = confirmScopeChoiceSelectedYesColors();
-      borderColor = selectedYes.borderColor;
-      backgroundColor = selectedYes.backgroundColor;
-      textColor = selectedYes.textColor;
-    } else if (variant === 'unsure') {
-      borderColor = 'rgba(251,191,36,0.55)';
-      backgroundColor = 'transparent';
-      textColor = '#d4a017';
-    } else {
-      borderColor = darkMode ? 'rgba(255,255,255,0.2)' : Colors.line;
-      backgroundColor = darkMode
-        ? QM_MEASUREMENT_SHELL_FILL_DARK
-        : 'rgba(0,0,0,0.04)';
-      textColor = Colors.text;
-    }
+    const selectedChoice = confirmScopeChoiceSelectedYesColors();
+    borderColor = selectedChoice.borderColor;
+    backgroundColor = selectedChoice.backgroundColor;
+    textColor = selectedChoice.textColor;
   }
 
   return (
@@ -12657,7 +12699,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
                 paddingHorizontal: 12,
                 paddingVertical: 6,
                 borderRadius: 8,
-                backgroundColor: '#34d399',
+                backgroundColor: '#2dcc9a',
               }}
             >
               <Text
@@ -12676,7 +12718,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           >
             <Text
               style={{
-                color: '#34d399',
+                color: '#2dcc9a',
                 fontSize: 13,
                 fontWeight: '700',
               }}
@@ -12817,7 +12859,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
                     borderRadius: 7,
                     borderWidth: 1,
                     borderColor: selected
-                      ? '#34d399'
+                      ? '#2dcc9a'
                       : darkMode
                         ? 'rgba(255,255,255,0.22)'
                         : Colors.line,
@@ -12831,7 +12873,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
                 >
                   <Text
                     style={{
-                      color: selected ? '#34d399' : Colors.text,
+                      color: selected ? '#050B13' : Colors.text,
                       fontSize: 11,
                       fontWeight: '700',
                     }}
@@ -13484,7 +13526,8 @@ function InsulationAssemblyCard({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+      style={{ height: 44 }}
+      contentContainerStyle={{ gap: 8, paddingRight: 4, alignItems: 'center' }}
     >
       {INSULATION_TYPE_OPTIONS.map(option => {
         const hasRows = rowsForInsulationMaterialType(rows, option).length > 0;
@@ -13497,23 +13540,25 @@ function InsulationAssemblyCard({
             activeOpacity={0.75}
             style={{
               minWidth: 96,
+              minHeight: 40,
               alignItems: 'center',
-              paddingVertical: 7,
-              paddingHorizontal: 6,
-              borderRadius: 9,
+              justifyContent: 'center',
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 14,
               borderWidth: 1,
               borderStyle: hidden ? 'dashed' : 'solid',
               borderColor: selected
                 ? hidden
                   ? 'rgba(245,158,11,0.55)'
-                  : '#34d399'
+                  : '#2dcc9a'
                 : darkMode
                   ? 'rgba(255,255,255,0.14)'
                   : Colors.line,
               backgroundColor: selected
                 ? hidden
                   ? 'rgba(245,158,11,0.1)'
-                  : 'rgba(52,211,153,0.14)'
+                  : '#2dcc9a'
                 : darkMode
                   ? '#3f3f46'
                   : Colors.surface2,
@@ -13524,10 +13569,11 @@ function InsulationAssemblyCard({
                 color: selected
                   ? hidden
                     ? '#fbbf24'
-                    : '#34d399'
-                  : Colors.text,
-                fontSize: 11,
-                fontWeight: '700',
+                    : '#050B13'
+                  : '#e2e8f0',
+                fontSize: 14,
+                fontWeight: '600',
+                lineHeight: 18,
               }}
             >
               {option}
@@ -13560,12 +13606,12 @@ function InsulationAssemblyCard({
                 borderRadius: 8,
                 borderWidth: 1,
                 borderColor: selected
-                  ? '#34d399'
+                  ? '#2dcc9a'
                   : darkMode
                     ? 'rgba(255,255,255,0.14)'
                     : Colors.line,
                 backgroundColor: selected
-                  ? 'rgba(52,211,153,0.14)'
+                  ? '#2dcc9a'
                   : darkMode
                     ? '#3f3f46'
                     : Colors.surface2,
@@ -13573,7 +13619,7 @@ function InsulationAssemblyCard({
             >
               <Text
                 style={{
-                  color: selected ? '#34d399' : Colors.text,
+                  color: selected ? '#050B13' : Colors.text,
                   fontSize: 10,
                   fontWeight: '700',
                 }}
@@ -13614,12 +13660,12 @@ function InsulationAssemblyCard({
               borderRadius: 8,
               borderWidth: 1,
               borderColor: selected
-                ? '#34d399'
+                ? '#2dcc9a'
                 : darkMode
                   ? 'rgba(255,255,255,0.14)'
                   : Colors.line,
               backgroundColor: selected
-                ? 'rgba(52,211,153,0.14)'
+                ? '#2dcc9a'
                 : darkMode
                   ? '#3f3f46'
                   : Colors.surface2,
@@ -13627,7 +13673,7 @@ function InsulationAssemblyCard({
           >
             <Text
               style={{
-                color: selected ? '#34d399' : Colors.text,
+                color: selected ? '#050B13' : Colors.text,
                 fontSize: 10,
                 fontWeight: '700',
               }}
@@ -13674,12 +13720,12 @@ function InsulationAssemblyCard({
               borderRadius: 8,
               borderWidth: 1,
               borderColor: selected
-                ? '#34d399'
+                ? '#2dcc9a'
                 : darkMode
                   ? 'rgba(255,255,255,0.14)'
                   : Colors.line,
               backgroundColor: selected
-                ? 'rgba(52,211,153,0.14)'
+                ? '#2dcc9a'
                 : darkMode
                   ? '#3f3f46'
                   : Colors.surface2,
@@ -13687,7 +13733,7 @@ function InsulationAssemblyCard({
           >
             <Text
               style={{
-                color: selected ? '#34d399' : Colors.text,
+                color: selected ? '#050B13' : Colors.text,
                 fontSize: 10,
                 fontWeight: '700',
                 textAlign: 'center',
@@ -13939,23 +13985,10 @@ function InsulationAssemblyCard({
                     marginTop: 6,
                     borderRadius: 10,
                     borderWidth: 1,
-                    borderColor: isExpanded
-                      ? 'rgba(52,211,153,0.55)'
-                      : isDuplicate
-                        ? 'rgba(245,158,11,0.55)'
-                        : isIncomplete
-                          ? 'rgba(245,158,11,0.35)'
-                          : darkMode
-                            ? 'rgba(255,255,255,0.12)'
-                            : Colors.line,
-                    backgroundColor: isExpanded
-                      ? darkMode
-                        ? '#252527'
-                        : Colors.surface2
-                      : darkMode
-                        ? '#3f3f46'
-                        : Colors.surface2,
-                    overflow: 'hidden',
+                    borderColor: darkMode
+                      ? 'rgba(255,255,255,0.12)'
+                      : Colors.line,
+                    backgroundColor: darkMode ? '#2A2A2E' : Colors.surface2,
                   }}
                 >
                   <TouchableOpacity
@@ -14010,7 +14043,7 @@ function InsulationAssemblyCard({
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text
                             style={{
-                              color: '#34d399',
+                              color: '#2dcc9a',
                               fontSize: 11,
                               fontWeight: '800',
                             }}
@@ -14032,7 +14065,7 @@ function InsulationAssemblyCard({
                       <Text
                         style={{
                           color: isExpanded
-                            ? '#34d399'
+                            ? '#2dcc9a'
                             : captionColor(darkMode, Colors),
                           fontSize: 16,
                           fontWeight: '400',
@@ -14067,7 +14100,7 @@ function InsulationAssemblyCard({
                         >
                           <Text
                             style={{
-                              color: '#34d399',
+                              color: '#2dcc9a',
                               fontSize: 10,
                               fontWeight: '800',
                             }}
@@ -14137,11 +14170,10 @@ function InsulationAssemblyCard({
                       ) : null}
                       <Text
                         style={{
-                          color: captionColor(darkMode, Colors),
-                          fontSize: 10,
-                          fontWeight: '700',
-                          marginBottom: 5,
-                          letterSpacing: 0.35,
+                          color: '#94a3b8',
+                          fontSize: 12,
+                          fontWeight: '600',
+                          marginBottom: 8,
                         }}
                       >
                         Target R-value
@@ -14165,12 +14197,11 @@ function InsulationAssemblyCard({
                         <>
                           <Text
                             style={{
-                              color: captionColor(darkMode, Colors),
-                              fontSize: 10,
-                              fontWeight: '700',
-                              marginTop: 10,
-                              marginBottom: 5,
-                              letterSpacing: 0.35,
+                              color: '#94a3b8',
+                              fontSize: 12,
+                              fontWeight: '600',
+                              marginTop: 12,
+                              marginBottom: 8,
                             }}
                           >
                             Batt facing
@@ -14179,7 +14210,7 @@ function InsulationAssemblyCard({
                           {facingNeedsReview ? (
                             <Text
                               style={{
-                                color: '#60a5fa',
+                                color: '#94a3b8',
                                 fontSize: 10,
                                 marginTop: 6,
                                 lineHeight: 14,
@@ -14193,12 +14224,11 @@ function InsulationAssemblyCard({
                       ) : null}
                       <Text
                         style={{
-                          color: captionColor(darkMode, Colors),
-                          fontSize: 10,
-                          fontWeight: '700',
-                          marginTop: 10,
-                          marginBottom: 5,
-                          letterSpacing: 0.35,
+                          color: '#94a3b8',
+                          fontSize: 12,
+                          fontWeight: '600',
+                          marginTop: 12,
+                          marginBottom: 8,
                         }}
                       >
                         Assembly location
@@ -14228,11 +14258,12 @@ function InsulationAssemblyCard({
                             alignItems: 'center',
                             borderRadius: 8,
                             borderWidth: 1,
-                            borderColor: area
-                              ? 'rgba(52,211,153,0.65)'
-                              : darkMode
-                                ? 'rgba(255,255,255,0.14)'
-                                : Colors.line,
+                            borderColor:
+                              Number(area) > 0
+                                ? 'rgba(45,204,154,0.65)'
+                                : darkMode
+                                  ? 'rgba(255,255,255,0.14)'
+                                  : Colors.line,
                             backgroundColor: 'transparent',
                           }}
                         >
@@ -14279,20 +14310,19 @@ function InsulationAssemblyCard({
                           activeOpacity={0.75}
                           style={{
                             flex: 1,
-                            minHeight: 36,
+                            minHeight: 44,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            borderRadius: 8,
-                            borderWidth: 1,
-                            borderColor: 'rgba(239,68,68,0.55)',
-                            backgroundColor: 'rgba(239,68,68,0.1)',
+                            borderRadius: 14,
+                            borderWidth: 0,
+                            backgroundColor: darkMode ? '#3A3A3C' : '#E2E8F0',
                           }}
                         >
                           <Text
                             style={{
                               color: '#f87171',
-                              fontSize: 12,
-                              fontWeight: '800',
+                              fontSize: 15,
+                              fontWeight: '600',
                             }}
                           >
                             Delete
@@ -14306,20 +14336,19 @@ function InsulationAssemblyCard({
                           activeOpacity={0.75}
                           style={{
                             flex: 1,
-                            minHeight: 36,
+                            minHeight: 44,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            borderRadius: 8,
-                            borderWidth: 1,
-                            borderColor: 'rgba(52,211,153,0.55)',
-                            backgroundColor: 'rgba(52,211,153,0.14)',
+                            borderRadius: 14,
+                            borderWidth: 0,
+                            backgroundColor: '#2dcc9a',
                           }}
                         >
                           <Text
                             style={{
-                              color: '#34d399',
-                              fontSize: 12,
-                              fontWeight: '800',
+                              color: '#050B13',
+                              fontSize: 15,
+                              fontWeight: '700',
                             }}
                           >
                             Done
@@ -17979,7 +18008,7 @@ function CollapsibleQuickMeasurements({
         >
           <Text
             style={{
-              color: keepingExistingWetArea ? '#38bdf8' : '#34d399',
+              color: keepingExistingWetArea ? '#38bdf8' : '#2dcc9a',
               fontSize: 12,
               fontWeight: '800',
             }}
@@ -18319,7 +18348,7 @@ function CollapsibleQuickMeasurements({
                   borderRadius: 10,
                   borderWidth: 1,
                   borderColor: reuseExistingShowerDoor
-                    ? '#34d399'
+                    ? '#2dcc9a'
                     : darkMode
                       ? 'rgba(255,255,255,0.16)'
                       : Colors.line,
@@ -18333,7 +18362,7 @@ function CollapsibleQuickMeasurements({
                 <Text
                   style={{
                     color: reuseExistingShowerDoor
-                      ? '#34d399'
+                      ? '#2dcc9a'
                       : darkMode
                         ? '#F5F7FA'
                         : Colors.text,
@@ -18411,7 +18440,7 @@ function CollapsibleQuickMeasurements({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Text
-                style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}
+                style={{ color: '#2dcc9a', fontSize: 12, fontWeight: '800' }}
               >
                 Use shower estimates
               </Text>
@@ -20148,7 +20177,7 @@ function CollapsibleQuickMeasurements({
         : {}),
     }));
   };
-  const paintChipSelectedColor = '#34d399';
+  const paintChipSelectedColor = '#2dcc9a';
   const paintChipStyle = (selected: boolean) => ({
     borderWidth: 1,
     borderColor: selected
@@ -20448,7 +20477,7 @@ function CollapsibleQuickMeasurements({
                       style={{
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: selected ? '#34d399' : '#3A3A3C',
+                        borderColor: selected ? '#2dcc9a' : '#3A3A3C',
                         backgroundColor: selected
                           ? 'rgba(52, 211, 153, 0.12)'
                           : 'transparent',
@@ -20458,7 +20487,7 @@ function CollapsibleQuickMeasurements({
                     >
                       <Text
                         style={{
-                          color: selected ? '#34d399' : Colors.text,
+                          color: selected ? '#050B13' : Colors.text,
                           fontSize: 13,
                           fontWeight: '700',
                         }}
@@ -21083,7 +21112,7 @@ function CollapsibleQuickMeasurements({
                   >
                     <Text
                       style={{
-                        color: '#34d399',
+                        color: '#2dcc9a',
                         fontSize: 12,
                         fontWeight: '800',
                       }}
@@ -21401,7 +21430,7 @@ function CollapsibleQuickMeasurements({
                       >
                         <Text
                           style={{
-                            color: '#34d399',
+                            color: '#2dcc9a',
                             fontSize: 12,
                             fontWeight: '800',
                           }}
@@ -21718,7 +21747,7 @@ function ScopeGroupSection({
                 width: 3,
                 alignSelf: 'stretch',
                 borderRadius: 2,
-                backgroundColor: '#22c55e',
+                backgroundColor: '#2dcc9a',
                 marginRight: 12,
               }}
             />
@@ -21772,7 +21801,7 @@ function ScopeGroupSection({
           {priceLabel ? (
             <Text
               style={{
-                color: darkMode ? '#F5F7FA' : Colors.text,
+                color: '#2dcc9a',
                 fontSize: 17,
                 fontWeight: '800',
                 fontVariant: ['tabular-nums'],
@@ -21821,12 +21850,11 @@ function ScopeGroupSection({
                 paddingHorizontal: 10,
                 paddingVertical: 6,
                 borderRadius: 8,
-                backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
-                borderWidth: 1,
-                borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+                backgroundColor: '#2dcc9a',
+                borderWidth: 0,
               }}
             >
-              <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>
+              <Text style={{ color: '#050B13', fontSize: 12, fontWeight: '700' }}>
                 Apply
               </Text>
             </TouchableOpacity>
@@ -30583,12 +30611,12 @@ export default function AIEstimateScopeAssumptionsModal({
                             borderRadius: 8,
                             borderWidth: 1,
                             borderColor: selected
-                              ? '#34d399'
+                              ? '#2dcc9a'
                               : darkMode
                                 ? 'rgba(255,255,255,0.14)'
                                 : Colors.line,
                             backgroundColor: selected
-                              ? 'rgba(52,211,153,0.14)'
+                              ? '#2dcc9a'
                               : darkMode
                                 ? '#252527'
                                 : Colors.surface2,
@@ -30596,7 +30624,7 @@ export default function AIEstimateScopeAssumptionsModal({
                         >
                           <Text
                             style={{
-                              color: selected ? '#34d399' : Colors.text,
+                              color: selected ? '#050B13' : Colors.text,
                               fontSize: 11,
                               fontWeight: '700',
                             }}
@@ -31242,18 +31270,20 @@ export default function AIEstimateScopeAssumptionsModal({
                   scopeGroupsToRender.length > 0
                     ? styles.addScopeItemBtnAfterCards
                     : null,
-                  estimateFlowCardStyle(Colors, darkMode),
                   {
-                    backgroundColor: darkMode ? '#202022' : Colors.surface,
+                    backgroundColor: darkMode ? '#3A3A3C' : '#E2E8F0',
+                    borderWidth: 0,
+                    borderRadius: 14,
+                    minHeight: 50,
                   },
                 ]}
                 onPress={() => setShowCustomItemInput(true)}
                 disabled={applying}
                 activeOpacity={0.75}
               >
-                <Ionicons name='add-circle-outline' size={18} color='#22c55e' />
+                <Ionicons name='add-circle-outline' size={18} color='#2dcc9a' />
                 <Text
-                  style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}
+                  style={{ color: '#2dcc9a', fontSize: 16, fontWeight: '800' }}
                 >
                   Add scope item
                 </Text>
@@ -31338,7 +31368,7 @@ export default function AIEstimateScopeAssumptionsModal({
           disabled={applying}
         >
           {applying ? (
-            <ActivityIndicator color='#0f172a' />
+            <ActivityIndicator color='#050B13' />
           ) : (
             <Text style={styles.primaryBtnText}>Continue to review</Text>
           )}
@@ -31347,7 +31377,7 @@ export default function AIEstimateScopeAssumptionsModal({
         {isElectricalConfirmScope && quickMeasurementsOpen ? (
           <View style={styles.bulkSuggestedPricingLink}>
             <Text
-              style={[styles.bulkSuggestedPricingBtnText, { color: '#22c55e' }]}
+              style={styles.bulkSuggestedPricingBtnText}
             >
               {electricalPreviewPendingPricingCount > 0
                 ? `${electricalPreviewPendingPricingCount} pricing card${
@@ -31378,7 +31408,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   <Text
                     style={[
                       styles.bulkSuggestedPricingBtnText,
-                      { color: '#22c55e' },
+                      { color: '#94a3b8' },
                     ]}
                   >
                     {scrollToPricingLabel}
@@ -31597,10 +31627,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   quickMeasurementSectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
     marginBottom: 2,
   },
   quickMeasurementsDone: {
@@ -31728,14 +31757,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22c55e',
-    borderRadius: 10,
+    backgroundColor: '#2dcc9a',
+    borderRadius: 14,
+    minHeight: 48,
     paddingVertical: 12,
   },
   customComposerAddBtnText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontWeight: '800',
-    fontSize: 13,
+    fontSize: 15,
   },
   groupHeader: {
     flexDirection: 'row',
@@ -31781,12 +31811,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   fromNotesBadgeLight: {
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    borderColor: 'rgba(45, 204, 154, 0.35)',
+    backgroundColor: 'rgba(45, 204, 154, 0.1)',
   },
   fromNotesBadgeDark: {
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(45, 204, 154, 0.35)',
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
   },
   customCardActions: {
     flexDirection: 'row',
@@ -31935,7 +31965,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -32044,12 +32074,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
-    borderWidth: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 0,
   },
   formulaActionText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
     flexShrink: 1,
@@ -32163,10 +32193,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2dcc9a',
   },
   pricingEditorDoneBtnText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -32210,10 +32240,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   budgetSplitHeaderTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
+    color: '#94a3b8',
   },
   budgetSplitHeaderPill: {
     flexShrink: 0,
@@ -32408,10 +32438,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryBtn: {
-    backgroundColor: '#22c55e',
-    borderRadius: 12,
+    backgroundColor: '#2dcc9a',
+    borderRadius: 14,
+    minHeight: 50,
     paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryBtnDisabled: {
     opacity: 0.7,
@@ -32467,10 +32499,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   bulkSuggestedPricingBtnText: {
-    color: '#22c55e',
+    color: '#94a3b8',
     fontWeight: '700',
     fontSize: 13,
     textAlign: 'center',
   },
-  primaryBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 16 },
+  primaryBtnText: { color: '#050B13', fontWeight: '800', fontSize: 16 },
 });

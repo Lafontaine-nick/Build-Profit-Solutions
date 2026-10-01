@@ -15,7 +15,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-react';
@@ -57,11 +56,6 @@ import {
   stripPlanTakeoffFromNotes,
 } from '@/utils/planTakeoffReviewUi';
 import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
 
 type Props = {
@@ -889,19 +883,14 @@ export default function AIEstimateBuilderModal({
         ]}
       >
         {generateBtnEnabled && !busy ? (
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
-            style={styles.generateCta}
-          >
-            <MaterialIcons name='auto-awesome' size={18} color='#0f172a' />
+          <View style={[styles.generateCta, styles.generateCtaMint]}>
+            <MaterialIcons name='auto-awesome' size={18} color='#050B13' />
             <Text style={styles.generateCtaText}>
               {selectedPlanTrade
                 ? `Generate ${selectedPlanTrade.label} Estimate Draft`
                 : 'Generate Estimate Draft'}
             </Text>
-          </LinearGradient>
+          </View>
         ) : (
           <View style={styles.generateCta}>
             {busy ? (
@@ -1259,18 +1248,20 @@ const styles = StyleSheet.create({
   },
   generateCtaShell: {
     width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
+    borderRadius: 14,
   },
   generateCta: {
     width: '100%',
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 50,
+    borderRadius: 14,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  generateCtaMint: {
+    backgroundColor: '#2dcc9a',
   },
   generateCtaDisabled: {
     backgroundColor: 'rgba(148, 163, 184, 0.12)',
@@ -1278,7 +1269,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148, 163, 184, 0.18)',
   },
   generateCtaText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontSize: 15,
     fontWeight: '800',
     flexShrink: 1,

@@ -165,7 +165,7 @@ export default function AIEstimateDraftReviewModal({
   const hasApproved = draftHasApprovedSuggestions(draft);
   const confidenceLevel = draft?.estimateConfidence?.level as EstimateConfidenceLevel | undefined;
   const confidenceColors: Record<EstimateConfidenceLevel, { bg: string; color: string }> = {
-    high: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' },
+    high: { bg: 'rgba(45, 204, 154, 0.14)', color: '#2dcc9a' },
     medium: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
     low: { bg: 'rgba(248, 113, 113, 0.12)', color: '#f87171' },
   };
@@ -422,10 +422,10 @@ export default function AIEstimateDraftReviewModal({
             accessibilityLabel="Apply to Estimate"
           >
             {applying ? (
-              <ActivityIndicator color="#0f172a" />
+              <ActivityIndicator color="#050B13" />
             ) : (
               <>
-                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <MaterialIcons name="check-circle" size={20} color="#050B13" />
                 <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
               </>
             )}
@@ -438,10 +438,10 @@ export default function AIEstimateDraftReviewModal({
             accessibilityLabel="Save Scope Draft"
           >
             {applying ? (
-              <ActivityIndicator color="#0f172a" />
+              <ActivityIndicator color="#050B13" />
             ) : (
               <>
-                <MaterialIcons name="save" size={20} color="#0f172a" />
+                <MaterialIcons name="save" size={20} color="#050B13" />
                 <Text style={styles.primaryBtnText}>Save Scope Draft</Text>
               </>
             )}
@@ -454,10 +454,10 @@ export default function AIEstimateDraftReviewModal({
             accessibilityLabel="Add to bid"
           >
             {applying ? (
-              <ActivityIndicator color="#0f172a" />
+              <ActivityIndicator color="#050B13" />
             ) : (
               <>
-                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <MaterialIcons name="check-circle" size={20} color="#050B13" />
                 <Text style={styles.primaryBtnText}>Add to bid</Text>
               </>
             )}
@@ -470,10 +470,10 @@ export default function AIEstimateDraftReviewModal({
             accessibilityLabel="Apply to Estimate"
           >
             {applying ? (
-              <ActivityIndicator color="#0f172a" />
+              <ActivityIndicator color="#050B13" />
             ) : (
               <>
-                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <MaterialIcons name="check-circle" size={20} color="#050B13" />
                 <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
               </>
             )}
@@ -547,8 +547,9 @@ const styles = StyleSheet.create({
     elevation: 101,
   },
   primaryBtn: {
-    backgroundColor: '#22c55e',
-    borderRadius: 12,
+    backgroundColor: '#2dcc9a',
+    borderRadius: 14,
+    minHeight: 50,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -560,7 +561,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   primaryBtnText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontSize: 16,
     fontWeight: '800',
   },

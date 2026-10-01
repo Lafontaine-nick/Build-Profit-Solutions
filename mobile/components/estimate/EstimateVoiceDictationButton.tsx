@@ -152,7 +152,7 @@ export default function EstimateVoiceDictationButton({
           : estimateStep1ActionButtonStyle(Colors, darkMode);
       return (
         <View style={[shellStyle, style]}>
-          <ActivityIndicator size="small" color="#22c55e" />
+          <ActivityIndicator size="small" color="#94a3b8" />
           <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600' }}>Transcribing…</Text>
         </View>
       );
@@ -235,7 +235,7 @@ export default function EstimateVoiceDictationButton({
       accessibilityLabel="Dictate walkthrough notes"
       style={actionShell}
     >
-      <MaterialIcons name="mic" size={variant === 'compact' ? 16 : 18} color="#22c55e" />
+      <MaterialIcons name="mic" size={variant === 'compact' ? 16 : 18} color="#2dcc9a" />
       <Text
         style={{
           color: variant === 'ghost' ? Colors.sub : Colors.text,

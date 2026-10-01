@@ -281,9 +281,7 @@ function RotatingTestimonial({
                 {
                   backgroundColor:
                     i === index
-                      ? darkMode
-                        ? "#e2e8f0"
-                        : "#0f172a"
+                      ? "#2dcc9a"
                       : darkMode
                         ? "rgba(148, 163, 184, 0.45)"
                         : "rgba(100, 116, 139, 0.35)",
@@ -427,11 +425,7 @@ export default function LandingScreen() {
               <View style={styles.featuresRow}>
                 <View style={styles.featureItem}>
                   <View style={styles.featureIconContainer}>
-                    <Ionicons
-                      name="calculator-outline"
-                      size={22}
-                      color={darkMode ? "#94a3b8" : "#64748b"}
-                    />
+                    <Ionicons name="calculator-outline" size={22} color="#2dcc9a" />
                   </View>
                   <Text style={styles.featureTitle}>
                     {t("landing.aiEstimates")}
@@ -440,11 +434,7 @@ export default function LandingScreen() {
 
                 <View style={styles.featureItem}>
                   <View style={styles.featureIconContainer}>
-                    <Ionicons
-                      name="trending-up-outline"
-                      size={22}
-                      color={darkMode ? "#94a3b8" : "#64748b"}
-                    />
+                    <Ionicons name="trending-up-outline" size={22} color="#2dcc9a" />
                   </View>
                   <Text style={styles.featureTitle}>
                     {t("landing.profitTracking")}
@@ -453,7 +443,7 @@ export default function LandingScreen() {
 
                 <View style={styles.featureItem}>
                   <View style={styles.featureIconContainer}>
-                    <Ionicons name="people-outline" size={22} color={darkMode ? "#94a3b8" : "#64748b"} />
+                    <Ionicons name="people-outline" size={22} color="#2dcc9a" />
                   </View>
                   <Text style={styles.featureTitle}>
                     {t("landing.teamManagement")}
@@ -462,11 +452,7 @@ export default function LandingScreen() {
               </View>
 
               <View style={styles.reassureRow}>
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={16}
-                  color={darkMode ? "#94a3b8" : "#64748b"}
-                />
+                <Ionicons name="shield-checkmark-outline" size={16} color="#2dcc9a" />
                 <Text style={styles.reassureText}>
                   {t("landing.dataPrivacy")}
                 </Text>
@@ -491,12 +477,13 @@ export default function LandingScreen() {
                 <Text style={styles.feedbackSubtitle}>
                   {t("landing.trustedBy")}
                 </Text>
-                <View style={styles.testimonialIconCircle}>
-                  <Ionicons
-                    name="chatbubbles-outline"
-                    size={26}
-                    color={darkMode ? "#94a3b8" : "#64748b"}
-                  />
+                <View
+                  style={[
+                    styles.testimonialIconCircle,
+                    { backgroundColor: "rgba(45, 204, 154, 0.14)" },
+                  ]}
+                >
+                  <Ionicons name="chatbubbles-outline" size={26} color="#2dcc9a" />
                 </View>
                 <RotatingTestimonial
                   testimonials={testimonials}

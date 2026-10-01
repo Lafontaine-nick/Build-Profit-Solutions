@@ -82,7 +82,7 @@ const flowCard = (Colors: Colors, darkMode: boolean) => ({
 const flowDivider = (darkMode: boolean) => estimateFlowDividerColor(darkMode);
 
 const STEP3_STATUS_COLORS = {
-  ready: { bg: 'rgba(34, 197, 94, 0.14)', color: '#4ade80' },
+  ready: { bg: 'rgba(45, 204, 154, 0.14)', color: '#2dcc9a' },
   review: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
   partial: { bg: 'rgba(45, 255, 196, 0.1)', color: '#2DFFC4' },
 };
@@ -143,7 +143,7 @@ function PriceRow({
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
       <Text style={{ color: Colors.sub, fontSize: 14, fontWeight: '600' }}>{label}</Text>
-      <Text style={{ color: highlight ? '#22c55e' : Colors.text, fontSize: 15, fontWeight: '700' }}>
+      <Text style={{ color: highlight ? '#2dcc9a' : Colors.text, fontSize: 15, fontWeight: '700' }}>
         {value}
       </Text>
     </View>
@@ -446,11 +446,11 @@ export default function AIEstimateDraftReviewCompact({
 
           {heroAmount != null ? (
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 12 }}>
-              <Text style={{ color: '#22c55e', fontSize: 36, fontWeight: '900', letterSpacing: -0.8 }}>
+              <Text style={{ color: '#2dcc9a', fontSize: 36, fontWeight: '900', letterSpacing: -0.8 }}>
                 {formatPlanningMoney(heroAmount)}
               </Text>
               {draft.totalMatches === true ? (
-                <MaterialIcons name="check-circle" size={18} color="#22c55e" />
+                <MaterialIcons name="check-circle" size={18} color="#2dcc9a" />
               ) : null}
             </View>
           ) : null}
@@ -655,7 +655,7 @@ export default function AIEstimateDraftReviewCompact({
                           <View style={styles.budgetSplitToggleInner}>
                             <Text
                               style={{
-                                color: '#22c55e',
+                                color: '#2dcc9a',
                                 fontSize: 15,
                                 fontWeight: '600',
                                 letterSpacing: -0.2,
@@ -666,7 +666,7 @@ export default function AIEstimateDraftReviewCompact({
                             <MaterialIcons
                               name={showBudgetSplit ? 'expand-less' : 'expand-more'}
                               size={20}
-                              color="rgba(34, 197, 94, 0.9)"
+                              color="#2dcc9a"
                             />
                           </View>
                           {pricingSourceLabel ? (
@@ -694,7 +694,7 @@ export default function AIEstimateDraftReviewCompact({
                         <>
                           <Text
                             style={{
-                              color: '#22c55e',
+                              color: '#2dcc9a',
                               fontSize: 15,
                               fontWeight: '600',
                               letterSpacing: -0.2,
@@ -869,7 +869,7 @@ export default function AIEstimateDraftReviewCompact({
             <PriceRow label="In your notes" value={formatPlanningMoney(statedTotal)} Colors={Colors} />
           ) : null}
           {draft.totalMatches === true ? (
-            <Text style={{ color: '#22c55e', fontSize: 12, marginTop: 4 }}>Totals match your notes.</Text>
+            <Text style={{ color: '#2dcc9a', fontSize: 12, marginTop: 4 }}>Totals match your notes.</Text>
           ) : null}
         </View>
       ) : null}

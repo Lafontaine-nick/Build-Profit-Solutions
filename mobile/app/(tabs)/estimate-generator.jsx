@@ -149,8 +149,6 @@ import {
   estimateAiAssistRowInCardStyle,
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
-  estimateHeaderNewBidButtonStyle,
-  estimateHeaderNewBidTextStyle,
   estimateStep1AccentCardStyle,
   estimateStep1ActionButtonStyle,
   estimateFlowNestedActionButtonStyle,
@@ -1057,7 +1055,7 @@ const getModalStyles = (Colors, darkMode) => StyleSheet.create({
   budgetDollarSign: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#22c55e',
+    color: '#94a3b8',
     marginLeft: 12,
     marginRight: 4,
   },
@@ -2101,6 +2099,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const keyboardHeightRef = useRef(0);
   keyboardHeightRef.current = keyboardHeight;
   const [materialVendorFocused, setMaterialVendorFocused] = useState(false);
+  const [showMaterialCategoryPicker, setShowMaterialCategoryPicker] = useState(false);
+  const materialCategories = ['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Windows', 'Exterior Siding', 'Doors', 'Cabinets', 'Lighting', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'];
   const lineItemModalScrollRef = useRef(null);
   const lineItemModalScrollYRef = useRef(0);
   const materialVendorBlockRef = useRef(null);
@@ -2367,13 +2367,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     });
   }, [lineItemWebConstrained]);
 
-  const lineItemMaterialVendorKeyboardBoost =
-    visible && isMaterialForm && isKeyboardVisible && materialVendorFocused
-      ? Platform.OS === 'ios'
-        ? 160
-        : 120
-      : 0;
-
   return (
     <Modal
       visible={visible}
@@ -2384,8 +2377,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'android' ? 'padding' : undefined}
-        enabled={Platform.OS === 'android'}
+        behavior={Platform.OS === 'web' ? undefined : 'padding'}
+        enabled={Platform.OS !== 'web'}
         style={{ flex: 1, backgroundColor: Colors.bg }}
         keyboardVerticalOffset={0}
       >
@@ -2403,58 +2396,47 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
             >
               {/* Header — web: extra top breathing room below browser chrome (materials + labor) */}
               <View
-                style={[
-                  modalStyles.materialHeader,
-                  { paddingHorizontal: lineItemLayoutPad.header },
-                  Platform.OS === 'web' && { paddingTop: 32 },
-                ]}
+                pointerEvents="box-none"
+                style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 12,
+                  paddingTop: Platform.OS === 'web' ? 32 : 8,
+                  paddingBottom: 16,
+                  minHeight: 56,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                }}
               >
-                <View style={modalStyles.backButtonWrapper}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={modalStyles.backButtonBorder}
-                  >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={onClose}
-                      style={modalStyles.backButton}
-                    >
-                      <MaterialIcons
-                        name="arrow-back"
-                        size={24}
-                        color={darkMode ? "#FFFFFF" : "#000000"}
-                      />
-                    </GradientRingBackInner>
-                  </LinearGradient>
+                <View pointerEvents="none" style={{ alignItems: 'center', width: '100%', paddingHorizontal: 56 }}>
+                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
+                    {isLaborForm ? 'Add Labor' : 'Add Materials & Equipment'}
+                  </Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 14, marginTop: 4, fontWeight: '500', lineHeight: 20, textAlign: 'center' }}>
+                    {isLaborForm ? 'Log your labor expense' : 'Log your material or equipment expense'}
+                  </Text>
                 </View>
-                <View style={modalStyles.headerTitleRow}>
-                      <View style={modalStyles.headerIconContainerWrapper}>
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={modalStyles.headerIconBorder}
-                    >
-                      <View style={modalStyles.headerIconContainer}>
-                        <MaterialCommunityIcons
-                          name={isLaborForm ? "account-hard-hat" : "package-variant-closed"}
-                          size={24}
-                          color="#22c55e"
-                        />
-                      </View>
-                    </LinearGradient>
-                  </View>
-                  <View style={modalStyles.headerTextBlock}>
-                    <Text style={modalStyles.materialTitle}>
-                      {isLaborForm ? 'Add Labor' : 'Add Materials & Equipment'}
-                    </Text>
-                    <Text style={modalStyles.materialSubtitle}>
-                      {isLaborForm ? 'Log your labor expense' : 'Log your material or equipment expense'}
-                    </Text>
-                  </View>
-                </View>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={onClose}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                  style={{
+                    position: 'absolute',
+                    left: 16,
+                    top: Platform.OS === 'web' ? 32 : 8,
+                    zIndex: 2,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
+                  }}
+                >
+                  <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+                </TouchableOpacity>
               </View>
               
               {/* Content — keyboard insets on iOS (avoid stacking KeyboardAvoidingView + footer hide/show jank) */}
@@ -2466,14 +2448,15 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 scrollEventThrottle={16}
                 style={{ flex: 1 }}
                 {...KEYBOARD_SCROLL_DEFAULTS}
+                keyboardDismissMode="none"
                 showsVerticalScrollIndicator={false}
-                automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                automaticallyAdjustKeyboardInsets={false}
                 automaticallyAdjustContentInsets={false}
                 contentInsetAdjustmentBehavior="never"
                 contentContainerStyle={{
                   paddingHorizontal: lineItemLayoutPad.scroll,
                   paddingTop: ESTIMATE_FLOW_CARD_GAP,
-                  paddingBottom: 16 + lineItemMaterialVendorKeyboardBoost,
+                  paddingBottom: 150 + Math.max(insets.bottom, 16),
                   gap: ESTIMATE_FLOW_CARD_GAP,
                 }}
               >
@@ -2481,7 +2464,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
                     {/* Labor description + trade */}
                     <View style={modalStyles.materialFieldGroup}>
-                      <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Labor description *</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Labor description *</Text>
                       <View style={modalStyles.materialInputWrapper}>
                         <Feather
                           name="file-text"
@@ -2507,7 +2490,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     </View>
 
                     <View style={modalStyles.materialFieldGroup}>
-                      <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Trade</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Trade</Text>
                       <View style={modalStyles.materialInputWrapper}>
                         <Feather
                           name="briefcase"
@@ -2534,20 +2517,27 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
                     {/* Pricing Mode */}
                     <View style={modalStyles.materialFieldGroup}>
-                      <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Pricing *</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Pricing *</Text>
                       <View style={modalStyles.materialPricingRow}>
                         <TouchableOpacity
                           onPress={() => setMode('hourly')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                            mode === 'hourly' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                            {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                            mode === 'hourly' && {
+                              backgroundColor: '#2dcc9a',
+                              borderColor: '#2dcc9a',
+                            },
                           ]}
                         >
-                          <Feather name="clock" size={16} color={mode === 'hourly' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                          <Feather name="clock" size={16} color={mode === 'hourly' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
-                              color: mode === 'hourly' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                              color: mode === 'hourly' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                               fontWeight: mode === 'hourly' ? '700' : '600',
                               fontSize: 13,
                             }}
@@ -2559,14 +2549,21 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setMode('sqft')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                            mode === 'sqft' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                            {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                            mode === 'sqft' && {
+                              backgroundColor: '#2dcc9a',
+                              borderColor: '#2dcc9a',
+                            },
                           ]}
                         >
-                          <Feather name="maximize-2" size={16} color={mode === 'sqft' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                          <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
-                              color: mode === 'sqft' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                              color: mode === 'sqft' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                               fontWeight: mode === 'sqft' ? '700' : '600',
                               fontSize: 13,
                             }}
@@ -2579,20 +2576,27 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
                     {/* Labor Type */}
                     <View style={modalStyles.materialFieldGroup}>
-                      <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Labor type *</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Labor type *</Text>
                       <View style={modalStyles.materialPricingRow}>
                         <TouchableOpacity
                           onPress={() => setLaborType('inhouse')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                            laborType === 'inhouse' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                            {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                            laborType === 'inhouse' && {
+                              backgroundColor: '#2dcc9a',
+                              borderColor: '#2dcc9a',
+                            },
                           ]}
                         >
-                          <Feather name="user" size={16} color={laborType === 'inhouse' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                          <Feather name="user" size={16} color={laborType === 'inhouse' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
-                              color: laborType === 'inhouse' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                              color: laborType === 'inhouse' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                               fontWeight: laborType === 'inhouse' ? '700' : '600',
                               fontSize: 13,
                             }}
@@ -2604,14 +2608,21 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setLaborType('subcontractor')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                            laborType === 'subcontractor' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                            {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                            laborType === 'subcontractor' && {
+                              backgroundColor: '#2dcc9a',
+                              borderColor: '#2dcc9a',
+                            },
                           ]}
                         >
-                          <Feather name="tool" size={16} color={laborType === 'subcontractor' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                          <Feather name="tool" size={16} color={laborType === 'subcontractor' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
-                              color: laborType === 'subcontractor' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                              color: laborType === 'subcontractor' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                               fontWeight: laborType === 'subcontractor' ? '700' : '600',
                               fontSize: 13,
                             }}
@@ -2625,7 +2636,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     {/* Hours/Rate Inputs */}
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                       <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
+                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
                           {mode === 'sqft' ? 'Square feet *' : 'Hours *'}
                         </Text>
                         <View style={modalStyles.materialInputWrapper}>
@@ -2652,14 +2663,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </View>
                       </View>
                       <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
+                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
                           {mode === 'sqft' ? 'Rate ($/sq ft) *' : 'Rate ($/hr) *'}
                         </Text>
                         <View style={modalStyles.materialInputWrapper}>
                           <Feather
                             name="dollar-sign"
                             size={16}
-                            color="#22c55e"
+                            color="#8DA0B8"
                             style={modalStyles.materialInputIcon}
                           />
                           <TextInput
@@ -2670,15 +2681,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onChangeText={(text) => setLaborRateDigits(formatDecimalMoneyDisplay(text))}
                             keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? 'dark' : 'light'}
-                            {...lineItemModalNumericKeyboardProps}
                             autoCorrect={false}
                             spellCheck={false}
-                            returnKeyType="done"
-                            onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit={true}
                             selectionColor="#22c55e"
                             cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                             underlineColorAndroid="transparent"
+                            {...lineItemModalNumericKeyboardProps}
                           />
                         </View>
                       </View>
@@ -2686,10 +2694,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
                     {/* Total Display */}
                     <View style={[modalStyles.materialFieldGroup, { marginTop: ESTIMATE_FLOW_CARD_GAP }]}>
-                      <View style={estimateFlowLineItemsTotalStyle(darkMode)}>
+                      <View style={{ borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.12)' }}>
                         <Text
                           style={{
-                            color: ESTIMATE_FLOW_GREEN,
+                            color: ((Number(hours) || 0) * (decimalMoneyInputToNumber(laborRateDigits) || 0)) > 0 ? '#2dcc9a' : '#94a3b8',
                             fontSize: 18,
                             fontWeight: '800',
                             textAlign: 'center',
@@ -2708,7 +2716,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
                       {/* Material (required) */}
                       <View style={modalStyles.materialFieldGroup}>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Material *</Text>
+                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Material *</Text>
                         <View style={modalStyles.materialInputWrapper}>
                           <Feather
                             name="file-text"
@@ -2733,7 +2741,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       {/* Vendor — same scroll nudge + extra bottom pad as estimate step 1–2 text fields */}
                       <View ref={materialVendorBlockRef} collapsable={false}>
                         <View style={modalStyles.materialFieldGroup}>
-                          <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Vendor / Supplier (Optional)</Text>
+                          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Vendor / supplier (optional)</Text>
                           <View style={modalStyles.materialInputWrapper}>
                             <Feather
                               name="store"
@@ -2760,20 +2768,27 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
                       {/* Pricing: flat total vs per sq ft (same idea as labor) */}
                       <View style={modalStyles.materialFieldGroup}>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Pricing *</Text>
+                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Pricing *</Text>
                         <View style={modalStyles.materialPricingRow}>
                           <TouchableOpacity
                             onPress={() => handleMaterialPricingModeChange('flat')}
                             style={[
                               modalStyles.materialPricingOption,
-                              estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                              mode === 'flat' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                              {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                              mode === 'flat' && {
+                                backgroundColor: '#2dcc9a',
+                                borderColor: '#2dcc9a',
+                              },
                             ]}
                           >
-                            <Feather name="dollar-sign" size={16} color={mode === 'flat' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                            <Feather name="dollar-sign" size={16} color={mode === 'flat' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                             <Text
                               style={{
-                                color: mode === 'flat' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                                color: mode === 'flat' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                                 fontWeight: mode === 'flat' ? '700' : '600',
                                 fontSize: 13,
                               }}
@@ -2785,14 +2800,21 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onPress={() => handleMaterialPricingModeChange('sqft')}
                             style={[
                               modalStyles.materialPricingOption,
-                              estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                              mode === 'sqft' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                              {
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                borderWidth: 1,
+                              },
+                              mode === 'sqft' && {
+                                backgroundColor: '#2dcc9a',
+                                borderColor: '#2dcc9a',
+                              },
                             ]}
                           >
-                            <Feather name="maximize-2" size={16} color={mode === 'sqft' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} style={{ marginBottom: 4 }} />
+                            <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
                             <Text
                               style={{
-                                color: mode === 'sqft' ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                                color: mode === 'sqft' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                                 fontWeight: mode === 'sqft' ? '700' : '600',
                                 fontSize: 13,
                               }}
@@ -2814,12 +2836,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           }}
                         >
                           <Text
-                            style={[
-                              confirmScopeSectionLabelStyle(),
-                              { marginBottom: 10, color: Colors.sub },
-                            ]}
+                            style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}
                           >
-                            {mode === 'sqft' ? 'Total (calculated) *' : 'Amount *'}
+                            {mode === 'sqft' ? 'Total' : 'Amount *'}
                           </Text>
                         </View>
 
@@ -2828,10 +2847,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             <View style={{ flexDirection: 'row', gap: 12 }}>
                               <View style={{ flex: 1 }}>
                                 <Text
-                                  style={[
-                                    confirmScopeSectionLabelStyle(),
-                                    { color: Colors.sub, marginBottom: 8 },
-                                  ]}
+                                  style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}
                                 >
                                   Square feet *
                                 </Text>
@@ -2866,26 +2882,18 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
-                                    {...lineItemModalNumericKeyboardProps}
                                     autoCorrect={false}
                                     spellCheck={false}
-                                    returnKeyType="done"
-                                    blurOnSubmit={false}
-                                    onSubmitEditing={() =>
-                                      materialRateInputRef.current?.focus?.()
-                                    }
                                     selectionColor="#22c55e"
                                     cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
+                                    {...lineItemModalNumericKeyboardProps}
                                   />
                                 </View>
                               </View>
                               <View style={{ flex: 1 }}>
                                 <Text
-                                  style={[
-                                    confirmScopeSectionLabelStyle(),
-                                    { color: Colors.sub, marginBottom: 8 },
-                                  ]}
+                                  style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}
                                 >
                                   Rate ($/sq ft) *
                                 </Text>
@@ -2893,7 +2901,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   <Feather
                                     name="dollar-sign"
                                     size={16}
-                                    color={ESTIMATE_FLOW_CHIP_GREEN}
+                                    color="#94a3b8"
                                     style={{ marginLeft: 12, marginRight: 8 }}
                                   />
                                   <TextInput
@@ -2920,36 +2928,28 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
-                                    {...lineItemModalNumericKeyboardProps}
                                     autoCorrect={false}
                                     spellCheck={false}
-                                    returnKeyType="done"
-                                    blurOnSubmit={false}
-                                    onSubmitEditing={() => Keyboard.dismiss()}
                                     selectionColor="#22c55e"
                                     cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
+                                    {...lineItemModalNumericKeyboardProps}
                                   />
                                 </View>
                               </View>
                             </View>
-                            <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginTop: ESTIMATE_FLOW_CARD_GAP }]}>
-                              <Text
-                                style={{
-                                  color: ESTIMATE_FLOW_GREEN,
-                                  fontSize: 18,
-                                  fontWeight: '800',
-                                  textAlign: 'center',
-                                }}
-                              >
-                                Total:{' '}
+                            <View style={{ marginTop: ESTIMATE_FLOW_CARD_GAP, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+                              <Text style={{ textAlign: 'center', fontSize: 18, fontWeight: '800' }}>
                                 {(() => {
                                   const sq =
                                     parseInt(digitsOnly(quantityText), 10) || 0;
                                   const rate = decimalMoneyInputToNumber(unitPriceText);
-                                  return formatMoneyFull(sq * rate, {
-                                    decimals: 2,
-                                  });
+                                  const lineTotal = sq * rate;
+                                  return (
+                                    <Text style={{ color: lineTotal > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 18, fontWeight: '800' }}>
+                                      {formatMoneyFull(lineTotal, { decimals: 2 })}
+                                    </Text>
+                                  );
                                 })()}
                               </Text>
                             </View>
@@ -2982,28 +2982,17 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
-                                {...lineItemModalNumericKeyboardProps}
                                 autoCorrect={false}
                                 spellCheck={false}
-                                returnKeyType="done"
-                                blurOnSubmit={false}
-                                onSubmitEditing={() => Keyboard.dismiss()}
                                 selectionColor="#22c55e"
                                 cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                 underlineColorAndroid="transparent"
+                                {...lineItemModalNumericKeyboardProps}
                               />
                             </View>
                             {decimalMoneyInputToNumber(unitPriceText) > 0 && (
-                              <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginTop: ESTIMATE_FLOW_CARD_GAP }]}>
-                                <Text
-                                  style={{
-                                    color: ESTIMATE_FLOW_GREEN,
-                                    fontSize: 18,
-                                    fontWeight: '800',
-                                    textAlign: 'center',
-                                  }}
-                                >
-                                  Total:{' '}
+                              <View style={{ marginTop: ESTIMATE_FLOW_CARD_GAP, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+                                <Text style={{ color: '#2dcc9a', fontSize: 18, fontWeight: '800', textAlign: 'center' }}>
                                   {formatMoneyFull(
                                     decimalMoneyInputToNumber(unitPriceText),
                                     { decimals: 2 }
@@ -3015,68 +3004,172 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         )}
                       </View>
 
-                      {/* Category (Optional) */}
                       <View style={[modalStyles.materialFieldGroup, { marginTop: 12, marginBottom: 8 }]}>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Category (Optional)</Text>
-                        <View style={[modalStyles.materialChipRow, { gap: ESTIMATE_FLOW_CARD_GAP }]}>
-                          {['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Windows', 'Exterior Siding', 'Doors', 'Cabinets', 'Lighting', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'].map((c) => (
-                            <TouchableOpacity
-                              key={c}
-                              onPress={() => setCategory(c)}
-                              style={[
-                                modalStyles.materialChip,
-                                category === c && {
-                                  borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-                                  backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-                                },
-                              ]}
-                            >
-                              <Text style={{ fontSize: 13, fontWeight: category === c ? '700' : '600', color: category === c ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text }}>
-                                {c}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
+                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Category (optional)</Text>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          accessibilityRole="button"
+                          accessibilityLabel="Category"
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setShowMaterialCategoryPicker(true);
+                          }}
+                          style={[modalStyles.materialInputWrapper, { justifyContent: 'space-between' }]}
+                        >
+                          <Text numberOfLines={1} style={{ flex: 1, fontSize: 15, fontWeight: '500', color: category ? Colors.text : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub) }}>
+                            {category || 'Select'}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                        </TouchableOpacity>
                       </View>
                   </LineItemFormShell>
                 )}
               </ScrollView>
 
-              <View
+              {isKeyboardVisible ? null : <View
                 style={[
                   modalStyles.materialFooterFlow,
                   {
+                    flexDirection: 'column',
+                    gap: 10,
                     paddingBottom: Math.max(insets.bottom, 16),
                     paddingHorizontal: lineItemLayoutPad.footer,
                   },
                 ]}
               >
                 <Pressable
+                  onPress={handleSave}
+                  style={({ pressed }) => [
+                    {
+                      width: '100%',
+                      minHeight: 50,
+                      borderRadius: 14,
+                      backgroundColor: '#2dcc9a',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    pressed && { opacity: 0.92 },
+                  ]}
+                  android_disableSound
+                  delayPressIn={0}
+                >
+                  <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>Save</Text>
+                </Pressable>
+                <Pressable
                   onPress={onClose}
                   style={({ pressed }) => [
-                    modalStyles.materialCancelBtn,
+                    {
+                      width: '100%',
+                      minHeight: 48,
+                      borderRadius: 14,
+                      backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: 'rgba(148, 163, 184, 0.35)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
                     pressed && { opacity: 0.75 },
                   ]}
                   android_disableSound
                   delayPressIn={0}
                 >
-                  <Text style={modalStyles.materialCancelText}>Cancel</Text>
+                  <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
                 </Pressable>
-                <Pressable
-                  onPress={handleSave}
-                  style={({ pressed }) => [
-                    modalStyles.materialSaveBtn,
-                    pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
-                  ]}
-                  android_disableSound
-                  delayPressIn={0}
-                >
-                  <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
-                    <Text style={modalStyles.materialSaveText}>✓ Save</Text>
-                  </View>
-                </Pressable>
-              </View>
+              </View>}
             </View>
+            {isMaterialForm && showMaterialCategoryPicker ? (
+              <View style={{ position: 'absolute', top: -insets.top, left: 0, right: 0, bottom: 0, zIndex: 30 }}>
+                <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
+                          <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+                          <View
+                            pointerEvents="box-none"
+                            style={{
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              paddingTop: Math.max(insets.top, 12) + 8,
+                              paddingBottom: 16,
+                              minHeight: 56,
+                              borderBottomWidth: StyleSheet.hairlineWidth,
+                              borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                            }}
+                          >
+                            <View pointerEvents="none" style={{ alignItems: 'center', width: '100%', paddingHorizontal: 56 }}>
+                              <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
+                                Category
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              activeOpacity={0.85}
+                              onPress={() => setShowMaterialCategoryPicker(false)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              accessibilityRole="button"
+                              accessibilityLabel="Back"
+                              style={{
+                                position: 'absolute',
+                                left: 16,
+                                top: Math.max(insets.top, 12) + 8,
+                                zIndex: 2,
+                                width: 40,
+                                height: 40,
+                                borderRadius: 20,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
+                              }}
+                            >
+                              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView
+                            contentContainerStyle={{
+                              paddingHorizontal: 16,
+                              paddingTop: 8,
+                              paddingBottom: Math.max(insets.bottom, 20),
+                            }}
+                            keyboardShouldPersistTaps="handled"
+                          >
+                            <View
+                              style={{
+                                backgroundColor: darkMode ? '#202022' : Colors.surface2,
+                                borderRadius: 14,
+                                overflow: 'hidden',
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                              }}
+                            >
+                            {materialCategories.map((c, index) => {
+                              const selected = category === c;
+                              const isLast = index === materialCategories.length - 1;
+                              return (
+                                <TouchableOpacity
+                                  key={c}
+                                  activeOpacity={0.7}
+                                  onPress={() => {
+                                    setCategory(c);
+                                    setShowMaterialCategoryPicker(false);
+                                  }}
+                                  style={{
+                                    minHeight: 52,
+                                    paddingHorizontal: 16,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+                                    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                                  }}
+                                >
+                                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: selected ? '600' : '500' }}>
+                                    {c}
+                                  </Text>
+                                  {selected ? <Ionicons name="checkmark" size={22} color="#2dcc9a" /> : null}
+                                </TouchableOpacity>
+                              );
+                            })}
+                            </View>
+                          </ScrollView>
+                        </View>
+              </View>
+            ) : null}
             </View>
         ) : (
           <>
@@ -4440,7 +4533,7 @@ const getStyles = (Colors, desktopWeb = false) => {
     borderRadius: 999,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#19E180',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
   },
   navInner: {
     flexDirection: 'row',
@@ -4462,7 +4555,7 @@ const getStyles = (Colors, desktopWeb = false) => {
   navLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#E5F7FF',
+    color: '#e2e8f0',
   },
   navTabActive: {
     flex: 1,
@@ -4519,7 +4612,7 @@ const getStyles = (Colors, desktopWeb = false) => {
     borderRadius: 999,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#19E180',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
   },
   navPillInner: {
     flexDirection: 'row',
@@ -4552,10 +4645,9 @@ const getStyles = (Colors, desktopWeb = false) => {
     borderRadius: 999,
   },
   navNextActive: {
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.4,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   navNextInner: {
     borderRadius: 999,
@@ -4859,7 +4951,6 @@ export default function EstimateGeneratorScreen() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [summaryCostBreakdownExpanded, setSummaryCostBreakdownExpanded] = useState(true);
-  const [summaryReviewExpanded, setSummaryReviewExpanded] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [appliedTemplateName, setAppliedTemplateName] = useState(null);
   const [templateFillToast, setTemplateFillToast] = useState({
@@ -8401,6 +8492,7 @@ export default function EstimateGeneratorScreen() {
   const weeklyHoldbackPercentInputRef = useRef(null);
   const milestoneDepositPercentInputRef = useRef(null);
   const milestoneCountInputRef = useRef(null);
+  const milestoneDescriptionInputRefs = useRef([]);
   const milestoneFinalPercentInputRef = useRef(null);
   const [subcontractorModalVisible, setSubcontractorModalVisible] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -8680,6 +8772,7 @@ export default function EstimateGeneratorScreen() {
   const [showRentalModal, setShowRentalModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartDateCalendar, setShowStartDateCalendar] = useState(false);
+  const [showProjectTypePicker, setShowProjectTypePicker] = useState(false);
   const [showEndDateCalendar, setShowEndDateCalendar] = useState(false);
   const [openMilestoneCalendarId, setOpenMilestoneCalendarId] = useState(null);
   const [openWeekCalendarId, setOpenWeekCalendarId] = useState(null);
@@ -11198,7 +11291,7 @@ export default function EstimateGeneratorScreen() {
 
   useEffect(() => {
     if (step !== 8) return;
-    const key = `${bid.id}|${contractTemplateState}|${String(bid.projectType || '')}`;
+    const key = `${bid.id}|${contractTemplateState}|${String(bid.projectType || '')}|terms-7`;
     if (contractLangDraftsKeyRef.current === key) return;
     contractLangDraftsKeyRef.current = key;
     try {
@@ -11738,6 +11831,16 @@ export default function EstimateGeneratorScreen() {
 
         console.log('🔍 Debug - submitting bid with data:', estimateData);
         await addEstimate(estimateData);
+
+        const submittedBid = {
+          ...sourceBid,
+          status: 'bid_submitted',
+          bidStatus: 'submitted',
+          _isNewBid: false,
+        };
+        bidRef.current = submittedBid;
+        setBid(submittedBid);
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(submittedBid));
 
         void capturePricingMemory({
           draft: sourceBid.aiEstimateDraftSnapshot?.draft,
@@ -12874,36 +12977,16 @@ export default function EstimateGeneratorScreen() {
     switch (step) {
       case 0: {
         // Bid Summary - not a numbered step, accessible via Summary button
-        const maxBarHeight = 120;
         const projectCostsAmount = calc.totalProjectCosts ?? 0;
         const companyOverheadAmount = calc.companyOverhead ?? 0;
         const netProfitAmount = (calc.profit || 0) - companyOverheadAmount;
         const netProfitPctOnBid = calc.total > 0 ? (netProfitAmount / calc.total) * 100 : 0;
-        const maxValue = Math.max(
-          calc.materials,
-          calc.labor,
-          projectCostsAmount,
-          calc.profit,
-          1
-        );
-        const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
-        const laborHeight = (calc.labor / maxValue) * maxBarHeight;
-        const projectCostsHeight = (projectCostsAmount / maxValue) * maxBarHeight;
-        const markupHeight = (calc.profit / maxValue) * maxBarHeight;
         const summaryMuted = darkMode ? 'rgba(248, 250, 252, 0.88)' : '#4a5568';
         const summaryMutedSoft = darkMode ? 'rgba(248, 250, 252, 0.7)' : '#5c667a';
         const summaryCategoryLabelStyle = {
           color: summaryMuted,
           fontSize: 16,
           fontWeight: '700',
-        };
-        const summaryBarCategoryLabelStyle = {
-          color: Colors.sub,
-          fontSize: 12,
-          fontWeight: '600',
-          lineHeight: 16,
-          marginTop: 6,
-          textAlign: 'center',
         };
         const summaryLineItemCount =
           (bid.materialLineItems?.length || 0) + (bid.laborLineItems?.length || 0);
@@ -12955,8 +13038,15 @@ export default function EstimateGeneratorScreen() {
         }
         const summaryStatusColors = estimateSummaryStatusColors(summaryStatusTone);
         const bidLifecycleStatus = String(bid?.status || bid?.bidStatus || '').toLowerCase();
-        const bidWasSubmitted = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active'].includes(
-          bidLifecycleStatus,
+        const sentProject = [...(estimates || []), ...(activeProjects || [])].find(
+          (p) => String(p?.id || '') === String(bid?.id || ''),
+        );
+        const sentProjectStatus = String(sentProject?.status || '').toLowerCase();
+        const submittedStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'in-progress', 'active'];
+        const bidWasSubmitted = Boolean(
+          sentProject &&
+            (submittedStatuses.includes(bidLifecycleStatus) ||
+              submittedStatuses.includes(sentProjectStatus)),
         );
         const submitBidIsPrimary =
           !bidWasSubmitted &&
@@ -12988,65 +13078,7 @@ export default function EstimateGeneratorScreen() {
                 ) : null}
 
                 {/* Total Bid — AI flow card */}
-              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 8,
-                    gap: 8,
-                  }}
-                >
-                  {summaryNeedsReview ? (
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={() => {
-                        if (Platform.OS !== 'web') {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }
-                        setSummaryReviewExpanded((v) => !v);
-                      }}
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 999,
-                        backgroundColor: summaryStatusColors.bg,
-                        flexShrink: 1,
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${summaryStatusLabel}. Tap for details.`}
-                    >
-                      <Text style={{ color: summaryStatusColors.color, fontSize: 12, fontWeight: '700' }}>
-                        {summaryStatusLabel}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 999,
-                        backgroundColor: summaryStatusColors.bg,
-                      }}
-                    >
-                      <Text style={{ color: summaryStatusColors.color, fontSize: 12, fontWeight: '700' }}>
-                        {summaryStatusLabel}
-                      </Text>
-                    </View>
-                  )}
-                  <Text
-                    style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', flexShrink: 1 }}
-                    numberOfLines={1}
-                  >
-                    {summaryLineItemCount > 0
-                      ? summaryLineItemCount === 1
-                        ? '1 item'
-                        : `${summaryLineItemCount} items`
-                      : 'No items yet'}
-                  </Text>
-                </View>
-
+              <View style={[estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP }), { padding: 18 }]}>
                 <Text
                   style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}
                   numberOfLines={2}
@@ -13056,64 +13088,47 @@ export default function EstimateGeneratorScreen() {
                 </Text>
 
                 <Text
-                  style={estimateSummaryHeroAmountStyle()}
+                  style={[estimateSummaryHeroAmountStyle(), { color: summaryHasPricing ? '#2dcc9a' : '#94a3b8' }]}
                 >
                   {moneyRounded(calc.total)}
                 </Text>
-                <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginTop: 4 }}>
-                  Estimated bid (incl. markup) · {bid.markupPct || 0}% markup
-                </Text>
+                {summaryHasPricing ? (
+                  <>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                      Estimated bid (incl. markup) · {bid.markupPct || 0}% markup
+                    </Text>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                      {summaryStatusLabel}
+                      {summaryLineItemCount > 0
+                        ? summaryLineItemCount === 1
+                          ? ' · 1 item'
+                          : ` · ${summaryLineItemCount} items`
+                        : ''}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                    Add a customer and line items, or start with AI.
+                  </Text>
+                )}
 
                 {summaryHasPricing ? (
                   summaryNeedsReview ? (
-                    <View style={{ marginTop: 8 }}>
-                      {summaryReviewReasons.length > 0 ? (
-                        <TouchableOpacity
-                          activeOpacity={0.85}
-                          onPress={() => setSummaryReviewExpanded((v) => !v)}
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}
-                          accessibilityRole="button"
-                        >
-                          <Text style={{ color: summaryMutedSoft, fontSize: 12, lineHeight: 17, fontWeight: '600' }}>
-                            Why this needs review
-                          </Text>
-                          <Ionicons
-                            name={summaryReviewExpanded ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color={summaryMutedSoft}
-                          />
-                        </TouchableOpacity>
-                      ) : null}
-                      {summaryReviewExpanded && summaryReviewReasons.length > 0 ? (
-                        <View style={{ marginTop: 8, gap: 6 }}>
-                          {summaryReviewReasons.map((reason) => (
-                            <View key={reason} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                              <Text style={{ color: summaryStatusColors.color, fontSize: 12, lineHeight: 16 }}>•</Text>
-                              <Text style={{ color: summaryMuted, fontSize: 12, lineHeight: 17, flex: 1 }}>{reason}</Text>
-                            </View>
-                          ))}
-                          <TouchableOpacity
-                            activeOpacity={0.85}
-                            onPress={handleReadinessCTA}
-                            style={{ alignSelf: 'flex-start', marginTop: 4 }}
-                          >
-                            <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 13, fontWeight: '700' }}>
-                              Review items →
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null}
-                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={handleReadinessCTA}
+                      style={{ alignSelf: 'flex-start', marginTop: 10 }}
+                    >
+                      <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                        Review items
+                      </Text>
+                    </TouchableOpacity>
                   ) : (
                     <Text style={{ color: summaryMutedSoft, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
                       Estimate looks on track — review totals before sending.
                     </Text>
                   )
-                ) : (
-                  <Text style={{ color: summaryMutedSoft, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
-                    Add client info and line items to build your estimate.
-                  </Text>
-                )}
+                ) : null}
 
                 {calc.unitPrice != null ? (
                   <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginTop: 10 }}>
@@ -13122,331 +13137,124 @@ export default function EstimateGeneratorScreen() {
                 ) : null}
 
                 {summaryHasPricing ? (
-                  <>
-                <View
-                  style={{
-                    height: StyleSheet.hairlineWidth,
-                    backgroundColor: estimateFlowDividerColor(darkMode),
-                    marginTop: 12,
-                    marginBottom: 14,
-                  }}
-                />
-                
-                {/* Bar Chart */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: maxBarHeight + 58, marginBottom: 4, paddingHorizontal: 0 }}>
-                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 2 }}>
-                    <Text
-                      numberOfLines={1}
-                      style={{ color: Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4, textAlign: 'center' }}
-                    >
-                      {moneyRounded(calc.materials)}
-                    </Text>
-                    <LinearGradient
-                      colors={ESTIMATE_FLOW_MATERIALS_BAR_GRADIENT}
-                      start={{ x: 0, y: 1 }}
-                      end={{ x: 0, y: 0 }}
-                      style={{
-                        width: '80%',
-                        height: Math.max(materialsHeight, 8),
-                        borderTopLeftRadius: 8,
-                        borderTopRightRadius: 8,
-                      }}
-                    />
-                    <Text style={summaryBarCategoryLabelStyle}>
-                      Materials
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 2 }}>
-                    <Text
-                      numberOfLines={1}
-                      style={{ color: Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4, textAlign: 'center' }}
-                    >
-                      {moneyRounded(calc.labor)}
-                    </Text>
-                    <LinearGradient
-                      colors={['#22c55e', '#4ade80']}
-                      start={{ x: 0, y: 1 }}
-                      end={{ x: 0, y: 0 }}
-                      style={{
-                        width: '80%',
-                        height: Math.max(laborHeight, 8),
-                        borderTopLeftRadius: 8,
-                        borderTopRightRadius: 8,
-                      }}
-                    />
-                    <Text style={summaryBarCategoryLabelStyle}>
-                      Labor
-                    </Text>
-                  </View>
-                  {projectCostsAmount > 0 ? (
-                    <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 2 }}>
-                      <Text
-                        numberOfLines={1}
-                        style={{ color: Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4, textAlign: 'center' }}
-                      >
-                        {moneyRounded(projectCostsAmount)}
-                      </Text>
+                  <View style={{ marginTop: 22 }}>
+                    {[
+                      { label: 'Materials', value: money(calc.materials) },
+                      { label: 'Labor', value: money(calc.labor) },
+                      ...(projectCostsAmount > 0 ? [{ label: 'Project costs', value: money(projectCostsAmount) }] : []),
+                      { label: `Markup (${bid.markupPct || 0}%)`, value: money(calc.profit) },
+                      ...(companyOverheadAmount > 0 ? [{ label: 'Allocated company overhead', value: `-${money(companyOverheadAmount)}` }] : []),
+                    ].map((row) => (
                       <View
+                        key={row.label}
                         style={{
-                          width: '80%',
-                          height: Math.max(projectCostsHeight, 8),
-                          backgroundColor: '#f59e0b',
-                          borderTopLeftRadius: 8,
-                          borderTopRightRadius: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 12,
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderTopColor: estimateFlowDividerColor(darkMode),
                         }}
-                      />
-                      <Text style={summaryBarCategoryLabelStyle}>
-                        Project costs
-                      </Text>
-                    </View>
-                  ) : null}
-                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 2 }}>
-                    <Text
-                      numberOfLines={1}
-                      style={{ color: Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4, textAlign: 'center' }}
-                    >
-                      {moneyRounded(calc.profit)}
-                    </Text>
+                      >
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', flex: 1, marginRight: 12 }}>{row.label}</Text>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>{row.value}</Text>
+                      </View>
+                    ))}
                     <View
                       style={{
-                        width: '80%',
-                        height: Math.max(markupHeight, 8),
-                        backgroundColor: '#a78bfa',
-                        borderTopLeftRadius: 8,
-                        borderTopRightRadius: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingVertical: 14,
+                        borderTopWidth: StyleSheet.hairlineWidth,
+                        borderTopColor: estimateFlowDividerColor(darkMode),
                       }}
-                    />
-                    <Text style={summaryBarCategoryLabelStyle}>
-                      Markup
-                    </Text>
-                  </View>
-                </View>
-                <Text style={{ color: summaryMutedSoft, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                  Materials, labor, and markup make up the bid total. Allocated company overhead is deducted below when calculating projected net profit.
-                </Text>
-                  </>
-                ) : (
-                  <View
-                    style={[
-                      summaryNestedRowStyle,
-                      {
-                        marginTop: 14,
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        gap: 10,
-                      },
-                    ]}
-                  >
-                    <View>
-                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 }}>
-                        No pricing yet
-                      </Text>
-                      <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
-                        Add scope and pricing to see your cost breakdown.
+                    >
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>Projected net profit</Text>
+                        <Text style={{ color: netProfitAmount >= 0 ? '#2dcc9a' : '#f87171', fontSize: 12, marginTop: 3, fontWeight: '600' }}>
+                          {netProfitPctOnBid.toFixed(1)}% projected net margin
+                        </Text>
+                      </View>
+                      <Text style={{ color: netProfitAmount >= 0 ? '#2dcc9a' : '#f87171', fontSize: 18, fontWeight: '800' }}>
+                        {money(netProfitAmount)}
                       </Text>
                     </View>
-                    <View style={{ width: '100%' }}>
+                    {bidWasSubmitted ? (
+                      <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 16 }}>
+                        Sent to Projects. Mark as won when the client accepts.
+                      </Text>
+                    ) : (
                       <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={() => setStep(3)}
-                        style={[
-                          estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                          { width: '100%' },
-                        ]}
+                        activeOpacity={0.88}
+                        onPress={handleSubmitBid}
+                        style={{
+                          marginTop: 8,
+                          width: '100%',
+                          backgroundColor: '#2dcc9a',
+                          borderRadius: 14,
+                          minHeight: 50,
+                          paddingVertical: 15,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
                       >
-                        <Ionicons name="add-circle-outline" size={16} color={ESTIMATE_FLOW_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>Add line items</Text>
+                        <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
+                          Send to Projects
+                        </Text>
                       </TouchableOpacity>
-                    </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={{ marginTop: 18, gap: 8 }}>
+                    <TouchableOpacity
+                      activeOpacity={0.88}
+                      onPress={openBuildWithAiDirect}
+                      style={{
+                        width: '100%',
+                        backgroundColor: '#2dcc9a',
+                        borderRadius: 14,
+                        minHeight: 50,
+                        paddingVertical: 15,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
+                        Build with AI
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.88}
+                      onPress={() => { setActiveNavButton(''); setStep(3); }}
+                      style={{
+                        width: '100%',
+                        backgroundColor: '#3A3A3C',
+                        borderWidth: 1,
+                        borderColor: 'rgba(148, 163, 184, 0.35)',
+                        borderRadius: 14,
+                        minHeight: 48,
+                        paddingVertical: 14,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#e2e8f0', fontSize: 15, fontWeight: '600' }}>
+                        Add line items
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
               
-              {/* Cost Breakdown — collapsed by default; chart covers materials/labor/markup at a glance */}
-              {summaryHasPricing ? (
-              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => setSummaryCostBreakdownExpanded((v) => !v)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: summaryCostBreakdownExpanded }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
-                        Cost breakdown
-                      </Text>
-                      {!summaryCostBreakdownExpanded ? (
-                        <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
-                          Markup, overhead & net profit
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800' }}>
-                      {money(calc.total)}
-                    </Text>
-                    <Ionicons
-                      name={summaryCostBreakdownExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={18}
-                      color={Colors.sub}
-                    />
-                  </TouchableOpacity>
-                  {summaryCostBreakdownExpanded ? (
-                  <View style={{ marginTop: 14 }}>
-                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginBottom: 12 }]}>
-                    Bid costs, markup, overhead & net profit
-                  </Text>
-                  {/* Nested rows — subtle fill, no outline */}
-                  <View style={{ gap: 8 }}>
-                    <View style={summaryNestedRowStyle}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ESTIMATE_FLOW_BLUE, marginRight: 10 }} />
-                        <Text style={summaryCategoryLabelStyle}>Materials</Text>
-                      </View>
-                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>{money(calc.materials)}</Text>
-                    </View>
-                    
-                    <View style={summaryNestedRowStyle}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', marginRight: 10 }} />
-                        <Text style={summaryCategoryLabelStyle}>Labor</Text>
-                      </View>
-                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>{money(calc.labor)}</Text>
-                    </View>
-
-                    {projectCostsAmount > 0 ? (
-                      <View style={summaryNestedRowStyle}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
-                          <Text style={summaryCategoryLabelStyle}>Project costs</Text>
-                        </View>
-                        <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>{money(projectCostsAmount)}</Text>
-                      </View>
-                    ) : null}
-                    
-                    <View style={summaryNestedRowStyle}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#a78bfa', marginRight: 10 }} />
-                        <Text style={summaryCategoryLabelStyle}>Markup ({bid.markupPct || 0}%)</Text>
-                      </View>
-                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>{money(calc.profit)}</Text>
-                    </View>
-
-                    <View style={{
-                      marginTop: 4,
-                      paddingTop: 14,
-                      borderTopWidth: StyleSheet.hairlineWidth,
-                      borderTopColor: estimateFlowDividerColor(darkMode),
-                      gap: 8,
-                    }}>
-                      <View>
-                        <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>
-                          Profit breakdown
-                        </Text>
-                        <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
-                          Markup helps cover allocated company overhead; what remains is projected net profit. Overhead is not added to the client bid.
-                        </Text>
-                      </View>
-                      <View style={summaryNestedRowStyle}>
-                        <Text style={summaryCategoryLabelStyle}>Markup available</Text>
-                        <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>{money(calc.profit)}</Text>
-                      </View>
-                      {companyOverheadAmount > 0 ? (
-                        <View style={summaryNestedRowStyle}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f97316', marginRight: 10 }} />
-                            <Text style={summaryCategoryLabelStyle}>Allocated company overhead</Text>
-                          </View>
-                          <Text style={{ color: '#f97316', fontSize: 16, fontWeight: '700' }}>-{money(companyOverheadAmount)}</Text>
-                        </View>
-                      ) : null}
-                      <View style={{
-                        ...summaryNestedRowStyle,
-                        backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.06)' : 'rgba(34, 197, 94, 0.05)',
-                      }}>
-                        <View>
-                          <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>Projected net profit</Text>
-                          <Text style={{ color: netProfitAmount >= 0 ? '#22c55e' : '#f87171', fontSize: 12, marginTop: 3, fontWeight: '600' }}>
-                            {netProfitPctOnBid.toFixed(1)}% projected net margin
-                          </Text>
-                        </View>
-                        <Text style={{ color: netProfitAmount >= 0 ? '#22c55e' : '#f87171', fontSize: 20, fontWeight: '800' }}>
-                          {money(netProfitAmount)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                  </View>
-                  ) : null}
-                </View>
-              ) : null}
-              
-              {/* Project Actions — lifecycle-aware */}
-              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-                  <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                    <Ionicons
-                      name={submitBidIsPrimary ? 'checkmark-circle-outline' : 'rocket-outline'}
-                      size={18}
-                      color={ESTIMATE_FLOW_GREEN}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
-                      {bidWasSubmitted
-                        ? 'Sent to Projects'
-                        : submitBidIsPrimary
-                          ? 'Ready to send'
-                          : 'Finish your estimate'}
-                    </Text>
-                    <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
-                      {bidWasSubmitted
-                        ? 'Mark as won in Projects when the client accepts'
-                        : submitBidIsPrimary
-                          ? 'Moves to Submitted in Projects'
-                          : 'Complete setup, then send to Projects'}
-                    </Text>
-                  </View>
-                </View>
-
-                {bidWasSubmitted ? null : (
-                  <>
-                    <TouchableOpacity
-                      activeOpacity={0.88}
-                      onPress={handleSubmitBid}
-                      style={[
-                        estimateFlowPrimaryButtonStyle(),
-                        { marginBottom: 8 },
-                        Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-                      ]}
-                    >
-                      <Ionicons name="send-outline" size={18} color="#071018" />
-                      <Text style={estimateFlowPrimaryButtonTextStyle()}>Send to Projects</Text>
-                    </TouchableOpacity>
-                    <Text
-                      style={[
-                        estimateSummarySectionSubtitleStyle(darkMode),
-                        { textAlign: 'center', fontSize: 12, lineHeight: 17, marginBottom: 4 },
-                      ]}
-                    >
-                      Mark as won in Projects when the client accepts.
-                    </Text>
-                  </>
-                )}
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: submitBidIsPrimary || bidWasSubmitted ? 0 : 2 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 12 }}>
                   {savedEstimates.length > 0 ? (
                     <>
                       <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={() => setShowRecoveryModal(true)}
                       >
-                        <Text style={{ color: ESTIMATE_FLOW_BLUE, fontSize: 13, fontWeight: '600' }}>
+                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
                           {savedEstimates.length === 1
                             ? 'Saved bids (1)'
                             : `Saved bids (${savedEstimates.length})`}
@@ -13464,14 +13272,13 @@ export default function EstimateGeneratorScreen() {
                       setShowTemplatePicker(true);
                     }}
                   >
-                    <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
                       {savedBidTemplates.length > 0
                         ? `Bid templates (${savedBidTemplates.length})`
                         : 'Bid templates'}
                     </Text>
                   </TouchableOpacity>
                 </View>
-              </View>
               <Text
                 style={{
                   color: summaryMutedSoft,
@@ -13494,19 +13301,9 @@ export default function EstimateGeneratorScreen() {
           <View style={[s.wideContainer, estimateFlowStepContentWrapStyle()]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                  <Ionicons name="person" size={20} color={ESTIMATE_FLOW_GREEN} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
-                    Customer information
-                  </Text>
-                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
-                    Reuse contact info from previous bids
-                  </Text>
-                </View>
-              </View>
+              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 16 }]}>
+                Customer information
+              </Text>
 
               <TouchableOpacity
                 activeOpacity={0.88}
@@ -13525,24 +13322,29 @@ export default function EstimateGeneratorScreen() {
                   paddingHorizontal: 14,
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-                  backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+                  borderColor: 'rgba(148, 163, 184, 0.35)',
+                  backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                  <Ionicons name="people-outline" size={20} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <Ionicons name="people-outline" size={20} color="#94a3b8" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
                       Saved customers
                     </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
-                      {savedCustomers.length > 0
-                        ? `${savedCustomers.length} saved • tap to reuse contact info`
-                        : 'Reuse contact info from previous bids'}
+                    <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                      {savedCustomers.length > 0 ? (
+                        <>
+                          <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>{savedCustomers.length} saved</Text>
+                          {' · tap to reuse contact info'}
+                        </>
+                      ) : (
+                        'Reuse contact info from previous bids'
+                      )}
                     </Text>
                   </View>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
               </TouchableOpacity>
 
               {hasStep1CustomerInfo ? (
@@ -13838,10 +13640,11 @@ export default function EstimateGeneratorScreen() {
                   value={saveCustomerForFutureBids}
                   onValueChange={setSaveCustomerForFutureBids}
                   trackColor={{
-                    false: darkMode ? '#334155' : '#cbd5e1',
-                    true: 'rgba(34, 197, 94, 0.45)',
+                    false: darkMode ? '#3A3A3C' : '#cbd5e1',
+                    true: 'rgba(45, 204, 154, 0.45)',
                   }}
-                  thumbColor={saveCustomerForFutureBids ? ESTIMATE_FLOW_GREEN : '#94a3b8'}
+                  thumbColor={saveCustomerForFutureBids ? '#2dcc9a' : '#94a3b8'}
+                  ios_backgroundColor={darkMode ? '#3A3A3C' : '#cbd5e1'}
                 />
               </View>
             </View>
@@ -13855,15 +13658,9 @@ export default function EstimateGeneratorScreen() {
           <View style={[s.wideContainer, estimateFlowStepContentWrapStyle({ scrollBottom: ESTIMATE_FLOW_STEP_SCROLL_BOTTOM })]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
-                <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                  <Ionicons name="information-circle" size={20} color={ESTIMATE_FLOW_GREEN} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800' }}>Project Information</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Core details drive unit pricing and regional adjustments</Text>
-                </View>
-              </View>
+              <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', marginBottom: 18 }}>
+                Project information
+              </Text>
               
               <View ref={projectTitleBlockRef} collapsable={false}>
                 <AppTextField
@@ -13886,27 +13683,126 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={s.inputGroup}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Project Type</Text>
-                <View style={s.chipRow}>
-                  {PROJECT_TYPES.map((type) => (
-                    <TouchableOpacity
-                      key={type.value}
-                      style={[
-                        s.chip,
-                        bid.projectType === type.value && {
-                          borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-                          backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-                        },
-                      ]}
-                      onPress={() => updateBid('projectType', type.value)}
-                    >
-                      <Text style={[s.chipText, bid.projectType === type.value && { color: ESTIMATE_FLOW_CHIP_GREEN }]}>
-                        {type.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <Text style={s.label}>Project type</Text>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Project type"
+                  onPress={() => setShowProjectTypePicker(true)}
+                  style={[
+                    s.input,
+                    estimateAccessoryShellStyle,
+                    { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      flex: 1,
+                      fontSize: 14,
+                      color: PROJECT_TYPES.some((type) => type.value === bid.projectType)
+                        ? Colors.text
+                        : estimateStep12PlaceholderColor,
+                    }}
+                  >
+                    {PROJECT_TYPES.find((type) => type.value === bid.projectType)?.label || 'Select'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                </TouchableOpacity>
               </View>
+
+              <Modal
+                visible={showProjectTypePicker}
+                animationType="slide"
+                presentationStyle="fullScreen"
+                onRequestClose={() => setShowProjectTypePicker(false)}
+              >
+                <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
+                  <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+                  <View
+                    pointerEvents="box-none"
+                    style={{
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingTop: Math.max(insets.top, 12) + 8,
+                      paddingBottom: 16,
+                      minHeight: 56,
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                    }}
+                  >
+                    <View pointerEvents="none" style={{ alignItems: 'center', width: '100%', paddingHorizontal: 56 }}>
+                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
+                        Project type
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setShowProjectTypePicker(false)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Back"
+                      style={{
+                        position: 'absolute',
+                        left: 16,
+                        top: Math.max(insets.top, 12) + 8,
+                        zIndex: 2,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
+                      }}
+                    >
+                      <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView
+                    contentContainerStyle={{
+                      paddingHorizontal: 16,
+                      paddingTop: 12,
+                      paddingBottom: Math.max(insets.bottom, 20),
+                    }}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {PROJECT_TYPES.map((type) => {
+                      const selected = bid.projectType === type.value;
+                      return (
+                        <TouchableOpacity
+                          key={type.value}
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            updateBid('projectType', type.value);
+                            setShowProjectTypePicker(false);
+                          }}
+                          style={{
+                            minHeight: 52,
+                            borderRadius: 14,
+                            paddingHorizontal: 16,
+                            marginBottom: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            backgroundColor: selected
+                              ? 'rgba(45, 204, 154, 0.14)'
+                              : darkMode
+                                ? '#202022'
+                                : Colors.surface2,
+                            borderWidth: 1,
+                            borderColor: selected ? '#2dcc9a' : 'rgba(148, 163, 184, 0.12)',
+                          }}
+                        >
+                          <Text style={{ color: selected ? '#2dcc9a' : Colors.text, fontSize: 16, fontWeight: selected ? '700' : '600' }}>
+                            {type.label}
+                          </Text>
+                          {selected ? <Ionicons name="checkmark" size={20} color="#2dcc9a" /> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </Modal>
               
               <View ref={projectSqftBlockRef} collapsable={false}>
                 <AppTextField
@@ -13954,7 +13850,7 @@ export default function EstimateGeneratorScreen() {
                   wrapperStyle={{ marginBottom: 16 }}
                   labelStyle={s.label}
                   shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 120 }]}
-                  placeholder="Describe the project scope, requirements, and special considerations..."
+                  placeholder="Scope, requirements, anything unusual"
                   placeholderTextColor={estimateStep12PlaceholderColor}
                   value={bid.scopeDescription || ''}
                   onChangeText={(text) => updateBid('scopeDescription', text)}
@@ -13977,69 +13873,82 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
               
-              <View style={s.inputGroup}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>Start Date</Text>
-                <TouchableOpacity
-                  style={[
-                    s.input,
-                    estimateFlowActiveDateFieldStyle(showStartDateCalendar),
-                  ]}
-                  onPress={() => {
-                    setShowEndDateCalendar(false);
-                    setShowStartDateCalendar(!showStartDateCalendar);
-                  }}
-                >
-                  <Text style={{ color: bid.startDate ? Colors.text : estimateStep12PlaceholderColor }}>
-                    {bid.startDate ? new Date(bid.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select start date'}
-                  </Text>
-                </TouchableOpacity>
-                {showStartDateCalendar && (
-                  <View style={{ marginTop: ESTIMATE_FLOW_CARD_GAP }}>
-                    <GreyCalendar
-                      onDayPress={(day) => {
-                        updateBid('startDate', day.dateString);
-                        setShowStartDateCalendar(false);
-                      }}
-                      rangeStartDate={bid.startDate || null}
-                      rangeEndDate={bid.endDate || null}
-                      activePicker="start"
-                      initialDate={bid.startDate}
-                    />
-                  </View>
-                )}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.label}>Start date</Text>
+                  <TouchableOpacity
+                    style={[
+                      s.input,
+                      estimateAccessoryShellStyle,
+                      { minHeight: 48, justifyContent: 'center' },
+                      estimateFlowActiveDateFieldStyle(showStartDateCalendar),
+                      showStartDateCalendar && {
+                        borderColor: '#2dcc9a',
+                        backgroundColor: 'rgba(45, 204, 154, 0.14)',
+                      },
+                    ]}
+                    onPress={() => {
+                      setShowEndDateCalendar(false);
+                      setShowStartDateCalendar(!showStartDateCalendar);
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{ color: bid.startDate ? Colors.text : estimateStep12PlaceholderColor }}>
+                      {bid.startDate ? new Date(bid.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.label}>End date</Text>
+                  <TouchableOpacity
+                    style={[
+                      s.input,
+                      estimateAccessoryShellStyle,
+                      { minHeight: 48, justifyContent: 'center' },
+                      estimateFlowActiveDateFieldStyle(showEndDateCalendar),
+                      showEndDateCalendar && {
+                        borderColor: '#2dcc9a',
+                        backgroundColor: 'rgba(45, 204, 154, 0.14)',
+                      },
+                    ]}
+                    onPress={() => {
+                      setShowStartDateCalendar(false);
+                      setShowEndDateCalendar(!showEndDateCalendar);
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{ color: bid.endDate ? Colors.text : estimateStep12PlaceholderColor }}>
+                      {bid.endDate ? new Date(bid.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              
-              <View style={s.inputGroup}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>End Date</Text>
-                <TouchableOpacity
-                  style={[
-                    s.input,
-                    estimateFlowActiveDateFieldStyle(showEndDateCalendar),
-                  ]}
-                  onPress={() => {
-                    setShowStartDateCalendar(false);
-                    setShowEndDateCalendar(!showEndDateCalendar);
-                  }}
-                >
-                  <Text style={{ color: bid.endDate ? Colors.text : estimateStep12PlaceholderColor }}>
-                    {bid.endDate ? new Date(bid.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select end date'}
-                  </Text>
-                </TouchableOpacity>
-                {showEndDateCalendar && (
-                  <View style={{ marginTop: ESTIMATE_FLOW_CARD_GAP }}>
-                    <GreyCalendar
-                      onDayPress={(day) => {
-                        updateBid('endDate', day.dateString);
-                      }}
-                      rangeStartDate={bid.startDate || null}
-                      rangeEndDate={bid.endDate || null}
-                      activePicker="end"
-                      initialDate={bid.endDate || bid.startDate}
-                      showJobDurationFooter
-                    />
-                  </View>
-                )}
-              </View>
+              {showStartDateCalendar ? (
+                <View style={{ marginBottom: 16 }}>
+                  <GreyCalendar
+                    onDayPress={(day) => {
+                      updateBid('startDate', day.dateString);
+                      setShowStartDateCalendar(false);
+                    }}
+                    rangeStartDate={bid.startDate || null}
+                    rangeEndDate={bid.endDate || null}
+                    activePicker="start"
+                    initialDate={bid.startDate}
+                  />
+                </View>
+              ) : null}
+              {showEndDateCalendar ? (
+                <View style={{ marginBottom: 16 }}>
+                  <GreyCalendar
+                    onDayPress={(day) => {
+                      updateBid('endDate', day.dateString);
+                    }}
+                    rangeStartDate={bid.startDate || null}
+                    rangeEndDate={bid.endDate || null}
+                    activePicker="end"
+                    initialDate={bid.endDate || bid.startDate}
+                    showJobDurationFooter
+                  />
+                </View>
+              ) : null}
             </View>
             </FirstEstimateWalkthroughHighlight>
           </View>
@@ -14055,124 +13964,83 @@ export default function EstimateGeneratorScreen() {
                 {/* Header */}
                 <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
                 <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                    <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                      <Ionicons name="cube-outline" size={20} color={ESTIMATE_FLOW_GREEN} />
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
-                        Materials & Supplies
-                      </Text>
-                      <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
-                        Live pricing and inflation tracking
-                      </Text>
-                      <Text style={{ color: appliedTemplateName ? ESTIMATE_FLOW_GREEN : Colors.sub, fontSize: 12, marginTop: 6, fontWeight: '700' }}>
-                        Template: {appliedTemplateName || 'None selected'}
-                      </Text>
-                    </View>
-                  </View>
+                  <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 14 }]}>
+                    Materials & Supplies
+                  </Text>
                   
                   {/* Actions */}
-                  <View style={{ gap: ESTIMATE_FLOW_CARD_GAP }}>
-                    <View style={{ flexDirection: 'row', gap: ESTIMATE_FLOW_CARD_GAP }}>
+                  <View style={{ gap: 10 }}>
                     <TouchableOpacity
-                      style={[
-                        {
-                          flex: 1,
-                          minHeight: 54,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          paddingVertical: 13,
-                          paddingHorizontal: 10,
-                        },
-                        estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                        materialModal.visible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                      ]}
+                      activeOpacity={0.88}
+                      style={{
+                        width: '100%',
+                        minHeight: 50,
+                        borderRadius: 14,
+                        backgroundColor: '#2dcc9a',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        paddingHorizontal: 16,
+                      }}
                       onPress={() => setMaterialModal({ visible: true, item: null })}
                     >
-                      <Ionicons name="add-circle-outline" size={20} color={materialModal.visible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} />
-                      <Text
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.82}
-                        style={{ color: materialModal.visible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 13, fontWeight: '800', textAlign: 'center' }}
-                      >
+                      <Ionicons name="add" size={18} color="#050B13" />
+                      <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
                         Add Material
                       </Text>
                     </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
-                      style={[
-                        {
-                          flex: 1,
-                          minHeight: 54,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          paddingVertical: 13,
-                          paddingHorizontal: 10,
-                        },
-                        estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                        skuModalVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                      ]}
-                      onPress={() => {
-                        console.log('🔍 SKU Search button pressed');
-                        console.log('🔍 Current skuModalVisible state:', skuModalVisible);
-                        console.log('🔍 Setting skuModalVisible to true');
-                        setSkuModalVisible(true);
-                        // Force a re-render check
-                        setTimeout(() => {
-                          console.log('🔍 After setState - skuModalVisible should be true');
-                        }, 100);
+                      activeOpacity={0.88}
+                      style={{
+                        flex: 1,
+                        minHeight: 48,
+                        borderRadius: 14,
+                        backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: 'rgba(148, 163, 184, 0.35)',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        paddingHorizontal: 10,
                       }}
+                      onPress={() => setSkuModalVisible(true)}
                     >
-                      <Ionicons name="search-outline" size={20} color={skuModalVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} />
-                      <Text
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.82}
-                        style={{ color: skuModalVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 13, fontWeight: '800', textAlign: 'center' }}
-                      >
+                      <Ionicons name="search-outline" size={18} color="#94a3b8" />
+                      <Text numberOfLines={1} style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                         Material Search
                       </Text>
                     </TouchableOpacity>
-                    </View>
                     {Platform.OS !== 'web' ? (
                       <TouchableOpacity
-                        style={[
-                          {
-                            minHeight: 52,
-                            width: '100%',
-                            paddingVertical: 13,
-                            paddingHorizontal: 16,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 8,
-                          },
-                          estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                          productScannerVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                        ]}
+                        activeOpacity={0.88}
+                        style={{
+                          flex: 1,
+                          minHeight: 48,
+                          borderRadius: 14,
+                          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                          borderWidth: 1,
+                          borderColor: 'rgba(148, 163, 184, 0.35)',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          paddingHorizontal: 10,
+                        }}
                         onPress={() => {
                           setProductScannerVisible(true);
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                       >
-                        <Ionicons
-                          name="camera-outline"
-                          size={20}
-                          color={productScannerVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub}
-                        />
-                        <Text
-                          style={{
-                            color: productScannerVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
-                            fontSize: 15,
-                            fontWeight: '800',
-                          }}
-                        >
+                        <Ionicons name="camera-outline" size={18} color="#94a3b8" />
+                        <Text numberOfLines={1} style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                           Scan Product
                         </Text>
                       </TouchableOpacity>
                     ) : null}
+                    </View>
                   </View>
                 </View>
                 </FirstEstimateWalkthroughHighlight>
@@ -14185,15 +14053,12 @@ export default function EstimateGeneratorScreen() {
                       style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isCartExpanded ? 14 : 0, paddingVertical: 2 }}
                       activeOpacity={0.7}
                     >
-                      <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                        <Ionicons name="cart-outline" size={18} color={ESTIMATE_FLOW_GREEN} />
-                      </View>
-                      <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, marginLeft: 12, letterSpacing: -0.2 }}>
+                      <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, letterSpacing: -0.2 }}>
                         Materials Cart
                       </Text>
                       {materialsCart.length > 0 && (
-                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.14)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
-                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
+                        <View style={{ backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.35)' }}>
+                          <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 12, fontWeight: '700' }}>
                             {materialsCart.length}
                           </Text>
                         </View>
@@ -14233,7 +14098,15 @@ export default function EstimateGeneratorScreen() {
                                 const materialSourceLabel = estimateCartSourceLabel(item.displaySubtitle);
                                 
                                 return (
-                                  <View key={item.id || index} style={estimateFlowLineItemStyle(Colors, darkMode)}>
+                                  <TouchableOpacity
+                                    key={item.id || index}
+                                    activeOpacity={0.85}
+                                    disabled={isEditing}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Edit ${item.name || item.description || 'material'}`}
+                                    onPress={() => editMaterial(item)}
+                                    style={estimateFlowLineItemStyle(Colors, darkMode)}
+                                  >
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                       <View style={{ flex: 1, marginRight: 12 }}>
                                         <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 3, lineHeight: 20 }}>
@@ -14321,7 +14194,7 @@ export default function EstimateGeneratorScreen() {
                                         )}
                                       </View>
                                       <View style={{ alignItems: 'flex-end' }}>
-                                        <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                                        <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
                                           {money(item.total || 0)}
                                         </Text>
                                         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -14333,14 +14206,14 @@ export default function EstimateGeneratorScreen() {
                                                 width: 32,
                                                 height: 32,
                                                 borderRadius: 16,
-                                                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                                                 justifyContent: 'center',
                                                 alignItems: 'center',
                                                 borderWidth: 1,
-                                                borderColor: 'rgba(34, 197, 94, 0.22)',
+                                                borderColor: 'rgba(148, 163, 184, 0.35)',
                                               }}
                                             >
-                                              <Ionicons name="create-outline" size={15} color="#4ade80" />
+                                              <Ionicons name="create-outline" size={15} color="#94a3b8" />
                                             </TouchableOpacity>
                                           )}
                                           <TouchableOpacity
@@ -14388,7 +14261,7 @@ export default function EstimateGeneratorScreen() {
                                         </View>
                                       </View>
                                     </View>
-                                  </View>
+                                  </TouchableOpacity>
                                 );
                               })}
                               
@@ -14432,9 +14305,9 @@ export default function EstimateGeneratorScreen() {
                                 </TouchableOpacity>
                               )}
                             </ScrollView>
-                            <View style={estimateFlowLineItemsTotalStyle(darkMode)}>
+                            <View style={[estimateFlowLineItemsTotalStyle(darkMode), { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub }]}>Items</Text>
+                                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Items</Text>
                                 <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                   {materialsCart.length}
                                 </Text>
@@ -14443,7 +14316,7 @@ export default function EstimateGeneratorScreen() {
                                 <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                   Total Materials
                                 </Text>
-                                <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                                <Text style={{ color: materialsCart.reduce((sum, item) => sum + (item.total || 0), 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                   {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
                                 </Text>
                               </View>
@@ -14456,9 +14329,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
 
                 <View style={estimateFlowCardStyle(Colors, darkMode)}>
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 10 }]}>
-                    Start from a saved bid package
-                  </Text>
+                  <Text style={s.label}>Start from a saved bid package</Text>
                   <TouchableOpacity
                     activeOpacity={0.88}
                     onPress={() => {
@@ -14467,23 +14338,21 @@ export default function EstimateGeneratorScreen() {
                       }
                       setShowTemplatePicker(true);
                     }}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-                      backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-                    }}
+                    style={[
+                      s.input,
+                      estimateAccessoryShellStyle,
+                      {
+                        minHeight: 48,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      },
+                    ]}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                      <Ionicons name="albums-outline" size={20} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>Bid Templates</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600', flex: 1 }}>
+                      Bid Templates
+                    </Text>
+                    <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
                   </TouchableOpacity>
                 </View>
             </View>
@@ -14864,71 +14733,50 @@ export default function EstimateGeneratorScreen() {
               {/* Header */}
               <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                  <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                    <Ionicons name="people-outline" size={20} color={ESTIMATE_FLOW_GREEN} />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
-                      Labor & Subcontractors
-                    </Text>
-                    <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
-                      In-house and subcontractor labor
-                    </Text>
-                  </View>
-                </View>
+                <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 14 }]}>
+                  Labor & Subcontractors
+                </Text>
                 
-                {/* Actions */}
-                <View style={{ flexDirection: 'row', gap: ESTIMATE_FLOW_CARD_GAP }}>
+                <View style={{ gap: 10 }}>
                   <TouchableOpacity
-                    style={[
-                      {
-                        flex: 1,
-                        minHeight: 54,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        paddingVertical: 13,
-                        paddingHorizontal: 10,
-                      },
-                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                      laborModal.visible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                    ]}
+                    activeOpacity={0.88}
+                    style={{
+                      width: '100%',
+                      minHeight: 50,
+                      borderRadius: 14,
+                      backgroundColor: '#2dcc9a',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      paddingHorizontal: 16,
+                    }}
                     onPress={() => setLaborModal({ visible: true, item: null })}
                   >
-                    <Ionicons name="add-circle-outline" size={20} color={laborModal.visible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} />
-                    <Text
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.82}
-                      style={{ color: laborModal.visible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 13, fontWeight: '800', textAlign: 'center' }}
-                    >
+                    <Ionicons name="add" size={18} color="#050B13" />
+                    <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
                       Add Labor Item
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      {
-                        flex: 1,
-                        minHeight: 54,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        paddingVertical: 13,
-                        paddingHorizontal: 10,
-                      },
-                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                      subcontractorModalVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                    ]}
+                    activeOpacity={0.88}
+                    style={{
+                      width: '100%',
+                      minHeight: 48,
+                      borderRadius: 14,
+                      backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: 'rgba(148, 163, 184, 0.35)',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingHorizontal: 16,
+                    }}
                     onPress={() => setSubcontractorModalVisible(true)}
                   >
-                    <Ionicons name="search-outline" size={20} color={subcontractorModalVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub} />
-                    <Text
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.82}
-                      style={{ color: subcontractorModalVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 13, fontWeight: '800', textAlign: 'center' }}
-                    >
+                    <Ionicons name="search-outline" size={18} color="#94a3b8" />
+                    <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                       Find Subcontractor
                     </Text>
                   </TouchableOpacity>
@@ -14944,15 +14792,12 @@ export default function EstimateGeneratorScreen() {
                     style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isLaborCartExpanded ? 14 : 0, paddingVertical: 2 }}
                     activeOpacity={0.7}
                   >
-                    <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                      <Ionicons name="people-outline" size={18} color={ESTIMATE_FLOW_GREEN} />
-                    </View>
-                    <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, marginLeft: 12, letterSpacing: -0.2 }}>
+                    <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, letterSpacing: -0.2 }}>
                       Labor Items
                     </Text>
                     {laborItems.length > 0 && (
-                      <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.14)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
-                        <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
+                      <View style={{ backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.35)' }}>
+                        <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 12, fontWeight: '700' }}>
                           {laborItems.length}
                         </Text>
                       </View>
@@ -14990,7 +14835,14 @@ export default function EstimateGeneratorScreen() {
                               const laborQtyLine = estimateCartLaborQuantityLine(item, bid.sqft, money);
                               const laborSourceLabel = estimateCartSourceLabel(item.displaySubtitle);
                               return (
-                              <View key={item.id || index} style={estimateFlowLineItemStyle(Colors, darkMode)}>
+                              <TouchableOpacity
+                                key={item.id || index}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Edit ${item.description || item.name || 'labor item'}`}
+                                onPress={() => editLabor(item)}
+                                style={estimateFlowLineItemStyle(Colors, darkMode)}
+                              >
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                   <View style={{ flex: 1, marginRight: 12 }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
@@ -15018,11 +14870,11 @@ export default function EstimateGeneratorScreen() {
                                           paddingHorizontal: 6,
                                           paddingVertical: 2,
                                           borderRadius: 6,
-                                          backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                                           borderWidth: 1,
-                                          borderColor: '#22c55e',
+                                          borderColor: 'rgba(148, 163, 184, 0.35)',
                                         }}>
-                                          <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '600' }}>
+                                          <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 10, fontWeight: '600' }}>
                                             IN-HOUSE
                                           </Text>
                                         </View>
@@ -15054,7 +14906,7 @@ export default function EstimateGeneratorScreen() {
                                     )}
                                   </View>
                                   <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                                    <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
                                       {money(item.total || 0)}
                                     </Text>
                                     <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -15065,14 +14917,14 @@ export default function EstimateGeneratorScreen() {
                                           width: 32,
                                           height: 32,
                                           borderRadius: 16,
-                                          backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                                           justifyContent: 'center',
                                           alignItems: 'center',
                                           borderWidth: 1,
-                                          borderColor: 'rgba(34, 197, 94, 0.22)',
+                                          borderColor: 'rgba(148, 163, 184, 0.35)',
                                         }}
                                       >
-                                        <Ionicons name="create-outline" size={15} color="#4ade80" />
+                                        <Ionicons name="create-outline" size={15} color="#94a3b8" />
                                       </TouchableOpacity>
                                       <TouchableOpacity
                                         onPress={() => {
@@ -15115,7 +14967,7 @@ export default function EstimateGeneratorScreen() {
                                     </View>
                                   </View>
                                 </View>
-                              </View>
+                              </TouchableOpacity>
                             );
                             })}
                             
@@ -15159,9 +15011,9 @@ export default function EstimateGeneratorScreen() {
                               </TouchableOpacity>
                             )}
                           </ScrollView>
-                          <View style={estimateFlowLineItemsTotalStyle(darkMode)}>
+                          <View style={[estimateFlowLineItemsTotalStyle(darkMode), { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub }]}>Items</Text>
+                              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Items</Text>
                               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                 {laborItems.length}
                               </Text>
@@ -15170,7 +15022,7 @@ export default function EstimateGeneratorScreen() {
                               <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                 Total Labor
                               </Text>
-                              <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                              <Text style={{ color: totalLabor > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                 {money(totalLabor)}
                               </Text>
                             </View>
@@ -15252,7 +15104,6 @@ export default function EstimateGeneratorScreen() {
             : null;
         const showDeveloperProjectCosts = profileBehavior.showDeveloperProjectCosts;
         const showAdvancedDeveloperCosts = showDeveloperProjectCosts;
-        const otherProjectCostsHelperText = profileBehavior.otherProjectCostsHelperText;
         const markupBaseSummary = 'hard costs + equipment + plans + engineering + allowances';
         const handleSelectStep5Profile = (typeNum) => {
           const currentBid = bidRef.current || bid;
@@ -15322,7 +15173,7 @@ export default function EstimateGeneratorScreen() {
         const marginOnBidLockedByMarkupPctOnly =
           businessOverheadDeduct < 0.005 &&
           Math.abs((calc?.markupBaseSubtotal ?? 0) - (calc?.subtotal ?? 0)) < 0.005;
-        const netProfitAccentColor = netProfit >= 0 ? '#22c55e' : '#f87171';
+        const netProfitAccentColor = netProfit > 0 ? '#2dcc9a' : netProfit < 0 ? '#f87171' : '#94a3b8';
         
         // Status badges evaluate projected net margin vs pricing profile — not markup % alone.
         const showApplyButton = true;
@@ -15342,10 +15193,10 @@ export default function EstimateGeneratorScreen() {
         const step5Muted = darkMode ? 'rgba(215, 225, 240, 0.9)' : Colors.sub;
         const step5MutedSoft = darkMode ? 'rgba(198, 210, 232, 0.78)' : Colors.sub;
         const step5FieldLabelStyle = {
-          color: darkMode ? 'rgba(241, 245, 249, 0.93)' : Colors.sub,
-          fontSize: ew(12, 14),
+          color: '#94a3b8',
+          fontSize: 12,
           fontWeight: '600',
-          marginBottom: ew(5, 6),
+          marginBottom: 8,
         };
         const step5FieldWrapStyle = { marginBottom: 12 };
         const step5SectionSubtitleStyle = {
@@ -15379,12 +15230,16 @@ export default function EstimateGeneratorScreen() {
           gap: 8,
         };
         const step5ProfileChipBaseStyle = {
-          paddingVertical: 10,
-          paddingHorizontal: 11,
-          borderRadius: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderRadius: 14,
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-          backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0,0,0,0.03)',
+          borderColor: 'rgba(148, 163, 184, 0.35)',
+          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+        };
+        const step5ProfileChipSelectedStyle = {
+          backgroundColor: '#2dcc9a',
+          borderColor: '#2dcc9a',
         };
         const step5InputBaseStyle = [
           estimateFlowInputShellStyle(Colors, darkMode),
@@ -15419,23 +15274,14 @@ export default function EstimateGeneratorScreen() {
             <View style={[s.wideContainer, estimateFlowStepContentWrapStyle({ scrollBottom: ESTIMATE_FLOW_STEP_SCROLL_BOTTOM })]}>
               <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
-                  <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                    <Ionicons name="calculator-outline" size={20} color={ESTIMATE_FLOW_GREEN} />
-                  </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>Project costs, overhead & markup</Text>
-                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 4 }]}>Enter other project costs, company overhead, and your markup rate</Text>
-                </View>
-              </View>
+                <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 18 }]}>
+                  Project costs, overhead & markup
+                </Text>
 
               {/* Pricing profile — 2×2 grid + full-width custom + supporting panel below */}
               <View>
-                <Text style={{ color: Colors.text, fontSize: ew(14, 15), fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
-                  Pricing Profile
-                </Text>
-                <Text style={{ color: step5MutedSoft, fontSize: ew(12, 14), marginBottom: 14, lineHeight: ew(17, 21) }}>
-                  Choose a pricing profile to pre-fill markup and company overhead targets. You can adjust everything.
+                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 10 }}>
+                  Pricing profile
                 </Text>
 
                 {[[1, 2], [3, 4]].map((row) => (
@@ -15456,12 +15302,12 @@ export default function EstimateGeneratorScreen() {
                           style={[
                             step5ProfileChipBaseStyle,
                             { flex: 1 },
-                            selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                            selected && step5ProfileChipSelectedStyle,
                           ]}
                         >
                           <Text
                             style={{
-                              color: selected ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                              color: selected ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
                               fontSize: ew(13, 15),
                               fontWeight: selected ? '800' : '700',
                               letterSpacing: -0.2,
@@ -15473,9 +15319,7 @@ export default function EstimateGeneratorScreen() {
                           </Text>
                           <Text
                             style={{
-                              color: selected
-                                ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : Colors.sub)
-                                : step5MutedSoft,
+                              color: selected ? 'rgba(5, 11, 19, 0.72)' : '#94a3b8',
                               fontSize: ew(11, 13),
                               lineHeight: ew(13, 16),
                               marginTop: 2,
@@ -15498,15 +15342,15 @@ export default function EstimateGeneratorScreen() {
                   style={[
                     step5ProfileChipBaseStyle,
                     { width: '100%', marginBottom: 4 },
-                    normalizedContractorType === 5 && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                    normalizedContractorType === 5 && step5ProfileChipSelectedStyle,
                   ]}
                 >
                   <Text
                     style={{
                       color:
                         normalizedContractorType === 5
-                          ? ESTIMATE_FLOW_CHIP_GREEN
-                          : Colors.text,
+                          ? '#050B13'
+                          : (darkMode ? '#e2e8f0' : Colors.text),
                       fontSize: ew(13, 15),
                       fontWeight: normalizedContractorType === 5 ? '800' : '700',
                       letterSpacing: -0.2,
@@ -15519,8 +15363,8 @@ export default function EstimateGeneratorScreen() {
                     style={{
                       color:
                         normalizedContractorType === 5
-                          ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : Colors.sub)
-                          : step5MutedSoft,
+                          ? 'rgba(5, 11, 19, 0.72)'
+                          : '#94a3b8',
                       fontSize: ew(11, 13),
                       lineHeight: ew(13, 16),
                       marginTop: 2,
@@ -15536,12 +15380,10 @@ export default function EstimateGeneratorScreen() {
                       <>
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(186, 198, 210, 0.88)' : 'rgba(71, 85, 105, 0.88)',
-                            fontSize: ew(10.5, 12),
-                            fontWeight: '700',
+                            color: '#94a3b8',
+                            fontSize: 12,
+                            fontWeight: '600',
                             marginBottom: 4,
-                            letterSpacing: 0.35,
-                            textTransform: 'uppercase',
                           }}
                         >
                           Suggested starting targets
@@ -15569,7 +15411,7 @@ export default function EstimateGeneratorScreen() {
                             </Text>
                             <Text
                               style={{
-                                color: darkMode ? 'rgba(167, 243, 208, 0.98)' : 'rgba(21, 128, 61, 0.96)',
+                                color: '#94a3b8',
                                 fontWeight: '600',
                               }}
                             >
@@ -15579,25 +15421,14 @@ export default function EstimateGeneratorScreen() {
                         ))}
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.84)',
-                            fontSize: ew(9, 11.5),
+                            color: '#94a3b8',
+                            fontSize: 12,
                             marginTop: 6,
-                            lineHeight: ew(12.5, 16),
+                            lineHeight: 16,
                             fontWeight: '500',
                           }}
                         >
-                          Starting point only — actual targets vary by scope, delivery model, competition, and market.
-                        </Text>
-                        <Text
-                          style={{
-                            color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: ew(8.5, 11),
-                            marginTop: 3,
-                            lineHeight: ew(12, 15),
-                            fontWeight: '500',
-                          }}
-                        >
-                          Markup is applied on cost. Profit margin is measured on revenue.
+                          Starting point only. You can change every number.
                         </Text>
                       </>
                     ) : (
@@ -15612,17 +15443,6 @@ export default function EstimateGeneratorScreen() {
                         >
                           Set your own company overhead, profit, and markup targets.
                         </Text>
-                        <Text
-                          style={{
-                            color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: ew(8.5, 11),
-                            marginTop: 5,
-                            lineHeight: ew(12, 15),
-                            fontWeight: '500',
-                          }}
-                        >
-                          Markup is applied on cost. Profit margin is measured on revenue.
-                        </Text>
                       </>
                     )}
                   </View>
@@ -15632,32 +15452,23 @@ export default function EstimateGeneratorScreen() {
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>Direct job costs</Text>
+                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Direct job costs</Text>
                 <Text style={step5SectionSubtitleStyle}>
                   Materials and labor used to build the job
-                </Text>
-                <Text style={step5SectionHelperStyle}>
-                  Direct costs used to build the estimate.
                 </Text>
               </View>
 
               <View style={{ gap: ESTIMATE_FLOW_CARD_GAP, marginBottom: 4 }}>
                 {[
-                  { label: 'Materials', value: calc?.materials || 0, accent: ESTIMATE_FLOW_BLUE },
-                  { label: 'Labor', value: calc?.labor || 0, accent: '#22c55e' },
+                  { label: 'Materials', value: calc?.materials || 0 },
+                  { label: 'Labor', value: calc?.labor || 0 },
                 ].map((item) => (
                   <View
                     key={item.label}
-                    style={[
-                      estimateFlowLineItemStyle(Colors, darkMode),
-                      { marginBottom: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-                    ]}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.accent, marginRight: 10 }} />
-                      <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700' }}>{item.label}</Text>
-                    </View>
-                    <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: ew(18, 20), fontWeight: '800', letterSpacing: -0.25 }}>
+                    <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700', flex: 1, marginRight: 12 }}>{item.label}</Text>
+                    <Text style={{ color: item.value > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(18, 20), fontWeight: '800', letterSpacing: -0.25 }}>
                       {money(item.value)}
                     </Text>
                   </View>
@@ -15667,20 +15478,14 @@ export default function EstimateGeneratorScreen() {
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>Job-specific costs</Text>
+                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Job-specific costs</Text>
                 <Text style={step5SectionSubtitleStyle}>
-                  Costs outside materials and labor
-                </Text>
-                <Text style={step5SectionHelperStyle}>
-                  {otherProjectCostsHelperText}
-                </Text>
-                <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
-                  Use this section for this project only — not company-wide admin, facilities, or general business insurance.
+                  Equipment, plans, engineering, and allowances for this job only
                 </Text>
               </View>
 
               <View ref={equipmentRentalBlockRef} style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
-                <Text style={step5FieldLabelStyle}>Equipment Rental</Text>
+                <Text style={step5FieldLabelStyle}>Equipment rental</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
@@ -15834,7 +15639,7 @@ export default function EstimateGeneratorScreen() {
                       Soft costs like permits, cleanup, or contingency
                     </Text>
                   </View>
-                  <Text style={{ color: Colors.text, fontSize: ew(16, 18), fontWeight: '800' }}>
+                  <Text style={{ color: getEstimateAllowanceLineItemsTotal(bid) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(16, 18), fontWeight: '800' }}>
                     {money(getEstimateAllowanceLineItemsTotal(bid))}
                   </Text>
                 </View>
@@ -16131,43 +15936,38 @@ export default function EstimateGeneratorScreen() {
                     setAllowanceDraftName('');
                     setAllowanceDraftAmount('');
                   }}
-                  style={[
-                    estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                    {
-                      alignSelf: 'stretch',
-                      width: '100%',
-                      minHeight: 44,
-                      marginTop: 12,
-                      gap: 6,
-                      opacity: editingAllowanceId ? 0.45 : 1,
-                    },
-                  ]}
+                  style={{
+                    alignSelf: 'stretch',
+                    width: '100%',
+                    minHeight: 48,
+                    marginTop: 12,
+                    borderRadius: 14,
+                    backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                    borderWidth: 1,
+                    borderColor: 'rgba(148, 163, 184, 0.35)',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    opacity: editingAllowanceId ? 0.45 : 1,
+                  }}
                 >
-                  <Ionicons name="add" size={16} color={Colors.sub} />
-                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Add allowance</Text>
+                  <Ionicons name="add" size={16} color="#94a3b8" />
+                  <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>Add allowance</Text>
                 </TouchableOpacity>
               </View>
               </View>
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>Allocated company overhead</Text>
+                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
                 <Text style={step5SectionSubtitleStyle}>
-                  Business operating costs not tied to just this one project
-                </Text>
-                <Text style={step5SectionHelperStyle}>
-                  Enter the portion of company overhead this estimate should recover — not your full monthly or annual budget.
-                </Text>
-                <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
-                  Examples: insurance, office/facilities, admin, equipment upkeep, and general business overhead.
-                </Text>
-                <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
-                  Use this section for company operating costs, not job-specific plans, engineering, financing, interest, or allowances.
+                  The share of company overhead this bid should recover
                 </Text>
               </View>
 
               <View style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
-                <Text style={step5FieldLabelStyle}>Insurance Overhead</Text>
+                <Text style={step5FieldLabelStyle}>Insurance overhead</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
@@ -16192,7 +15992,7 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={step5FieldWrapStyle}>
-                <Text style={step5FieldLabelStyle}>Equipment Maintenance</Text>
+                <Text style={step5FieldLabelStyle}>Equipment maintenance</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
@@ -16243,9 +16043,6 @@ export default function EstimateGeneratorScreen() {
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Admin</Text>
-                <Text style={{ color: step5MutedSoft, fontSize: ew(10.5, 13), marginBottom: 6, lineHeight: ew(14, 18) }}>
-                  Only include company/admin burden here. Project-specific coordination belongs in project costs.
-                </Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
@@ -16270,7 +16067,7 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
-                <Text style={step5FieldLabelStyle}>Other Overhead</Text>
+                <Text style={step5FieldLabelStyle}>Other overhead</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
@@ -16294,42 +16091,25 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              {overheadWarning && (
-                <View
+              {overheadWarning ? (
+                <Text
                   style={{
-                    marginBottom: 18,
-                    paddingVertical: 11,
-                    paddingHorizontal: 13,
-                    borderRadius: 12,
-                    backgroundColor:
-                      overheadWarning.tone === 'strong'
-                        ? 'rgba(251, 191, 36, 0.1)'
-                        : 'rgba(148, 163, 184, 0.08)',
-                    borderWidth: 1,
-                    borderColor:
-                      overheadWarning.tone === 'strong'
-                        ? 'rgba(251, 191, 36, 0.32)'
-                        : 'rgba(148, 163, 184, 0.18)',
+                    color: overheadWarning.tone === 'strong' ? '#fbbf24' : '#94a3b8',
+                    fontSize: 13,
+                    lineHeight: 18,
+                    fontWeight: '500',
+                    marginBottom: 8,
                   }}
                 >
-                  <Text
-                    style={{
-                      color: overheadWarning.tone === 'strong' ? '#fbbf24' : step5MutedSoft,
-                      fontSize: ew(12, 14),
-                      lineHeight: ew(18, 21),
-                      fontWeight: overheadWarning.tone === 'strong' ? '600' : '500',
-                    }}
-                  >
-                    {overheadWarning.text}
-                  </Text>
-                </View>
-              )}
+                  {overheadWarning.text}
+                </Text>
+              ) : null}
 
               </View>
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>Markup, overhead & profit</Text>
+                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Markup, overhead & profit</Text>
                 <Text style={step5SectionSubtitleStyle}>
                   Markup helps cover allocated company overhead and generate profit
                 </Text>
@@ -16353,33 +16133,17 @@ export default function EstimateGeneratorScreen() {
                       paddingVertical: 7,
                       borderRadius: 10,
                       borderWidth: 1,
-                      borderColor: contextualMessage?.type === 'low'
-                        ? 'rgba(239, 68, 68, 0.45)'
-                        : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                        ? 'rgba(56, 211, 159, 0.4)'
-                        : 'rgba(251, 191, 36, 0.45)',
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                      borderColor: 'rgba(148, 163, 184, 0.35)',
+                      backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                       flexDirection: 'row',
                       alignItems: 'center',
                       gap: 5,
                     }}
                   >
-                    <Ionicons
-                      name="color-wand-outline"
-                      size={15}
-                      color={contextualMessage?.type === 'low'
-                        ? '#f87171'
-                        : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                        ? '#5eead4'
-                        : '#fcd34d'}
-                    />
+                    <Ionicons name="color-wand-outline" size={15} color="#94a3b8" />
                     <Text
                       style={{
-                        color: contextualMessage?.type === 'low'
-                          ? '#fca5a5'
-                          : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                          ? (darkMode ? '#99f6e4' : '#000000')
-                          : '#fde68a',
+                        color: darkMode ? '#e2e8f0' : Colors.text,
                         fontSize: ew(12, 14),
                         fontWeight: '600',
                         maxWidth: 200,
@@ -16427,75 +16191,37 @@ export default function EstimateGeneratorScreen() {
                   }}
                 />
 
-                {contextualMessage && (
-                  <View style={{
-                    marginTop: 10,
-                    paddingVertical: 11,
-                    paddingHorizontal: 13,
-                    borderRadius: 12,
-                    backgroundColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.09)' :
-                                    contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.09)' :
-                                    contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.09)' :
-                                    contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.09)' :
-                                    'rgba(56, 211, 159, 0.09)',
-                    borderWidth: 1,
-                    borderColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.28)' :
-                                 contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.28)' :
-                                 contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.32)' :
-                                 contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.32)' :
-                                 'rgba(56, 211, 159, 0.32)',
+                {contextualMessage ? (
+                  <Text style={{
+                    marginTop: 8,
+                    color: contextualMessage.type === 'low' ? '#f87171' :
+                           contextualMessage.type === 'high' ? '#fbbf24' : '#2dcc9a',
+                    fontSize: 13,
+                    fontWeight: '600',
+                    lineHeight: 18,
                   }}>
-                    <Text style={{
-                      color: contextualMessage.type === 'low' ? '#ef4444' :
-                             contextualMessage.type === 'high' ? '#fbbf24' :
-                             contextualMessage.type === 'inRange' ? '#22c55e' :
-                             '#22c55e',
-                      fontSize: ew(12.5, 14.5),
-                      fontWeight: '600',
-                      lineHeight: ew(18, 21),
-                    }}>
-                      {contextualMessage.text}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginTop: contextualMessage ? 9 : 10,
-                  paddingVertical: 11,
-                  paddingHorizontal: 13,
-                  borderRadius: 12,
-                  backgroundColor: markupStatusColor === '#22c55e' ? 'rgba(56, 211, 159, 0.1)' :
-                                  markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.1)' :
-                                  markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.1)' :
-                                  'rgba(56, 211, 159, 0.1)',
-                  borderWidth: 1,
-                  borderColor: markupStatusColor === '#22c55e' ? 'rgba(56, 211, 159, 0.35)' :
-                               markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.35)' :
-                               markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.35)' :
-                               'rgba(56, 211, 159, 0.35)',
-                }}>
-                  <View style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: markupStatusColor,
-                    marginRight: 10,
-                  }} />
-                  <Text style={{ color: markupStatusColor, fontSize: ew(12.5, 14.5), fontWeight: '600', flex: 1, lineHeight: ew(18, 21) }}>
-                    {markupStatusText}
+                    {contextualMessage.text}
                   </Text>
-                </View>
+                ) : null}
+
+                <Text style={{
+                  marginTop: 6,
+                  color: markupStatusColor === '#22c55e' ? '#2dcc9a' : markupStatusColor === '#ef4444' ? '#f87171' : markupStatusColor,
+                  fontSize: 13,
+                  fontWeight: '600',
+                  lineHeight: 18,
+                }}>
+                  {markupStatusText}
+                </Text>
               </View>
               </View>
 
               {calc && (
                 <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginBottom: 0 }]}>
+                <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginBottom: 0, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>Total project cost</Text>
+                      <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Total project cost</Text>
                       <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
                         Materials, labor, and job-specific costs
                       </Text>
@@ -16517,11 +16243,11 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: ew(13, 15), fontWeight: '700' }}>
+                    <Text style={{ color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(13, 15), fontWeight: '700' }}>
                       {`+ Markup (${Number(currentMarkup) || 0}%)`}
                     </Text>
                     <Text style={{
-                      color: ESTIMATE_FLOW_GREEN,
+                      color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#94a3b8',
                       fontSize: 16,
                       fontWeight: '700',
                       textAlign: 'right',
@@ -16536,7 +16262,7 @@ export default function EstimateGeneratorScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
                     <Text style={{
-                      color: ESTIMATE_FLOW_GREEN,
+                      color: (calc?.grandTotal || calc?.total || 0) > 0 ? '#2dcc9a' : '#94a3b8',
                       fontSize: 20,
                       fontWeight: '800',
                       letterSpacing: -0.35,
@@ -16549,7 +16275,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 10 }} />
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 10 }]}>Profit breakdown</Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 10 }}>Profit breakdown</Text>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <Text style={{ color: step5Muted, fontSize: ew(13, 15), fontWeight: '600' }}>Markup available</Text>
                     <Text style={{
@@ -16644,17 +16370,6 @@ export default function EstimateGeneratorScreen() {
         return (
           <View style={[s.wideContainer, estimateFlowStepContentWrapStyle({ scrollBottom: ESTIMATE_FLOW_STEP_SCROLL_BOTTOM })]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
-            <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                  <Ionicons name="analytics-outline" size={20} color={ESTIMATE_FLOW_GREEN} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>Project Analysis</Text>
-                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 4 }]}>Scenario presets & stress testing</Text>
-                </View>
-              </View>
-            </View>
             <ProjectAnalysis
               bid={bid}
               calc={calc}
@@ -17113,19 +16828,21 @@ export default function EstimateGeneratorScreen() {
           grandTotal > 0
             ? (weeklyProgressSavedTotal / grandTotal) * 100
             : weeklyProgressSavedRows.reduce((sum, payment) => sum + (payment.percentage || 0), 0);
-        const renderStep7MoneyWithPct = (amount, pct, { accent = false, strong = false } = {}) => {
+        const renderStep7MoneyWithPct = (amount, pct, { strong = false } = {}) => {
           const pctNum =
             pct != null && Number.isFinite(Number(pct))
               ? Number(pct)
               : grandTotal > 0 && amount > 0
                 ? (amount / grandTotal) * 100
                 : null;
-          const valueColor = accent || strong ? ESTIMATE_FLOW_GREEN : Colors.text;
-          const pctColor =
-            strong && pctNum != null && Math.abs(pctNum - 100) < 0.05 ? '#22c55e' : step7MutedSoft;
+          const numericAmount = Number(amount) || 0;
+          const valueColor = strong
+            ? (numericAmount > 0 ? '#2dcc9a' : '#94a3b8')
+            : Colors.text;
+          const pctColor = '#94a3b8';
           return (
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ color: valueColor, fontSize: strong ? 15 : 13, fontWeight: '900' }}>
+              <Text style={{ color: valueColor, fontSize: strong ? 16 : 15, fontWeight: strong ? '800' : '700', letterSpacing: strong ? -0.2 : 0 }}>
                 {money(amount)}
               </Text>
               {pctNum != null ? (
@@ -17347,7 +17064,38 @@ export default function EstimateGeneratorScreen() {
         // Step 7 UI-only tokens (no logic changes)
         const step7Muted = darkMode ? 'rgba(198, 214, 232, 0.9)' : Colors.sub;
         const step7MutedSoft = darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub;
-        const step7Accent = ESTIMATE_FLOW_GREEN;
+        const step7Accent = '#2dcc9a';
+        const step7MintText = '#050B13';
+        const step7PrimaryButton = {
+          width: '100%',
+          backgroundColor: step7Accent,
+          borderRadius: 14,
+          minHeight: 50,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexDirection: 'row',
+          gap: 8,
+        };
+        const step7PrimaryButtonText = {
+          color: step7MintText,
+          fontSize: 16,
+          fontWeight: '800',
+        };
+        const step7SectionLabel = {
+          color: '#94a3b8',
+          fontSize: 12,
+          fontWeight: '600',
+          letterSpacing: 0,
+          textTransform: 'none',
+          marginBottom: 4,
+        };
+        const step7SelectedFill = {
+          backgroundColor: step7Accent,
+          borderColor: step7Accent,
+          borderWidth: 1,
+        };
         const step7ProjectStartColor = ESTIMATE_FLOW_CHIP_GREEN;
         const step7WeeklyPaymentColor = '#22d3ee';
         const step7ProjectEndColor = '#FFD166';
@@ -17370,9 +17118,9 @@ export default function EstimateGeneratorScreen() {
         const step7InfoPanel = {
           borderRadius: 12,
           padding: 13,
-          backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+          backgroundColor: step7NestedSurface,
           borderWidth: 1,
-          borderColor: 'rgba(52, 211, 153, 0.28)',
+          borderColor: step7NestedBorder,
         };
         const step7DepositDateField = {
           backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.14)',
@@ -17382,7 +17130,14 @@ export default function EstimateGeneratorScreen() {
           paddingHorizontal: 12,
           paddingVertical: 9,
         };
-        const step7FieldLabel = { ...confirmScopeSectionLabelStyle(), color: step7Muted, marginBottom: 5 };
+        const step7FieldLabel = {
+          color: '#94a3b8',
+          fontSize: 12,
+          fontWeight: '600',
+          letterSpacing: 0,
+          textTransform: 'none',
+          marginBottom: 6,
+        };
         const step7DepositFieldLabel = {
           ...confirmScopeSectionLabelStyle(),
           color: step7Accent,
@@ -17390,10 +17145,10 @@ export default function EstimateGeneratorScreen() {
         };
         const step7ScheduleOptionBaseStyle = {
           padding: 14,
-          borderRadius: 12,
+          borderRadius: 14,
           borderWidth: 1,
-          borderColor: step7NestedBorder,
-          backgroundColor: step7NestedSurface,
+          borderColor: 'rgba(148, 163, 184, 0.35)',
+          backgroundColor: '#3A3A3C',
         };
         const formatStep7DateLabel = (dateString) => {
           if (!dateString) return 'Select date';
@@ -17613,32 +17368,16 @@ export default function EstimateGeneratorScreen() {
                 style={[
                   step7DateField,
                   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
-                  estimateFlowActiveDateFieldStyle(isOpen),
                 ]}
               >
                 <Text style={{ color: value ? Colors.text : step7MutedSoft, fontSize: 13, fontWeight: '700' }}>
                   {formatStep7DateLabel(value)}
                 </Text>
-                <Ionicons name="calendar-outline" size={16} color={value ? step7Accent : step7MutedSoft} />
+                <Ionicons name="calendar-outline" size={16} color="#94a3b8" />
               </TouchableOpacity>
               {isOpen && (
-                <View style={{ marginTop: ESTIMATE_FLOW_CARD_GAP }}>
-                  <View style={{
-                    borderRadius: 12,
-                    padding: 10,
-                    marginBottom: 8,
-                    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.06)' : 'rgba(34, 197, 94, 0.08)',
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.24)',
-                  }}>
-                    <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
-                      {legendVariant === 'weekly-schedule'
-                        ? 'Dots show project dates and scheduled deposit, weekly, and holdback payments.'
-                        : legendVariant === 'milestone-schedule'
-                          ? 'Dots show project dates and scheduled deposit, milestone, and closeout payments.'
-                          : 'Use the project start/end dates as reference when choosing this payment date.'}
-                    </Text>
-                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                <View style={{ marginTop: 8 }}>
+                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                       {renderCalendarLegendDot(step7ProjectStartColor, `Start ${formatStep7DateLabel(weeklyProgressStartDate)}`)}
                       {renderCalendarLegendDot(
                         step7ProjectEndColor,
@@ -17659,7 +17398,6 @@ export default function EstimateGeneratorScreen() {
                         </>
                       )}
                     </View>
-                  </View>
                   <GreyCalendar
                     onDayPress={(day) => {
                       onSelect(day.dateString);
@@ -17669,7 +17407,7 @@ export default function EstimateGeneratorScreen() {
                       [value || '']: {
                         selected: true,
                         selectedColor: step7Accent,
-                        selectedTextColor: '#071018',
+                        selectedTextColor: step7MintText,
                       },
                     }}
                     selectedDateString={value || null}
@@ -17716,15 +17454,7 @@ export default function EstimateGeneratorScreen() {
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={s.inputGroup}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                  <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                    <Ionicons name="calendar-outline" size={18} color={step7Accent} />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>Schedule Type</Text>
-                    <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>Choose how progress payments are structured</Text>
-                  </View>
-                </View>
+                <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 14 }]}>Schedule Type</Text>
                 <View style={{ gap: 10, marginBottom: 18 }}>
                   {[
                     {
@@ -17756,31 +17486,27 @@ export default function EstimateGeneratorScreen() {
                         onPress={() => selectPaymentScheduleOption(option.key)}
                         style={[
                           step7ScheduleOptionBaseStyle,
-                          selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                          selected && step7SelectedFill,
                         ]}
                       >
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                          <View style={
-                            selected
-                              ? estimateStep1IconBadgeStyle(darkMode, 'green')
-                              : {
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: 10,
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  backgroundColor: step7NestedSurface,
-                                }
-                          }>
+                          <View style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: selected ? 'rgba(5, 11, 19, 0.12)' : '#2A2A2E',
+                          }}>
                             <Ionicons
                               name={option.icon}
                               size={19}
-                              color={selected ? ESTIMATE_FLOW_CHIP_GREEN : option.warning ? '#FFD166' : step7MutedSoft}
+                              color={selected ? step7MintText : '#94a3b8'}
                             />
                           </View>
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                              <Text style={{ color: selected ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 15, fontWeight: '800' }}>
+                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 15, fontWeight: '800' }}>
                                 {option.title}
                               </Text>
                               {option.badge ? (
@@ -17788,17 +17514,15 @@ export default function EstimateGeneratorScreen() {
                                   borderRadius: 999,
                                   paddingHorizontal: 8,
                                   paddingVertical: 3,
-                                  backgroundColor: 'rgba(34, 197, 94, 0.16)',
-                                  borderWidth: 1,
-                                  borderColor: 'rgba(34, 197, 94, 0.42)',
+                                  backgroundColor: selected ? 'rgba(5, 11, 19, 0.14)' : 'rgba(45, 204, 154, 0.14)',
                                 }}>
-                                  <Text style={{ color: '#22c55e', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }}>
-                                    {option.badge.toUpperCase()}
+                                  <Text style={{ color: selected ? step7MintText : '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
+                                    {option.badge}
                                   </Text>
                                 </View>
                               ) : null}
                             </View>
-                            <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 16, marginTop: 5 }}>
+                            <Text style={{ color: selected ? 'rgba(5, 11, 19, 0.72)' : '#94a3b8', fontSize: 12, lineHeight: 16, marginTop: 5 }}>
                               {option.description}
                             </Text>
                           </View>
@@ -17812,26 +17536,21 @@ export default function EstimateGeneratorScreen() {
 
               {step7ExpandedSchedule === 'weekly' && (
                 <View style={step7SectionCard}>
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>
+                  <Text style={[step7SectionLabel, { marginBottom: 14 }]}>
                     Weekly progress settings
-                  </Text>
-                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
-                    Recommended structure: deposit, weekly progress payments, and a smaller final holdback.
                   </Text>
 
                   <View style={{ gap: 12 }}>
                     <View>
-                      <Text style={step7FieldLabel}>Contract Amount</Text>
-                      <View style={step7DateField}>
-                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
-                          {money(grandTotal)}
-                        </Text>
-                      </View>
+                      <Text style={step7FieldLabel}>Contract amount</Text>
+                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2 }}>
+                        {money(grandTotal)}
+                      </Text>
                     </View>
 
                     <View style={{ flexDirection: 'row', gap: 10 }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={step7FieldLabel}>Project Duration</Text>
+                        <Text style={step7FieldLabel}>Project duration</Text>
                         <TouchableOpacity
                           activeOpacity={1}
                           onPress={() => focusOrBlurStep7Numeric(weeklyProjectWeeksInputRef)}
@@ -17880,15 +17599,12 @@ export default function EstimateGeneratorScreen() {
                       </View>
                     </View>
 
-                    <View style={step7NestedPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Ionicons name="calendar-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Dates</Text>
-                      </View>
+                    <View>
+                      <Text style={step7SectionLabel}>Payment dates</Text>
                       <View style={{ gap: 10 }}>
                         {renderStep7DateSelector({
                           id: 'weekly-deposit-date',
-                          label: 'Deposit Date',
+                          label: 'Deposit date',
                           value: weeklyPaymentDateDrafts.deposit,
                           fallbackDate: weeklyProgressStartDate,
                           calendarEvents: weeklyScheduleCalendarEvents,
@@ -17903,7 +17619,7 @@ export default function EstimateGeneratorScreen() {
                             const fallbackDate = addDaysToDateString(weeklyProgressStartDate, (index + 1) * 7);
                             return renderStep7DateSelector({
                               id: `weekly-payment-date-${index}`,
-                              label: `Week ${index + 1} Payment Date`,
+                              label: `Week ${index + 1} payment date`,
                               value: weeklyPaymentDateDrafts.weeks[index] || '',
                               fallbackDate,
                               calendarEvents: weeklyScheduleCalendarEvents,
@@ -17937,7 +17653,7 @@ export default function EstimateGeneratorScreen() {
                         })()}
                         {weeklyPreviewHoldbackPct > 0 && renderStep7DateSelector({
                           id: 'weekly-holdback-date',
-                          label: 'Final Holdback Date',
+                          label: 'Final holdback date',
                           value: weeklyPaymentDateDrafts.holdback,
                           fallbackDate: addDaysToDateString(weeklyProgressStartDate, weeklyPreviewWeeks * 7),
                           calendarEvents: weeklyScheduleCalendarEvents,
@@ -17951,7 +17667,7 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     <View>
-                      <Text style={step7FieldLabel}>Final Holdback / Punch List</Text>
+                      <Text style={step7FieldLabel}>Final holdback / punch list</Text>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                         {WEEKLY_PROGRESS_HOLDBACK_OPTIONS.map((value) => {
                           const selected = Number(weeklyHoldbackPercentText) === value;
@@ -17963,12 +17679,21 @@ export default function EstimateGeneratorScreen() {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               }}
                               style={[
-                                estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                                { paddingVertical: 8, paddingHorizontal: 11, borderRadius: 999 },
-                                selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                                {
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 14,
+                                  minHeight: 36,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor: '#3A3A3C',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(148, 163, 184, 0.35)',
+                                },
+                                selected && step7SelectedFill,
                               ]}
                             >
-                              <Text style={{ color: selected ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text, fontSize: 12, fontWeight: '700' }}>
+                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
                                 {value === 0 ? 'No holdback' : `${value}%`}
                               </Text>
                             </TouchableOpacity>
@@ -17998,7 +17723,7 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     <View>
-                      <Text style={step7FieldLabel}>Holdback Due</Text>
+                      <Text style={step7FieldLabel}>Holdback due</Text>
                       <View style={{ gap: 8 }}>
                         {Object.entries(WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS).map(([key, label]) => {
                           const selected = weeklyHoldbackDue === key;
@@ -18011,23 +17736,25 @@ export default function EstimateGeneratorScreen() {
                               }}
                               style={[
                                 {
-                                  minHeight: 44,
-                                  borderRadius: 13,
+                                  minHeight: 48,
+                                  borderRadius: 14,
                                   flexDirection: 'row',
                                   alignItems: 'center',
                                   gap: 9,
                                   paddingHorizontal: 12,
+                                  backgroundColor: '#3A3A3C',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(148, 163, 184, 0.35)',
                                 },
-                                estimateFlowNestedActionButtonStyle(Colors, darkMode),
-                                selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                                selected && step7SelectedFill,
                               ]}
                             >
                               <Ionicons
                                 name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                                 size={18}
-                                color={selected ? ESTIMATE_FLOW_CHIP_GREEN : step7MutedSoft}
+                                color={selected ? step7MintText : '#94a3b8'}
                               />
-                              <Text style={{ color: selected ? Colors.text : step7MutedSoft, fontSize: 12.5, fontWeight: '700', flex: 1, lineHeight: 17 }}>
+                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 13, fontWeight: '600', flex: 1, lineHeight: 18 }}>
                                 {label}
                               </Text>
                             </TouchableOpacity>
@@ -18036,30 +17763,27 @@ export default function EstimateGeneratorScreen() {
                       </View>
                     </View>
 
-                    <View style={step7NestedPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Ionicons name="calculator-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Preview</Text>
-                      </View>
+                    <View>
+                      <Text style={step7SectionLabel}>Payment preview</Text>
                       {[
                         {
-                          label: `Deposit Payment (${weeklyPreviewDepositPct}%)`,
+                          label: `Deposit payment (${weeklyPreviewDepositPct}%)`,
                           amount: weeklyPreviewDepositAmount,
                           pct: weeklyPreviewDepositPct,
                         },
                         {
-                          label: `Weekly Payment (${weeklyPreviewWeeks} ${weeklyPreviewWeeks === 1 ? 'week' : 'weeks'} · ${weeklyPreviewProgressPoolPct.toFixed(1)}% total)`,
+                          label: `Weekly payment (${weeklyPreviewWeeks} ${weeklyPreviewWeeks === 1 ? 'week' : 'weeks'} · ${weeklyPreviewProgressPoolPct.toFixed(1)}% total)`,
                           amount: weeklyPreviewPaymentAmount,
                           pct: weeklyPreviewPerWeekPct,
                           accent: true,
                         },
                         {
-                          label: `Final Holdback (${weeklyPreviewHoldbackPct}%)`,
+                          label: `Final holdback (${weeklyPreviewHoldbackPct}%)`,
                           amount: weeklyPreviewHoldbackAmount,
                           pct: weeklyPreviewHoldbackPct,
                         },
                         {
-                          label: 'Scheduled Total',
+                          label: 'Scheduled total',
                           amount: weeklyPreviewScheduledTotal,
                           pct: weeklyPreviewScheduledPct,
                           strong: true,
@@ -18089,29 +17813,23 @@ export default function EstimateGeneratorScreen() {
                       ))}
                       <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 10 }}>
                         {weeklyProgressSavedRows.length > 0
-                          ? 'Preview updates here. Tap Generate / Update Weekly Schedule to save changes to this bid.'
-                          : 'Preview only. Tap Generate / Update Weekly Schedule to save this payment schedule.'}
+                          ? 'Tap Update Weekly Schedule to save these changes.'
+                          : 'Tap Save Weekly Schedule to save this payment schedule.'}
                       </Text>
                     </View>
 
-                    <View style={step7InfoPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <Ionicons name="shield-checkmark" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 14, fontWeight: '800' }}>Punch List Protection</Text>
-                      </View>
-                      <Text style={{ color: step7Muted, fontSize: 12, lineHeight: 18 }}>
-                        Minor punch-list items should not delay payment for completed work. If incomplete or defective work remains, the customer may only withhold a reasonable amount directly related to those specific items.
-                      </Text>
-                    </View>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18 }}>
+                      Minor punch-list items should not delay payment for completed work. If incomplete or defective work remains, the customer may only withhold a reasonable amount directly related to those specific items.
+                    </Text>
 
                     <TouchableOpacity
                       activeOpacity={0.86}
                       onPress={() => {
                         applyWeeklyProgressSchedule();
                       }}
-                      style={[estimateFlowPrimaryButtonStyle(), { marginTop: 2 }]}
+                      style={[step7PrimaryButton, { marginTop: 2 }]}
                     >
-                      <Text style={estimateFlowPrimaryButtonTextStyle()}>
+                      <Text style={step7PrimaryButtonText}>
                         {weeklyProgressSavedRows.length > 0
                           ? 'Update Weekly Schedule'
                           : 'Save Weekly Schedule'}
@@ -18119,20 +17837,10 @@ export default function EstimateGeneratorScreen() {
                     </TouchableOpacity>
 
                     {weeklyProgressSavedRows.length > 0 && (
-                      <View style={{
-                        borderRadius: 15,
-                        padding: 13,
-                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(52, 211, 153, 0.28)',
-                        gap: 10,
-                      }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
-                          <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 14, fontWeight: '800' }}>
-                            Payment schedule saved
-                          </Text>
-                        </View>
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ color: '#e2e8f0', fontSize: 14, fontWeight: '700' }}>
+                          Payment schedule saved
+                        </Text>
                         {weeklyProgressSavedRows.map((payment, index) => (
                           <View
                             key={payment.id || `saved-weekly-${index}`}
@@ -18168,7 +17876,7 @@ export default function EstimateGeneratorScreen() {
                           alignItems: 'center',
                           paddingTop: 8,
                           borderTopWidth: 1,
-                          borderTopColor: 'rgba(52, 211, 153, 0.22)',
+                          borderTopColor: 'rgba(255,255,255,0.1)',
                         }}>
                           <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '800' }}>Scheduled total</Text>
                           {renderStep7MoneyWithPct(weeklyProgressSavedTotal, weeklyProgressSavedTotalPct, {
@@ -18196,20 +17904,16 @@ export default function EstimateGeneratorScreen() {
                           );
                         }}
                         style={{
-                          minHeight: 46,
-                          borderRadius: 15,
+                          minHeight: 44,
                           marginTop: 4,
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexDirection: 'row',
                           gap: 8,
-                          backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                          borderWidth: 1,
-                          borderColor: 'rgba(239, 68, 68, 0.35)',
                         }}
                       >
-                        <Ionicons name="trash-outline" size={17} color="rgba(239, 68, 68, 0.85)" />
-                        <Text style={{ color: 'rgba(239, 68, 68, 0.9)', fontSize: 14, fontWeight: '800' }}>
+                        <Ionicons name="trash-outline" size={17} color="#ef4444" />
+                        <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>
                           Delete Schedule
                         </Text>
                       </TouchableOpacity>
@@ -18220,21 +17924,16 @@ export default function EstimateGeneratorScreen() {
 
               {step7ExpandedSchedule === 'milestone-based' && (
                 <View style={step7SectionCard}>
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>
-                    Milestone-based settings
-                  </Text>
-                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
-                    Best for simple jobs with clearly defined phases. May create cash-flow delays if milestones are held up.
+                  <Text style={[step7SectionLabel, { marginBottom: 14 }]}>
+                    Milestone settings
                   </Text>
 
                   <View style={{ gap: 12 }}>
                     <View>
-                      <Text style={step7FieldLabel}>Contract Amount</Text>
-                      <View style={step7DateField}>
-                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
-                          {money(grandTotal)}
-                        </Text>
-                      </View>
+                      <Text style={step7FieldLabel}>Contract amount</Text>
+                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2 }}>
+                        {money(grandTotal)}
+                      </Text>
                     </View>
 
                     <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -18282,57 +17981,56 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     <View>
-                      <Text style={step7FieldLabel}>Milestone Details</Text>
-                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16, marginBottom: 8 }}>
-                        Explain what must be completed for each milestone payment.
-                      </Text>
+                      <Text style={step7FieldLabel}>Milestone details</Text>
                       <View style={{ gap: 8 }}>
                         {Array.from({ length: milestoneDescriptionCount }, (_, index) => (
                           <TouchableOpacity
                             key={`milestone-description-${index}`}
                             activeOpacity={1}
-                            style={[step7DateField, { minHeight: 58, paddingVertical: 8 }]}
+                            onPress={() => milestoneDescriptionInputRefs.current[index]?.focus()}
+                            style={[step7DateField, { minHeight: 58, paddingVertical: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }]}
                           >
-                            <Text style={{ color: step7MutedSoft, fontSize: 10.5, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.35 }}>
-                              Milestone {index + 1}
-                            </Text>
-                            <TextInput
-                              value={milestoneDescriptionTexts[index] || ''}
-                              onChangeText={(text) => {
-                                setMilestoneDescriptionTexts((prev) => {
-                                  const next = [...prev];
-                                  next[index] = text;
-                                  return next;
-                                });
-                              }}
-                              multiline
-                              {...resolveTextInputKeyboardProps({ multiline: true })}
-                              onSubmitEditing={() => Keyboard.dismiss()}
-                              placeholder={`Example: ${index === 0 ? 'Demo and rough-in complete' : index === 1 ? 'Drywall, paint, and trim complete' : 'Final finishes complete'}`}
-                              placeholderTextColor={estimateStepMutedInputColor}
-                              style={{
-                                color: Colors.text,
-                                fontSize: 13,
-                                fontWeight: '700',
-                                lineHeight: 18,
-                                minHeight: 34,
-                                paddingVertical: 0,
-                              }}
-                            />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                                Milestone {index + 1}
+                              </Text>
+                              <TextInput
+                                ref={(node) => {
+                                  milestoneDescriptionInputRefs.current[index] = node;
+                                }}
+                                value={milestoneDescriptionTexts[index] || ''}
+                                onChangeText={(text) => {
+                                  setMilestoneDescriptionTexts((prev) => {
+                                    const next = [...prev];
+                                    next[index] = text;
+                                    return next;
+                                  });
+                                }}
+                                placeholder="What must be complete"
+                                placeholderTextColor={estimateStepMutedInputColor}
+                                style={{
+                                  color: Colors.text,
+                                  fontSize: 15,
+                                  fontWeight: '600',
+                                  lineHeight: 20,
+                                  minHeight: 22,
+                                  paddingVertical: 0,
+                                }}
+                                {...resolveTextInputKeyboardProps({ multiline: true })}
+                              />
+                            </View>
+                            <Ionicons name="create-outline" size={16} color="#94a3b8" style={{ marginTop: 2 }} />
                           </TouchableOpacity>
                         ))}
                       </View>
                     </View>
 
-                    <View style={step7NestedPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Ionicons name="calendar-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Dates</Text>
-                      </View>
+                    <View>
+                      <Text style={step7SectionLabel}>Payment dates</Text>
                       <View style={{ gap: 10 }}>
                         {renderStep7DateSelector({
                           id: 'milestone-deposit-date',
-                          label: 'Deposit Date',
+                          label: 'Deposit date',
                           value: milestonePaymentDateDrafts.deposit,
                           fallbackDate: weeklyProgressStartDate,
                           calendarEvents: milestoneScheduleCalendarEvents,
@@ -18347,7 +18045,7 @@ export default function EstimateGeneratorScreen() {
                           const label = milestoneDescriptionTexts[index]?.trim() || `Milestone ${index + 1}`;
                           return renderStep7DateSelector({
                             id: `milestone-payment-date-${index}`,
-                            label: `${label} Date`,
+                            label: `${label} date`,
                             value: milestonePaymentDateDrafts.milestones[index] || '',
                             fallbackDate,
                             calendarEvents: milestoneScheduleCalendarEvents,
@@ -18361,7 +18059,7 @@ export default function EstimateGeneratorScreen() {
                         })}
                         {milestonePreviewFinalPct > 0 && renderStep7DateSelector({
                           id: 'milestone-final-date',
-                          label: 'Final Closeout Date',
+                          label: 'Final closeout date',
                           value: milestonePaymentDateDrafts.final,
                           fallbackDate: addDaysToDateString(weeklyProgressStartDate, (milestoneDescriptionCount + 1) * 7),
                           calendarEvents: milestoneScheduleCalendarEvents,
@@ -18375,7 +18073,7 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     <View>
-                      <Text style={step7FieldLabel}>Final Closeout Payment</Text>
+                      <Text style={step7FieldLabel}>Final closeout payment</Text>
                       <TouchableOpacity
                         activeOpacity={1}
                         onPress={() => focusOrBlurStep7Numeric(milestoneFinalPercentInputRef)}
@@ -18398,14 +18096,11 @@ export default function EstimateGeneratorScreen() {
                       </Text>
                     </View>
 
-                    <View style={step7NestedPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Ionicons name="calculator-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Preview</Text>
-                      </View>
+                    <View>
+                      <Text style={step7SectionLabel}>Payment preview</Text>
                       {[
                         {
-                          label: `Deposit Payment (${milestonePreviewDepositPct}%)`,
+                          label: `Deposit payment (${milestonePreviewDepositPct}%)`,
                           amount: milestonePreviewDepositAmount,
                           pct: milestonePreviewDepositPct,
                         },
@@ -18416,12 +18111,12 @@ export default function EstimateGeneratorScreen() {
                           accent: index === 0,
                         })),
                         {
-                          label: `Final Closeout (${milestonePreviewFinalPct}%)`,
+                          label: `Final closeout (${milestonePreviewFinalPct}%)`,
                           amount: milestonePreviewFinalAmount,
                           pct: milestonePreviewFinalPct,
                         },
                         {
-                          label: 'Scheduled Total',
+                          label: 'Scheduled total',
                           amount: milestonePreviewScheduledTotal,
                           pct: milestonePreviewScheduledPct,
                           strong: true,
@@ -18451,8 +18146,8 @@ export default function EstimateGeneratorScreen() {
                       ))}
                       <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 10 }}>
                         {milestoneBasedSavedRows.length > 0
-                          ? 'Preview updates here. Tap Save / Update Milestone Schedule to save changes to this bid.'
-                          : 'Preview only. Tap Save Milestone Schedule to save this payment schedule.'}
+                          ? 'Tap Update Milestone Schedule to save these changes.'
+                          : 'Tap Save Milestone Schedule to save this payment schedule.'}
                       </Text>
                     </View>
 
@@ -18461,9 +18156,9 @@ export default function EstimateGeneratorScreen() {
                       onPress={() => {
                         applyMilestoneBasedSchedule();
                       }}
-                      style={[estimateFlowPrimaryButtonStyle(), { marginTop: 2 }]}
+                      style={[step7PrimaryButton, { marginTop: 2 }]}
                     >
-                      <Text style={estimateFlowPrimaryButtonTextStyle()}>
+                      <Text style={step7PrimaryButtonText}>
                         {milestoneBasedSavedRows.length > 0
                           ? 'Update Milestone Schedule'
                           : 'Save Milestone Schedule'}
@@ -18471,20 +18166,10 @@ export default function EstimateGeneratorScreen() {
                     </TouchableOpacity>
 
                     {milestoneBasedSavedRows.length > 0 && (
-                      <View style={{
-                        borderRadius: 15,
-                        padding: 13,
-                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(52, 211, 153, 0.28)',
-                        gap: 10,
-                      }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
-                          <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 14, fontWeight: '800' }}>
-                            Payment schedule saved
-                          </Text>
-                        </View>
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ color: '#e2e8f0', fontSize: 14, fontWeight: '700' }}>
+                          Payment schedule saved
+                        </Text>
                         {milestoneBasedSavedRows.map((milestone, index) => (
                           <View
                             key={milestone.id || `saved-milestone-${index}`}
@@ -18520,7 +18205,7 @@ export default function EstimateGeneratorScreen() {
                           alignItems: 'center',
                           paddingTop: 8,
                           borderTopWidth: 1,
-                          borderTopColor: 'rgba(52, 211, 153, 0.22)',
+                          borderTopColor: 'rgba(255,255,255,0.1)',
                         }}>
                           <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '800' }}>Scheduled total</Text>
                           {renderStep7MoneyWithPct(milestoneBasedSavedTotal, milestoneBasedSavedTotalPct, {
@@ -18548,70 +18233,44 @@ export default function EstimateGeneratorScreen() {
                           );
                         }}
                         style={{
-                          minHeight: 46,
-                          borderRadius: 15,
+                          minHeight: 44,
                           marginTop: 4,
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexDirection: 'row',
                           gap: 8,
-                          backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                          borderWidth: 1,
-                          borderColor: 'rgba(239, 68, 68, 0.35)',
                         }}
                       >
-                        <Ionicons name="trash-outline" size={17} color="rgba(239, 68, 68, 0.85)" />
-                        <Text style={{ color: 'rgba(239, 68, 68, 0.9)', fontSize: 14, fontWeight: '800' }}>
+                        <Ionicons name="trash-outline" size={17} color="#ef4444" />
+                        <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>
                           Delete Schedule
                         </Text>
                       </TouchableOpacity>
                     )}
 
-                    <View style={{
-                      borderRadius: 15,
-                      padding: 13,
-                      backgroundColor: 'rgba(255, 209, 102, 0.08)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 209, 102, 0.35)',
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <Ionicons name="warning-outline" size={17} color="#FFD166" />
-                        <Text style={{ color: '#FFD166', fontSize: 14, fontWeight: '800' }}>
-                          Milestone billing may delay payment
-                        </Text>
-                      </View>
-                      <Text style={{ color: darkMode ? '#D7D1C4' : Colors.text, fontSize: 12, lineHeight: 18 }}>
-                        Milestone billing can delay payment if inspections, materials, client decisions, or trade dependencies slow down a milestone.
-                      </Text>
-                    </View>
+                    <Text style={{ color: '#fbbf24', fontSize: 13, lineHeight: 18 }}>
+                      Milestone billing can delay payment if inspections, materials, client decisions, or trade dependencies slow a milestone.
+                    </Text>
                   </View>
                 </View>
               )}
 
               {step7ExpandedSchedule === 'custom' && (
                 <View style={step7SectionCard}>
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 4 }]}>
-                    Custom schedule settings
-                  </Text>
-                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
-                    Manually create payment rows with custom dates, percentages, labels, and payment terms.
+                  <Text style={[step7SectionLabel, { marginBottom: 14 }]}>
+                    Custom schedule
                   </Text>
 
                   <View style={{ gap: 12 }}>
                     <View>
-                      <Text style={step7FieldLabel}>Contract Amount</Text>
-                      <View style={step7DateField}>
-                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
-                          {money(grandTotal)}
-                        </Text>
-                      </View>
+                      <Text style={step7FieldLabel}>Contract amount</Text>
+                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2 }}>
+                        {money(grandTotal)}
+                      </Text>
                     </View>
 
-                    <View style={step7InfoPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Ionicons name="calendar-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Schedule Reference</Text>
-                      </View>
+                    <View style={{ gap: 8 }}>
+                      <Text style={step7SectionLabel}>Schedule reference</Text>
                       <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
                         {renderCalendarLegendDot(ESTIMATE_FLOW_CHIP_GREEN, `Start ${formatStep7DateLabel(weeklyProgressStartDate)}`)}
                         {renderCalendarLegendDot(
@@ -18654,18 +18313,10 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     {customPaymentFormVisible ? (
-                      <View style={{
-                        borderRadius: 15,
-                        padding: 13,
-                        backgroundColor: step7NestedSurface,
-                        borderWidth: 1,
-                        borderColor: 'rgba(52, 211, 153, 0.26)',
-                        gap: 10,
-                      }}>
+                      <View style={{ gap: 10 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <Ionicons name="create-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                            <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>
+                            <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
                               {customPaymentDraft.id ? 'Edit Custom Payment' : 'New Custom Payment'}
                             </Text>
                           </View>
@@ -18681,7 +18332,7 @@ export default function EstimateGeneratorScreen() {
                         </View>
 
                         <View>
-                          <Text style={step7FieldLabel}>Payment Label</Text>
+                          <Text style={step7FieldLabel}>Payment label</Text>
                           <TextInput
                             value={customPaymentDraft.description}
                             onChangeText={(text) => setCustomPaymentDraft((prev) => ({ ...prev, description: text }))}
@@ -18706,7 +18357,7 @@ export default function EstimateGeneratorScreen() {
                             />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={step7FieldLabel}>Percent of Contract</Text>
+                            <Text style={step7FieldLabel}>Percent of contract</Text>
                             <TextInput
                               value={customPaymentDraft.percentage}
                               onChangeText={updateCustomPaymentDraftPercentage}
@@ -18720,7 +18371,7 @@ export default function EstimateGeneratorScreen() {
                         </View>
 
                         <View>
-                          <Text style={step7FieldLabel}>Due Date</Text>
+                          <Text style={step7FieldLabel}>Due date</Text>
                           <TouchableOpacity
                             onPress={() => {
                               Keyboard.dismiss();
@@ -18734,18 +18385,7 @@ export default function EstimateGeneratorScreen() {
                           </TouchableOpacity>
                           {customPaymentCalendarOpen && (
                             <View style={{ marginTop: 8 }}>
-                              <View style={{
-                                borderRadius: 12,
-                                padding: 10,
-                                marginBottom: 8,
-                                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.06)' : 'rgba(34, 197, 94, 0.08)',
-                                borderWidth: 1,
-                                borderColor: darkMode ? 'rgba(52, 211, 153, 0.18)' : 'rgba(52, 211, 153, 0.24)',
-                              }}>
-                                <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
-                                  Dots show project start/end and scheduled deposit and other custom payments.
-                                </Text>
-                                <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                                <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                                   {renderCalendarLegendDot(ESTIMATE_FLOW_CHIP_GREEN, `Start ${formatStep7DateLabel(weeklyProgressStartDate)}`)}
                                   {renderCalendarLegendDot(
                                     '#FFD166',
@@ -18754,7 +18394,6 @@ export default function EstimateGeneratorScreen() {
                                   {renderCalendarLegendDot(ESTIMATE_FLOW_BLUE, 'Deposit')}
                                   {renderCalendarLegendDot(ESTIMATE_FLOW_GREEN, 'Other payments')}
                                 </View>
-                              </View>
                               <GreyCalendar
                                 onDayPress={(day) => {
                                   setCustomPaymentDraft((prev) => ({
@@ -18766,8 +18405,8 @@ export default function EstimateGeneratorScreen() {
                                 markedDates={{
                                   [customPaymentDraft.scheduledDate || '']: {
                                     selected: true,
-                                    selectedColor: ESTIMATE_FLOW_CHIP_GREEN,
-                                    selectedTextColor: '#001B14',
+                                    selectedColor: step7Accent,
+                                    selectedTextColor: step7MintText,
                                   },
                                 }}
                                 selectedDateString={customPaymentDraft.scheduledDate || null}
@@ -18783,7 +18422,7 @@ export default function EstimateGeneratorScreen() {
                         </View>
 
                         <View>
-                          <Text style={step7FieldLabel}>Payment Terms / Notes</Text>
+                          <Text style={step7FieldLabel}>Payment terms / notes</Text>
                           <TextInput
                             value={customPaymentDraft.paymentTerms}
                             onChangeText={(text) => setCustomPaymentDraft((prev) => ({ ...prev, paymentTerms: text }))}
@@ -18796,7 +18435,16 @@ export default function EstimateGeneratorScreen() {
                           />
                         </View>
 
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <View style={{ gap: 10 }}>
+                          <TouchableOpacity
+                            activeOpacity={0.86}
+                            onPress={saveInlineCustomPayment}
+                            style={step7PrimaryButton}
+                          >
+                            <Text style={step7PrimaryButtonText}>
+                              {customPaymentDraft.id ? 'Update Payment' : 'Save Payment'}
+                            </Text>
+                          </TouchableOpacity>
                           <TouchableOpacity
                             activeOpacity={0.82}
                             onPress={() => {
@@ -18804,26 +18452,17 @@ export default function EstimateGeneratorScreen() {
                               resetCustomPaymentDraft();
                             }}
                             style={{
-                              flex: 1,
-                              minHeight: 46,
+                              width: '100%',
+                              minHeight: 48,
                               borderRadius: 14,
                               alignItems: 'center',
                               justifyContent: 'center',
-                              backgroundColor: step7NestedSurface,
+                              backgroundColor: '#3A3A3C',
                               borderWidth: 1,
-                              borderColor: step7NestedBorder,
+                              borderColor: 'rgba(148, 163, 184, 0.35)',
                             }}
                           >
-                            <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Cancel</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            activeOpacity={0.86}
-                            onPress={saveInlineCustomPayment}
-                            style={[estimateFlowPrimaryButtonStyle(), { flex: 1 }]}
-                          >
-                            <Text style={estimateFlowPrimaryButtonTextStyle()}>
-                              {customPaymentDraft.id ? 'Update Payment' : 'Save Payment'}
-                            </Text>
+                            <Text style={{ color: '#e2e8f0', fontSize: 15, fontWeight: '600' }}>Cancel</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -18834,51 +18473,38 @@ export default function EstimateGeneratorScreen() {
                           handleAddWeeklyPayment();
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
-                        style={[estimateFlowPrimaryButtonStyle(), { flexDirection: 'row', gap: 8 }]}
+                        style={step7PrimaryButton}
                       >
-                        <Ionicons name="add" size={20} color="#071018" />
-                        <Text style={estimateFlowPrimaryButtonTextStyle()}>
+                        <Ionicons name="add" size={20} color={step7MintText} />
+                        <Text style={step7PrimaryButtonText}>
                           Add Custom Payment
                         </Text>
                       </TouchableOpacity>
                     )}
 
-                    <View style={{
-                      borderRadius: 15,
-                      padding: 13,
-                      backgroundColor: step7NestedSurface,
-                      borderWidth: 1,
-                      borderColor: customPreviewIsExact
-                        ? 'rgba(34, 197, 94, 0.35)'
-                        : customPreviewIsOver
-                          ? 'rgba(245, 158, 11, 0.42)'
-                          : (darkMode ? 'rgba(255,255,255,0.12)' : Colors.line),
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <Ionicons name="calculator-outline" size={17} color={customPreviewIsOver ? Colors.orange : ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Custom Payment Summary</Text>
-                      </View>
+                    <View>
+                      <Text style={step7SectionLabel}>Payment summary</Text>
                       {[
                         {
-                          label: 'Scheduled Total',
+                          label: 'Scheduled total',
                           value: money(customPreviewScheduledTotal),
                           strong: true,
-                          color: customPreviewIsOver ? Colors.orange : ESTIMATE_FLOW_CHIP_GREEN,
+                          color: customPreviewIsOver ? '#f87171' : (customPreviewScheduledTotal > 0 ? '#2dcc9a' : '#94a3b8'),
                         },
                         {
-                          label: customPreviewIsOver ? 'Over Contract Amount' : 'Remaining',
+                          label: customPreviewIsOver ? 'Over contract amount' : 'Remaining',
                           value: money(Math.abs(customPreviewRemaining)),
-                          color: customPreviewIsExact ? '#22c55e' : customPreviewIsOver ? Colors.orange : Colors.text,
+                          color: customPreviewIsOver ? '#f87171' : Colors.text,
                         },
                         {
-                          label: 'Percent Scheduled',
+                          label: 'Percent scheduled',
                           value: `${customPreviewScheduledPct.toFixed(1)}%`,
-                          color: customPreviewIsExact ? '#22c55e' : customPreviewIsOver ? Colors.orange : Colors.text,
+                          color: customPreviewIsOver ? '#f87171' : Colors.text,
                         },
                         {
-                          label: 'Custom Rows',
+                          label: 'Custom rows',
                           value: `${customPreviewRowCount}`,
-                          color: customPreviewRowCount > 0 ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                          color: Colors.text,
                         },
                       ].map((row) => (
                         <View
@@ -18906,20 +18532,10 @@ export default function EstimateGeneratorScreen() {
                     </View>
 
                     {customScheduleIsSaved && (
-                      <View style={{
-                        borderRadius: 15,
-                        padding: 13,
-                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(52, 211, 153, 0.28)',
-                        gap: 10,
-                      }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
-                          <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 14, fontWeight: '800' }}>
-                            Custom schedule saved ({customPreviewRowCount} {customPreviewRowCount === 1 ? 'row' : 'rows'})
-                          </Text>
-                        </View>
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ color: '#e2e8f0', fontSize: 14, fontWeight: '700' }}>
+                          Custom schedule saved ({customPreviewRowCount} {customPreviewRowCount === 1 ? 'row' : 'rows'})
+                        </Text>
                         <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15 }}>
                           Scheduled total {money(customPreviewScheduledTotal)} · {customPreviewScheduledPct.toFixed(1)}% of contract
                         </Text>
@@ -18944,34 +18560,24 @@ export default function EstimateGeneratorScreen() {
                           );
                         }}
                         style={{
-                          minHeight: 46,
-                          borderRadius: 15,
+                          minHeight: 44,
                           marginTop: 4,
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexDirection: 'row',
                           gap: 8,
-                          backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                          borderWidth: 1,
-                          borderColor: 'rgba(239, 68, 68, 0.35)',
                         }}
                       >
-                        <Ionicons name="trash-outline" size={17} color="rgba(239, 68, 68, 0.85)" />
-                        <Text style={{ color: 'rgba(239, 68, 68, 0.9)', fontSize: 14, fontWeight: '800' }}>
+                        <Ionicons name="trash-outline" size={17} color="#ef4444" />
+                        <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>
                           Delete Schedule
                         </Text>
                       </TouchableOpacity>
                     )}
 
-                    <View style={step7InfoPanel}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <Ionicons name="create-outline" size={17} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 14, fontWeight: '800' }}>Manual Billing Control</Text>
-                      </View>
-                      <Text style={{ color: step7Muted, fontSize: 12, lineHeight: 18 }}>
-                        Use custom rows when a client, lender, or contract requires specific billing dates, amounts, labels, or terms.
-                      </Text>
-                    </View>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18 }}>
+                      Use custom rows when a client, lender, or contract requires specific billing dates, amounts, labels, or terms.
+                    </Text>
                   </View>
                 </View>
               )}
@@ -21880,11 +21486,7 @@ export default function EstimateGeneratorScreen() {
         });
         const suggestedContractState = normalizeContractTemplateState(bid.projectState || bid.customerState);
         const contractStateHelperText =
-          contractTemplateState === 'other'
-            ? suggestedContractState !== 'other'
-              ? `Suggested from project address: ${suggestedContractState === 'nevada' ? 'Nevada' : 'Utah'}. Select a state only when you want jurisdiction-specific language; otherwise leave this as Generic Draft.`
-              : 'Generic draft only. Select a state only when you want jurisdiction-specific language.'
-            : `Using ${contractTemplateState === 'nevada' ? 'Nevada' : 'Utah'}-specific contract language.`;
+          'Nationwide draft. Confirm local requirements for the project state before you send this.';
         const contractTemplateStateMismatch =
           suggestedContractState &&
           suggestedContractState !== 'other' &&
@@ -21897,14 +21499,12 @@ export default function EstimateGeneratorScreen() {
               ? 'Milestone payments'
               : paymentScheduleType || 'Payment schedule not set';
         const proposalNeedsReview = shouldGateAdvanced || !allChecklistItemsComplete || healthScore < 80;
-        const proposalStatusTone = shouldGateAdvanced || proposalNeedsReview ? 'review' : 'ready';
-        const proposalStatusColors = estimateSummaryStatusColors(proposalStatusTone);
         const readinessHeadline = shouldGateAdvanced
           ? 'Needs review before generating'
           : proposalNeedsReview
             ? 'Can generate — review first'
             : 'Ready to generate';
-        const readinessHeadlineColor = proposalStatusColors.color;
+        const readinessHeadlineColor = (shouldGateAdvanced || proposalNeedsReview) ? '#fbbf24' : '#2dcc9a';
         const readinessSummary = `${money(calc?.total || 0)} total · ${netProfitPct.toFixed(1)}% estimated profit · ${compactPaymentLabel} · ${proposalNeedsReview ? 'Review highlighted items before sending' : 'Ready for client review'}`;
         const isWordingWeb = Platform.OS === 'web';
         
@@ -22061,29 +21661,17 @@ export default function EstimateGeneratorScreen() {
         return (
           <View style={[s.wideContainer, estimateFlowStepContentWrapStyle({ scrollBottom: ESTIMATE_FLOW_STEP_SCROLL_BOTTOM })]}>
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
-                  <MaterialIcons name="description" size={20} color={ESTIMATE_FLOW_GREEN} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800' }}>Final Proposal & Agreement</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Generate a polished client-facing PDF from this estimate.</Text>
-                </View>
-              </View>
+              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>Final Proposal & Agreement</Text>
             </View>
 
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 999,
-                      backgroundColor: proposalStatusColors.bg,
-                    }}
-                  >
-                    <Text style={[confirmScopeSectionLabelStyle(), { color: proposalStatusColors.color }]}>
-                      Proposal readiness
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: readinessHeadlineColor, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}>
+                      {readinessHeadline}
+                    </Text>
+                    <Text style={{ color: Colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 }}>
+                      {readinessSummary}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 6 }}>
@@ -22096,22 +21684,16 @@ export default function EstimateGeneratorScreen() {
                         borderColor: healthColor,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: step7NestedSurface,
+                        backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
                       }}
                     >
                       <Text style={{ color: healthColor, fontSize: 22, fontWeight: '800' }}>
                         {healthScore}
                       </Text>
                     </View>
-                    <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub }]}>Health score</Text>
+                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Health score</Text>
                   </View>
                 </View>
-                <Text style={{ color: readinessHeadlineColor, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}>
-                  {readinessHeadline}
-                </Text>
-                <Text style={{ color: Colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 }}>
-                  {readinessSummary}
-                </Text>
                 <TouchableOpacity
                   onPress={() => {
                     setScoreExplanationExpanded(!scoreExplanationExpanded);
@@ -22120,7 +21702,7 @@ export default function EstimateGeneratorScreen() {
                   activeOpacity={0.75}
                   style={{ alignSelf: 'flex-start', marginTop: 10 }}
                 >
-                  <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
                     {scoreExplanationExpanded ? 'Hide details' : 'Why this score?'}
                   </Text>
                 </TouchableOpacity>
@@ -22150,7 +21732,7 @@ export default function EstimateGeneratorScreen() {
                         }}
                         activeOpacity={0.75}
                       >
-                        <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>
+                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
                           {healthScoreBreakdownExpanded ? 'Hide summary' : 'View summary'}
                         </Text>
                       </TouchableOpacity>
@@ -22161,7 +21743,7 @@ export default function EstimateGeneratorScreen() {
                         }}
                         activeOpacity={0.75}
                       >
-                        <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>
+                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
                           {finalStepLegalExpanded ? 'Hide legal notes' : 'View legal review notes'}
                         </Text>
                       </TouchableOpacity>
@@ -22256,121 +21838,146 @@ export default function EstimateGeneratorScreen() {
             </View>
 
             {contractTemplateStateMismatch ? (
-              <View
-                style={[
-                  estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP }),
-                  {
-                    backgroundColor: 'rgba(245, 158, 11, 0.10)',
-                    borderColor: 'rgba(245, 158, 11, 0.28)',
-                  },
-                ]}
-              >
-                <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
-                  Template mismatch
-                </Text>
-                <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+                <Text style={{ color: '#fbbf24', fontSize: 13, lineHeight: 18 }}>
                   Selected contract state does not match the project address.
                 </Text>
               </View>
             ) : null}
 
             {reviewItems.length > 0 && (
-              <View
-                style={[
-                  estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP }),
-                  {
-                    backgroundColor: estimateSummaryStatusColors('review').bg,
-                    borderColor: 'rgba(245, 158, 11, 0.24)',
-                  },
-                ]}
-              >
-                <Text style={[confirmScopeSectionLabelStyle(), { color: estimateSummaryStatusColors('review').color, marginBottom: 8 }]}>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
                   Review before sending
                 </Text>
                 <View style={{ gap: 6 }}>
-                  {reviewItems.map((item, index) => (
-                    <Text key={index} style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                      {'\u2022'} {item}
-                    </Text>
-                  ))}
+                  {reviewItems.map((item, index) => {
+                    const quiet = item === 'Payment schedule totals 100%';
+                    return (
+                      <Text key={index} style={{ color: quiet ? '#e2e8f0' : '#fbbf24', fontSize: 13, lineHeight: 18 }}>
+                        {'\u2022'} {item}
+                      </Text>
+                    );
+                  })}
                 </View>
               </View>
             )}
 
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
+                <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2, marginBottom: 8 }}>
                   Contract wording on the PDF
                 </Text>
                 <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 21, marginBottom: 12 }}>
-                  Standard template wording is included. Expand a section only if you need to change something before you generate.
+                  Standard template wording is included.
                 </Text>
-                {!contractWordingExpanded ? (
-                  <View
-                    style={{
-                      marginBottom: 14,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderRadius: 10,
-                      backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-                      borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                    }}
-                  >
-                    <Text style={[confirmScopeSectionLabelStyle(), { color: ESTIMATE_FLOW_CHIP_GREEN, marginBottom: 6 }]}>
-                      Using standard template
-                    </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                      {formatContractWordingSummary(
-                        contractLangAssumptions,
-                        contractLangBusinessTerms,
-                        contractLangWorkNotes,
-                      )}
-                    </Text>
-                  </View>
-                ) : null}
+                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>
+                  Using standard template
+                </Text>
+                <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                  {formatContractWordingSummary(
+                    contractLangAssumptions,
+                    contractLangBusinessTerms,
+                    contractLangWorkNotes,
+                  )}
+                </Text>
                 <TouchableOpacity
                   onPress={() => {
-                    setContractWordingExpanded(!contractWordingExpanded);
+                    setContractWordingExpanded(true);
                     if (Platform.OS !== 'web') {
                       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                     }
                   }}
-                  activeOpacity={0.75}
-                  style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingRight: 8 }}
+                  activeOpacity={0.85}
+                  style={{
+                    alignSelf: 'flex-start',
+                    minHeight: 44,
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    backgroundColor: '#3A3A3C',
+                    borderColor: 'rgba(148, 163, 184, 0.35)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 14, fontWeight: '700' }}>
-                    {contractWordingExpanded ? 'Hide wording editor' : 'Review or edit wording'}
+                  <Text style={{ color: '#e2e8f0', fontSize: 15, fontWeight: '600' }}>
+                    Review or edit wording
                   </Text>
                 </TouchableOpacity>
-
-                {contractWordingExpanded ? (
-                  <View style={{ marginTop: 20 }}>
-                    <ContractWordingEditor
-                      colors={Colors}
-                      darkMode={darkMode}
-                      isWeb={isWordingWeb}
-                      desktopTwoColumn={isWordingWeb && desktopWeb}
-                      assumptions={contractLangAssumptions}
-                      onChangeAssumptions={setContractLangAssumptions}
-                      businessTerms={contractLangBusinessTerms}
-                      onChangeBusinessTerms={setContractLangBusinessTerms}
-                      workNotes={contractLangWorkNotes}
-                      onChangeWorkNotes={setContractLangWorkNotes}
-                      onResetAssumptions={resetContractLangAssumptionsSection}
-                      onResetBusinessTerms={resetContractLangBusinessSection}
-                      onResetWorkNotes={resetContractLangWorkNotesSection}
-                      onResetAll={resetContractLanguageDraftsToTemplate}
-                    />
-                  </View>
-                ) : null}
             </View>
+
+            <Modal
+              visible={contractWordingExpanded}
+              animationType="slide"
+              presentationStyle="fullScreen"
+              onRequestClose={() => setContractWordingExpanded(false)}
+            >
+              <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg, paddingTop: insets.top }}>
+                <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 }} pointerEvents="box-none">
+                  <View style={{ minHeight: 44, justifyContent: 'center' }} pointerEvents="box-none">
+                    <Text style={{ textAlign: 'center', color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23 }}>
+                      Contract wording
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setContractWordingExpanded(false)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        zIndex: 2,
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
+                      }}
+                    >
+                      <Ionicons name="chevron-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, fontWeight: '500', marginTop: 4, lineHeight: 20 }}>
+                    {formatContractWordingSummary(
+                      contractLangAssumptions,
+                      contractLangBusinessTerms,
+                      contractLangWorkNotes,
+                    )}
+                  </Text>
+                </View>
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <ContractWordingEditor
+                    showSummary={false}
+                    colors={Colors}
+                    darkMode={darkMode}
+                    isWeb={isWordingWeb}
+                    desktopTwoColumn={isWordingWeb && desktopWeb}
+                    assumptions={contractLangAssumptions}
+                    onChangeAssumptions={setContractLangAssumptions}
+                    businessTerms={contractLangBusinessTerms}
+                    onChangeBusinessTerms={setContractLangBusinessTerms}
+                    workNotes={contractLangWorkNotes}
+                    onChangeWorkNotes={setContractLangWorkNotes}
+                    onResetAssumptions={resetContractLangAssumptionsSection}
+                    onResetBusinessTerms={resetContractLangBusinessSection}
+                    onResetWorkNotes={resetContractLangWorkNotesSection}
+                    onResetAll={resetContractLanguageDraftsToTemplate}
+                  />
+                </ScrollView>
+              </View>
+            </Modal>
 
             <View style={{ marginBottom: ESTIMATE_FLOW_CARD_GAP }}>
               {allChecklistItemsComplete && !shouldGateAdvanced && (
                 <View style={{ alignItems: 'center', gap: 4, marginBottom: 10 }}>
-                  <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>Pricing validated</Text>
-                  <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>Payments balanced</Text>
-                  <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>Required fields complete</Text>
+                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Pricing validated</Text>
+                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Payments balanced</Text>
+                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Required fields complete</Text>
                 </View>
               )}
               <View style={{ gap: 10 }}>
@@ -22378,14 +21985,26 @@ export default function EstimateGeneratorScreen() {
                   onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract()}
                   activeOpacity={0.8}
                   disabled={generatingContract}
-                  style={[estimateFlowPrimaryButtonStyle(), generatingContract && { opacity: 0.85 }]}
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#2dcc9a',
+                    borderRadius: 14,
+                    minHeight: 50,
+                    paddingVertical: 14,
+                    paddingHorizontal: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
+                    opacity: generatingContract ? 0.85 : 1,
+                  }}
                 >
                   {generatingContract ? (
-                    <ActivityIndicator size="small" color="#071018" />
+                    <ActivityIndicator size="small" color="#050B13" />
                   ) : (
-                    <MaterialIcons name="description" size={20} color="#071018" />
+                    <MaterialIcons name="description" size={20} color="#050B13" />
                   )}
-                  <Text style={estimateFlowPrimaryButtonTextStyle()}>
+                  <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
                     {shouldGateAdvanced
                       ? 'Finish setup to generate'
                       : generatingContract
@@ -22528,7 +22147,7 @@ export default function EstimateGeneratorScreen() {
     (walkthroughScrollPadBottom != null
       ? Math.max(walkthroughScrollPadBottom, tabScrollBottomInset)
       : step === 0
-        ? tabScrollBottomInset
+        ? tabScrollBottomInset + 36
         : step === 1 ||
             step === 2 ||
             (step === 5 && (equipmentRentalFocused || markupPctFocused))
@@ -22554,7 +22173,7 @@ export default function EstimateGeneratorScreen() {
   const estimatesMainScrollIosProps =
     Platform.OS === 'ios'
       ? {
-          automaticallyAdjustKeyboardInsets: true,
+          automaticallyAdjustKeyboardInsets: !lineItemModalOpen,
           contentInsetAdjustmentBehavior: 'never',
           keyboardDismissMode: 'none',
         }
@@ -22614,7 +22233,7 @@ export default function EstimateGeneratorScreen() {
         >
         <WebPageShell size="estimate" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         {/* Header — same horizontal inset as cards / nav pill */}
-        <View style={[s.wideContainer, { marginBottom: 10 }]}>
+        <View style={[s.wideContainer, { marginBottom: 16 }]}>
           {guidedMode && shouldShowGuidance && (
             <View style={{ marginBottom: 10 }}>
               <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
@@ -22637,15 +22256,15 @@ export default function EstimateGeneratorScreen() {
           </View>
 
           {/* Profile shortcut keeps account navigation available from Estimates. */}
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
+          <View
             style={{
               width: 54,
               height: 54,
               borderRadius: 27,
-              padding: 2,
+              borderWidth: 1.5,
+              borderColor: '#2dcc9a',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             <TouchableOpacity
@@ -22665,46 +22284,54 @@ export default function EstimateGeneratorScreen() {
                 {profileInitials}
               </Text>
             </TouchableOpacity>
-          </LinearGradient>
+          </View>
         </View>
 
-        {/* New bid stays directly below the title so it does not compete with Profile. */}
-        <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
-          <TouchableOpacity
-            activeOpacity={0.88}
-            style={estimateHeaderNewBidButtonStyle()}
-            onPress={createNewBid}
-            accessibilityRole="button"
-            accessibilityLabel="Create new bid"
-          >
-            <Ionicons name="add" size={16} color="#071018" />
-            <Text style={estimateHeaderNewBidTextStyle()}>New bid</Text>
-          </TouchableOpacity>
-        </View>
+        {step === 0 ? (
+          <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
+            <TouchableOpacity
+              activeOpacity={0.88}
+              style={{
+                backgroundColor: '#2dcc9a',
+                borderRadius: 999,
+                paddingHorizontal: 14,
+                paddingVertical: 9,
+                minHeight: 40,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+              onPress={createNewBid}
+              accessibilityRole="button"
+              accessibilityLabel="Create new bid"
+            >
+              <Ionicons name="add" size={16} color="#050B13" />
+              <Text style={{ color: '#050B13', fontSize: 14, fontWeight: '700', letterSpacing: 0.1 }}>New bid</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         </View>
 
         {/* Navigation Pill (matches dashboard segmented control) - same width as Bid Summary */}
-        <View style={[s.wideContainer, { opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
+        <View style={[s.wideContainer, { marginBottom: 14, opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <View
           style={[
             s.navPillBorder,
-            !darkMode && { borderColor: Colors.line, backgroundColor: Colors.surface2 },
+            darkMode
+              ? { backgroundColor: '#202022', borderColor: 'rgba(148, 163, 184, 0.35)' }
+              : { borderColor: Colors.line, backgroundColor: Colors.surface2 },
           ]}
         >
           <BlurView
-            intensity={darkMode ? 35 : 0}
+            intensity={0}
             tint={darkMode ? "dark" : "light"}
-            style={{ borderRadius: 999, backgroundColor: darkMode ? "transparent" : Colors.surface2 }}
+            style={{ borderRadius: 999, backgroundColor: darkMode ? '#202022' : Colors.surface2 }}
           >
-              <View style={[s.navPillInner, !darkMode && { backgroundColor: Colors.surface2 }]}>
+              <View style={[s.navPillInner, { backgroundColor: darkMode ? '#202022' : Colors.surface2, padding: 4 }]}>
                 {/* Back button */}
                 {activeNavButton === 'back' ? (
-                  <LinearGradient
-                    colors={['#22c55e', '#22d3ee']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[s.navBtn, s.navNextActive, { borderRadius: 999 }]}
-                  >
+                  <View style={[s.navBtn, s.navNextActive, { borderRadius: 999, backgroundColor: '#2dcc9a' }]}>
                     <TouchableOpacity
                       onPress={() => {
                         if (step > 1) {
@@ -22723,7 +22350,7 @@ export default function EstimateGeneratorScreen() {
                       <Ionicons name="chevron-back" size={18} color={darkMode ? '#050B13' : '#071018'} />
                       <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Back</Text>
                     </TouchableOpacity>
-                  </LinearGradient>
+                  </View>
                 ) : (
                   <TouchableOpacity
                     onPress={() => {
@@ -22741,20 +22368,15 @@ export default function EstimateGeneratorScreen() {
                     disabled={step === 0}
                   >
                     <View style={s.navBtnInner}>
-                      <Ionicons name="chevron-back" size={18} color={darkMode ? "#E5F7FF" : "#000000"} />
-                      <Text style={{ color: darkMode ? '#E5F7FF' : '#000000', fontSize: 15, fontWeight: '600' }}>Back</Text>
+                      <Ionicons name="chevron-back" size={18} color={darkMode ? "#e2e8f0" : "#000000"} />
+                      <Text style={{ color: darkMode ? '#e2e8f0' : '#000000', fontSize: 15, fontWeight: '600' }}>Back</Text>
                     </View>
                   </TouchableOpacity>
                 )}
 
                 {/* Summary button — plain label on Summary (step 0); gradient when jumping back from a step */}
                 {activeNavButton === 'summary' && step !== 0 ? (
-                  <LinearGradient
-                    colors={['#22c55e', '#22d3ee']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[s.navCenterBtn, s.navNextActive, { borderRadius: 999 }]}
-                  >
+                  <View style={[s.navCenterBtn, s.navNextActive, { borderRadius: 999, backgroundColor: '#2dcc9a' }]}>
                     <TouchableOpacity
                       onPress={() => {
                         setStep(0);
@@ -22765,7 +22387,7 @@ export default function EstimateGeneratorScreen() {
                     >
                       <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Summary</Text>
                     </TouchableOpacity>
-                  </LinearGradient>
+                  </View>
                 ) : (
                   <TouchableOpacity
                     onPress={() => {
@@ -22778,10 +22400,10 @@ export default function EstimateGeneratorScreen() {
                     <View style={s.navCenterBtnInner}>
                       <Text style={{
                         color: step === 0
-                          ? (darkMode ? 'rgba(229, 247, 255, 0.55)' : 'rgba(0, 0, 0, 0.45)')
-                          : (darkMode ? '#E5F7FF' : '#000000'),
+                          ? (darkMode ? '#2dcc9a' : '#0f172a')
+                          : (darkMode ? '#e2e8f0' : '#000000'),
                         fontSize: 15,
-                        fontWeight: step === 0 ? '500' : '600',
+                        fontWeight: step === 0 ? '700' : '600',
                       }}>
                         Summary
                       </Text>
@@ -22796,7 +22418,7 @@ export default function EstimateGeneratorScreen() {
                     style={[
                       s.navNextWrap,
                       s.navNextActive,
-                      { flex: 1, backgroundColor: ESTIMATE_FLOW_GREEN, borderRadius: 999 },
+                      { flex: 1, backgroundColor: '#2dcc9a', borderRadius: 999 },
                     ]}
                     onPress={async () => {
                       setStep(1);
@@ -22809,12 +22431,7 @@ export default function EstimateGeneratorScreen() {
                     </View>
                   </TouchableOpacity>
                 ) : activeNavButton === 'next' && step < 8 ? (
-                  <LinearGradient
-                    colors={['#22c55e', '#22d3ee']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[s.navNextWrap, s.navNextActive, { borderRadius: 999 }]}
-                  >
+                  <View style={[s.navNextWrap, s.navNextActive, { borderRadius: 999, backgroundColor: '#2dcc9a' }]}>
                     <TouchableOpacity
                       activeOpacity={0.85}
                       style={[s.navNextInner, { flex: 1 }]}
@@ -22826,7 +22443,7 @@ export default function EstimateGeneratorScreen() {
                       <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Next</Text>
                       <Ionicons name="arrow-forward" size={18} color={darkMode ? '#050B13' : '#071018'} />
                     </TouchableOpacity>
-                  </LinearGradient>
+                  </View>
                 ) : (
                   <TouchableOpacity
                     activeOpacity={0.85}
@@ -22844,14 +22461,28 @@ export default function EstimateGeneratorScreen() {
                     disabled={step >= 8 && step !== 0}
                   >
                     <View style={s.navNextInner}>
-                      <Text style={{ color: darkMode ? '#E5F7FF' : '#000000', fontSize: 15, fontWeight: '600' }}>Next</Text>
-                      <Ionicons name="arrow-forward" size={18} color={darkMode ? "#E5F7FF" : "#000000"} />
+                      <Text style={{ color: darkMode ? '#e2e8f0' : '#000000', fontSize: 15, fontWeight: '600' }}>Next</Text>
+                      <Ionicons name="arrow-forward" size={18} color={darkMode ? "#e2e8f0" : "#000000"} />
                     </View>
                   </TouchableOpacity>
                 )}
             </View>
           </BlurView>
         </View>
+        {step < STEPS.length ? (
+          <Text
+            style={{
+              color: '#94a3b8',
+              fontSize: 13,
+              fontWeight: '500',
+              textAlign: 'center',
+              marginTop: 8,
+            }}
+            numberOfLines={2}
+          >
+            {`Next · ${STEPS[step]?.title || ''}`}
+          </Text>
+        ) : null}
         </View>
 
         {/* Step Content */}
@@ -22905,137 +22536,6 @@ export default function EstimateGeneratorScreen() {
           </View>
         ) : showEstimateWorkspace ? (
           <>
-            {/* Step Section Card with Icons — charcoal stepper (all steps) */}
-      <View style={[s.wideContainer, estimateFlowStepperWrapStyle(), { opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
-          <View style={[estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP }), { paddingVertical: 10, paddingHorizontal: 0 }]}>
-          <View
-            style={{
-              paddingHorizontal: 14,
-              paddingBottom: 8,
-              gap: 4,
-            }}
-          >
-            <Text
-              style={[confirmScopeSectionLabelStyle(), { color: Colors.sub }]}
-              numberOfLines={2}
-            >
-              {step === 0 ? 'Summary' : STEPS[step - 1]?.title}
-            </Text>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-              }}
-            >
-              <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600' }}>
-                {`Step ${step} of ${STEPS.length}`}
-              </Text>
-              {!desktopWeb ? (
-                <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', flexShrink: 0 }}>
-                  Swipe →
-                </Text>
-              ) : null}
-            </View>
-          </View>
-          <View style={{ position: 'relative' }}>
-          <ScrollView
-            horizontal
-            scrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={desktopWeb ? { width: '100%' } : undefined}
-            contentContainerStyle={
-              desktopWeb
-                ? [s.stepRowDesktopEqual, { flexGrow: 1, minWidth: '100%' }]
-                : {
-                    paddingHorizontal: 10,
-                    paddingVertical: 4,
-                    paddingRight: 24,
-                    alignItems: 'flex-start',
-                  }
-            }
-          >
-            <TouchableOpacity
-              onPress={() => {
-                setStep(0);
-                setActiveNavButton('summary');
-              }}
-              style={[
-                {
-                  alignItems: 'center',
-                  marginHorizontal: 9,
-                  minWidth: 46,
-                },
-                desktopWeb && s.stepIconTouchableDesktop,
-              ]}
-            >
-              <View style={estimateSummaryStepperIconShellStyle(Colors, darkMode, step === 0)}>
-                <MaterialIcons
-                  name={getStepIcon(0)}
-                  size={18}
-                  color={estimateSummaryStepperIconColor(Colors, darkMode, step === 0)}
-                />
-              </View>
-              <Text
-                style={[
-                  estimateSummaryStepperLabelStyle(Colors, darkMode, step === 0),
-                  { fontSize: ew(10, 12) },
-                ]}
-              >
-                Summary
-              </Text>
-            </TouchableOpacity>
-
-            {STEPS.map((stepItem) => (
-              <TouchableOpacity
-                key={stepItem.id}
-                onPress={async () => {
-                  setStep(stepItem.id);
-                }}
-                style={[
-                  {
-                    alignItems: 'center',
-                    marginHorizontal: 9,
-                    minWidth: 46,
-                  },
-                  desktopWeb && s.stepIconTouchableDesktop,
-                ]}
-              >
-                <View style={estimateSummaryStepperIconShellStyle(Colors, darkMode, step === stepItem.id)}>
-                  <MaterialIcons
-                    name={getStepIcon(stepItem.id)}
-                    size={18}
-                    color={estimateSummaryStepperIconColor(Colors, darkMode, step === stepItem.id)}
-                  />
-                </View>
-                <Text
-                  style={[
-                    estimateSummaryStepperLabelStyle(Colors, darkMode, step === stepItem.id),
-                    { fontSize: ew(10, 12) },
-                  ]}
-                >
-                  {stepItem.id}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          </View>
-          {step !== 8 && !firstEstimateWalkthroughUiActive && !bidHasLineItems ? (
-            <View style={estimateAiAssistRowInCardStyle(darkMode)}>
-              <EstimateAiAssistRow
-                hint={t('estimate.buildWithAiSub')}
-                label={t('estimate.buildWithAi')}
-                onPress={openBuildWithAiDirect}
-                darkMode={darkMode}
-                hintColor={Colors.sub}
-                containerStyle={{ marginTop: 0, marginBottom: 0, paddingHorizontal: 0 }}
-                accessibilityLabel={`${t('estimate.buildWithAi')}. ${t('estimate.buildWithAiSub')}`}
-              />
-            </View>
-          ) : null}
-          </View>
-      </View>
             {/* Estimate Readiness Panel (first-run only, above breakdown) */}
             {shouldShowGuidance && step === 0 && !firstEstimateWalkthroughTourActive && (
               <View style={{ marginTop: 0, marginBottom: ESTIMATE_FLOW_CARD_GAP }}>
@@ -23162,80 +22662,6 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
             )}
-
-            {step === 0 &&
-              !shouldShowGuidance &&
-              !firstEstimateWalkthroughTourActive &&
-              setupProgressPct < 100 && (
-                <View style={[s.wideContainer, { marginBottom: ESTIMATE_FLOW_CARD_GAP }]}>
-                  <TouchableOpacity
-                    activeOpacity={0.88}
-                    onPress={handleReadinessCTA}
-                    style={estimateFlowCardStyle(Colors, darkMode)}
-                  >
-                    <View
-                      style={{
-                        alignSelf: 'flex-start',
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 999,
-                        backgroundColor: estimateSummaryStatusColors('progress').bg,
-                        marginBottom: 10,
-                      }}
-                    >
-                      <Text
-                        style={[
-                          confirmScopeSectionLabelStyle(),
-                          { color: estimateSummaryStatusColors('progress').color },
-                        ]}
-                      >
-                        Next recommended action
-                      </Text>
-                    </View>
-                    <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2 }}>
-                      {nextStepLabel}
-                    </Text>
-                    <View style={{ marginTop: 12 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                          Estimate setup
-                        </Text>
-                        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '700' }}>
-                          {setupProgressPct}%
-                        </Text>
-                      </View>
-                      <View style={{ height: 6, backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', borderRadius: 999 }}>
-                        <View
-                          style={{
-                            height: 6,
-                            width: `${setupProgressPct}%`,
-                            backgroundColor: '#22c55e',
-                            borderRadius: 999,
-                          }}
-                        />
-                      </View>
-                    </View>
-                    <View
-                      style={{
-                        marginTop: 14,
-                        backgroundColor: ESTIMATE_FLOW_GREEN,
-                        borderRadius: 12,
-                        paddingVertical: 11,
-                        paddingHorizontal: 14,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ color: '#071018', fontSize: 14, fontWeight: '800' }}>
-                        Continue
-                      </Text>
-                      <MaterialIcons name="arrow-forward" size={16} color="#071018" />
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              )}
 
             {renderStepContent()}
           </>

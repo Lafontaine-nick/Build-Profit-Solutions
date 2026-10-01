@@ -336,7 +336,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
       <EstimateFlowActionButton
         label="Camera"
         icon="photo-camera"
-        iconAccent="green"
+        iconColor="#2dcc9a"
         Colors={Colors}
         darkMode={darkMode}
         disabled={disabled || analyzing || atLimit}
@@ -347,7 +347,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
       <EstimateFlowActionButton
         label="Library"
         icon="photo-library"
-        iconAccent="blue"
+        iconColor="#2dcc9a"
         Colors={Colors}
         darkMode={darkMode}
         disabled={disabled || analyzing || atLimit}
@@ -419,14 +419,14 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         >
           {analyzing ? (
             <>
-              <ActivityIndicator size="small" color="#60a5fa" />
+              <ActivityIndicator size="small" color="#94a3b8" />
               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Reading photos…
               </Text>
             </>
           ) : (
             <>
-              <MaterialIcons name="image-search" size={18} color="#60a5fa" />
+              <MaterialIcons name="image-search" size={18} color="#94a3b8" />
               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Detect scope from {photos.length} photo{photos.length === 1 ? '' : 's'}
               </Text>
@@ -449,11 +449,16 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         ]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-          <View style={estimateStep1IconBadgeStyle(darkMode, 'blue')}>
+          <View
+            style={[
+              estimateStep1IconBadgeStyle(darkMode, 'blue'),
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#F1F5F9' },
+            ]}
+          >
             <MaterialIcons
               name={photosReady ? 'check-circle' : 'photo-library'}
               size={18}
-              color={photosReady ? '#60a5fa' : '#60a5fa'}
+              color="#2dcc9a"
             />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>

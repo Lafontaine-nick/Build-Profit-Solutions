@@ -9,19 +9,18 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getColors } from "../theme/getColors";
-import {
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_GREEN,
-} from "@/utils/estimateFlowCardStyle";
 
 export type ContractTemplateStateValue = "nevada" | "utah" | "other";
 
-const STATE_OPTIONS: { value: ContractTemplateStateValue; label: string }[] = [
-  { value: "nevada", label: "Nevada" },
-  { value: "utah", label: "Utah" },
-  { value: "other", label: "Other / Generic Draft" },
-];
+const templateStateFromAddress = (state: string): ContractTemplateStateValue => {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "nv" || normalized === "nevada") return "nevada";
+  if (normalized === "ut" || normalized === "utah") return "utah";
+  return "other";
+};
 
 type AppColors = ReturnType<typeof getColors>;
 
@@ -95,12 +94,7 @@ const formatProjectAddress = (
 type ModalBodyProps = {
   colors: AppColors;
   darkMode: boolean;
-  accent: string;
-  panelBg: string;
-  panelBorder: string;
   inputBase: Record<string, unknown>;
-  draftTemplateState: ContractTemplateStateValue;
-  setDraftTemplateState: (v: ContractTemplateStateValue) => void;
   draftCustomerName: string;
   setDraftCustomerName: (v: string) => void;
   draftAddress: string;
@@ -124,17 +118,14 @@ type ModalBodyProps = {
   onSave: () => void;
   onCancel: () => void;
   actionsBorder: string;
+  showIntro?: boolean;
+  showActions?: boolean;
 };
 
 function ContractSettingsModalBody({
   colors,
   darkMode,
-  accent,
-  panelBg,
-  panelBorder,
   inputBase,
-  draftTemplateState,
-  setDraftTemplateState,
   draftCustomerName,
   setDraftCustomerName,
   draftAddress,
@@ -158,37 +149,47 @@ function ContractSettingsModalBody({
   onSave,
   onCancel,
   actionsBorder,
+  showIntro = true,
+  showActions = true,
 }: ModalBodyProps) {
   return (
     <>
-      <View style={styles.modalHeader}>
-        <View style={[styles.accentRule, { backgroundColor: accent }]} />
-        <Text style={[styles.modalTitle, { color: colors.text }]}>Contract Settings</Text>
-        <Text style={[styles.modalSubtitle, { color: colors.sub }]}>
-          Who the agreement is for, where the work is, and how your name appears on the PDF.
-        </Text>
-      </View>
+      {showIntro ? (
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>Contract settings</Text>
+          <Text style={[styles.modalSubtitle, { color: "#94a3b8" }]}>
+            Who the agreement is for, where the work is, and how your name appears on the PDF.
+          </Text>
+        </View>
+      ) : null}
 
-      <SectionPanel borderColor={panelBorder} bg={panelBg}>
-        <Text style={[styles.sectionEyebrow, { color: accent }]}>Client</Text>
-        <Text style={[styles.sectionLabel, { color: colors.text, marginTop: 0 }]}>Customer name</Text>
+      <View
+        style={[
+          styles.formCard,
+          {
+            backgroundColor: darkMode ? "#202022" : colors.card,
+            borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : colors.line,
+          },
+        ]}
+      >
+      <SectionPanel borderColor="transparent" bg="transparent">
+        <Text style={[styles.sectionLabel, { marginTop: 0 }]}>Customer name</Text>
         <TextInput
           value={draftCustomerName}
           onChangeText={setDraftCustomerName}
           placeholder="Client name on the agreement"
-          placeholderTextColor={colors.sub}
+          placeholderTextColor="rgba(255,255,255,0.42)"
           style={inputBase as any}
         />
       </SectionPanel>
 
-      <SectionPanel borderColor={panelBorder} bg={panelBg}>
-        <Text style={[styles.sectionEyebrow, { color: accent }]}>Site</Text>
-        <Text style={[styles.sectionLabel, { color: colors.text, marginTop: 0 }]}>Project address</Text>
+      <SectionPanel borderColor="transparent" bg="transparent">
+        <Text style={[styles.sectionLabel, { marginTop: 0 }]}>Project address</Text>
         <TextInput
           value={draftAddress}
           onChangeText={setDraftAddress}
           placeholder="Street address"
-          placeholderTextColor={colors.sub}
+          placeholderTextColor="rgba(255,255,255,0.42)"
           style={[inputBase, { marginBottom: 10 }] as any}
         />
         <View style={styles.inlineRow}>
@@ -196,14 +197,14 @@ function ContractSettingsModalBody({
             value={draftCity}
             onChangeText={setDraftCity}
             placeholder="City"
-            placeholderTextColor={colors.sub}
+            placeholderTextColor="rgba(255,255,255,0.42)"
             style={[inputBase, { flex: 1.2, marginRight: 10 }] as any}
           />
           <TextInput
             value={draftState}
             onChangeText={setDraftState}
             placeholder="ST"
-            placeholderTextColor={colors.sub}
+            placeholderTextColor="rgba(255,255,255,0.42)"
             style={[inputBase, { width: 64, marginRight: 10 }] as any}
             autoCapitalize="characters"
           />
@@ -211,19 +212,18 @@ function ContractSettingsModalBody({
             value={draftZip}
             onChangeText={setDraftZip}
             placeholder="ZIP"
-            placeholderTextColor={colors.sub}
+            placeholderTextColor="rgba(255,255,255,0.42)"
             style={[inputBase, { width: 104 }] as any}
             keyboardType="numbers-and-punctuation"
           />
         </View>
       </SectionPanel>
 
-      <SectionPanel borderColor={panelBorder} bg={panelBg}>
-        <Text style={[styles.sectionEyebrow, { color: accent }]}>PDF header</Text>
-        <Text style={[styles.sectionLabel, { color: colors.text, marginTop: 0 }]}>
-          Contractor (cover & signature block)
+      <SectionPanel borderColor="transparent" bg="transparent">
+        <Text style={[styles.sectionLabel, { marginTop: 0 }]}>
+          Contractor on the PDF
         </Text>
-        <Text style={[styles.helperText, { color: colors.sub, marginBottom: 4 }]}>
+        <Text style={[styles.helperText, { marginBottom: 4 }]}>
           Leave a field blank to use your profile ({profileLine}).
         </Text>
         <TextInput
@@ -232,7 +232,7 @@ function ContractSettingsModalBody({
           placeholder={
             profileDefaultCompany ? `Company (profile: ${profileDefaultCompany})` : "Company"
           }
-          placeholderTextColor={colors.sub}
+          placeholderTextColor="rgba(255,255,255,0.42)"
           style={[inputBase, { marginBottom: 10 }] as any}
         />
         <TextInput
@@ -243,7 +243,7 @@ function ContractSettingsModalBody({
               ? `Your name (profile: ${profileDefaultContractorName})`
               : "Your name"
           }
-          placeholderTextColor={colors.sub}
+          placeholderTextColor="rgba(255,255,255,0.42)"
           style={[inputBase, { marginBottom: 10 }] as any}
         />
         <TextInput
@@ -254,100 +254,78 @@ function ContractSettingsModalBody({
               ? `Title / role (profile: ${profileDefaultContractorTitle})`
               : "Title / role"
           }
-          placeholderTextColor={colors.sub}
+          placeholderTextColor="rgba(255,255,255,0.42)"
           style={inputBase as any}
         />
       </SectionPanel>
 
-      <SectionPanel borderColor={panelBorder} bg={panelBg}>
-        <Text style={[styles.sectionEyebrow, { color: accent }]}>Legal template</Text>
-        <Text style={[styles.sectionLabel, { color: colors.text, marginTop: 0 }]}>Contract location</Text>
-        <View style={[styles.optionGroup, isWeb && styles.optionGroupWeb]}>
-          {STATE_OPTIONS.map((item) => {
-            const active = draftTemplateState === item.value;
-            return (
-              <Pressable
-                key={item.value}
-                style={({ pressed }) => [
-                  styles.optionChip,
-                  isWeb && styles.optionChipWeb,
-                  {
-                    borderColor: active ? accent : panelBorder,
-                    backgroundColor: active
-                      ? "rgba(45,255,196,0.14)"
-                      : darkMode
-                        ? "rgba(255,255,255,0.04)"
-                        : colors.bg,
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}
-                onPress={() => setDraftTemplateState(item.value)}
-              >
-                <Text
-                  style={[
-                    styles.optionChipText,
-                    { color: active ? accent : colors.text },
-                    isWeb && styles.optionChipTextWeb,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={[styles.helperText, { color: colors.sub, marginTop: 8 }]}>
-          Auto-detect from project address when possible. Change only if needed.
+      <SectionPanel borderColor="transparent" bg="transparent">
+        <Text style={[styles.sectionLabel, { marginTop: 0 }]}>Contract location</Text>
+        <Text style={styles.helperText}>
+          Nationwide draft. The agreement follows the project state on the address.
         </Text>
-
-        {draftTemplateState === "other" ? (
-          <View style={[styles.warningBox, { marginTop: 10 }]}>
-            <Text
-              style={[
-                styles.warningText,
-                { color: darkMode ? "rgba(250, 250, 250, 0.94)" : "#1a1206" },
-              ]}
-            >
-              Generic draft: confirm jurisdiction-specific requirements before client use.
-            </Text>
-          </View>
-        ) : null}
       </SectionPanel>
-
-      <View
-        style={[
-          styles.modalActions,
-          isWeb && styles.modalActionsWeb,
-          isWeb && { borderTopColor: actionsBorder },
-        ]}
-      >
-        <Pressable
-          style={({ pressed }) => [
-            styles.secondaryBtn,
-            {
-              borderColor: panelBorder,
-              backgroundColor: darkMode ? "rgba(255,255,255,0.05)" : colors.bg,
-              opacity: pressed ? 0.9 : 1,
-            },
-          ]}
-          onPress={onCancel}
-        >
-          <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Cancel</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            { backgroundColor: ESTIMATE_FLOW_GREEN, opacity: pressed ? 0.92 : 1 },
-            isWeb && styles.primaryBtnWeb,
-          ]}
-          onPress={onSave}
-        >
-          <Text style={styles.primaryBtnText}>Save</Text>
-        </Pressable>
       </View>
+
+      {showActions ? (
+        <ContractSettingsActions
+          darkMode={darkMode}
+          colors={colors}
+          onSave={onSave}
+          onCancel={onCancel}
+          actionsBorder={actionsBorder}
+        />
+      ) : null}
     </>
+  );
+}
+
+function ContractSettingsActions({
+  darkMode,
+  colors,
+  onSave,
+  onCancel,
+  actionsBorder,
+}: {
+  darkMode: boolean;
+  colors: AppColors;
+  onSave: () => void;
+  onCancel: () => void;
+  actionsBorder: string;
+}) {
+  return (
+    <View
+      style={[
+        styles.modalActions,
+        isWeb && styles.modalActionsWeb,
+        isWeb && { borderTopColor: actionsBorder },
+      ]}
+    >
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          { backgroundColor: "#2dcc9a", opacity: pressed ? 0.92 : 1 },
+        ]}
+        onPress={onSave}
+      >
+        <Text style={styles.primaryBtnText}>Save</Text>
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [
+          styles.secondaryBtn,
+          {
+            borderColor: darkMode ? "rgba(148, 163, 184, 0.35)" : colors.line,
+            backgroundColor: darkMode ? "#3A3A3C" : colors.bg,
+            opacity: pressed ? 0.9 : 1,
+          },
+        ]}
+        onPress={onCancel}
+      >
+        <Text style={[styles.secondaryBtnText, { color: darkMode ? "#e2e8f0" : colors.text }]}>
+          Cancel
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -370,7 +348,6 @@ function SectionPanel({
 export default function ContractSettingsCompact({
   colors,
   darkMode = true,
-  contractTemplateState,
   onSave,
   customerName,
   customerAddress,
@@ -385,8 +362,8 @@ export default function ContractSettingsCompact({
   profileDefaultContractorTitle,
   embedded = false,
 }: ContractSettingsCompactProps) {
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
-  const [draftTemplateState, setDraftTemplateState] = useState(contractTemplateState);
   const [draftCustomerName, setDraftCustomerName] = useState(customerName);
   const [draftAddress, setDraftAddress] = useState(customerAddress);
   const [draftCity, setDraftCity] = useState(customerCity);
@@ -398,7 +375,6 @@ export default function ContractSettingsCompact({
 
   useEffect(() => {
     if (!open) return;
-    setDraftTemplateState(contractTemplateState);
     setDraftCustomerName(customerName);
     setDraftAddress(customerAddress);
     setDraftCity(customerCity);
@@ -409,7 +385,6 @@ export default function ContractSettingsCompact({
     setDraftTitle(contractBrandingContractorTitle);
   }, [
     open,
-    contractTemplateState,
     customerName,
     customerAddress,
     customerCity,
@@ -422,7 +397,7 @@ export default function ContractSettingsCompact({
 
   const saveAndClose = () => {
     onSave({
-      contractTemplateState: draftTemplateState,
+      contractTemplateState: templateStateFromAddress(draftState),
       customerName: draftCustomerName,
       customerAddress: draftAddress,
       customerCity: draftCity,
@@ -437,10 +412,7 @@ export default function ContractSettingsCompact({
 
   const border = darkMode ? "rgba(255,255,255,0.10)" : colors.line;
   const cardBg = darkMode ? "rgba(255, 255, 255, 0.03)" : colors.surface2;
-  const accent = ESTIMATE_FLOW_CHIP_GREEN;
   const inputBg = darkMode ? "rgba(255,255,255,0.04)" : colors.bg;
-  const panelBg = darkMode ? "rgba(255,255,255,0.02)" : colors.surface2;
-  const panelBorder = darkMode ? "rgba(255,255,255,0.08)" : colors.line;
   const placeholder = "Not set";
 
   const contractorSummary = mergeDisplayBranding(
@@ -466,13 +438,14 @@ export default function ContractSettingsCompact({
 
   const inputBase = {
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(255,255,255,0.12)" : colors.line,
+    borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : colors.line,
     backgroundColor: inputBg,
     color: colors.text,
-    borderRadius: 12,
+    borderRadius: 14,
+    minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: isWeb ? 12 : Platform.OS === "ios" ? 12 : 10,
-    fontSize: isWeb ? 15 : 14,
+    fontSize: 16,
     ...(isWeb
       ? ({
           outlineStyle: "none" as const,
@@ -493,12 +466,7 @@ export default function ContractSettingsCompact({
   const modalBodyProps: ModalBodyProps = {
     colors,
     darkMode,
-    accent,
-    panelBg,
-    panelBorder,
     inputBase,
-    draftTemplateState,
-    setDraftTemplateState,
     draftCustomerName,
     setDraftCustomerName,
     draftAddress,
@@ -538,7 +506,7 @@ export default function ContractSettingsCompact({
             ]
       }
     >
-      <Text style={[styles.title, { color: colors.text }]}>Contract Settings</Text>
+      <Text style={[styles.title, { color: colors.text, fontSize: 18, fontWeight: "800", letterSpacing: -0.2 }]}>Contract settings</Text>
 
       <View style={styles.row}>
         <Text style={[styles.label, { color: colors.sub }]}>Customer name</Text>
@@ -564,16 +532,27 @@ export default function ContractSettingsCompact({
       <Pressable
         style={({ pressed }) => [
           styles.changeBtn,
-          { borderColor: accent, opacity: pressed ? 0.88 : 1 },
+          {
+            backgroundColor: "#3A3A3C",
+            borderColor: "rgba(148, 163, 184, 0.35)",
+            opacity: pressed ? 0.88 : 1,
+          },
         ]}
         onPress={() => setOpen(true)}
       >
-        <Text style={[styles.changeBtnText, { color: accent }]}>
+        <Text style={[styles.changeBtnText, { color: "#e2e8f0" }]}>
           Change settings
         </Text>
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
+      <Modal
+        visible={open}
+        animationType="slide"
+        transparent={isWeb}
+        presentationStyle={isWeb ? "overFullScreen" : "fullScreen"}
+        statusBarTranslucent
+        onRequestClose={() => setOpen(false)}
+      >
         {isWeb ? (
           <View style={[styles.modalBackdrop, styles.modalBackdropWeb]}>
             <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setOpen(false)} />
@@ -595,23 +574,56 @@ export default function ContractSettingsCompact({
             </View>
           </View>
         ) : (
-          <View style={styles.modalBackdrop}>
-            <Pressable style={styles.modalBackdropTap} onPress={() => setOpen(false)} />
-            <View
-              style={[
-                styles.modalSheet,
-                { borderColor: border, backgroundColor: darkMode ? "#0c0c0f" : colors.card },
-              ]}
-            >
-              <View style={styles.sheetGrabber} />
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.modalContent}
-                showsVerticalScrollIndicator={false}
-              >
-                <ContractSettingsModalBody {...modalBodyProps} />
-              </ScrollView>
+          <View
+            style={[
+              styles.fullPage,
+              {
+                backgroundColor: darkMode ? "#000000" : colors.card,
+                paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 54 : 0) + 8,
+              },
+            ]}
+          >
+            <View style={styles.pageHeader} pointerEvents="box-none">
+              <View style={styles.pageTitleRow} pointerEvents="box-none">
+                <Text style={[styles.pageTitle, { color: colors.text }]} numberOfLines={1}>
+                  Contract settings
+                </Text>
+                <Pressable
+                  style={[
+                    styles.backBtn,
+                    {
+                      backgroundColor: darkMode
+                        ? "rgba(255,255,255,0.08)"
+                        : (colors.surface2 ?? "#f3f4f6"),
+                    },
+                  ]}
+                  onPress={() => setOpen(false)}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                >
+                  <MaterialIcons
+                    name="chevron-left"
+                    size={26}
+                    color={darkMode ? "#e2e8f0" : colors.text}
+                  />
+                </Pressable>
+              </View>
+              <Text style={styles.pageSubtitle}>
+                Who the agreement is for, where the work is, and how your name appears on the PDF.
+              </Text>
             </View>
+            <ScrollView
+              style={styles.fullPageScroll}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={[
+                styles.modalContent,
+                { paddingBottom: Math.max(insets.bottom, 16) + 16 },
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              <ContractSettingsModalBody {...modalBodyProps} showIntro={false} />
+            </ScrollView>
           </View>
         )}
       </Modal>
@@ -668,14 +680,58 @@ const styles = StyleSheet.create({
   changeBtn: {
     alignSelf: "flex-start",
     marginTop: 4,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   changeBtnText: {
-    fontSize: 13,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  fullPage: {
+    flex: 1,
+  },
+  fullPageScroll: {
+    flex: 1,
+  },
+  pageHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  pageTitleRow: {
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  pageTitle: {
+    textAlign: "center",
+    fontSize: 18,
     fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+  },
+  pageSubtitle: {
+    textAlign: "center",
+    color: "#94a3b8",
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 4,
+    letterSpacing: 0.12,
+    lineHeight: 20,
+  },
+  backBtn: {
+    position: "absolute",
+    left: 0,
+    top: 4,
+    zIndex: 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalBackdrop: {
     flex: 1,
@@ -718,10 +774,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   modalContent: {
-    padding: 20,
-    paddingTop: 12,
+    paddingHorizontal: 8,
+    paddingTop: 8,
     paddingBottom: 32,
-    gap: 14,
+    gap: 22,
   },
   modalContentWeb: {
     paddingHorizontal: 24,
@@ -749,10 +805,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
     maxWidth: 440,
   },
-  sectionPanel: {
+  formCard: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 16,
+    gap: 18,
+  },
+  sectionPanel: {
+    borderRadius: 0,
+    borderWidth: 0,
+    padding: 0,
     gap: 8,
   },
   sectionEyebrow: {
@@ -763,8 +825,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   sectionLabel: {
-    fontSize: 15,
-    fontWeight: "700",
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
     marginTop: 6,
   },
   inlineRow: {
@@ -781,10 +844,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   optionChip: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   optionChipWeb: {
     flex: 1,
@@ -795,8 +861,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   optionChipText: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
     textAlign: "center",
   },
   optionChipTextWeb: {
@@ -804,12 +870,17 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   helperText: {
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
+    color: "#94a3b8",
+  },
+  pageFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
   modalActions: {
-    flexDirection: "row",
-    gap: 12,
+    flexDirection: "column",
+    gap: 10,
     marginTop: 8,
     paddingTop: 4,
   },
@@ -819,32 +890,36 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   secondaryBtn: {
-    flex: 1,
+    width: "100%",
+    minHeight: 48,
     borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 15,
+    paddingVertical: 14,
     alignItems: "center",
+    justifyContent: "center",
   },
   secondaryBtnText: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   primaryBtn: {
-    flex: 1,
+    width: "100%",
+    minHeight: 50,
     borderRadius: 14,
-    paddingVertical: 15,
+    paddingVertical: 14,
     alignItems: "center",
+    justifyContent: "center",
   },
   primaryBtnWeb: {
-    shadowColor: ESTIMATE_FLOW_GREEN,
+    shadowColor: "#2dcc9a",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 14,
     elevation: 4,
   },
   primaryBtnText: {
-    color: "#04110f",
-    fontSize: 15,
+    color: "#050B13",
+    fontSize: 16,
     fontWeight: "800",
   },
 });

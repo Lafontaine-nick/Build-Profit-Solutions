@@ -186,24 +186,24 @@ export function PricingEntryModeToggle({
               styles.pricingEntryModeChip,
               {
                 borderColor: active
-                  ? '#22c55e'
+                  ? '#2dcc9a'
                   : darkMode
-                    ? 'rgba(148, 163, 184, 0.24)'
+                    ? 'rgba(148, 163, 184, 0.35)'
                     : Colors.line,
                 backgroundColor: active
-                  ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(34, 197, 94, 0.08)'
-                  : 'transparent',
+                  ? '#2dcc9a'
+                  : darkMode
+                    ? '#3A3A3C'
+                    : '#E2E8F0',
               },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#22c55e'
+                  ? '#050B13'
                   : darkMode
-                    ? 'rgba(255,255,255,0.72)'
+                    ? '#e2e8f0'
                     : Colors.sub,
                 fontSize: 11,
                 fontWeight: '700',
@@ -258,24 +258,24 @@ function PricingRateModeToggle({
               styles.pricingRateModeChip,
               {
                 borderColor: active
-                  ? '#22c55e'
+                  ? '#2dcc9a'
                   : darkMode
-                    ? 'rgba(148, 163, 184, 0.24)'
+                    ? 'rgba(148, 163, 184, 0.35)'
                     : Colors.line,
                 backgroundColor: active
-                  ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(22, 163, 74, 0.08)'
-                  : 'transparent',
+                  ? '#2dcc9a'
+                  : darkMode
+                    ? '#3A3A3C'
+                    : '#E2E8F0',
               },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#22c55e'
+                  ? '#050B13'
                   : darkMode
-                    ? 'rgba(255,255,255,0.72)'
+                    ? '#e2e8f0'
                     : Colors.sub,
                 fontSize: 10,
                 fontWeight: '700',
@@ -944,10 +944,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2dcc9a',
   },
   pricingEditorDoneBtnText: {
-    color: '#0f172a',
+    color: '#050B13',
     fontSize: 13,
     fontWeight: '800',
   },
