@@ -13,23 +13,13 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
-import {
-  ESTIMATE_FLOW_BLUE,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   estimateFlowCardStyle,
-  estimateFlowOutlineActionButtonStyle,
-  estimateFlowOutlineActionButtonTextStyle,
   estimateSummarySectionSubtitleStyle,
   estimateSummarySectionTitleStyle,
 } from '@/utils/estimateFlowCardStyle';
@@ -130,34 +120,34 @@ export default function EstimateCustomerPickerModal({
       <View style={[styles.root, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
         <View style={styles.safeArea}>
-          <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={handleClose}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={22}
-                  color={darkMode ? '#FFFFFF' : Colors.text}
-                />
-              </GradientRingBackInner>
-            </LinearGradient>
-
-            <View style={styles.headerText}>
-              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 20 }]}>
-                Saved customers
-              </Text>
-              <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.headerRow,
+              { paddingTop: headerTopPadding },
+              !darkMode && { borderBottomColor: Colors.line },
+            ]}
+          >
+            <View style={styles.headerText} pointerEvents="none">
+              <Text style={[styles.headerTitle, { color: Colors.text }]}>Saved customers</Text>
+              <Text style={[styles.headerSubtitle, !darkMode && { color: Colors.sub }]}>
                 {customers.length === 1 ? '1 saved customer' : `${customers.length} saved customers`}
               </Text>
             </View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={handleClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={[
+                styles.backButton,
+                { top: headerTopPadding },
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+            </TouchableOpacity>
           </View>
 
           {hasCustomers ? (
@@ -198,25 +188,8 @@ export default function EstimateCustomerPickerModal({
               flexGrow: 1,
             }}
             keyboardShouldPersistTaps="handled"
-            ListHeaderComponent={
-              hasCustomers ? (
-                <View
-                  style={[
-                    estimateFlowCardStyle(flowCardColors, darkMode, { marginBottom: 12 }),
-                    { paddingVertical: 12 },
-                  ]}
-                >
-                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { lineHeight: 18 }]}>
-                    Select a customer to fill this bid. Your current entries stay until you choose one.
-                  </Text>
-                </View>
-              ) : null
-            }
             ListEmptyComponent={
               <View style={[estimateFlowCardStyle(flowCardColors, darkMode), styles.emptyCard]}>
-                <View style={styles.emptyIconWrap}>
-                  <Ionicons name="people-outline" size={36} color={Colors.sub} />
-                </View>
                 <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 17 }]}>
                   No saved customers yet
                 </Text>
@@ -243,7 +216,7 @@ export default function EstimateCustomerPickerModal({
                     {item.name}
                   </Text>
                   {latestProject ? (
-                    <Text style={{ color: ESTIMATE_FLOW_BLUE, fontSize: 13, fontWeight: '700', marginTop: 4 }} numberOfLines={1}>
+                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600', marginTop: 4 }} numberOfLines={1}>
                       {latestProject}
                     </Text>
                   ) : null}
@@ -257,9 +230,9 @@ export default function EstimateCustomerPickerModal({
                     <TouchableOpacity
                       activeOpacity={0.85}
                       onPress={() => handleSelect(item)}
-                      style={estimateFlowOutlineActionButtonStyle()}
+                      style={styles.useButton}
                     >
-                      <Text style={estimateFlowOutlineActionButtonTextStyle()}>Use customer</Text>
+                      <Text style={styles.useButtonText}>Use customer</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       activeOpacity={0.85}
@@ -267,8 +240,8 @@ export default function EstimateCustomerPickerModal({
                       style={[
                         styles.overflowBtn,
                         {
-                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-                          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                          borderColor: 'rgba(148, 163, 184, 0.35)',
+                          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
                         },
                       ]}
                       accessibilityLabel="More actions"
@@ -290,27 +263,47 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   safeArea: { flex: 1 },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
-    paddingBottom: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+    marginBottom: 14,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
-  backButtonBorder: {
+  headerText: {
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 56,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: '500',
+    letterSpacing: 0.12,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 2,
     width: 40,
     height: 40,
     borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
-  },
-  backButton: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 19,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerText: { flex: 1 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -324,29 +317,34 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   list: { flex: 1 },
+  useButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: '#2dcc9a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  useButtonText: {
+    color: '#050B13',
+    fontSize: 15,
+    fontWeight: '800',
+  },
   cardActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 14,
   },
   overflowBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyCard: { marginTop: 8, alignItems: 'center' },
-  emptyIconWrap: {
-    width: 56,
-    height: 56,
+    width: 48,
+    height: 48,
     borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginBottom: 12,
   },
+  emptyCard: { marginTop: 8 },
   emptyBody: { marginTop: 8, lineHeight: 20, textAlign: 'center' },
 });

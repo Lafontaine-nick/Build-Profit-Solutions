@@ -12,21 +12,11 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
-import {
-  ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   estimateFlowCardStyle,
-  estimateFlowOutlineActionButtonStyle,
-  estimateFlowOutlineActionButtonTextStyle,
   estimateSummarySectionSubtitleStyle,
   estimateSummarySectionTitleStyle,
 } from '@/utils/estimateFlowCardStyle';
@@ -208,44 +198,35 @@ export default function EstimateVersionHistoryModal({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.headerRow}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backRing}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={onClose}
-                style={[styles.backInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
-            <View style={styles.headerText}>
-              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 20 }]}>
-                Saved bids
-              </Text>
-              <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
+          <View
+            pointerEvents="box-none"
+            style={[styles.headerRow, !darkMode && { borderBottomColor: Colors.line }]}
+          >
+            <View style={styles.headerText} pointerEvents="none">
+              <Text style={[styles.headerTitle, { color: Colors.text }]}>Saved bids</Text>
+              <Text style={[styles.headerSubtitle, !darkMode && { color: Colors.sub }]}>
                 {savedEstimates.length === 1
                   ? '1 saved bid'
                   : `${savedEstimates.length} saved bids`}
               </Text>
             </View>
-          </View>
-
-          <View style={[estimateFlowCardStyle(flowCardColors, darkMode, { marginBottom: 14 }), { paddingVertical: 12 }]}>
-            <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { lineHeight: 18 }]}>
-              Open a saved estimate. Your current work is saved automatically.
-            </Text>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={onClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={[
+                styles.backButton,
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+            </TouchableOpacity>
           </View>
 
           {sortedEstimates.length === 0 ? (
             <View style={estimateFlowCardStyle(flowCardColors, darkMode)}>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons name="document-text-outline" size={36} color={Colors.sub} />
-              </View>
               <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 17 }]}>
                 No saved bids yet
               </Text>
@@ -262,6 +243,7 @@ export default function EstimateVersionHistoryModal({
                   formatSavedTimestamp(item),
                   lineItemCount > 0 ? `${lineItemCount} items` : null,
                 ].filter(Boolean);
+                const bidTotal = resolveTotal(item);
                 const isMostRecent = index === 0;
 
                 return (
@@ -286,8 +268,8 @@ export default function EstimateVersionHistoryModal({
                         </View>
                       ) : null}
                     </View>
-                    <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', marginTop: 6 }}>
-                      {formatTemplateMoney(resolveTotal(item))}
+                    <Text style={{ color: bidTotal > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 22, fontWeight: '800', marginTop: 6 }}>
+                      {formatTemplateMoney(bidTotal)}
                     </Text>
                     <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 4, fontSize: 12 }]}>
                       {metaParts.join(' · ')}
@@ -295,11 +277,11 @@ export default function EstimateVersionHistoryModal({
 
                     <View style={styles.cardActions}>
                       <TouchableOpacity
-                        activeOpacity={0.85}
+                        activeOpacity={0.88}
                         onPress={() => confirmOpen(item, onRestore)}
-                        style={estimateFlowOutlineActionButtonStyle()}
+                        style={styles.openBidButton}
                       >
-                        <Text style={estimateFlowOutlineActionButtonTextStyle()}>Open bid</Text>
+                        <Text style={styles.openBidText}>Open bid</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         activeOpacity={0.85}
@@ -330,34 +312,46 @@ export default function EstimateVersionHistoryModal({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    paddingBottom: 16,
     marginBottom: 14,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
-  backRing: {
+  headerText: {
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 56,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: '500',
+    letterSpacing: 0.12,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 2,
     width: 40,
     height: 40,
     borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
-  },
-  backInner: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerText: { flex: 1 },
-  emptyIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginBottom: 12,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -368,21 +362,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(52, 211, 153, 0.35)',
+    borderColor: 'rgba(45, 204, 154, 0.35)',
   },
   recentBadgeText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#2dcc9a',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  openBidButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: '#2dcc9a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  openBidText: {
+    color: '#050B13',
+    fontSize: 15,
+    fontWeight: '800',
   },
   cardActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 14,
   },
   overflowBtn: {
     width: 40,

@@ -3503,7 +3503,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: darkMode ? "#020617" : Colors.bg,
+    backgroundColor: darkMode ? "#000000" : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
   },

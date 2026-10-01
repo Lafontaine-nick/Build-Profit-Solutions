@@ -48,7 +48,6 @@ import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   AI_FLOW_CARD_BG_DARK,
-  confirmScopeSectionLabelStyle,
   estimateFlowCardStyle,
 } from '@/utils/estimateFlowCardStyle';
 
@@ -590,8 +589,8 @@ function SubcontractorSearchModal({
     [Colors, darkMode]
   );
   const profileSectionLabel = useMemo(
-    () => [confirmScopeSectionLabelStyle(), { color: subMeta2, marginBottom: 8 }] as const,
-    [subMeta2]
+    () => ({ color: '#94a3b8', fontSize: 12, fontWeight: '600' as const, marginBottom: 8 }),
+    []
   );
   const router = useRouter();
   const { user: clerkUser } = useUser();
@@ -634,6 +633,7 @@ function SubcontractorSearchModal({
   const [searchAnchor, setSearchAnchor] = useState<{ lat: number; lng: number } | null>(null);
   /** Web: city/state from Google for the browser’s GPS — clarifies when Safari places the pin far from where you expect */
   const [geoHint, setGeoHint] = useState<string | null>(null);
+  const [locationNote, setLocationNote] = useState<string | null>(null);
   /** Web: navigator accuracy radius — coarse Wi‑Fi/IP positioning on desktop Safari */
   const [geoAccuracyWarning, setGeoAccuracyWarning] = useState<string | null>(null);
   /** Profile-linked directory listing (same keys as Profile → Find Subcontractors). */
@@ -944,7 +944,18 @@ function SubcontractorSearchModal({
 
   const combinedBpsRows = useMemo(() => {
     const merged = dedupeFindSubsBpsRows([...realBpsRows, ...apiBpsDirectoryRows]);
-    return merged.filter((row) => shouldShowFindSubsRow(row, findSubsSelfCtx, bpsDiscoverListOn));
+    const visible = merged.filter((row) => shouldShowFindSubsRow(row, findSubsSelfCtx, bpsDiscoverListOn));
+    const selfRows = visible.filter((row) => isSelfFindSubsRow(row, findSubsSelfCtx));
+    const otherRows = visible.filter((row) => !isSelfFindSubsRow(row, findSubsSelfCtx));
+    if (selfRows.length === 0) return visible;
+    const named = selfRows.find((row) => !isGenericBpsDirectoryName(row.name));
+    const kept = { ...(named || selfRows[0]) };
+    if (isGenericBpsDirectoryName(kept.name)) {
+      kept.name = 'Your company';
+    }
+    const keptName = normFindSubsLabel(kept.name);
+    const rest = otherRows.filter((row) => normFindSubsLabel(row.name) !== keptName);
+    return [kept, ...rest];
   }, [realBpsRows, apiBpsDirectoryRows, findSubsSelfCtx, bpsDiscoverListOn]);
 
   const googleRowsFiltered = useMemo(() => {
@@ -1104,6 +1115,7 @@ function SubcontractorSearchModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     setLocating(true);
+    setLocationNote(null);
     try {
       let lat: number;
       let lng: number;
@@ -1136,10 +1148,7 @@ function SubcontractorSearchModal({
         }
         const { status } = await expoLocationApi.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert(
-            'Location needed',
-            'Allow location to fill your ZIP from where you are, or enter a ZIP manually.'
-          );
+          setLocationNote('Location is off. The ZIP above is still used.');
           return;
         }
         const pos = await expoLocationApi.getCurrentPositionAsync({
@@ -1591,46 +1600,37 @@ function SubcontractorSearchModal({
           }}>
               <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webColumn860]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onClose();
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
                   style={{
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    padding: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
                   }}
                 >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onClose();
-                    }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 19,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <MaterialIcons
-                      name="arrow-back"
-                      size={24}
-                      color={darkMode ? '#FFFFFF' : Colors.text}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                  <MaterialIcons
+                    name="arrow-back"
+                    size={22}
+                    color={darkMode ? '#e2e8f0' : Colors.text}
+                  />
+                </TouchableOpacity>
               </View>
 
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
-                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 23, fontWeight: '700', letterSpacing: -0.3, textAlign: 'center' }}>
+                <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
                   Find Subcontractors
                 </Text>
-                <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500', textAlign: 'center' }}>
+                <Text style={{ color: '#94a3b8', fontSize: 14, marginTop: 4, fontWeight: '500', letterSpacing: 0.12, lineHeight: 20, textAlign: 'center' }}>
                   Search for qualified contractors
                 </Text>
               </View>
@@ -1722,7 +1722,7 @@ function SubcontractorSearchModal({
           <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
           {/* Trade Selector */}
           <View style={{ marginBottom: 12 }}>
-            <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000', marginBottom: 8, fontSize: 11, fontWeight: '600', letterSpacing: 0.45, textTransform: 'uppercase' }}>Trade</Text>
+            <Text style={{ color: '#94a3b8', marginBottom: 8, fontSize: 12, fontWeight: '600' }}>Trade</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
               {TRADE_OPTIONS.map(trade => (
                 <TouchableOpacity
@@ -1733,19 +1733,19 @@ function SubcontractorSearchModal({
                   }}
                   style={{
                     backgroundColor: selectedTrade === trade
-                      ? 'rgba(34, 197, 94, 0.16)'
-                      : (darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2),
+                      ? '#2dcc9a'
+                      : (darkMode ? '#3A3A3C' : Colors.surface2),
                     paddingHorizontal: 14,
                     paddingVertical: 9,
                     borderRadius: 14,
                     marginRight: 0,
-                    borderWidth: 1.5,
+                    borderWidth: 1,
                     borderColor: selectedTrade === trade
-                      ? '#22c55e'
-                      : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
+                      ? '#2dcc9a'
+                      : 'rgba(148, 163, 184, 0.35)',
                   }}
                 >
-                  <Text style={{ color: selectedTrade === trade ? (darkMode ? '#86efac' : '#166534') : (darkMode ? '#f1f5f9' : '#000000'), fontWeight: '700', fontSize: 12 }}>
+                  <Text style={{ color: selectedTrade === trade ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text), fontWeight: '700', fontSize: 12 }}>
                     {trade}
                   </Text>
                 </TouchableOpacity>
@@ -1763,13 +1763,13 @@ function SubcontractorSearchModal({
                 placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                 style={{
                   flex: 1,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
                   paddingHorizontal: 14,
                   paddingVertical: 11,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
+                  borderColor: 'rgba(148, 163, 184, 0.12)',
                   fontSize: 15,
                   ...inputWebOutline,
                 }}
@@ -1792,13 +1792,13 @@ function SubcontractorSearchModal({
                 maxLength={5}
                 style={{
                   width: 86,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
                   paddingHorizontal: 10,
                   paddingVertical: 11,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
+                  borderColor: 'rgba(148, 163, 184, 0.12)',
                   fontSize: 15,
                   textAlign: 'center',
                   ...inputWebOutline,
@@ -1842,12 +1842,10 @@ function SubcontractorSearchModal({
             <View style={{ marginTop: 12 }}>
               <Text
                 style={{
-                  color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                  color: '#94a3b8',
                   marginBottom: 8,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: '600',
-                  letterSpacing: 0.45,
-                  textTransform: 'uppercase',
                 }}
               >
                 Within ({searchAnchor ? 'your location' : 'ZIP center'})
@@ -1871,32 +1869,28 @@ function SubcontractorSearchModal({
                     style={{
                       backgroundColor:
                         radiusMiles === mi
-                          ? 'rgba(34, 197, 94, 0.16)'
+                          ? '#2dcc9a'
                           : darkMode
-                            ? 'rgba(255, 255, 255, 0.04)'
+                            ? '#3A3A3C'
                             : Colors.surface2,
                       paddingHorizontal: 14,
                       paddingVertical: 9,
                       borderRadius: 14,
-                      borderWidth: 1.5,
+                      borderWidth: 1,
                       borderColor:
                         radiusMiles === mi
-                          ? '#22c55e'
-                          : darkMode
-                            ? 'rgba(148, 163, 184, 0.2)'
-                            : Colors.line,
+                          ? '#2dcc9a'
+                          : 'rgba(148, 163, 184, 0.35)',
                     }}
                   >
                     <Text
                       style={{
                         color:
                           radiusMiles === mi
-                            ? darkMode
-                              ? '#86efac'
-                              : '#166534'
+                            ? '#050B13'
                             : darkMode
-                              ? '#f1f5f9'
-                              : '#000000',
+                              ? '#e2e8f0'
+                              : Colors.text,
                         fontWeight: '700',
                         fontSize: 12,
                       }}
@@ -1925,11 +1919,11 @@ function SubcontractorSearchModal({
               <MaterialIcons
                 name="my-location"
                 size={20}
-                color={darkMode ? '#4ade80' : '#16a34a'}
+                color="#94a3b8"
               />
               <Text
                 style={{
-                  color: darkMode ? '#86efac' : '#15803d',
+                  color: darkMode ? '#e2e8f0' : Colors.text,
                   fontWeight: '600',
                   fontSize: 14,
                 }}
@@ -1937,6 +1931,11 @@ function SubcontractorSearchModal({
                 {locating ? 'Getting location…' : 'Use my location'}
               </Text>
             </TouchableOpacity>
+            {locationNote ? (
+              <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 6 }}>
+                {locationNote}
+              </Text>
+            ) : null}
 
             <View
               style={{
@@ -1948,11 +1947,9 @@ function SubcontractorSearchModal({
             >
               <Text
                 style={{
-                  color: darkMode ? 'rgba(248, 250, 252, 0.82)' : Colors.text,
-                  fontSize: 11,
-                  fontWeight: '700',
-                  letterSpacing: 0.45,
-                  textTransform: 'uppercase',
+                  color: '#94a3b8',
+                  fontSize: 12,
+                  fontWeight: '600',
                   marginBottom: 10,
                 }}
               >
@@ -1993,7 +1990,7 @@ function SubcontractorSearchModal({
                       await handleSearch();
                     });
                   }}
-                  trackColor={{ false: darkMode ? '#334155' : '#cbd5e1', true: '#22c55e' }}
+                  trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: '#2dcc9a' }}
                   thumbColor="#f8fafc"
                   ios_backgroundColor={darkMode ? '#334155' : '#cbd5e1'}
                 />
@@ -2016,22 +2013,21 @@ function SubcontractorSearchModal({
               disabled={loading || locating}
               style={{
                 flex: 1,
-                borderRadius: 12,
+                borderRadius: 14,
                 paddingVertical: 12,
                 alignItems: 'center',
                 justifyContent: 'center',
-                minHeight: 44,
-                backgroundColor: ESTIMATE_FLOW_GREEN,
+                minHeight: 50,
+                backgroundColor: '#2dcc9a',
                 opacity: loading || locating ? 0.55 : 1,
               }}
             >
               <Text
                 style={{
-                  color: '#0f172a',
+                  color: '#050B13',
                   textAlign: 'center',
                   fontWeight: '800',
-                  fontSize: 15,
-                  letterSpacing: 0.1,
+                  fontSize: 16,
                 }}
               >
                 {loading ? 'Searching...' : 'Search / Refresh'}
@@ -2082,7 +2078,7 @@ function SubcontractorSearchModal({
             {/* Loading */}
             {(loading || locating) && (
               <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-                <ActivityIndicator size="large" color="#22c55e" />
+                <ActivityIndicator size="large" color="#2dcc9a" />
                 <Text style={{ color: '#FFFFFF', marginTop: 12 }}>
                   {loading ? 'Searching...' : 'Getting location...'}
                 </Text>
@@ -2092,8 +2088,11 @@ function SubcontractorSearchModal({
             {/* Results */}
             {!loading && !locating && hasAnyResults && (
               <View>
-                <Text style={{ color: subMeta, fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
-                  {combinedBpsRows.length + googleRowsFiltered.length} subcontractor
+                <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
+                  <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>
+                    {combinedBpsRows.length + googleRowsFiltered.length}
+                  </Text>
+                  {' '}subcontractor
                   {combinedBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
                 {gpsZipMismatchNote ? (
@@ -2114,11 +2113,9 @@ function SubcontractorSearchModal({
                   <View key={section.key} style={{ marginBottom: 6 }}>
                     <Text
                       style={{
-                        color: subMeta2,
-                        fontSize: 11,
-                        fontWeight: '700',
-                        letterSpacing: 0.45,
-                        textTransform: 'uppercase',
+                        color: '#94a3b8',
+                        fontSize: 12,
+                        fontWeight: '600',
                         marginBottom: 10,
                         marginTop: section.key === 'google' ? 14 : 0,
                       }}
@@ -2128,6 +2125,8 @@ function SubcontractorSearchModal({
                     {section.rows.map((sub) => {
                       const isGoogle = sub.source === 'google_places';
                       const isBpsListing = sub.source === 'bps';
+                      const isSelfListing = isSelfFindSubsRow(sub, findSubsSelfCtx);
+                      const selfNameIsLabel = isSelfListing && normFindSubsLabel(sub.name) === 'your company';
                       const metaParts = listCardMetaParts(sub);
                       const metaText = [metaParts.trade, metaParts.address].filter(Boolean).join(' · ');
                       const ratingInfo = listCardRatingInfo(sub, isBpsListing, isGoogle);
@@ -2148,16 +2147,14 @@ function SubcontractorSearchModal({
                           ? 'rgba(59, 130, 246, 0.14)'
                           : 'rgba(37, 99, 235, 0.08)'
                         : isBpsListing
-                          ? darkMode
-                            ? 'rgba(34, 197, 94, 0.18)'
-                            : 'rgba(22, 163, 74, 0.1)'
+                          ? 'rgba(45, 204, 154, 0.14)'
                           : darkMode
                             ? 'rgba(255, 255, 255, 0.06)'
                             : Colors.surface2;
                       const sourceBadgeBorder = isGoogle
                         ? 'rgba(96, 165, 250, 0.35)'
                         : isBpsListing
-                          ? 'rgba(52, 211, 153, 0.45)'
+                          ? 'rgba(45, 204, 154, 0.35)'
                           : darkMode
                             ? 'rgba(148, 163, 184, 0.22)'
                             : Colors.line;
@@ -2166,9 +2163,7 @@ function SubcontractorSearchModal({
                           ? '#93c5fd'
                           : '#1d4ed8'
                         : isBpsListing
-                          ? darkMode
-                            ? '#86efac'
-                            : '#15803d'
+                          ? '#2dcc9a'
                           : darkMode
                             ? 'rgba(226,232,240,0.75)'
                             : Colors.sub;
@@ -2177,14 +2172,12 @@ function SubcontractorSearchModal({
                           ? '#bfdbfe'
                           : '#1e3a8a'
                         : isBpsListing
-                          ? darkMode
-                            ? '#bbf7d0'
-                            : '#14532d'
+                          ? '#2dcc9a'
                           : darkMode
                             ? 'rgba(226,232,240,0.85)'
                             : Colors.text;
-                      const distancePillBg = darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg;
-                      const distancePillBorder = darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line;
+                      const distancePillBg = darkMode ? '#3A3A3C' : Colors.surface2;
+                      const distancePillBorder = 'rgba(148, 163, 184, 0.35)';
 
                       return (
                         <View
@@ -2192,14 +2185,10 @@ function SubcontractorSearchModal({
                           style={{
                             marginBottom: 12,
                             ...estimateFlowCardStyle(Colors, darkMode),
-                            backgroundColor: darkMode ? SUBCONTRACTOR_LIST_CARD_BG_DARK : Colors.surface2,
-                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
-                            borderLeftWidth: 3,
-                            borderLeftColor: isGoogle
-                              ? 'rgba(96, 165, 250, 0.5)'
-                              : isBpsListing
-                                ? 'rgba(34, 197, 94, 0.55)'
-                                : 'rgba(45, 255, 196, 0.45)',
+                            backgroundColor: isSelfListing
+                              ? (darkMode ? 'rgba(45, 204, 154, 0.1)' : 'rgba(45, 204, 154, 0.12)')
+                              : (darkMode ? SUBCONTRACTOR_LIST_CARD_BG_DARK : Colors.surface2),
+                            borderColor: isSelfListing ? '#2dcc9a' : 'rgba(148, 163, 184, 0.12)',
                             padding: 12,
                           }}
                         >
@@ -2230,27 +2219,27 @@ function SubcontractorSearchModal({
                               </Text>
                               <View
                                 style={{
-                                  backgroundColor: sourceBadgeBg,
+                                  backgroundColor: isSelfListing && !selfNameIsLabel ? '#2dcc9a' : sourceBadgeBg,
                                   paddingHorizontal: 8,
                                   paddingVertical: 4,
                                   borderRadius: 8,
                                   flexDirection: 'row',
                                   alignItems: 'center',
                                   borderWidth: 1,
-                                  borderColor: sourceBadgeBorder,
+                                  borderColor: isSelfListing && !selfNameIsLabel ? '#2dcc9a' : sourceBadgeBorder,
                                   flexShrink: 0,
                                 }}
                               >
-                                <MaterialIcons name={sourceBadgeIcon as any} size={11} color={sourceIconColor} />
+                                <MaterialIcons name={(isSelfListing && !selfNameIsLabel ? 'person' : sourceBadgeIcon) as any} size={11} color={isSelfListing && !selfNameIsLabel ? '#050B13' : sourceIconColor} />
                                 <Text
                                   style={{
-                                    color: sourceTextColor,
+                                    color: isSelfListing && !selfNameIsLabel ? '#050B13' : sourceTextColor,
                                     fontSize: 10,
                                     fontWeight: '700',
                                     marginLeft: 4,
                                   }}
                                 >
-                                  {sourceBadgeLabel}
+                                  {isSelfListing && !selfNameIsLabel ? 'You' : sourceBadgeLabel}
                                 </Text>
                               </View>
                             </View>
@@ -2286,7 +2275,7 @@ function SubcontractorSearchModal({
                                       flexShrink: 0,
                                     }}
                                   >
-                                    <Text style={{ color: subMeta, fontSize: 11, fontWeight: '700' }}>
+                                    <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 11, fontWeight: '700' }}>
                                       {metaParts.distance}
                                     </Text>
                                   </View>
@@ -2358,9 +2347,12 @@ function SubcontractorSearchModal({
                             <TouchableOpacity
                               style={{
                                 flex: 1,
-                                backgroundColor: ESTIMATE_FLOW_GREEN,
-                                paddingVertical: 10,
-                                borderRadius: 10,
+                                backgroundColor: isSelfListing ? '#2dcc9a' : (darkMode ? '#3A3A3C' : Colors.surface2),
+                                borderWidth: isSelfListing ? 0 : 1,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                paddingVertical: 12,
+                                borderRadius: 14,
+                                minHeight: 48,
                                 alignItems: 'center',
                                 justifyContent: 'center',
                               }}
@@ -2369,7 +2361,7 @@ function SubcontractorSearchModal({
                                 handleSelectSubcontractor(sub);
                               }}
                             >
-                              <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 14 }}>Add to Bid</Text>
+                              <Text style={{ color: isSelfListing ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text), fontWeight: isSelfListing ? '800' : '600', fontSize: 15 }}>Add to Bid</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => openContractorProfile(sub)}
@@ -2592,84 +2584,60 @@ function SubcontractorSearchModal({
                   borderBottomColor: headerRule,
                 }}
               >
-                <View style={[{ flexDirection: 'row', alignItems: 'center', flex: 1 }, webColumn860]}>
-                  <View style={{ marginRight: 12 }}>
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={{ width: 40, height: 40, borderRadius: 20, padding: 1 }}
-                    >
-                      <GradientRingBackInner
-                        darkMode={darkMode}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          setShowProfile(false);
-                        }}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          borderRadius: 19,
-                          backgroundColor: darkMode ? Colors.card : Colors.bg,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <MaterialIcons
-                          name="arrow-back"
-                          size={24}
-                          color={darkMode ? '#FFFFFF' : Colors.text}
-                        />
-                      </GradientRingBackInner>
-                    </LinearGradient>
-                  </View>
-                  <View style={{ marginRight: 12 }}>
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={{ borderRadius: 12, padding: 1 }}
-                    >
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 11,
-                          backgroundColor: darkMode ? Colors.card : Colors.bg,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <MaterialCommunityIcons name="account-hard-hat" size={24} color={ESTIMATE_FLOW_GREEN} />
-                      </View>
-                    </LinearGradient>
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
+                <View pointerEvents="box-none" style={[{ width: '100%', minHeight: 44, justifyContent: 'center' }, webColumn860]}>
+                  <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 56 }}>
                     <Text
                       style={{
-                        color: darkMode ? '#f8fafc' : Colors.text,
-                        fontSize: 24,
+                        color: Colors.text,
+                        fontSize: 18,
                         fontWeight: '700',
-                        letterSpacing: -0.35,
-                        lineHeight: 30,
+                        letterSpacing: -0.25,
+                        lineHeight: 23,
+                        textAlign: 'center',
                       }}
-                      numberOfLines={2}
+                      numberOfLines={1}
                     >
                       Contractor Profile
                     </Text>
                     <Text
                       style={{
-                        color: subMeta,
-                        fontSize: 13,
-                        marginTop: 5,
+                        color: '#94a3b8',
+                        fontSize: 14,
+                        marginTop: 4,
                         fontWeight: '500',
-                        lineHeight: 18,
+                        letterSpacing: 0.12,
+                        lineHeight: 20,
+                        textAlign: 'center',
                       }}
-                      numberOfLines={2}
+                      numberOfLines={1}
                     >
                       {selectedSubcontractor.name}
                     </Text>
                   </View>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setShowProfile(false);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      zIndex: 2,
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
+                    }}
+                  >
+                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -2686,16 +2654,16 @@ function SubcontractorSearchModal({
                 <View style={webColumn860}>
                 <View style={estimateFlowCardStyle(Colors, darkMode)}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                    <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
-                      <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
+                    <View style={{ backgroundColor: '#2dcc9a', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10 }}>
+                      <Text style={{ color: '#050B13', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
                     </View>
                     {selectedSubcontractor.source === 'bps' ? (
                       <>
-                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.16)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(52, 211, 153, 0.4)' }}>
-                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>BPS</Text>
+                        <View style={{ backgroundColor: 'rgba(45, 204, 154, 0.14)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(45, 204, 154, 0.35)' }}>
+                          <Text style={{ color: '#2dcc9a', fontSize: 12, fontWeight: '700' }}>BPS</Text>
                         </View>
-                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.12)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(52, 211, 153, 0.35)' }}>
-                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
+                        <View style={{ backgroundColor: 'rgba(45, 204, 154, 0.14)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(45, 204, 154, 0.35)' }}>
+                          <Text style={{ color: '#2dcc9a', fontSize: 12, fontWeight: '700' }}>
                             Verified by BPS
                           </Text>
                         </View>
@@ -2753,7 +2721,7 @@ function SubcontractorSearchModal({
                         Not listed for this listing — request a quote to confirm pricing.
                       </Text>
                     ) : (
-                      <Text style={{ color: '#4ade80', fontSize: 19, fontWeight: '800', letterSpacing: -0.2 }}>
+                      <Text style={{ color: '#2dcc9a', fontSize: 19, fontWeight: '800', letterSpacing: -0.2 }}>
                         ${selectedSubcontractor.hourlyRate.min} - ${selectedSubcontractor.hourlyRate.max}/hr
                       </Text>
                     )}
@@ -2764,7 +2732,7 @@ function SubcontractorSearchModal({
                     <Text style={profileSectionLabel}>Availability</Text>
                     <View style={profileNestedField}>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
-                      {selectedSubcontractor.availability}
+                      {String(selectedSubcontractor.availability || '').replace(/^[a-z]/, (letter) => letter.toUpperCase())}
                     </Text>
                     </View>
                   </View>
@@ -2773,7 +2741,7 @@ function SubcontractorSearchModal({
                     <Text style={profileSectionLabel}>Contact</Text>
                     <View style={profileNestedField}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <MaterialIcons name="phone" size={20} color="#4ade80" style={{ marginRight: 12, marginTop: 2 }} />
+                      <MaterialIcons name="phone" size={20} color="#94a3b8" style={{ marginRight: 12, marginTop: 2 }} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Phone</Text>
                         {selectedSubcontractor.phone ? (
@@ -2784,7 +2752,7 @@ function SubcontractorSearchModal({
                               }
                             }}
                           >
-                            <Text style={{ color: '#4ade80', fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
+                            <Text style={{ color: '#2dcc9a', fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                               {selectedSubcontractor.phone}
                             </Text>
                           </TouchableOpacity>
@@ -2794,7 +2762,7 @@ function SubcontractorSearchModal({
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <MaterialIcons name="email" size={20} color="#60a5fa" style={{ marginRight: 12, marginTop: 2 }} />
+                      <MaterialIcons name="email" size={20} color="#94a3b8" style={{ marginRight: 12, marginTop: 2 }} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Email</Text>
                         {selectedSubcontractor.email ? (
@@ -2805,7 +2773,7 @@ function SubcontractorSearchModal({
                               }
                             }}
                           >
-                            <Text style={{ color: '#60a5fa', fontSize: 15, fontWeight: '600', lineHeight: 22 }}>
+                            <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600', lineHeight: 22 }}>
                               {selectedSubcontractor.email}
                             </Text>
                           </TouchableOpacity>
@@ -3090,7 +3058,7 @@ function SubcontractorSearchModal({
                           </Text>
                           
                           <Text style={{ 
-                            color: '#4ade80', 
+                            color: '#2dcc9a', 
                             fontSize: 14, 
                             lineHeight: 22,
                             textAlign: 'left',
@@ -3260,7 +3228,7 @@ function SubcontractorSearchModal({
                           <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600' }}>
                             {area.city}, {area.state}
                           </Text>
-                          <Text style={{ color: '#4ade80', fontSize: 14, fontWeight: '600' }}>
+                          <Text style={{ color: '#2dcc9a', fontSize: 14, fontWeight: '600' }}>
                             {area.radius} mile radius
                           </Text>
                         </View>
@@ -3279,7 +3247,7 @@ function SubcontractorSearchModal({
                           <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                             {specialty}
                           </Text>
-                          <Text style={{ color: '#4ade80', fontSize: 14, fontWeight: '600' }}>
+                          <Text style={{ color: '#2dcc9a', fontSize: 14, fontWeight: '600' }}>
                             ${pricing.min}-${pricing.max}/hr
                           </Text>
                         </View>
@@ -3294,7 +3262,7 @@ function SubcontractorSearchModal({
                   <View style={profileNestedField}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {(selectedSubcontractor.specialties || []).map((spec: string) => (
-                      <View key={spec} style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
+                      <View key={spec} style={{ backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.35)' }}>
                         <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '600' }}>{spec}</Text>
                       </View>
                     ))}
@@ -3332,9 +3300,10 @@ function SubcontractorSearchModal({
                 <View style={[webColumn860, { gap: ESTIMATE_FLOW_CARD_GAP }]}>
                 <TouchableOpacity
                     style={{
-                      backgroundColor: ESTIMATE_FLOW_GREEN,
+                      backgroundColor: '#2dcc9a',
                       paddingVertical: 15,
                       borderRadius: 14,
+                      minHeight: 50,
                       alignItems: 'center',
                       flexDirection: 'row',
                       justifyContent: 'center',
@@ -3381,18 +3350,19 @@ function SubcontractorSearchModal({
                       }
                     }}
                     >
-                      <MaterialIcons name="add" size={20} color="#0f172a" />
-                      <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 15 }}>Add to Bid</Text>
+                      <MaterialIcons name="add" size={20} color="#050B13" />
+                      <Text style={{ color: '#050B13', fontWeight: '800', fontSize: 16 }}>Add to Bid</Text>
                     </TouchableOpacity>
 
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-                        borderRadius: 12,
+                        backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: 'rgba(148, 163, 184, 0.35)',
+                        borderRadius: 14,
+                        minHeight: 48,
                         paddingVertical: 15,
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -3412,10 +3382,11 @@ function SubcontractorSearchModal({
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-                        borderRadius: 12,
+                        backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: 'rgba(148, 163, 184, 0.35)',
+                        borderRadius: 14,
+                        minHeight: 48,
                         paddingVertical: 15,
                         flexDirection: 'row',
                         alignItems: 'center',

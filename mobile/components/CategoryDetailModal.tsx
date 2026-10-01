@@ -844,7 +844,7 @@ export default function CategoryDetailModal({
                   styles.poTab,
                   activePOTab === 'total' && styles.poActiveTab,
                   { 
-                    borderColor: activePOTab === 'total' ? Colors.primary : Colors.line,
+                    borderColor: activePOTab === 'total' ? '#2dcc9a' : Colors.line,
                     backgroundColor: cardBg,
                   },
                 ]}
@@ -857,7 +857,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.poTabText,
                     {
-                      color: activePOTab === 'total' ? Colors.primary : Colors.sub,
+                      color: activePOTab === 'total' ? '#2dcc9a' : Colors.sub,
                       fontWeight: activePOTab === 'total' ? '600' : '400',
                       lineHeight: 20,
                     },
@@ -871,7 +871,7 @@ export default function CategoryDetailModal({
                   styles.poTab,
                   activePOTab === 'committed' && styles.poActiveTab,
                   { 
-                    borderColor: activePOTab === 'committed' ? Colors.primary : Colors.line,
+                    borderColor: activePOTab === 'committed' ? '#2dcc9a' : Colors.line,
                     backgroundColor: cardBg,
                   },
                 ]}
@@ -884,7 +884,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.poTabText,
                     {
-                      color: activePOTab === 'committed' ? Colors.primary : Colors.sub,
+                      color: activePOTab === 'committed' ? '#2dcc9a' : Colors.sub,
                       fontWeight: activePOTab === 'committed' ? '600' : '400',
                       lineHeight: 20,
                     },
@@ -898,7 +898,7 @@ export default function CategoryDetailModal({
                   styles.poTab,
                   activePOTab === 'received' && styles.poActiveTab,
                   { 
-                    borderColor: activePOTab === 'received' ? Colors.primary : Colors.line,
+                    borderColor: activePOTab === 'received' ? '#2dcc9a' : Colors.line,
                     backgroundColor: cardBg,
                   },
                 ]}
@@ -911,7 +911,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.poTabText,
                     {
-                      color: activePOTab === 'received' ? Colors.primary : Colors.sub,
+                      color: activePOTab === 'received' ? '#2dcc9a' : Colors.sub,
                       fontWeight: activePOTab === 'received' ? '600' : '400',
                       lineHeight: 20,
                     },
@@ -1032,8 +1032,8 @@ export default function CategoryDetailModal({
               style={[
                 styles.coTimelineReminder,
                 {
-                  backgroundColor: darkMode ? "rgba(34, 197, 94, 0.08)" : "rgba(34, 197, 94, 0.1)",
-                  borderColor: darkMode ? "rgba(34, 197, 94, 0.3)" : "rgba(34, 197, 94, 0.28)",
+                  backgroundColor: darkMode ? "rgba(45, 204, 154, 0.08)" : "rgba(45, 204, 154, 0.1)",
+                  borderColor: darkMode ? "rgba(45, 204, 154, 0.3)" : "rgba(45, 204, 154, 0.28)",
                 },
               ]}
               activeOpacity={0.82}
@@ -1044,7 +1044,7 @@ export default function CategoryDetailModal({
                 onRequestOpenTimeline?.();
               }}
             >
-              <MaterialIcons name="event-available" size={22} color="#22c55e" style={{ marginTop: 1 }} />
+              <MaterialIcons name="event-available" size={22} color="#2dcc9a" style={{ marginTop: 1 }} />
               <Text
                 style={[
                   styles.coTimelineReminderText,
@@ -1052,7 +1052,7 @@ export default function CategoryDetailModal({
                 ]}
               >
                 When payment is received, tap here to open Timeline and mark the matching line as{" "}
-                <Text style={{ fontWeight: "800", color: "#22c55e" }}>Completed</Text> in the
+                <Text style={{ fontWeight: "800", color: "#2dcc9a" }}>Completed</Text> in the
                 Timeline tab.
               </Text>
             </TouchableOpacity>
@@ -1150,7 +1150,7 @@ export default function CategoryDetailModal({
                                         backgroundColor: po.status === 'Pending' 
                                           ? '#f59e0b' 
                                           : po.status === 'Received'
-                                          ? '#22c55e'
+                                          ? '#2dcc9a'
                                           : '#64748b',
                                         width: 6,
                                         height: 6,
@@ -1161,7 +1161,7 @@ export default function CategoryDetailModal({
                                         color: po.status === 'Pending' 
                                           ? '#f59e0b' 
                                           : po.status === 'Received'
-                                          ? '#22c55e'
+                                          ? '#2dcc9a'
                                           : '#64748b',
                                         fontSize: 10,
                                         fontWeight: '600',
@@ -1175,7 +1175,7 @@ export default function CategoryDetailModal({
                                     color: po.status === 'Pending' 
                                       ? '#f59e0b' 
                                       : po.status === 'Received'
-                                      ? '#22c55e'
+                                      ? '#2dcc9a'
                                       : '#64748b',
                                     fontSize: 15,
                                     fontWeight: '700'
@@ -1194,7 +1194,7 @@ export default function CategoryDetailModal({
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
                                 <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
                                 <Text style={{ 
-                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#22c55e',
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#2dcc9a',
                                   fontSize: 12,
                                   fontWeight: '600'
                                 }}>
@@ -1231,7 +1231,7 @@ export default function CategoryDetailModal({
                                     disabled={markingPOReceivedId === po.id}
                                     style={{ 
                                       flex: 1, 
-                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#22c55e', 
+                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#2dcc9a', 
                                       paddingVertical: 8, 
                                       borderRadius: 8, 
                                       alignItems: 'center',
@@ -1291,7 +1291,7 @@ export default function CategoryDetailModal({
                                         backgroundColor: po.status === 'Pending' 
                                           ? '#f59e0b' 
                                           : po.status === 'Received'
-                                          ? '#22c55e'
+                                          ? '#2dcc9a'
                                           : '#64748b',
                                         width: 6,
                                         height: 6,
@@ -1302,7 +1302,7 @@ export default function CategoryDetailModal({
                                         color: po.status === 'Pending' 
                                           ? '#f59e0b' 
                                           : po.status === 'Received'
-                                          ? '#22c55e'
+                                          ? '#2dcc9a'
                                           : '#64748b',
                                         fontSize: 10,
                                         fontWeight: '600',
@@ -1316,7 +1316,7 @@ export default function CategoryDetailModal({
                                     color: po.status === 'Pending' 
                                       ? '#f59e0b' 
                                       : po.status === 'Received'
-                                      ? '#22c55e'
+                                      ? '#2dcc9a'
                                       : '#64748b',
                                     fontSize: 15,
                                     fontWeight: '700'
@@ -1334,7 +1334,7 @@ export default function CategoryDetailModal({
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }}>
                                 <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
                                 <Text style={{ 
-                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#22c55e',
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#2dcc9a',
                                   fontSize: 12,
                                   fontWeight: '600'
                                 }}>
@@ -1369,7 +1369,7 @@ export default function CategoryDetailModal({
                                     disabled={markingPOReceivedId === po.id}
                                     style={{ 
                                       flex: 1, 
-                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#22c55e', 
+                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#2dcc9a', 
                                       paddingVertical: 8, 
                                       borderRadius: 8, 
                                       alignItems: 'center',
@@ -1441,7 +1441,7 @@ export default function CategoryDetailModal({
                               {item.vendor || 'Home Depot'}
                             </Text>
                             <View style={styles.scannedCardBadge}>
-                              <MaterialIcons name="qr-code-scanner" size={12} color="#22c55e" />
+                              <MaterialIcons name="qr-code-scanner" size={12} color="#2dcc9a" />
                               <Text style={styles.scannedCardBadgeText}>SCANNED</Text>
                             </View>
                           </View>
@@ -1550,20 +1550,20 @@ export default function CategoryDetailModal({
                               paddingVertical: 2,
                               borderRadius: 6,
                               backgroundColor: item.status === 'Approved' 
-                                ? 'rgba(34, 197, 94, 0.2)' 
+                                ? 'rgba(45, 204, 154, 0.2)' 
                                 : item.status === 'Submitted'
                                 ? 'rgba(245, 158, 11, 0.2)'
                                 : 'rgba(100, 116, 139, 0.2)',
                               borderWidth: 1,
                               borderColor: item.status === 'Approved'
-                                ? 'rgba(34, 197, 94, 0.4)'
+                                ? 'rgba(45, 204, 154, 0.4)'
                                 : item.status === 'Submitted'
                                 ? 'rgba(245, 158, 11, 0.4)'
                                 : 'rgba(100, 116, 139, 0.4)',
                             }}>
                               <Text style={{ 
                                 color: item.status === 'Approved' 
-                                  ? '#22c55e' 
+                                  ? '#2dcc9a' 
                                   : item.status === 'Submitted'
                                   ? '#f59e0b'
                                   : '#64748b', 
@@ -1583,20 +1583,20 @@ export default function CategoryDetailModal({
                               backgroundColor: item.status === 'Pending'
                                 ? 'rgba(245, 158, 11, 0.2)' 
                                 : item.status === 'Received'
-                                ? 'rgba(34, 197, 94, 0.2)'
+                                ? 'rgba(45, 204, 154, 0.2)'
                                 : 'rgba(100, 116, 139, 0.2)',
                               borderWidth: 1,
                               borderColor: item.status === 'Pending'
                                 ? 'rgba(245, 158, 11, 0.4)'
                                 : item.status === 'Received'
-                                ? 'rgba(34, 197, 94, 0.4)'
+                                ? 'rgba(45, 204, 154, 0.4)'
                                 : 'rgba(100, 116, 139, 0.4)',
                             }}>
                               <Text style={{ 
                                 color: item.status === 'Pending' 
                                   ? '#f59e0b' 
                                   : item.status === 'Received'
-                                  ? '#22c55e'
+                                  ? '#2dcc9a'
                                   : '#64748b', 
                                 fontSize: 10, 
                                 fontWeight: '600' 
@@ -1655,7 +1655,7 @@ export default function CategoryDetailModal({
                             {item.expectedDelivery && item.status === 'Pending' && (
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
                                 <Text style={{ color: '#8DA0B8', fontSize: 11, fontWeight: '600', marginBottom: 3 }}>Expected Delivery</Text>
-                                <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
+                                <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>
                                   {parseLocalDate(item.expectedDelivery).toLocaleDateString('en-US', { 
                                     month: 'short', 
                                     day: 'numeric', 
@@ -1726,9 +1726,9 @@ export default function CategoryDetailModal({
                                 paddingVertical: 12,
                                 paddingHorizontal: 16,
                                 borderRadius: 10,
-                                backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                                backgroundColor: 'rgba(45, 204, 154, 0.15)',
                                 borderWidth: 1,
-                                borderColor: 'rgba(34, 197, 94, 0.4)',
+                                borderColor: 'rgba(45, 204, 154, 0.4)',
                                 flexDirection: 'row',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -1761,8 +1761,8 @@ export default function CategoryDetailModal({
                                 ]);
                               }}
                             >
-                              <MaterialIcons name="check-circle" size={16} color="#22c55e" />
-                              <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>Mark as Received</Text>
+                              <MaterialIcons name="check-circle" size={16} color="#2dcc9a" />
+                              <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '700' }}>Mark as Received</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => {
@@ -1812,12 +1812,12 @@ export default function CategoryDetailModal({
                             paddingVertical: 10,
                             paddingHorizontal: 14,
                             borderRadius: 10,
-                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            backgroundColor: 'rgba(45, 204, 154, 0.1)',
                             borderWidth: 1,
-                            borderColor: 'rgba(34, 197, 94, 0.2)',
+                            borderColor: 'rgba(45, 204, 154, 0.2)',
                             alignItems: 'center',
                           }}>
-                            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>✓ Received</Text>
+                            <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '700' }}>✓ Received</Text>
                           </View>
                         )}
                       </View>
@@ -1943,20 +1943,20 @@ export default function CategoryDetailModal({
                                     paddingVertical: 2,
                                     borderRadius: 6,
                                     backgroundColor: item.status === 'Approved' 
-                                      ? 'rgba(34, 197, 94, 0.2)' 
+                                      ? 'rgba(45, 204, 154, 0.2)' 
                                       : item.status === 'Submitted'
                                       ? 'rgba(245, 158, 11, 0.2)'
                                       : 'rgba(100, 116, 139, 0.2)',
                                     borderWidth: 1,
                                     borderColor: item.status === 'Approved'
-                                      ? 'rgba(34, 197, 94, 0.4)'
+                                      ? 'rgba(45, 204, 154, 0.4)'
                                       : item.status === 'Submitted'
                                       ? 'rgba(245, 158, 11, 0.4)'
                                       : 'rgba(100, 116, 139, 0.4)',
                                   }}>
                                     <Text style={{ 
                                       color: item.status === 'Approved' 
-                                        ? '#22c55e' 
+                                        ? '#2dcc9a' 
                                         : item.status === 'Submitted'
                                         ? '#f59e0b'
                                         : '#64748b', 
@@ -2485,7 +2485,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   totalValue: {
-    color: "#22c55e",
+    color: "#2dcc9a",
     fontSize: 30,
     fontWeight: "800",
     letterSpacing: -0.7,
@@ -2597,11 +2597,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: "#22c55e",
-    shadowColor: "#22c55e",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
+    backgroundColor: "#2dcc9a",
+    shadowOpacity: 0,
     elevation: 8,
   },
   coApproveButtonText: {
@@ -2656,12 +2653,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 7,
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    backgroundColor: 'rgba(45, 204, 154, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.28)',
+    borderColor: 'rgba(45, 204, 154, 0.28)',
   },
   scannedCardBadgeText: {
-    color: '#22c55e',
+    color: '#2dcc9a',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.6,
@@ -2702,7 +2699,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.08,
   },
   poBadge: {
-    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    backgroundColor: "rgba(45, 204, 154, 0.12)",
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,

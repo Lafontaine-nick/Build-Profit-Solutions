@@ -621,12 +621,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   /** Stepper + summary row: cost/drag up = warm, down = green, 0 = muted; bid = contract price (not cost). */
   const fineTuneValueColor = (field, raw) => {
     const v = raw ?? 0;
-    const muted = 'rgba(148, 163, 184, 0.78)';
-    const costUp = 'rgba(245, 158, 11, 0.92)';
-    const costDown = ESTIMATE_FLOW_CHIP_GREEN;
+    const muted = '#94a3b8';
+    const costUp = '#f87171';
+    const costDown = '#2dcc9a';
     if (field === 'markupPct') {
       if (v === 0) return muted;
-      return v > 0 ? palette.accent : 'rgba(251, 146, 60, 0.92)';
+      return v > 0 ? '#2dcc9a' : '#f87171';
     }
     if (v === 0) return muted;
     if (v > 0) return costUp;
@@ -651,8 +651,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     <View style={styles.container}>
       {/* View (not ScrollView): parent estimate screen already scrolls; nested ScrollView caused +/− taps to jump scroll on web & native */}
       <View style={sectionCardStyle}>
+            <Text style={{ color: themeColors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2, marginBottom: 14 }}>
+              Project Analysis
+            </Text>
             <View style={styles.cardHeader}>
-              <Text style={[confirmScopeSectionLabelStyle(), { color: palette.textDim, flex: 1 }]}>
+              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', flex: 1 }}>
                 Scenario presets
               </Text>
               {hasChanges && (
@@ -661,8 +664,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </TouchableOpacity>
               )}
             </View>
-            <Text style={[styles.cardSubtitle, { color: darkMode ? palette.textDim : '#475569' }]}>
-              Use these presets to see how common execution scenarios may affect profit and margin. They are stress-test templates, not industry benchmarks — fine-tune below for a custom view.
+            <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 }}>
+              Stress-test profit. These are templates, not benchmarks.
             </Text>
 
             <View style={styles.presetRow}>
@@ -674,12 +677,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 }}
                 style={[
                   styles.presetChip,
-                  getActivePreset === 'typical' && styles.presetChipActiveTypical
+                  getActivePreset === 'typical' && styles.presetChipActive
                 ]}
               >
                 <Text style={[
                   styles.presetChipText,
-                  getActivePreset === 'typical' && styles.presetChipTextActiveTypical
+                  getActivePreset === 'typical' && styles.presetChipTextActive
                 ]}>
                   Typical Friction
                 </Text>
@@ -692,12 +695,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 }}
                 style={[
                   styles.presetChip,
-                  getActivePreset === 'bad' && styles.presetChipActiveBad
+                  getActivePreset === 'bad' && styles.presetChipActive
                 ]}
               >
                 <Text style={[
                   styles.presetChipText,
-                  getActivePreset === 'bad' && styles.presetChipTextActiveBad
+                  getActivePreset === 'bad' && styles.presetChipTextActive
                 ]}>
                   High Friction Job
                 </Text>
@@ -724,74 +727,20 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             
             {/* Preset applied / insight — keep a block mounted when sliders leave a preset so layout height
                 does not collapse (avoids first fine-tune tap scroll jump on web from scroll anchoring). */}
-            {(getPresetDetails || (hasChanges && !getActivePreset)) && (
-              <View>
-                {getPresetDetails ? (
-                  <>
-                    <View style={[
-                      styles.presetAppliedIndicator,
-                      getPresetDetails.name === 'Typical Friction' && {
-                        backgroundColor: 'rgba(234, 179, 8, 0.08)',
-                        borderColor: 'rgba(234, 179, 8, 0.18)',
-                      },
-                      getPresetDetails.name === 'High Friction Job' && {
-                        backgroundColor: 'rgba(249, 115, 22, 0.12)',
-                        borderColor: 'rgba(249, 115, 22, 0.25)',
-                      }
-                    ]}>
-                      <Text style={styles.presetAppliedText}>
-                        <Text style={{ fontWeight: '700' }}>{getPresetDetails.name} applied:</Text> {getPresetDetails.details}
-                      </Text>
-                    </View>
-                    {getPresetDetails.name === 'Typical Friction' && (
-                      <Text style={styles.presetDefaultNote}>
-                        Typical Friction is the default preset — moderate execution drag for stress-testing (not a universal benchmark).
-                      </Text>
-                    )}
-                    <View style={styles.aiExplanationCard}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                        <MaterialIcons name="psychology" size={16} color={palette.accent} style={{ marginRight: 6 }} />
-                        <Text style={styles.aiExplanationLabel}>AI Project Manager Insight</Text>
-                      </View>
-                      <Text style={styles.aiExplanationText}>
-                        {getPresetDetails.aiExplanation}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <View style={styles.presetInsightCustomMin}>
-                    <View style={[
-                      styles.presetAppliedIndicator,
-                      {
-                        backgroundColor: 'rgba(148, 163, 184, 0.1)',
-                        borderColor: 'rgba(148, 163, 184, 0.22)',
-                      },
-                    ]}>
-                      <Text style={styles.presetAppliedText}>
-                        <Text style={{ fontWeight: '700' }}>Custom scenario:</Text>{' '}
-                        Your sliders no longer match a preset template. Totals below use these exact percentages.
-                      </Text>
-                    </View>
-                    <View style={styles.aiExplanationCard}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                        <MaterialIcons name="tune" size={16} color={palette.accent} style={{ marginRight: 6 }} />
-                        <Text style={styles.aiExplanationLabel}>Fine-tune active</Text>
-                      </View>
-                      <Text style={styles.aiExplanationText}>
-                        Many jobs diverge from any template once you adjust labor, materials, overhead, timeline, or bid. Tap a scenario preset to jump back to a named stress-test, or keep refining here.
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
+            {(getPresetDetails || (hasChanges && !getActivePreset)) ? (
+              <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+                {getPresetDetails
+                  ? `${getPresetDetails.name} · ${getPresetDetails.details}`
+                  : 'Custom scenario. Totals use these percentages.'}
+              </Text>
+            ) : null}
 
       </View>
 
       <View style={sectionCardStyle}>
             <Text style={styles.fineTuneSectionTitle}>Fine-tune scenario</Text>
             <Text style={styles.fineTuneHint}>
-              Use the controls below to fine-tune the scenario. Most changes move in 5% steps; bid moves in 2% steps.
+              5% steps. Bid moves in 2% steps.
             </Text>
             {isMarkupManuallyAdjusted && (
               <View style={styles.bidActiveBanner}>
@@ -865,23 +814,6 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               })}
             </View>
 
-            {/* Adjustment summary strip — same deltas, tightened spacing */}
-            <View style={styles.deltaRow}>
-              {[
-                { label: 'Labor', field: 'laborPct', value: adj.laborPct },
-                { label: 'Materials', field: 'materialPct', value: adj.materialPct },
-                { label: 'Overhead', field: 'overheadPct', value: adj.overheadPct },
-                { label: 'Timeline', field: 'timelinePct', value: adj.timelinePct ?? 0 },
-                { label: 'Bid', field: 'markupPct', value: adj.markupPct },
-              ].map((item) => (
-                <View key={item.label} style={styles.deltaItem}>
-                  <Text style={styles.deltaLabel}>{item.label}</Text>
-                  <Text style={[styles.deltaValue, { color: fineTuneValueColor(item.field, item.value) }]}>
-                    {item.value > 0 ? '+' : ''}{item.value}%
-                  </Text>
-                </View>
-              ))}
-            </View>
       </View>
 
       <View style={[sectionCardStyle, { marginBottom: 0 }]}>
@@ -901,7 +833,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     style={[
                       styles.heroBidValue,
                       {
-                        color: ESTIMATE_FLOW_GREEN,
+                        color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#94a3b8',
                         transform: [{
                           scale: totalBidAnim.interpolate({
                             inputRange: [0, 1],
@@ -938,7 +870,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                       style={[
                         styles.heroBidValue,
                         {
-                          color: ESTIMATE_FLOW_GREEN,
+                          color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#94a3b8',
                           transform: [{
                             scale: totalBidAnim.interpolate({
                               inputRange: [0, 1],
@@ -956,37 +888,27 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View style={styles.heroDivider} />
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Estimated net profit</Text>
-                <Text style={[styles.heroValueAccent, { color: sim.netProfit >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red }]}>
+                <Text style={[styles.heroValue, { color: sim.netProfit < 0 ? '#f87171' : palette.text }]}>
                   ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Net profit margin (revenue)</Text>
-                <Animated.Text
-                  style={[
-                    styles.heroValueAccent,
-                    {
-                      color: profitMarginColorAnim.interpolate({
-                        inputRange: [0, 0.5, 0.75, 1],
-                        outputRange: [palette.red, palette.yellow, palette.accent, palette.accent],
-                      }),
-                    },
-                  ]}
-                >
+                <Text style={[styles.heroValue, { color: sim.netProfitMarginPct < 5 ? '#f87171' : sim.netProfitMarginPct < 8 ? '#fbbf24' : palette.text }]}>
                   {sim.netProfitMarginPct.toFixed(1)}%
-                </Animated.Text>
+                </Text>
               </View>
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Profit change</Text>
-                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red }]}>
+                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta > 0 ? '#2dcc9a' : aiTip.profitDelta < 0 ? '#f87171' : '#94a3b8' }]}>
                   {aiTip.profitDelta >= 0 ? '+' : '-'}
                   ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <View style={[styles.heroRow, { marginBottom: 0 }]}>
                 <Text style={styles.heroLabel}>Cushion above break-even</Text>
-                <Text style={[styles.heroValueAccent, {
-                  color: (sim.totalBid - sim.breakEvenBid) >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red,
+                <Text style={[styles.heroValue, {
+                  color: (sim.totalBid - sim.breakEvenBid) < 0 ? '#f87171' : palette.text,
                 }]}>
                   ${((sim.totalBid || 0) - (sim.breakEvenBid || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -995,8 +917,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
             {/* C) Safety / margin signal — same aiTip.text & color logic */}
             <View style={styles.safetyCard}>
-              <Text style={[styles.safetyCardTitle, { color: aiTip.color || palette.accent }]}>Margin check</Text>
-              <Text style={[styles.safetyCardBody, { color: aiTip.color || palette.text }]}>
+              <Text style={[styles.safetyCardTitle, { color: '#94a3b8' }]}>Margin check</Text>
+              <Text style={[styles.safetyCardBody, { color: sim.netProfitMarginPct < 5 ? '#f87171' : sim.netProfitMarginPct < 8 ? '#fbbf24' : '#e2e8f0' }]}>
                 {aiTip.text}
               </Text>
             </View>
@@ -1009,7 +931,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.laborPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
+                    <Text style={[styles.supportingHint, { color: adj.laborPct > 0 ? '#f87171' : '#2dcc9a' }]}>
                       {adj.laborPct > 0 ? '+' : ''}${(base.labor * (adj.laborPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1020,7 +942,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.materialPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
+                    <Text style={[styles.supportingHint, { color: adj.materialPct > 0 ? '#f87171' : '#2dcc9a' }]}>
                       {adj.materialPct > 0 ? '+' : ''}${(base.materials * (adj.materialPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1031,7 +953,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.overheadPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
+                    <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? '#f87171' : '#2dcc9a' }]}>
                       {adj.overheadPct > 0 ? '+' : ''}${(base.companyOverhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1378,8 +1300,8 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     marginLeft: 8,
   },
   resetText: {
-    color: palette.accent,
-    fontWeight: '700',
+    color: '#94a3b8',
+    fontWeight: '600',
     fontSize: ew(13, 15),
   },
 
@@ -1390,12 +1312,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     marginBottom: 16,
   },
   presetChip: {
-    backgroundColor: nestedSurface,
+    backgroundColor: darkMode ? '#3A3A3C' : palette.chip,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: nestedBorder,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1403,9 +1325,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     minWidth: 0,
   },
   presetChipActive: {
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: '#2dcc9a',
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: '#2dcc9a',
   },
   presetChipActiveTypical: {
     backgroundColor: 'rgba(234, 179, 8, 0.08)',
@@ -1434,7 +1356,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     textAlign: 'center',
   },
   presetChipTextActive: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#050B13',
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -1523,13 +1445,11 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
 
   fineTuneSectionTitle: {
-    color: palette.textDim,
-    fontSize: 11,
-    fontWeight: '800',
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
     marginTop: 0,
     marginBottom: 4,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
   fineTuneHint: {
     color: palette.textDim,
@@ -1683,18 +1603,16 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
 
   heroSectionEyebrow: {
-    color: palette.textDim,
-    fontSize: ew(11, 13),
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
     marginTop: 0,
     marginBottom: 10,
   },
   heroOutcomes: {
-    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : palette.chip,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : palette.chip,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : palette.divider,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : palette.divider,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 18,
@@ -1750,8 +1668,6 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   safetyCardTitle: {
     fontSize: ew(12, 14),
     fontWeight: '800',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
     marginBottom: 8,
   },
   safetyCardBody: {
@@ -1778,11 +1694,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     lineHeight: ew(17, 20),
   },
   supportingTitle: {
-    color: palette.textDim,
-    fontSize: ew(11, 13),
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
     marginBottom: 10,
   },
   supportingRow: {
@@ -1799,11 +1713,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
   supportingValue: {
     color: palette.text,
-    fontSize: ew(13, 15),
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   supportingHint: {
-    fontSize: ew(10, 12.5),
+    fontSize: 13,
     marginTop: 2,
     fontWeight: '600',
   },

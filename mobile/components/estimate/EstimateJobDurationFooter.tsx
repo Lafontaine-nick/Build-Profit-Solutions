@@ -1,7 +1,6 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import {
-  confirmScopeSectionLabelStyle,
   estimateSummarySectionSubtitleStyle,
   getProjectJobDurationDays,
 } from '@/utils/estimateFlowCardStyle';
@@ -25,7 +24,7 @@ export function EstimateJobDurationFooter({
 
   return (
     <View>
-      <Text style={[confirmScopeSectionLabelStyle(), { color: labelColor, marginBottom: 4 }]}>
+      <Text style={{ color: labelColor, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
         Job duration
       </Text>
       <Text style={{ color: textColor, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>

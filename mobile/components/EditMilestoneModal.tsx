@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView, Keyboard } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -9,12 +7,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors, COLORS } from "../src/theme/colors";
 import type { Milestone, MilestoneStatus, MilestoneCostCategory } from "../src/types/timeline";
 import GreyCalendar from "./GreyCalendar";
-import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import { estimateFlowCardStyle, ESTIMATE_FLOW_CARD_GAP } from "@/utils/estimateFlowCardStyle";
+import { estimateFlowCardStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 type Props = {
   visible: boolean;
@@ -168,11 +165,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   // Don't render if not visible or no milestone
   if (!visible || !milestone) return null;
 
-  const statuses: { value: MilestoneStatus; label: string; color: string }[] = [
-    { value: 'pending', label: 'Pending', color: Colors.gray },
-    { value: 'in_progress', label: 'In Progress', color: "#22d3ee" },
-    { value: 'completed', label: 'Completed', color: "#22c55e" },
+  const statuses: { value: MilestoneStatus; label: string }[] = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'completed', label: 'Completed' },
   ];
+  const fieldFill = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : ThemeColors.surface2;
+  const fieldBorder = darkMode ? "rgba(148, 163, 184, 0.12)" : ThemeColors.line;
+  const amountValue = parseFloat(String(paymentAmount).replace(/,/g, ""));
+  const amountColor = Number.isFinite(amountValue) && amountValue > 0 ? "#2dcc9a" : "#94a3b8";
 
   const handleHeaderBack = () => {
     if (Platform.OS === "ios") {
@@ -182,43 +183,26 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   };
 
   const milestoneHeader = (
-    <View style={styles.headerRow}>
-      <View style={styles.backButtonWrapper}>
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={BRAND_FRAME_GRADIENT_START}
-          end={BRAND_FRAME_GRADIENT_END}
-          style={styles.backButtonBorder}
+    <View style={styles.headerRow} pointerEvents="box-none">
+      <View style={styles.headerTextBlock} pointerEvents="none">
+        <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
+        <Text
+          style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
         >
-          <GradientRingBackInner
-            darkMode={darkMode}
-            onPress={handleHeaderBack}
-            style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-          >
-            <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
-          </GradientRingBackInner>
-        </LinearGradient>
+          {milestone.title}
+        </Text>
       </View>
-      <View style={styles.headerTitleRow}>
-        <View
-          style={[
-            styles.headerAvatar,
-            !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line },
-          ]}
-        >
-          <MaterialIcons name="event" size={24} color="#22c55e" />
-        </View>
-        <View style={styles.headerTextBlock}>
-          <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
-          <Text
-            style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}
-            numberOfLines={2}
-            ellipsizeMode="tail"
-          >
-            {milestone.title}
-          </Text>
-        </View>
-      </View>
+      <TouchableOpacity
+        onPress={handleHeaderBack}
+        style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Back"
+      >
+        <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#e2e8f0" : ThemeColors.text} />
+      </TouchableOpacity>
     </View>
   );
 
@@ -230,10 +214,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 style={[
                   styles.input,
                   {
-                    backgroundColor: ThemeColors.surface2,
-                    borderColor: ThemeColors.line,
+                    backgroundColor: fieldFill,
+                    borderColor: fieldBorder,
                     borderWidth: 1,
-                    borderRadius: 12,
+                    borderRadius: 14,
                     color: ThemeColors.text,
                     fontSize: 14,
                     paddingHorizontal: 16,
@@ -254,15 +238,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
               <View style={[
                 styles.amountInputContainer,
                 {
-                  backgroundColor: ThemeColors.surface2,
-                  borderColor: ThemeColors.line,
-                  borderWidth: 2,
+                  backgroundColor: fieldFill,
+                  borderColor: fieldBorder,
+                  borderWidth: 1,
                   borderRadius: 14,
-                  minHeight: 60,
-                  paddingVertical: 16,
+                  minHeight: 48,
+                  paddingVertical: 12,
                 }
               ]}>
-                <Text style={[styles.dollarSign, { fontSize: 22, fontWeight: '700', left: 18 }]}>$</Text>
+                <Text style={[styles.dollarSign, { fontSize: 22, fontWeight: '700', left: 18, color: amountColor }]}>$</Text>
                 <TextInput
                   style={[
                     styles.input,
@@ -306,8 +290,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     style={[
                       styles.statusButton,
                       {
-                        backgroundColor: status === s.value ? s.color : ThemeColors.surface2,
-                        borderColor: status === s.value ? s.color : ThemeColors.line,
+                        backgroundColor: status === s.value ? "#2dcc9a" : (darkMode ? "#3A3A3C" : ThemeColors.surface2),
+                        borderColor: status === s.value ? "#2dcc9a" : (darkMode ? "rgba(148, 163, 184, 0.35)" : ThemeColors.line),
                         borderWidth: 1,
                         borderRadius: 12,
                       }
@@ -318,7 +302,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                       style={[
                         styles.statusButtonText,
                         !darkMode && { color: ThemeColors.sub },
-                        status === s.value && styles.statusButtonTextActive,
+                        status === s.value && { color: "#050B13" },
                       ]}
                     >
                       {s.label}
@@ -338,15 +322,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 style={[
                   styles.dateButton,
                   {
-                    backgroundColor: ThemeColors.surface2,
-                    borderColor: ThemeColors.line,
+                    backgroundColor: fieldFill,
+                    borderColor: fieldBorder,
                     borderWidth: 1,
-                    borderRadius: 12,
+                    borderRadius: 14,
                   }
                 ]}
               >
                 <Text style={[styles.dateButtonText, !darkMode && { color: ThemeColors.text }]}>
-                  📅 {plannedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {plannedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </Text>
               </TouchableOpacity>
               {showDatePicker && (
@@ -360,8 +344,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     markedDates={{
                       [`${plannedDate.getFullYear()}-${String(plannedDate.getMonth() + 1).padStart(2, '0')}-${String(plannedDate.getDate()).padStart(2, '0')}`]: {
                         selected: true,
-                        selectedColor: '#22c55e',
-                        selectedTextColor: '#000000',
+                        selectedColor: '#2dcc9a',
+                        selectedTextColor: '#050B13',
                       }
                     }}
                     initialDate={`${plannedDate.getFullYear()}-${String(plannedDate.getMonth() + 1).padStart(2, '0')}-${String(plannedDate.getDate()).padStart(2, '0')}`}
@@ -380,10 +364,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 style={[
                   styles.dateButton,
                   {
-                    backgroundColor: ThemeColors.surface2,
-                    borderColor: ThemeColors.line,
+                    backgroundColor: fieldFill,
+                    borderColor: fieldBorder,
                     borderWidth: 1,
-                    borderRadius: 12,
+                    borderRadius: 14,
                   }
                 ]}
               >
@@ -391,11 +375,11 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                   style={[
                     styles.dateButtonText,
                     !darkMode && { color: ThemeColors.text },
-                    actualDate && { color: '#22c55e', fontWeight: '700' },
+                    actualDate && { color: '#2dcc9a', fontWeight: '700' },
                   ]}
                 >
                   {actualDate
-                    ? `📅 ${actualDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    ? actualDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                     : 'Tap to set — e.g. paid earlier than planned'}
                 </Text>
               </TouchableOpacity>
@@ -405,7 +389,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                   style={{ alignSelf: 'flex-start', marginTop: 8 }}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={[styles.hint, { color: '#22c55e', fontWeight: '600' }]}>Clear actual date</Text>
+                  <Text style={[styles.hint, { color: '#2dcc9a', fontWeight: '600' }]}>Clear actual date</Text>
                 </TouchableOpacity>
               ) : (
                 <Text style={[styles.hint, !darkMode && { color: ThemeColors.sub }]}>
@@ -425,8 +409,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                         ? {
                             [`${actualDate.getFullYear()}-${String(actualDate.getMonth() + 1).padStart(2, '0')}-${String(actualDate.getDate()).padStart(2, '0')}`]: {
                               selected: true,
-                              selectedColor: '#22c55e',
-                              selectedTextColor: '#000000',
+                              selectedColor: '#2dcc9a',
+                              selectedTextColor: '#050B13',
                             },
                           }
                         : {}),
@@ -447,10 +431,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 style={[
                   styles.input,
                   {
-                    backgroundColor: ThemeColors.surface2,
-                    borderColor: ThemeColors.line,
+                    backgroundColor: fieldFill,
+                    borderColor: fieldBorder,
                     borderWidth: 1,
-                    borderRadius: 12,
+                    borderRadius: 14,
                     color: ThemeColors.text,
                     fontSize: 14,
                     paddingHorizontal: 16,
@@ -462,7 +446,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 placeholder="e.g., BrightSpark Electrical LLC"
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : ThemeColors.sub}
                 autoCapitalize="words"
-                selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                selectionColor="#2dcc9a"
                 cursorColor={ThemeColors.text}
                 keyboardAppearance={darkMode ? "dark" : "light"}
                 onSubmitEditing={() => Keyboard.dismiss()}
@@ -484,11 +468,23 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
               : { paddingBottom: Math.max(insets.bottom, 20) + 30 },
           ]}>
             <TouchableOpacity
+              onPress={() => {
+                if (Platform.OS === "ios") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }
+                handleSave();
+              }}
+              style={styles.saveButton}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.saveButtonText}>{isWeb ? "✓ Save" : "Save"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={onClose}
               style={[
                 styles.cancelButtonFlat,
                 darkMode
-                  ? { backgroundColor: "#18181b", borderColor: "#3f3f46" }
+                  ? { backgroundColor: "#3A3A3C", borderColor: "rgba(148, 163, 184, 0.35)" }
                   : { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line },
               ]}
               activeOpacity={0.85}
@@ -501,20 +497,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
               >
                 Cancel
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                if (Platform.OS === "ios") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }
-                handleSave();
-              }}
-              style={styles.saveButton}
-              activeOpacity={0.9}
-            >
-              <View style={styles.saveButtonSolid}>
-                <Text style={styles.saveButtonText}>{isWeb ? "✓ Save" : "Save"}</Text>
-              </View>
             </TouchableOpacity>
           </View>
   );
@@ -550,7 +532,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
 
               <WebMilestoneFormChrome
                 isWeb={isWeb}
-                innerBackground={darkMode ? "#050807" : ThemeColors.surface2}
                 Colors={ThemeColors}
                 darkMode={darkMode}
               >
@@ -628,75 +609,55 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 16,
     marginBottom: 8,
-  },
-  headerTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    minWidth: 0,
+    minHeight: 56,
   },
   headerTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  headerAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    marginRight: 12,
-    justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.3)",
-  },
-  backButtonWrapper: {
-    flexShrink: 0,
-    marginRight: 12,
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+    paddingHorizontal: 56,
   },
   backButton: {
+    position: "absolute",
+    left: 16,
+    top: 8,
+    zIndex: 2,
     width: 40,
     height: 40,
-    borderRadius: 19,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerTitleContainer: {
     flex: 1,
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.35,
-    lineHeight: 30,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: "center",
   },
   subtitle: {
-    color: "#8DA0B8",
+    color: "#94a3b8",
     fontSize: 13,
-    marginTop: 5,
+    marginTop: 2,
     fontWeight: "500",
-    letterSpacing: 0.12,
     lineHeight: 18,
+    textAlign: "center",
   },
   form: {
     flex: 1,
   },
   formContent: {
     paddingHorizontal: 12,
-    paddingBottom: 24,
+    paddingBottom: 180,
   },
   editMilestoneWebPageContent: {
     width: "100%",
@@ -715,8 +676,8 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 860,
     alignSelf: "center",
-    flexDirection: "row",
-    gap: 14,
+    flexDirection: "column",
+    gap: 8,
     marginTop: 24,
     paddingTop: 18,
     borderTopWidth: 1,
@@ -766,12 +727,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statusButtonText: {
-    color: "rgba(255,255,255,0.6)",
+    color: "#e2e8f0",
     fontSize: 13,
     fontWeight: "600",
-  },
-  statusButtonTextActive: {
-    color: "#0d1b2a",
   },
   dateButton: {
     // backgroundColor, borderColor, borderWidth, borderRadius are set dynamically
@@ -792,7 +750,7 @@ const styles = StyleSheet.create({
   dollarSign: {
     position: "absolute",
     left: 16,
-    color: "#22c55e",
+    color: "#2dcc9a",
     fontSize: 18,
     fontWeight: "600",
     zIndex: 1,
@@ -807,10 +765,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   actions: {
-    flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingTop: 20,
-    gap: 12,
+    flexDirection: "column",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 8,
     position: "absolute",
     bottom: 0,
     left: 0,
@@ -828,38 +786,29 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   cancelButtonFlat: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 15,
+    width: "100%",
+    minHeight: 48,
+    paddingVertical: 14,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   cancelButtonTextFlat: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "600",
   },
   saveButton: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  saveButtonSolid: {
-    paddingVertical: 16,
+    width: "100%",
+    backgroundColor: "#2dcc9a",
+    borderRadius: 14,
+    minHeight: 50,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
-    backgroundColor: "#22c55e",
-    borderRadius: 16,
-    shadowColor: "#22c55e",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
   },
   saveButtonText: {
-    color: "#FFFFFF",
+    color: "#050B13",
     fontSize: 16,
     fontWeight: "800",
   },
@@ -901,33 +850,22 @@ const styles = StyleSheet.create({
 
 function WebMilestoneFormChrome({
   isWeb,
-  innerBackground,
   children,
   Colors,
   darkMode,
 }: {
   isWeb: boolean;
-  innerBackground?: string;
   children: React.ReactNode;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
-  if (isWeb) {
-    return (
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={BRAND_FRAME_GRADIENT_START}
-        end={BRAND_FRAME_GRADIENT_END}
-        style={styles.editMilestoneWebFormCardGradient}
-      >
-        <View style={[styles.editMilestoneWebFormCardInner, { backgroundColor: innerBackground ?? "#050807" }]}>
-          {children}
-        </View>
-      </LinearGradient>
-    );
-  }
   return (
-    <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+    <View
+      style={estimateFlowCardStyle(Colors, darkMode, {
+        marginBottom: ESTIMATE_FLOW_CARD_GAP,
+        ...(isWeb ? { maxWidth: 860, alignSelf: "center", width: "100%" } : {}),
+      })}
+    >
       {children}
     </View>
   );

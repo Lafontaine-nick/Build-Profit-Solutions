@@ -152,9 +152,9 @@ export default function ProjectPhotosCard({
 
   return (
     <>
-      <View style={[{ marginTop: 12 }, flowCardStyle]}>
+      <View style={flowCardStyle}>
             <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148,163,184,0.1)' : lineColor }]}>
-              <MaterialIcons name="photo-library" size={22} color="#22c55e" />
+              <MaterialIcons name="photo-library" size={22} color="#94a3b8" />
               <Text style={[styles.sectionTitle, { color: textColor, marginLeft: 12 }]}>Site Photos</Text>
               {photos.length > 0 ? (
                 <Text style={[styles.countLabel, { color: mutedColor, marginRight: 10 }]}>
@@ -172,7 +172,7 @@ export default function ProjectPhotosCard({
                 ]}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <MaterialIcons name="add" size={22} color="#22d3ee" />
+                <MaterialIcons name="add" size={22} color="#2dcc9a" />
               </TouchableOpacity>
             </View>
 
@@ -203,7 +203,7 @@ export default function ProjectPhotosCard({
               </ScrollView>
             ) : (
               <View style={styles.emptyWrap}>
-                <MaterialIcons name="photo-camera" size={28} color="#22d3ee" />
+                <MaterialIcons name="photo-camera" size={28} color="#94a3b8" />
                 <Text style={[styles.emptyTitle, { color: textColor }]}>No site photos yet</Text>
                 <Text style={[styles.emptyBody, { color: mutedColor }]}>
                   Tap + to add portfolio photos, or attach them from a daily log.
@@ -398,9 +398,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(34, 211, 238, 0.12)',
+    backgroundColor: 'rgba(45, 204, 154, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(34, 211, 238, 0.28)',
+    borderColor: 'rgba(45, 204, 154, 0.4)',
   },
   thumbRow: {
     gap: 10,

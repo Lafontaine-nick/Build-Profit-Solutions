@@ -453,13 +453,9 @@ export const getBaseBusinessTerms = (
     "- Pricing & Changes: The contract total reflects the current scope, assumptions, schedule, and available information at the time of proposal. Added work, hidden conditions, substitutions, owner-requested revisions, and code-required changes are handled through written change orders.",
     "- Deposit & Start of Work: Work will not be scheduled, ordered, or started until the required deposit, signed agreement, and required selections or approvals are received.",
     "- Payments: Payments are due according to the attached payment schedule. Delinquent balances may pause scheduling, procurement, inspections, and project progress until resolved.",
-    "- Permits & Inspections: Contractor is responsible for coordinating permits and inspections only when included in the proposal. Permit fees, plan fees, engineering, utility fees, and inspection-related charges are paid by owner unless otherwise listed.",
     "- Concealed Conditions: Hidden damage, framing deficiencies, rot, mold, asbestos, hazardous materials, utility conflicts, code corrections, and other concealed conditions are outside the base scope and require written change-order approval.",
-    "- Owner Selections & Materials: Owner selections, finishes, fixtures, appliances, and owner-furnished materials must be approved before ordering or installation. Delays or changes in selections may affect price, schedule, and warranty coverage.",
-    "- Access & Protection: Owner will provide reasonable access, parking, utilities, and decision-making in time to keep work moving. Contractor will use reasonable dust protection, cleanup, and site safety practices appropriate for the job.",
     `- Warranty: Workmanship is covered for ${warrantyYears} year${warrantyYears === 1 ? "" : "s"} from substantial completion unless a different written warranty applies. Manufacturer warranties remain with the product maker. Warranty does not cover owner-furnished materials, misuse, normal wear, lack of maintenance, or work performed by others.`,
     "- Schedule & Delays: Project timelines are estimates and may be affected by weather, inspections, permitting, material availability, change orders, owner decisions, hidden conditions, or circumstances outside contractor control.",
-    "- Legal & Jurisdiction Notices: Required licensing, lien, cancellation, dispute-resolution, insurance, and consumer-protection notices must be confirmed for the project location before client use.",
   ];
 };
 

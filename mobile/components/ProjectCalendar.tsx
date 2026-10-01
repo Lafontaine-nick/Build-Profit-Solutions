@@ -88,12 +88,12 @@ const EVENT_TYPE_COLORS: Record<CalendarEvent['type'], string> = {
   inspection: '#f59e0b', // yellow
   delivery: '#8b5cf6', // purple
   work: '#3b82f6', // blue
-  payment: '#22c55e', // green
+  payment: '#2dcc9a', // same mint as the dashboard accent
   deadline: '#ef4444', // red
   other: '#f97316', // orange (for important notes)
 };
 /** Vibrant green for selected states - matches calendar tab, Today button, Add Event button */
-const ACCENT_GREEN = '#19E180';
+const ACCENT_GREEN = '#2dcc9a';
 
 const EVENT_TYPE_ICONS: Record<CalendarEvent['type'], string> = {
   inspection: 'clipboard-check',
@@ -115,7 +115,7 @@ const EVENT_TYPE_FORM_ICONS: Record<CalendarEvent['type'], keyof typeof Feather.
 };
 
 const CALENDAR_CATEGORY_COLORS = {
-  payment: '#22c55e',
+  payment: '#2dcc9a',
   inspection: '#f59e0b',
   phase: '#3b82f6',
   delivery: '#8b5cf6',
@@ -214,7 +214,7 @@ export default function ProjectCalendar({
             text: '#f1f5f9',
             subtext: '#94a3b8',
             border: '#334155',
-            green: '#22c55e',
+            green: '#2dcc9a',
             blue: '#22d3ee',
             red: '#ef4444',
             amber: '#f59e0b',
@@ -227,7 +227,7 @@ export default function ProjectCalendar({
             text: TC.text,
             subtext: TC.sub,
             border: TC.line,
-            green: '#22c55e',
+            green: '#2dcc9a',
             blue: '#22d3ee',
             red: '#ef4444',
             amber: '#f59e0b',
@@ -1002,7 +1002,7 @@ export default function ProjectCalendar({
       <Modal
         visible={showDateEventsModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => {
           setShowDateEventsModal(false);
         }}
@@ -1017,7 +1017,7 @@ export default function ProjectCalendar({
             style={[
               styles.modalContent,
               {
-                backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
+                backgroundColor: darkMode ? '#000000' : COLORS.surface,
                 paddingBottom: Math.max(insets.bottom, 20),
               },
               calendarDesktopWeb && {
@@ -1030,8 +1030,8 @@ export default function ProjectCalendar({
             <View style={styles.dragIndicatorWrapper}>
               <View style={[styles.dragIndicator, { backgroundColor: darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }]} />
             </View>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: COLORS.text }]}>
+            <View style={[styles.modalHeader, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)' }]}>
+              <Text style={[styles.modalTitle, { color: COLORS.text, fontSize: 20, fontWeight: '700' }]}>
                 {selectedDate ? (() => {
                   const [year, month, day] = selectedDate.split('-').map(Number);
                   const date = new Date(year, month - 1, day);
@@ -1048,8 +1048,16 @@ export default function ProjectCalendar({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowDateEventsModal(false);
                 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                }}
               >
-                <Ionicons name="close" size={24} color={COLORS.text} />
+                <Ionicons name="close" size={20} color={COLORS.text} />
               </TouchableOpacity>
             </View>
 
@@ -1075,19 +1083,14 @@ export default function ProjectCalendar({
                       const hidePayMeta =
                         pay && /^(payment collected|payment due)\.?$/i.test((notePrimary || '').trim());
                       const notesPrimary = hidePayMeta ? '' : notePrimary;
-                      const categoryTint = pay
-                        ? darkMode
-                          ? 'rgba(34, 197, 94, 0.12)'
-                          : 'rgba(34, 197, 94, 0.1)'
-                        : `${getEventColor(event)}20`;
                       return (
                         <View
                           key={event.id}
                           style={[
                             styles.eventCardModal,
                             {
-                              backgroundColor: darkMode ? '#1e293b' : COLORS.surface2,
-                              borderColor: COLORS.border,
+                              backgroundColor: darkMode ? '#202022' : COLORS.surface2,
+                              borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : COLORS.border,
                             },
                           ]}
                         >
@@ -1101,18 +1104,23 @@ export default function ProjectCalendar({
                             }}
                             activeOpacity={canEditCalendar ? 0.7 : 1}
                           >
-                            <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
                             <View style={styles.eventContent}>
-                              <View style={styles.eventHeader}>
-                                <Text style={[styles.eventTitle, { color: COLORS.text }]} numberOfLines={2}>
-                                  {event.title}
-                                </Text>
-                                <MaterialIcons
-                                  name={getEventIcon(event) as any}
-                                  size={18}
-                                  color={getEventColor(event)}
-                                />
-                              </View>
+                              {(() => {
+                                const moneyMatch = String(event.title || '').match(/^(.*?)\s*(\$[\d,]+(?:\.\d+)?)\s*$/);
+                                const titleLead = moneyMatch ? moneyMatch[1].replace(/[:\s]+$/, '') : event.title;
+                                const titleAmount = moneyMatch ? moneyMatch[2] : null;
+                                const quietAmount = !titleAmount || /^\$0+(?:\.0+)?$/.test(titleAmount);
+                                return (
+                                  <>
+                                    <Text style={{ fontSize: 16, fontWeight: '600', color: COLORS.text }}>{titleLead}</Text>
+                                    {titleAmount ? (
+                                      <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 4, letterSpacing: -0.3, color: quietAmount ? '#94a3b8' : '#2dcc9a' }}>
+                                        {titleAmount}
+                                      </Text>
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
                               <View style={styles.eventDetails}>
                                 <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
                                 <Text
@@ -1142,80 +1150,38 @@ export default function ProjectCalendar({
                                 </View>
                               ) : null}
                               <View style={styles.modalBadgeRow}>
-                                {event.calendarCategory ? (
-                                  <View
-                                    style={[styles.categoryBadge, { backgroundColor: categoryTint, marginTop: 0 }]}
-                                  >
-                                    <Text style={[styles.categoryBadgeText, { color: getEventColor(event) }]}>
-                                      {formatCalendarCategoryLabel(event.calendarCategory)}
+                                {(event.calendarCategory || event.type) ? (
+                                  <View style={[styles.outlineBadge, { borderColor: getEventColor(event) }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: getEventColor(event) }]}>
+                                      {formatCalendarCategoryLabel(event.calendarCategory) || String(event.type).replace(/-/g, ' ')}
                                     </Text>
                                   </View>
                                 ) : null}
                                 {pay ? (
-                                  <View
-                                    style={[
-                                      styles.modalStatusChip,
-                                      {
-                                        backgroundColor: payDone
-                                          ? 'rgba(34, 197, 94, 0.14)'
-                                          : 'rgba(245, 158, 11, 0.14)',
-                                      },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.modalStatusChipText,
-                                        { color: payDone ? COLORS.green : '#f59e0b' },
-                                      ]}
-                                    >
+                                  <View style={[styles.outlineBadge, { borderColor: payDone ? '#2dcc9a' : '#f59e0b' }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: payDone ? '#2dcc9a' : '#f59e0b' }]}>
                                       {payDone ? 'Paid' : 'Due'}
                                     </Text>
                                   </View>
                                 ) : null}
                                 {hasInspectionResult ? (
-                                  <View
-                                    style={[
-                                      styles.modalStatusChip,
-                                      {
-                                        backgroundColor:
-                                          event.inspectionResult === 'passed'
-                                            ? 'rgba(34, 197, 94, 0.14)'
-                                            : 'rgba(239, 68, 68, 0.14)',
-                                      },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.modalStatusChipText,
-                                        {
-                                          color:
-                                            event.inspectionResult === 'passed' ? COLORS.green : COLORS.red,
-                                        },
-                                      ]}
-                                    >
+                                  <View style={[styles.outlineBadge, { borderColor: event.inspectionResult === 'passed' ? '#2dcc9a' : COLORS.red }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: event.inspectionResult === 'passed' ? '#2dcc9a' : COLORS.red }]}>
                                       {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
                                     </Text>
                                   </View>
                                 ) : null}
                                 {isDeliveryEvent(event) && isDeliveryReceived(event) ? (
-                                  <View
-                                    style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}
-                                  >
-                                    <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>
-                                      Received
-                                    </Text>
+                                  <View style={[styles.outlineBadge, { borderColor: '#2dcc9a' }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: '#2dcc9a' }]}>Received</Text>
                                   </View>
                                 ) : null}
                                 {event.completed &&
                                 !hasInspectionResult &&
                                 !isDeliveryEvent(event) &&
                                 !pay ? (
-                                  <View
-                                    style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}
-                                  >
-                                    <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>
-                                      Completed
-                                    </Text>
+                                  <View style={[styles.outlineBadge, { borderColor: '#2dcc9a' }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: '#2dcc9a' }]}>Completed</Text>
                                   </View>
                                 ) : null}
                               </View>
@@ -1261,8 +1227,8 @@ export default function ProjectCalendar({
                                 onPress={() => handleMarkInspectionResult(event, 'passed')}
                                 activeOpacity={0.8}
                               >
-                                <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                                <Text style={styles.inspectionButtonText}>Passed</Text>
+                                <Ionicons name="checkmark-circle" size={18} color="#050B13" />
+                                <Text style={[styles.inspectionButtonText, { color: '#050B13' }]}>Passed</Text>
                               </TouchableOpacity>
                               <TouchableOpacity
                                 style={[styles.inspectionButton, styles.inspectionButtonFailed]}
@@ -1281,8 +1247,8 @@ export default function ProjectCalendar({
                                 onPress={() => handleMarkDeliveryReceived(event)}
                                 activeOpacity={0.8}
                               >
-                                <Ionicons name="cube-outline" size={18} color="#fff" />
-                                <Text style={styles.inspectionButtonText}>Received</Text>
+                                <Ionicons name="cube-outline" size={18} color="#050B13" />
+                                <Text style={[styles.inspectionButtonText, { color: '#050B13' }]}>Received</Text>
                               </TouchableOpacity>
                             </View>
                           )}
@@ -1294,10 +1260,10 @@ export default function ProjectCalendar({
               })()}
             </ScrollView>
 
-            <View style={styles.modalActions}>
-              {canEditCalendar ? (
+            {canEditCalendar ? (
+              <View style={styles.modalActions}>
                 <TouchableOpacity
-                  style={[styles.addEventButton, { backgroundColor: COLORS.green }]}
+                  style={[styles.addEventButton, { backgroundColor: '#2dcc9a' }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     setShowDateEventsModal(false);
@@ -1306,24 +1272,10 @@ export default function ProjectCalendar({
                     resetForm();
                   }}
                 >
-                  <Ionicons name="add" size={20} color="#fff" />
                   <Text style={styles.addEventButtonText}>New Event</Text>
                 </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={[
-                  styles.closeButton,
-                  { backgroundColor: COLORS.border },
-                  !canEditCalendar && { flex: 1 },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowDateEventsModal(false);
-                }}
-              >
-                <Text style={styles.closeButtonText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -1388,66 +1340,63 @@ export default function ProjectCalendar({
               automaticallyAdjustContentInsets={false}
               contentInsetAdjustmentBehavior="never"
             >
-              {/* Event Details — iOS grouped inset style */}
               <View style={styles.eventFormSection}>
-                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>EVENT DETAILS</Text>
-                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1C1C1E' : '#FFFFFF' }]}>
-                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(60,60,67,0.12)' }]}>
-                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Title</Text>
+                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#202022' : '#FFFFFF', borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)' }]}>
+                  <View style={styles.stackedField}>
+                    <Text style={styles.stackedLabel}>Title</Text>
                     <TextInput
-                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      style={[styles.stackedInput, { color: COLORS.text }]}
                       value={eventTitle}
                       onChangeText={setEventTitle}
-                      placeholder="e.g., Framing Inspection"
-                      placeholderTextColor={darkMode ? '#8E8E93' : '#C7C7CC'}
+                      placeholder="Framing inspection"
+                      placeholderTextColor="#94a3b8"
                     />
                   </View>
-                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(60,60,67,0.12)' }]}>
-                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Date</Text>
-                    <TextInput
-                      style={[styles.eventFormInput, { color: COLORS.text }]}
-                      value={eventDate ? (() => {
-                        const [year, month, day] = eventDate.split('-');
-                        if (year && month && day && year.length === 4) {
-                          const yy = year.slice(-2);
-                          return `${month}-${day}-${yy}`;
-                        }
-                        return eventDate;
-                      })() : ''}
-                      onChangeText={(text) => {
-                        const cleaned = text.replace(/[^\d-]/g, '');
-                        let formatted = cleaned;
-                        if (cleaned.length > 2 && !cleaned.includes('-')) {
-                          formatted = cleaned.slice(0, 2) + '-' + cleaned.slice(2);
-                        }
-                        if (formatted.length > 5 && formatted.split('-').length === 2) {
-                          formatted = formatted.slice(0, 5) + '-' + formatted.slice(5, 7);
-                        }
-                        if (formatted.length > 8) formatted = formatted.slice(0, 8);
-                        setEventDate(formatted);
-                      }}
-                      placeholder="MM-DD-YY"
-                      placeholderTextColor={darkMode ? '#8E8E93' : '#C7C7CC'}
-                    />
-                  </View>
-                  <View style={styles.eventFormRow}>
-                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Time</Text>
-                    <TextInput
-                      style={[styles.eventFormInput, { color: COLORS.text }]}
-                      value={eventTime}
-                      onChangeText={setEventTime}
-                      placeholder="09:00"
-                      placeholderTextColor={darkMode ? '#8E8E93' : '#C7C7CC'}
-                    />
+                  <View style={styles.stackedSplit}>
+                    <View style={[styles.stackedField, styles.stackedSplitCell, { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(60,60,67,0.12)' }]}>
+                      <Text style={styles.stackedLabel}>Date</Text>
+                      <TextInput
+                        style={[styles.stackedInput, { color: COLORS.text }]}
+                        value={eventDate ? (() => {
+                          const [year, month, day] = eventDate.split('-');
+                          if (year && month && day && year.length === 4) {
+                            return `${month}-${day}-${year.slice(-2)}`;
+                          }
+                          return eventDate;
+                        })() : ''}
+                        onChangeText={(text) => {
+                          const cleaned = text.replace(/[^\d-]/g, '');
+                          let formatted = cleaned;
+                          if (cleaned.length > 2 && !cleaned.includes('-')) {
+                            formatted = cleaned.slice(0, 2) + '-' + cleaned.slice(2);
+                          }
+                          if (formatted.length > 5 && formatted.split('-').length === 2) {
+                            formatted = formatted.slice(0, 5) + '-' + formatted.slice(5, 7);
+                          }
+                          if (formatted.length > 8) formatted = formatted.slice(0, 8);
+                          setEventDate(formatted);
+                        }}
+                        placeholder="MM-DD-YY"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </View>
+                    <View style={[styles.stackedField, styles.stackedSplitCell]}>
+                      <Text style={styles.stackedLabel}>Time</Text>
+                      <TextInput
+                        style={[styles.stackedInput, { color: COLORS.text }]}
+                        value={eventTime}
+                        onChangeText={setEventTime}
+                        placeholder="09:00"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </View>
                   </View>
                 </View>
               </View>
 
-              {/* Type Section — keep type colors */}
               <View style={styles.eventFormSection}>
-                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>TYPE</Text>
-                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1C1C1E' : '#FFFFFF' }]}>
-                  <View style={styles.eventFormTypeGrid}>
+                <Text style={[styles.eventFormSectionTitle, { color: '#94a3b8' }]}>TYPE</Text>
+                <View style={styles.eventFormTypeGrid}>
                     {(['inspection', 'work', 'delivery', 'payment', 'deadline', 'other'] as const).map((type) => (
                       <TouchableOpacity
                         key={type}
@@ -1455,8 +1404,8 @@ export default function ProjectCalendar({
                         style={[
                           styles.eventFormTypeChip,
                           eventType === type
-                            ? { backgroundColor: EVENT_TYPE_COLORS[type], borderColor: EVENT_TYPE_COLORS[type] }
-                            : { backgroundColor: 'transparent', borderColor: darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(60,60,67,0.2)' },
+                            ? { backgroundColor: '#2dcc9a', borderColor: '#2dcc9a' }
+                            : { backgroundColor: 'transparent', borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(60,60,67,0.2)' },
                         ]}
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1466,47 +1415,44 @@ export default function ProjectCalendar({
                         <Feather
                           name={EVENT_TYPE_FORM_ICONS[type]}
                           size={18}
-                          color={eventType === type ? '#fff' : COLORS.text}
+                          color={eventType === type ? '#050B13' : (darkMode ? '#e2e8f0' : COLORS.text)}
                           strokeWidth={2}
                         />
                         <Text
                           style={[
                             styles.eventFormTypeChipText,
-                            { color: eventType === type ? '#fff' : COLORS.text },
+                            { color: eventType === type ? '#050B13' : (darkMode ? '#e2e8f0' : COLORS.text) },
                           ]}
                         >
                           {type.charAt(0).toUpperCase() + type.slice(1)}
                         </Text>
                       </TouchableOpacity>
                     ))}
-                  </View>
                 </View>
               </View>
 
-              {/* Additional Info */}
               <View style={styles.eventFormSection}>
-                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>ADDITIONAL INFO</Text>
-                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1C1C1E' : '#FFFFFF' }]}>
-                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(60,60,67,0.12)' }]}>
-                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Subcontractor</Text>
+                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#202022' : '#FFFFFF', borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)' }]}>
+                  <View style={[styles.stackedField, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(60,60,67,0.12)' }]}>
+                    <Text style={styles.stackedLabel}>Subcontractor</Text>
                     <TextInput
-                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      style={[styles.stackedInput, { color: COLORS.text }]}
                       value={eventSubcontractor}
                       onChangeText={setEventSubcontractor}
-                      placeholder="e.g., ABC Electric"
-                      placeholderTextColor={darkMode ? '#8E8E93' : '#C7C7CC'}
+                      placeholder="ABC Electric"
+                      placeholderTextColor="#94a3b8"
                     />
                   </View>
-                  <View style={[styles.eventFormRow, styles.eventFormNotesRow]}>
-                    <Text style={[styles.eventFormLabel, styles.eventFormLabelNotes, { color: COLORS.text }]}>Notes</Text>
+                  <View style={styles.stackedField}>
+                    <Text style={styles.stackedLabel}>Notes</Text>
                     <TextInput
-                      style={[styles.eventFormInput, styles.eventFormTextArea, { color: COLORS.text }]}
+                      style={[styles.stackedInput, { color: COLORS.text, minHeight: 72 }]}
                       value={eventNotes}
                       onChangeText={setEventNotes}
-                      placeholder="Additional details..."
-                      placeholderTextColor={darkMode ? '#8E8E93' : '#C7C7CC'}
+                      placeholder="Additional details"
+                      placeholderTextColor="#94a3b8"
                       multiline
-                      numberOfLines={4}
+                      numberOfLines={3}
                       textAlignVertical="top"
                       scrollEnabled={false}
                     />
@@ -1625,7 +1571,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2dcc9a',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1697,15 +1643,15 @@ const styles = StyleSheet.create({
   },
   eventCardModal: {
     flexDirection: 'column',
-    borderRadius: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 10,
     borderWidth: 1,
     overflow: 'hidden',
   },
   eventCardTouchable: {
     flexDirection: 'row',
     flex: 1,
-    padding: 12,
+    padding: 16,
   },
   eventHeaderRight: {
     flexDirection: 'row',
@@ -1741,7 +1687,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   inspectionButtonPassed: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2dcc9a',
   },
   inspectionButtonFailed: {
     backgroundColor: '#ef4444',
@@ -1837,6 +1783,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
+    overflow: 'hidden',
   },
   dragIndicatorWrapper: {
     alignItems: 'center',
@@ -1853,6 +1800,11 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     maxHeight: '90%',
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    overflow: 'hidden',
+    elevation: 0,
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
   },
   modalContentWithKeyboard: {
     flex: 1,
@@ -1928,7 +1880,8 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   eventFormGroup: {
-    borderRadius: 12,
+    borderRadius: 14,
+    borderWidth: 1,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
@@ -1990,8 +1943,7 @@ const styles = StyleSheet.create({
   eventFormTypeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 12,
-    gap: 10,
+    gap: 8,
   },
   eventFormTypeChip: {
     flexDirection: 'row',
@@ -2025,11 +1977,11 @@ const styles = StyleSheet.create({
   },
   eventFormSaveButton: {
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
   },
   eventFormSaveText: {
-    color: '#fff',
+    color: '#050B13',
     fontSize: 17,
     fontWeight: '600',
   },
@@ -2085,9 +2037,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalActions: {
-    flexDirection: 'row',
-    padding: 20,
-    gap: 12,
+    flexDirection: 'column',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
+    gap: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -2169,18 +2123,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   addEventButton: {
-    flex: 1,
-    flexDirection: 'row',
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 14,
-    borderRadius: 12,
+    paddingVertical: 16,
+    borderRadius: 14,
   },
   addEventButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: '#050B13',
+    fontSize: 17,
     fontWeight: '700',
+  },
+  outlineBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  outlineBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  stackedField: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  stackedSplit: {
+    flexDirection: 'row',
+  },
+  stackedSplitCell: {
+    flex: 1,
+  },
+  stackedLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 6,
+    color: '#94a3b8',
+  },
+  stackedInput: {
+    fontSize: 17,
+    fontWeight: '600',
+    paddingVertical: 2,
+    paddingHorizontal: 0,
   },
   categoryBadge: {
     paddingHorizontal: 8,

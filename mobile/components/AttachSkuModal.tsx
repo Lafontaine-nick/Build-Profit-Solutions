@@ -30,6 +30,9 @@ const androidHost =
 // --- END: API_BASE auto-detect ---
 
 import { getApiBaseUrlWithDebug } from "../utils/apiConfig";
+import { withProjectLeadsAuth } from "@/utils/projectLeadsAuthFetch";
+import { buildSkuPriceSignalMap, type SkuPriceSignal } from "@/utils/skuPriceSignal";
+import { useAuth } from "@clerk/clerk-expo";
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Modal,
@@ -62,7 +65,6 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from "@/constants/brandFrameGradient";
-import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -79,19 +81,11 @@ import {
   isDesktopWebLayoutWidth,
 } from '@/constants/ScreenLayout';
 import {
-  confirmScopeSectionLabelStyle,
   ESTIMATE_FLOW_CARD_GAP,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
-  ESTIMATE_FLOW_GREEN,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   estimateFlowCardStyle,
   estimateFlowInputShellStyle,
   estimateFlowLineItemStyle,
-  estimateFlowPrimaryButtonStyle,
-  estimateFlowPrimaryButtonTextStyle,
-  estimateStep1ActionButtonStyle,
-  estimateStep1ActionButtonSelectedStyle,
 } from '@/utils/estimateFlowCardStyle';
 
 /** Match Estimates Add Labor / line-item modals (desktop web column cap). */
@@ -164,105 +158,81 @@ function SkuModalHeaderRow({
   onOpenSaved?: () => void;
 }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center" }}>
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
+    <View pointerEvents="box-none" style={{ alignItems: "center", justifyContent: "center", minHeight: 56 }}>
+      <View pointerEvents="none" style={{ alignItems: "center", width: "100%", paddingHorizontal: 56 }}>
+        <Text
+          style={{
+            color: darkMode ? "#FFFFFF" : Colors.text,
+            fontSize: 18,
+            fontWeight: "700",
+            letterSpacing: -0.25,
+            lineHeight: 23,
+            textAlign: "center",
+          }}
+        >
+          {isRentalMode ? "Find Rental Equipment" : "Search Products"}
+        </Text>
+        <Text
+          style={{
+            color: "#94a3b8",
+            fontSize: 14,
+            marginTop: 4,
+            fontWeight: "500",
+            letterSpacing: 0.12,
+            lineHeight: 20,
+            textAlign: "center",
+          }}
+        >
+          Search for materials and equipment
+        </Text>
+      </View>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onClose();
+        }}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Back"
         style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          zIndex: 2,
           width: 40,
           height: 40,
           borderRadius: 20,
-          padding: 1,
-          marginRight: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2,
         }}
       >
-        <GradientRingBackInner
-          darkMode={darkMode}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            onClose();
-          }}
-          style={{
-            width: "100%",
-            height: "100%",
-            borderRadius: 19,
-            backgroundColor: darkMode ? "#000000" : Colors.bg,
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-        </GradientRingBackInner>
-      </LinearGradient>
-      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            padding: 1,
-            marginRight: 12,
-          }}
-        >
-          <View
-            style={{
-              width: "100%",
-              height: "100%",
-              borderRadius: 19,
-              backgroundColor: darkMode ? "#000000" : Colors.bg,
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <MaterialCommunityIcons name="magnify" size={24} color="#22c55e" />
-          </View>
-        </LinearGradient>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={{
-              fontSize: 22,
-              fontWeight: "700",
-              color: darkMode ? "#FFFFFF" : "#000000",
-              letterSpacing: 0.3,
-            }}
-          >
-            {isRentalMode ? "Find Rental Equipment" : "Search Products"}
-          </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              color: darkMode ? "rgba(226, 232, 240, 0.72)" : Colors.sub,
-              marginTop: 4,
-              lineHeight: 18,
-              fontWeight: "500",
-            }}
-          >
-            Search for materials and equipment
-          </Text>
-        </View>
-      </View>
+        <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#e2e8f0" : Colors.text} />
+      </TouchableOpacity>
       {onOpenSaved ? (
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             onOpenSaved();
           }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Saved materials"
           style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            zIndex: 2,
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
-            justifyContent: "center",
             alignItems: "center",
-            borderWidth: 1,
-            borderColor: darkMode ? "rgba(148, 163, 184, 0.18)" : Colors.line,
+            justifyContent: "center",
+            backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2,
           }}
         >
-          <MaterialIcons name="bookmark" size={20} color="#22c55e" />
+          <MaterialIcons name="bookmark" size={20} color={darkMode ? "#e2e8f0" : Colors.text} />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -349,6 +319,33 @@ function SkuResultThumb({
   );
 }
 
+function SkuPeerPriceBadge({ signal }: { signal: SkuPriceSignal }) {
+  const tone =
+    signal === 'lower'
+      ? { bg: 'rgba(45, 204, 154, 0.16)', fg: '#2dcc9a', icon: 'trending-down' as const, label: 'Lower' }
+      : signal === 'higher'
+        ? { bg: 'rgba(248, 113, 113, 0.14)', fg: '#f87171', icon: 'trending-up' as const, label: 'Higher' }
+        : { bg: '#3A3A3C', fg: '#e2e8f0', icon: 'trending-flat' as const, label: 'Typical' };
+  return (
+    <View
+      style={{
+        backgroundColor: tone.bg,
+        paddingHorizontal: 7,
+        paddingVertical: 3,
+        borderRadius: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+      }}
+    >
+      <MaterialIcons name={tone.icon} size={11} color={tone.fg} />
+      <Text style={{ color: tone.fg, fontWeight: '700', fontSize: 10, letterSpacing: 0.2 }}>
+        {tone.label}
+      </Text>
+    </View>
+  );
+}
+
 export default function AttachSkuModal({
   visible,
   defaultZip = "",
@@ -366,6 +363,7 @@ export default function AttachSkuModal({
   isRentalMode?: boolean;
   onOpenSaved?: () => void;
 }) {
+  const { getToken } = useAuth();
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
@@ -397,6 +395,7 @@ export default function AttachSkuModal({
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [quantities, setQuantities] = useState<Map<string, number>>(new Map()); // Quantity per SKU
   const [watchedItems, setWatchedItems] = useState<Set<string>>(new Set()); // Watched/Saved items
+  const priceSignals = useMemo(() => buildSkuPriceSignalMap(results), [results]);
   const insets = useSafeAreaInsets();
   const { width: skuModalLayoutWidth } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
@@ -533,12 +532,12 @@ export default function AttachSkuModal({
       const startTime = Date.now();
       let r;
       try {
-        r = await fetch(url, { 
+        r = await fetch(url, await withProjectLeadsAuth({
           signal: controller.signal,
           headers: {
             'Accept': 'application/json',
           },
-        });
+        }, getToken));
         const requestTime = Date.now() - startTime;
         console.log(`✅ Fetch completed in ${requestTime}ms`);
         clearTimeout(timeoutId); // Clear timeout on success
@@ -827,7 +826,11 @@ export default function AttachSkuModal({
       setLoading(false); // Make sure loading is set to false
       console.log('✅ Results state updated, should trigger re-render');
     } catch (e: any) {
-      console.error('❌ Search error caught:', e);
+      console.log('❌ Search error caught:', e?.message || e);
+      if (String(e?.message || '').includes('Access token required')) {
+        setError('Sign in to search products.');
+        return;
+      }
       const API_BASE = getApiBase(); // Get fresh API base URL for error message
       console.log('🔍 Search error details:', {
         name: e.name,
@@ -965,36 +968,35 @@ export default function AttachSkuModal({
           <SkuWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumnCentered}>
             {/* Retailer Selection */}
             <View>
-              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
+              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
                 Retailer
               </Text>
               <View style={{ flexDirection: "row", gap: ESTIMATE_FLOW_CARD_GAP }}>
                 <TouchableOpacity
                   onPress={() => setStore("hd")}
-                  style={[
-                    {
-                      flex: 1,
-                      minHeight: 48,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                    },
-                    estimateStep1ActionButtonStyle(Colors, darkMode),
-                    store === "hd" && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                  ]}
+                  style={{
+                    flex: 1,
+                    minHeight: 48,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    backgroundColor: store === "hd" ? "#2dcc9a" : (darkMode ? "#3A3A3C" : Colors.surface2),
+                    borderColor: store === "hd" ? "#2dcc9a" : "rgba(148, 163, 184, 0.35)",
+                  }}
                 >
                   <MaterialCommunityIcons
                     name="storefront-outline"
-                    size={20}
-                    color={store === "hd" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#e2e8f0" : "#0f172a")}
+                    size={18}
+                    color={store === "hd" ? "#050B13" : "#94a3b8"}
                   />
                   <Text
                     style={{
-                      color: store === "hd" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#f1f5f9" : "#000000"),
-                      fontWeight: "700",
+                      color: store === "hd" ? "#050B13" : (darkMode ? "#e2e8f0" : Colors.text),
+                      fontWeight: store === "hd" ? "700" : "600",
                       fontSize: 14,
-                      letterSpacing: 0.15,
                     }}
                   >
                     Home Depot
@@ -1002,30 +1004,29 @@ export default function AttachSkuModal({
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setStore("lowes")}
-                  style={[
-                    {
-                      flex: 1,
-                      minHeight: 48,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                    },
-                    estimateStep1ActionButtonStyle(Colors, darkMode),
-                    store === "lowes" && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
-                  ]}
+                  style={{
+                    flex: 1,
+                    minHeight: 48,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    backgroundColor: store === "lowes" ? "#2dcc9a" : (darkMode ? "#3A3A3C" : Colors.surface2),
+                    borderColor: store === "lowes" ? "#2dcc9a" : "rgba(148, 163, 184, 0.35)",
+                  }}
                 >
                   <MaterialCommunityIcons
                     name="tools"
-                    size={20}
-                    color={store === "lowes" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#e2e8f0" : "#0f172a")}
+                    size={18}
+                    color={store === "lowes" ? "#050B13" : "#94a3b8"}
                   />
                   <Text
                     style={{
-                      color: store === "lowes" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#f1f5f9" : "#000000"),
-                      fontWeight: "700",
+                      color: store === "lowes" ? "#050B13" : (darkMode ? "#e2e8f0" : Colors.text),
+                      fontWeight: store === "lowes" ? "700" : "600",
                       fontSize: 14,
-                      letterSpacing: 0.15,
                     }}
                   >
                     Lowe's
@@ -1036,8 +1037,8 @@ export default function AttachSkuModal({
 
             {/* Search Input */}
             <View>
-              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
-                Search Query *
+              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
+                Search query *
               </Text>
               <View
                 style={[
@@ -1054,7 +1055,7 @@ export default function AttachSkuModal({
                   <Feather
                     name="search"
                     size={16}
-                    color="#8DA0B8"
+                    color="#94a3b8"
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -1096,8 +1097,8 @@ export default function AttachSkuModal({
 
             {/* ZIP Input */}
             <View>
-              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
-                ZIP Code *
+              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
+                ZIP code *
               </Text>
               <View
                 style={[
@@ -1114,7 +1115,7 @@ export default function AttachSkuModal({
                   <Feather
                     name="map-pin"
                     size={16}
-                    color="#8DA0B8"
+                    color="#94a3b8"
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -1146,24 +1147,25 @@ export default function AttachSkuModal({
                 search();
               }}
               disabled={loading || !q || !zip}
-              style={
-                loading || !q || !zip
-                  ? [
-                      estimateStep1ActionButtonStyle(Colors, darkMode),
-                      { marginTop: 2, marginBottom: 4, opacity: 0.55 },
-                    ]
-                  : [
-                      estimateFlowPrimaryButtonStyle(),
-                      { marginTop: 2, marginBottom: 4 },
-                    ]
-              }
+              style={{
+                marginTop: 2,
+                marginBottom: 4,
+                width: '100%',
+                minHeight: 50,
+                borderRadius: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: loading || !q || !zip ? (darkMode ? '#3A3A3C' : Colors.surface2) : '#2dcc9a',
+                borderWidth: loading || !q || !zip ? 1 : 0,
+                borderColor: 'rgba(148, 163, 184, 0.35)',
+              }}
             >
               <Text
-                style={
-                  loading || !q || !zip
-                    ? { color: Colors.text, fontSize: 15, fontWeight: '700' }
-                    : estimateFlowPrimaryButtonTextStyle()
-                }
+                style={{
+                  color: loading || !q || !zip ? '#94a3b8' : '#050B13',
+                  fontSize: loading || !q || !zip ? 15 : 16,
+                  fontWeight: loading || !q || !zip ? '600' : '800',
+                }}
               >
                 {loading ? 'Searching...' : 'Search'}
               </Text>
@@ -1182,7 +1184,7 @@ export default function AttachSkuModal({
               </Text>
             </View>
 
-            {loading && <ActivityIndicator color={ESTIMATE_FLOW_GREEN} size="large" style={{ marginTop: 4 }} />}
+            {loading && <ActivityIndicator color="#2dcc9a" size="large" style={{ marginTop: 4 }} />}
             {error && <Text style={{ color: "#f87171", textAlign: 'center', marginTop: 12, fontSize: 14, lineHeight: 20, paddingHorizontal: 8 }}>{error}</Text>}
 
             {results.length > 0 && (
@@ -1198,15 +1200,15 @@ export default function AttachSkuModal({
                     Search Results
                   </Text>
                   <View style={{
-                    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.12)',
+                    backgroundColor: 'rgba(45, 204, 154, 0.14)',
                     paddingHorizontal: 11,
                     paddingVertical: 5,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)',
+                    borderColor: 'rgba(45, 204, 154, 0.35)',
                   }}>
                     <Text style={{ 
-                      color: darkMode ? '#86efac' : '#166534', 
+                      color: '#2dcc9a', 
                       fontWeight: '700', 
                       fontSize: 12,
                       letterSpacing: 0.2,
@@ -1273,7 +1275,7 @@ export default function AttachSkuModal({
                           {item.store?.toUpperCase() || 'HD'} • {item.zip || 'N/A'} • {item.sku || "No SKU"}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8, flexWrap: 'wrap' }}>
-                          <Text style={{ fontWeight: '700', fontSize: 15, color: '#22c55e' }}>
+                          <Text style={{ fontWeight: '700', fontSize: 15, color: item.price != null && item.price > 0 ? '#2dcc9a' : '#94a3b8' }}>
                             {isRentalMode ? (
                               item.unit ? `Rental • ${item.unit}` : "Rental Equipment"
                             ) : (
@@ -1282,53 +1284,22 @@ export default function AttachSkuModal({
                             {!isRentalMode && item.unit ? `• ${item.unit}` : ""}
                           </Text>
                           
-                          {/* AI Price Signal Badge */}
-                          {!isRentalMode && item.price != null && (() => {
-                            // Simple AI price signal: compare to estimated market average
-                            // For demo: assume prices 20% below avg = good deal, 20% above = expensive
-                            const estimatedMarketAvg = item.price * 1.15; // Rough estimate
-                            const priceRatio = item.price / estimatedMarketAvg;
-                            let signal: 'good' | 'fair' | 'expensive' = 'fair';
-                            let badgeColor = '#3b82f6'; // Blue for fair
-                            let badgeText = 'Fair';
-                            
-                            if (priceRatio < 0.85) {
-                              signal = 'good';
-                              badgeColor = '#10b981'; // Green for good deal
-                              badgeText = 'Good Deal';
-                            } else if (priceRatio > 1.15) {
-                              signal = 'expensive';
-                              badgeColor = '#ef4444'; // Red for expensive
-                              badgeText = 'Pricey';
-                            }
-                            
-                            return (
-                              <View style={{
-                                backgroundColor: badgeColor,
-                                paddingHorizontal: 7,
-                                paddingVertical: 3,
-                                borderRadius: 8,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 3,
-                              }}>
-                                <MaterialIcons 
-                                  name={signal === 'good' ? 'trending-down' : signal === 'expensive' ? 'trending-up' : 'trending-flat'} 
-                                  size={11} 
-                                  color="#FFFFFF" 
-                                />
-                                <Text style={{ 
-                                  color: '#FFFFFF', 
-                                  fontWeight: '700', 
-                                  fontSize: 10,
-                                  letterSpacing: 0.2
-                                }}>
-                                  AI: {badgeText}
-                                </Text>
-                              </View>
-                            );
-                          })()}
+                          {!isRentalMode && priceSignals.get(idx) ? (
+                            <SkuPeerPriceBadge signal={priceSignals.get(idx) as SkuPriceSignal} />
+                          ) : null}
                         </View>
+                        {!isRentalMode && item.priceChange?.direction ? (
+                          <Text
+                            style={{
+                              marginTop: 4,
+                              fontSize: 12,
+                              fontWeight: '600',
+                              color: item.priceChange.direction === 'up' ? '#f87171' : '#2dcc9a',
+                            }}
+                          >
+                            {item.priceChange.direction === 'up' ? '↑' : '↓'} {item.priceChange.percent}% in {item.priceChange.months} mo
+                          </Text>
+                        ) : null}
                         
                         {/* Quantity Selector & Action Buttons */}
                         <View style={{ marginTop: 6 }}>
@@ -1397,24 +1368,19 @@ export default function AttachSkuModal({
                               }}
                               style={{
                                 flex: 1,
-                                backgroundColor: '#22c55e',
+                                backgroundColor: '#2dcc9a',
                                 paddingHorizontal: 12,
                                 paddingVertical: 11,
-                                borderRadius: 10,
+                                borderRadius: 14,
                                 alignItems: 'center',
                                 flexDirection: 'row',
                                 justifyContent: 'center',
                                 gap: 6,
                                 minHeight: 44,
-                                shadowColor: '#000000',
-                                shadowOpacity: 0.2,
-                                shadowRadius: 6,
-                                shadowOffset: { width: 0, height: 2 },
-                                elevation: 3,
                               }}
                             >
-                              <MaterialIcons name="add-shopping-cart" size={17} color="#000000" />
-                              <Text style={{ color: '#000000', fontWeight: '700', fontSize: 13 }}>
+                              <MaterialIcons name="add-shopping-cart" size={17} color="#050B13" />
+                              <Text style={{ color: '#050B13', fontWeight: '700', fontSize: 13 }}>
                                 {isRentalMode ? 'Select Rental' : 'Add to Bid'}
                               </Text>
                             </TouchableOpacity>
@@ -1426,12 +1392,12 @@ export default function AttachSkuModal({
                                 width: 40,
                                 height: 40,
                                 backgroundColor: watchedItems.has(item.sku) 
-                                  ? 'rgba(34, 197, 94, 0.12)' 
+                                  ? 'rgba(45, 204, 154, 0.14)' 
                                   : (darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.bg),
                                 borderRadius: 10,
                                 borderWidth: 1,
                                 borderColor: watchedItems.has(item.sku)
-                                  ? 'rgba(34, 197, 94, 0.45)'
+                                  ? 'rgba(45, 204, 154, 0.45)'
                                   : (darkMode ? "rgba(148, 163, 184, 0.2)" : Colors.line),
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -1440,7 +1406,7 @@ export default function AttachSkuModal({
                               <MaterialIcons 
                                 name={watchedItems.has(item.sku) ? "bookmark" : "bookmark-border"} 
                                 size={18} 
-                                color={watchedItems.has(item.sku) ? '#22c55e' : (darkMode ? 'rgba(248, 250, 252, 0.75)' : Colors.sub)} 
+                                color={watchedItems.has(item.sku) ? '#2dcc9a' : (darkMode ? 'rgba(248, 250, 252, 0.75)' : Colors.sub)} 
                               />
                             </TouchableOpacity>
                             

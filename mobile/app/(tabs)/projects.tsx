@@ -576,15 +576,20 @@ export default function ProjectsScreen() {
     }, [loadProjectDataOverrides])
   );
 
+  const refreshProjectsRef = useRef(refreshProjects);
+  refreshProjectsRef.current = refreshProjects;
+
   useFocusEffect(
     React.useCallback(() => {
       // Skip refresh right after delete — Alert dismiss can trigger focus and cause a glitchy re-render
       if (skipNextRefreshRef.current) return;
+      let cancelled = false;
       // Check for pending tab from Submit Bid (tab params can be empty with tab navigator)
       (async () => {
         try {
           const pendingTab = await AsyncStorage.getItem('bps.pendingProjectsTab');
           const fromSubmit = await AsyncStorage.getItem('bps.fromSubmitBid');
+          if (cancelled || !pendingTab) return;
           if (pendingTab === 'submitted') {
             setActiveTab('submitted');
             try {
@@ -615,13 +620,18 @@ export default function ProjectsScreen() {
         }
       })();
       if (Date.now() - projectsMountedAtRef.current < PROJECTS_BOOT_GRACE_MS) {
-        return;
+        return () => {
+          cancelled = true;
+        };
       }
       const task = InteractionManager.runAfterInteractions(() => {
-        refreshProjects();
+        if (!cancelled) refreshProjectsRef.current();
       });
-      return () => task.cancel();
-    }, [refreshProjects])
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
+    }, [])
   );
 
   // Update tab if route param changes (deep links / external navigation)
@@ -1522,12 +1532,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontWeight: '700',
     letterSpacing: -0.4,
   },
-  tabFlowWide: {
-    flex: 1,
-  },
+  tabFlowWide: {},
   allProjectsCard: {
     ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
-    flex: 1,
   },
   card: {
     ...tabFlowCardStyle(Colors, darkMode),
@@ -1832,7 +1839,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     width: '100%',
     height: '100%',
     borderRadius: 999,
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: darkMode ? '#000000' : Colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -16,25 +16,15 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LinearGradient } from "expo-linear-gradient";
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GreyCalendar from "./GreyCalendar";
-import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import {
-  estimateFlowPrimaryButtonStyle,
-  estimateFlowPrimaryButtonTextStyle,
-} from "@/utils/estimateFlowCardStyle";
 import {
   deleteProjectPhoto,
   getProjectPhotosByIds,
@@ -104,8 +94,16 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
 
   const fieldSurface = useMemo(
     () => ({
-      backgroundColor: darkMode ? "#18181b" : Colors.surface2,
-      borderColor: darkMode ? "#3f3f46" : Colors.line,
+      backgroundColor: darkMode ? "#3A3A3C" : Colors.surface2,
+      borderColor: darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line,
+    }),
+    [darkMode, Colors]
+  );
+  const textFieldSurface = useMemo(
+    () => ({
+      backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+      borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+      borderRadius: 14,
     }),
     [darkMode, Colors]
   );
@@ -328,45 +326,13 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
     }
   };
 
-  const formattedDate = useMemo(() => {
-    try {
-      const d = new Date(`${logDate}T12:00:00`);
-      return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-    } catch {
-      return logDate;
-    }
-  }, [logDate]);
-
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
       <View style={[styles.container, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={BRAND_FRAME_GRADIENT_START}
-                  end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      resetAndClose();
-                    }}
-                    style={[styles.backButton, !darkMode && { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons
-                      name="arrow-back"
-                      size={24}
-                      color={darkMode ? "#FFFFFF" : Colors.text}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
-              </View>
-              <View style={styles.headerTitleContainer}>
+          <View style={styles.header} pointerEvents="box-none">
+              <View style={styles.headerTitleContainer} pointerEvents="none">
                 <Text style={[styles.title, !darkMode && { color: Colors.text }]}>
                   {isEditing ? "Edit Daily Log" : "Daily Log"}
                 </Text>
@@ -374,7 +340,22 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   {isEditing ? "Update site notes for this entry" : "Record site notes for this job"}
                 </Text>
               </View>
-              <View style={{ width: 40 }} />
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  resetAndClose();
+                }}
+                style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={22}
+                  color={darkMode ? "#e2e8f0" : Colors.text}
+                />
+              </TouchableOpacity>
             </View>
 
             <ScrollView
@@ -383,11 +364,6 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
               showsVerticalScrollIndicator={false}
               {...FORM_KEYBOARD_SCROLL_PROPS}
             >
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryCardLabel}>Log date</Text>
-              <Text style={styles.summaryCardValue}>{formattedDate}</Text>
-            </View>
-
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Date</Text>
               <View style={styles.calendarWrap}>
@@ -401,7 +377,7 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: Colors.text }]}>Notes *</Text>
-              <View style={[styles.inputWrapper, styles.textAreaWrapper, fieldSurface]}>
+              <View style={[styles.inputWrapper, styles.textAreaWrapper, textFieldSurface]}>
                 <TextInput
                   key={`daily-log-notes-${notesInputKey}`}
                   ref={notesRef}
@@ -432,15 +408,15 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   style={[styles.photoActionButton, fieldSurface]}
                   onPress={takePhoto}
                 >
-                  <MaterialIcons name="photo-camera" size={20} color="#22d3ee" />
-                  <Text style={styles.photoActionText}>Take photo</Text>
+                  <MaterialIcons name="photo-camera" size={20} color="#94a3b8" />
+                  <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Take photo</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.photoActionButton, fieldSurface]}
                   onPress={pickFromLibrary}
                 >
-                  <MaterialIcons name="photo-library" size={20} color="#22d3ee" />
-                  <Text style={styles.photoActionText}>Library</Text>
+                  <MaterialIcons name="photo-library" size={20} color="#94a3b8" />
+                  <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Library</Text>
                 </TouchableOpacity>
               </View>
               {attachedPhotos.length > 0 ? (
@@ -472,7 +448,7 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                         {...resolveTextInputKeyboardProps({ multiline: true })}
                         style={[
                           styles.photoCaptionInput,
-                          fieldSurface,
+                          textFieldSurface,
                           { color: Colors.text },
                         ]}
                       />
@@ -500,7 +476,7 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                         setWeather(selected ? null : option);
                       }}
                     >
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{option}</Text>
+                      <Text style={[styles.chipText, !darkMode && { color: Colors.text }, selected && styles.chipTextSelected]}>{option}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -508,16 +484,12 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
             </View>
 
             <TouchableOpacity
-              style={[
-                estimateFlowPrimaryButtonStyle(),
-                { marginTop: 8 },
-                saving && styles.saveButtonDisabled,
-              ]}
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
               onPress={handleSave}
               disabled={saving}
             >
-              <MaterialIcons name="check" size={22} color="#071018" />
-              <Text style={estimateFlowPrimaryButtonTextStyle()}>
+              <MaterialIcons name="check" size={22} color="#050B13" />
+              <Text style={styles.saveButtonText}>
                 {saving ? "Saving..." : isEditing ? "Save changes" : "Save daily log"}
               </Text>
             </TouchableOpacity>
@@ -537,73 +509,54 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
     marginBottom: 8,
-  },
-  backButtonWrapper: {
-    marginRight: 12,
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+    minHeight: 56,
   },
   backButton: {
+    position: "absolute",
+    left: 16,
+    top: 8,
+    zIndex: 2,
     width: 40,
     height: 40,
-    borderRadius: 19,
-    backgroundColor: "#000000",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
     justifyContent: "center",
     alignItems: "center",
   },
   headerTitleContainer: {
-    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 56,
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: "center",
   },
   subtitle: {
-    color: "#8DA0B8",
-    fontSize: 14,
-    marginTop: 4,
+    color: "#94a3b8",
+    fontSize: 13,
+    marginTop: 2,
     fontWeight: "500",
+    textAlign: "center",
   },
   form: {
     flex: 1,
     paddingHorizontal: 20,
   },
-  summaryCard: {
-    backgroundColor: "rgba(34, 211, 238, 0.08)",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.22)",
-    padding: 16,
-    marginBottom: 16,
-  },
-  summaryCardLabel: {
-    color: "rgba(226, 232, 240, 0.72)",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  summaryCardValue: {
-    color: "#22d3ee",
-    fontSize: 18,
-    fontWeight: "700",
-  },
   fieldGroup: {
     marginBottom: 18,
   },
   label: {
-    color: "rgba(226, 232, 240, 0.86)",
+    color: "#e2e8f0",
     fontSize: 14,
     fontWeight: "600",
     marginBottom: 8,
@@ -648,16 +601,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipSelected: {
-    borderColor: "#22d3ee",
-    backgroundColor: "rgba(34, 211, 238, 0.15)",
+    borderColor: "#2dcc9a",
+    backgroundColor: "rgba(45, 204, 154, 0.14)",
   },
   chipText: {
-    color: "rgba(226, 232, 240, 0.82)",
+    color: "#e2e8f0",
     fontSize: 14,
     fontWeight: "600",
   },
   chipTextSelected: {
-    color: "#22d3ee",
+    color: "#2dcc9a",
   },
   photoHint: {
     color: "rgba(226, 232, 240, 0.62)",
@@ -676,15 +629,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 12,
+    minHeight: 48,
+    paddingVertical: 14,
     paddingHorizontal: 10,
   },
   photoActionText: {
-    color: "#22d3ee",
-    fontSize: 14,
-    fontWeight: "700",
+    color: "rgba(226, 232, 240, 0.92)",
+    fontSize: 15,
+    fontWeight: "600",
   },
   photoThumbRow: {
     gap: 10,
@@ -731,6 +685,24 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.72)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  saveButton: {
+    marginTop: 8,
+    width: "100%",
+    backgroundColor: "#2dcc9a",
+    borderRadius: 14,
+    minHeight: 50,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  saveButtonText: {
+    color: "#050B13",
+    fontSize: 16,
+    fontWeight: "800",
   },
   saveButtonDisabled: {
     opacity: 0.65,

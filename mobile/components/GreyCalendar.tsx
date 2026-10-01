@@ -265,7 +265,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
           <EstimateJobDurationFooter
             startDate={rangeStartDate}
             endDate={rangeEndDate}
-            labelColor={darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub}
+            labelColor={darkMode ? '#94a3b8' : Colors.sub}
             textColor={darkMode ? '#ffffff' : Colors.text}
             darkMode={darkMode}
           />

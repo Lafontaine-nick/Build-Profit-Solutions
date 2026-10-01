@@ -12,23 +12,14 @@ import {
   StatusBar,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 import {
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   ESTIMATE_TEMPLATE_PRESERVATION_LONG,
   estimateFlowCardStyle,
-  estimateFlowPrimaryButtonStyle,
-  estimateFlowPrimaryButtonTextStyle,
   estimateSummarySectionSubtitleStyle,
   estimateSummarySectionTitleStyle,
 } from '@/utils/estimateFlowCardStyle';
@@ -117,9 +108,6 @@ export default function EstimateTemplatePickerModal({
 
   const renderEmptyState = () => (
     <View style={[estimateFlowCardStyle(flowCardColors, darkMode), styles.emptyCard]}>
-      <View style={styles.emptyIconWrap}>
-        <Ionicons name="document-text-outline" size={34} color={Colors.sub} />
-      </View>
       <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 17, textAlign: 'center' }]}>
         No templates yet
       </Text>
@@ -130,9 +118,9 @@ export default function EstimateTemplatePickerModal({
         <TouchableOpacity
           activeOpacity={0.88}
           onPress={handleSaveCurrent}
-          style={[estimateFlowPrimaryButtonStyle(), { marginTop: 4 }]}
+          style={[styles.mintButton, { marginTop: 8 }]}
         >
-          <Text style={estimateFlowPrimaryButtonTextStyle()}>Save as template</Text>
+          <Text style={styles.mintButtonText}>Save as template</Text>
         </TouchableOpacity>
       ) : null}
       <Text style={[styles.emptyFootnote, { color: Colors.sub }]}>
@@ -146,30 +134,34 @@ export default function EstimateTemplatePickerModal({
       <View style={[styles.root, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
         <View style={styles.safeArea}>
-          <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={handleClose}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
-
-            <View style={styles.headerText}>
-              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 20 }]}>
-                Bid templates
-              </Text>
-              <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.headerRow,
+              { paddingTop: headerTopPadding },
+              !darkMode && { borderBottomColor: Colors.line },
+            ]}
+          >
+            <View style={styles.headerText} pointerEvents="none">
+              <Text style={[styles.headerTitle, { color: Colors.text }]}>Bid templates</Text>
+              <Text style={[styles.headerSubtitle, !darkMode && { color: Colors.sub }]}>
                 Reusable starting points for similar jobs
               </Text>
             </View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={handleClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={[
+                styles.backButton,
+                { top: headerTopPadding },
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+            </TouchableOpacity>
           </View>
 
           {hasTemplates ? (
@@ -238,9 +230,9 @@ export default function EstimateTemplatePickerModal({
                     <TouchableOpacity
                       activeOpacity={0.88}
                       onPress={() => onSelect(item)}
-                      style={[estimateFlowPrimaryButtonStyle(), { flex: 1, width: undefined }]}
+                      style={[styles.mintButton, { flex: 1, width: undefined }]}
                     >
-                      <Text style={estimateFlowPrimaryButtonTextStyle()}>Use template</Text>
+                      <Text style={styles.mintButtonText}>Use template</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       activeOpacity={0.85}
@@ -273,8 +265,8 @@ export default function EstimateTemplatePickerModal({
                 },
               ]}
             >
-              <TouchableOpacity activeOpacity={0.88} onPress={handleSaveCurrent} style={estimateFlowPrimaryButtonStyle()}>
-                <Text style={estimateFlowPrimaryButtonTextStyle()}>Save as template</Text>
+              <TouchableOpacity activeOpacity={0.88} onPress={handleSaveCurrent} style={styles.mintButton}>
+                <Text style={styles.mintButtonText}>Save as template</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -288,27 +280,62 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   safeArea: { flex: 1 },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
-    paddingBottom: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+    marginBottom: 14,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
-  backButtonBorder: {
+  headerText: {
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 56,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: '500',
+    letterSpacing: 0.12,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 2,
     width: 40,
     height: 40,
     borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
-  },
-  backButton: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 19,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerText: { flex: 1 },
+  mintButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 14,
+    backgroundColor: '#2dcc9a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  mintButtonText: {
+    color: '#050B13',
+    fontSize: 16,
+    fontWeight: '800',
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -326,7 +353,7 @@ const styles = StyleSheet.create({
   cardCategory: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#34d399',
+    color: '#2dcc9a',
     marginTop: 4,
   },
   cardMeta: { fontSize: 12, lineHeight: 17, marginTop: 6 },
@@ -348,15 +375,6 @@ const styles = StyleSheet.create({
   emptyCard: {
     marginTop: 8,
     alignItems: 'center',
-  },
-  emptyIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginBottom: 12,
   },
   emptyBody: {
     marginTop: 8,

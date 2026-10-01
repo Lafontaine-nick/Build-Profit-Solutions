@@ -15,12 +15,6 @@ import {
   StatusBar,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { LinearGradient } from "expo-linear-gradient";
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,12 +22,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import {
-  estimateFlowPrimaryButtonStyle,
-  estimateFlowPrimaryButtonTextStyle,
-} from "@/utils/estimateFlowCardStyle";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { saveProjectPhoto } from "@/services/projectPhotoService";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
 
 type Props = {
   visible: boolean;
@@ -64,10 +54,17 @@ export default function AddProjectPhotoModal({
     setSaving(false);
   }, [visible]);
 
-  const fieldSurface = useMemo(
+  const buttonSurface = useMemo(
     () => ({
-      backgroundColor: darkMode ? "#18181b" : Colors.surface2,
-      borderColor: darkMode ? "#3f3f46" : Colors.line,
+      backgroundColor: darkMode ? "#3A3A3C" : Colors.surface2,
+      borderColor: darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line,
+    }),
+    [darkMode, Colors]
+  );
+  const textFieldSurface = useMemo(
+    () => ({
+      backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+      borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
     }),
     [darkMode, Colors]
   );
@@ -154,37 +151,29 @@ export default function AddProjectPhotoModal({
       <View style={[styles.container, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    resetAndClose();
-                  }}
-                  style={[styles.backButton, !darkMode && { backgroundColor: Colors.bg }]}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? "#FFFFFF" : Colors.text}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.headerTitleContainer}>
+          <View style={styles.header} pointerEvents="box-none">
+            <View style={styles.headerTitleContainer} pointerEvents="none">
               <Text style={[styles.title, !darkMode && { color: Colors.text }]}>Add site photo</Text>
               <Text style={[styles.subtitle, !darkMode && { color: Colors.sub }]}>
                 Add to your project portfolio
               </Text>
             </View>
-            <View style={{ width: 40 }} />
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                resetAndClose();
+              }}
+              style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+            >
+              <MaterialIcons
+                name="arrow-back"
+                size={22}
+                color={darkMode ? "#e2e8f0" : Colors.text}
+              />
+            </TouchableOpacity>
           </View>
 
           <ScrollView
@@ -194,12 +183,12 @@ export default function AddProjectPhotoModal({
             keyboardShouldPersistTaps="handled"
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
-          <Text style={[styles.hint, { color: Colors.sub }]}>
+          <Text style={[styles.hint, { color: darkMode ? "#94a3b8" : Colors.sub }]}>
             Add progress or inspection photos directly to your project portfolio — no daily log required.
           </Text>
 
           {imageUri ? (
-            <View style={[styles.previewWrap, { borderColor: fieldSurface.borderColor }]}>
+            <View style={[styles.previewWrap, { borderColor: textFieldSurface.borderColor }]}>
               <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="cover" />
               <TouchableOpacity
                 style={styles.previewRemove}
@@ -212,25 +201,25 @@ export default function AddProjectPhotoModal({
           ) : (
             <View style={styles.photoActionsRow}>
               <TouchableOpacity
-                style={[styles.photoActionButton, fieldSurface]}
+                style={[styles.photoActionButton, buttonSurface]}
                 onPress={() => pickImage("camera")}
               >
-                <MaterialIcons name="photo-camera" size={22} color="#22d3ee" />
-                <Text style={styles.photoActionText}>Take photo</Text>
+                <MaterialIcons name="photo-camera" size={20} color="#94a3b8" />
+                <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Take photo</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.photoActionButton, fieldSurface]}
+                style={[styles.photoActionButton, buttonSurface]}
                 onPress={() => pickImage("library")}
               >
-                <MaterialIcons name="photo-library" size={22} color="#22d3ee" />
-                <Text style={styles.photoActionText}>Library</Text>
+                <MaterialIcons name="photo-library" size={20} color="#94a3b8" />
+                <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Library</Text>
               </TouchableOpacity>
             </View>
           )}
 
           <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: Colors.text }]}>Description</Text>
-            <Text style={[styles.fieldHint, { color: Colors.sub }]}>Optional — note what this photo shows.</Text>
+            <Text style={[styles.label, { color: darkMode ? "#e2e8f0" : Colors.text }]}>Description</Text>
+            <Text style={[styles.fieldHint, { color: darkMode ? "#94a3b8" : Colors.sub }]}>Optional — note what this photo shows.</Text>
             <TextInput
               value={caption}
               onChangeText={setCaption}
@@ -244,19 +233,19 @@ export default function AddProjectPhotoModal({
               {...resolveTextInputKeyboardProps({ multiline: true })}
               style={[
                 styles.captionInput,
-                fieldSurface,
+                textFieldSurface,
                 { color: Colors.text },
               ]}
             />
           </View>
 
           <TouchableOpacity
-            style={[estimateFlowPrimaryButtonStyle(), saving && styles.saveDisabled]}
+            style={[styles.saveButton, saving && styles.saveDisabled]}
             onPress={handleSave}
             disabled={saving}
           >
-            <MaterialIcons name="add-photo-alternate" size={22} color="#071018" />
-            <Text style={estimateFlowPrimaryButtonTextStyle()}>
+            <MaterialIcons name="add-photo-alternate" size={22} color="#050B13" />
+            <Text style={styles.saveButtonText}>
               {saving ? "Saving..." : "Add to portfolio"}
             </Text>
           </TouchableOpacity>
@@ -276,44 +265,44 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
     marginBottom: 8,
-  },
-  backButtonWrapper: {
-    marginRight: 12,
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+    minHeight: 56,
   },
   backButton: {
+    position: "absolute",
+    left: 16,
+    top: 8,
+    zIndex: 2,
     width: 40,
     height: 40,
-    borderRadius: 19,
-    backgroundColor: "#000000",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
     justifyContent: "center",
     alignItems: "center",
   },
   headerTitleContainer: {
-    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 56,
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: "center",
   },
   subtitle: {
-    color: "#8DA0B8",
-    fontSize: 14,
-    marginTop: 4,
+    color: "#94a3b8",
+    fontSize: 13,
+    marginTop: 2,
     fontWeight: "500",
+    textAlign: "center",
   },
   form: {
     flex: 1,
@@ -335,15 +324,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
+    minHeight: 48,
     paddingVertical: 14,
     paddingHorizontal: 10,
   },
   photoActionText: {
-    color: "#22d3ee",
-    fontSize: 14,
-    fontWeight: "700",
+    color: "rgba(226, 232, 240, 0.92)",
+    fontSize: 15,
+    fontWeight: "600",
   },
   previewWrap: {
     width: "100%",
@@ -374,7 +364,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   fieldHint: {
     fontSize: 12,
@@ -388,6 +378,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     minHeight: 88,
+  },
+  saveButton: {
+    width: "100%",
+    backgroundColor: "#2dcc9a",
+    borderRadius: 14,
+    minHeight: 50,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  saveButtonText: {
+    color: "#050B13",
+    fontSize: 16,
+    fontWeight: "800",
   },
   saveDisabled: {
     opacity: 0.65,

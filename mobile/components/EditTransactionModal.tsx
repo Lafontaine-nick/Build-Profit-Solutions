@@ -85,6 +85,7 @@ export default function EditTransactionModal({
   const categoryLower = categoryName.toLowerCase();
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
+  const [material, setMaterial] = useState("");
   const [description, setDescription] = useState("");
   const [po, setPo] = useState("");
   const [selectedEstimateLine, setSelectedEstimateLine] = useState<EstimateLineOption | null>(null);
@@ -97,6 +98,7 @@ export default function EditTransactionModal({
   const estimatePickerKind = isLaborCategory ? ("labor" as const) : ("materials" as const);
 
   const amountRef = useRef<TextInput>(null);
+  const materialRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const descriptionRef = useRef<TextInput>(null);
 
@@ -216,23 +218,17 @@ export default function EditTransactionModal({
       footerFlow: {
         paddingHorizontal: formPad.footer,
         paddingTop: 14,
-        flexDirection: "row" as const,
+        flexDirection: "column" as const,
         alignItems: "stretch" as const,
-        gap: 10,
+        gap: 4,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
         backgroundColor: darkMode ? "#000000" : Colors.bg,
       },
       deleteBtn: {
-        flex: 1,
-        paddingVertical: 15,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: darkMode ? "rgba(239, 68, 68, 0.35)" : "rgba(239, 68, 68, 0.4)",
-        backgroundColor: darkMode ? "rgba(239, 68, 68, 0.08)" : "rgba(239, 68, 68, 0.06)",
+        paddingVertical: 12,
         alignItems: "center" as const,
         justifyContent: "center" as const,
-        minHeight: 48,
       },
       deleteText: {
         fontSize: 15,
@@ -240,18 +236,17 @@ export default function EditTransactionModal({
         color: darkMode ? "#f87171" : "#dc2626",
       },
       saveBtnWrap: {
-        flex: 1,
+        width: "100%" as const,
         borderRadius: 14,
-        overflow: "hidden" as const,
-        minHeight: 48,
-      },
-      saveBtnInner: {
-        flex: 1,
+        minHeight: 50,
         paddingVertical: 15,
         alignItems: "center" as const,
         justifyContent: "center" as const,
         backgroundColor: "#2dcc9a",
-        minHeight: 48,
+      },
+      saveBtnInner: {
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
       },
       saveBtnText: {
         fontSize: 15,
@@ -289,6 +284,7 @@ export default function EditTransactionModal({
     if (visible && transaction) {
       setVendor(transaction.vendor);
       setAmount(String(transaction.amount));
+      setMaterial(transaction.material || "");
       setDescription(transaction.description);
       setPo(transaction.po || "");
       setSelectedEstimateLine(resolvedEstimateLine);
@@ -325,11 +321,13 @@ export default function EditTransactionModal({
       ...transaction,
       vendor: vendor.trim(),
       amount: amountNum,
-      description: description.trim(),
-      po: po.trim() || undefined,
-      material: selectedEstimateLine
-        ? displayLineName(selectedEstimateLine.name)
-        : transaction.material,
+      description: isMaterialsEquipment ? transaction.description : description.trim(),
+      po: isMaterialsEquipment ? transaction.po : po.trim() || undefined,
+      material: isMaterialsEquipment
+        ? material.trim() || transaction.material
+        : selectedEstimateLine
+          ? displayLineName(selectedEstimateLine.name)
+          : transaction.material,
       linkedLineId: selectedEstimateLine?.id ?? resolvedEstimateLine?.id ?? null,
     });
   };
@@ -451,7 +449,7 @@ export default function EditTransactionModal({
                   onSelect={(line) => {
                     setSelectedEstimateLine(line);
                     if (line && isMaterialsEquipment) {
-                      setDescription((current) => current || displayLineName(line.name));
+                      setMaterial((current) => current || displayLineName(line.name));
                     }
                   }}
                   darkMode={darkMode}
@@ -488,6 +486,33 @@ export default function EditTransactionModal({
                 </View>
               </View>
 
+              {isMaterialsEquipment ? (
+                <View style={expenseChrome.fieldGroup}>
+                  <Text style={expenseChrome.materialLabel}>Material</Text>
+                  <View style={expenseChrome.materialInputWrap}>
+                    <Feather
+                      name="package"
+                      size={16}
+                      color={darkMode ? "#94a3b8" : "#64748b"}
+                      style={{ marginRight: 12 }}
+                    />
+                    <TextInput
+                      ref={materialRef}
+                      style={expenseChrome.materialInput}
+                      placeholder="e.g., 2x4 lumber, conduit, drywall sheets"
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={material}
+                      onChangeText={setMaterial}
+                      autoCapitalize="sentences"
+                      onSubmitEditing={() => amountRef.current?.focus()}
+                      selectionColor="#2dcc9a"
+                      underlineColorAndroid="transparent"
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  </View>
+                </View>
+              ) : null}
+
               <View style={expenseChrome.fieldGroup}>
                 <Text style={expenseChrome.materialLabel}>Amount *</Text>
                 <View style={expenseChrome.amountShell}>
@@ -519,6 +544,8 @@ export default function EditTransactionModal({
                 ) : null}
               </View>
 
+              {!isMaterialsEquipment ? (
+              <>
               <View style={expenseChrome.fieldGroup}>
                 <Text style={expenseChrome.materialLabel}>Description</Text>
                 <View style={expenseChrome.materialInputWrapMultiline}>
@@ -567,6 +594,8 @@ export default function EditTransactionModal({
                   />
                 </View>
               </View>
+              </>
+              ) : null}
             </View>
           </ScrollView>
 
@@ -576,15 +605,6 @@ export default function EditTransactionModal({
               { paddingBottom: Math.max(insets.bottom, 16) },
             ]}
           >
-            <Pressable
-              onPress={handleDelete}
-              style={({ pressed }) => [
-                expenseChrome.deleteBtn,
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Text style={expenseChrome.deleteText}>Delete</Text>
-            </Pressable>
             <Pressable
               onPress={() => {
                 Keyboard.dismiss();
@@ -598,6 +618,15 @@ export default function EditTransactionModal({
               <View style={expenseChrome.saveBtnInner}>
                 <Text style={expenseChrome.saveBtnText}>Save</Text>
               </View>
+            </Pressable>
+            <Pressable
+              onPress={handleDelete}
+              style={({ pressed }) => [
+                expenseChrome.deleteBtn,
+                pressed && { opacity: 0.75 },
+              ]}
+            >
+              <Text style={expenseChrome.deleteText}>Delete</Text>
             </Pressable>
           </View>
         </View>

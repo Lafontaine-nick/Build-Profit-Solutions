@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { searchSku, scoreAndSortResults } = require('../services/sku/skuSearchService');
+const { recordSkuPrices, attachPriceChanges } = require('../services/sku/skuPriceHistory');
 const { authenticateToken } = require('../middleware/authenticateToken');
 const { requireEntitlement } = require('../middleware/requireEntitlement');
 const router = express.Router();
@@ -22,6 +23,12 @@ router.get('/search', authenticateToken, requireEntitlement(), async (req, res) 
       allowMock: true,
       mockGenerator: generateEnhancedMockResults,
     });
+    if (!payload?.metadata?.isMockData && Array.isArray(payload?.results)) {
+      recordSkuPrices(payload.results, { store, zip });
+    }
+    if (Array.isArray(payload?.results)) {
+      payload.results = attachPriceChanges(payload.results, { store, zip });
+    }
     return res.json(payload);
   } catch (error) {
     console.error('SKU search error:', error);

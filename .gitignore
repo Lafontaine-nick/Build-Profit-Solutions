@@ -4,6 +4,8 @@ node_modules/
 
 # Contractor pricing memory (per-user learned rates, local dev)
 backend/src/data/contractor-pricing-memory/
+# Live retailer shelf prices recorded from product search
+backend/src/data/sku-price-history.json
 
 # Environment variables
 .env

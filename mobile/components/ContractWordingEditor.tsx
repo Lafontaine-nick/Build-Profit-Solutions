@@ -1,8 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_GREEN,
-} from "@/utils/estimateFlowCardStyle";
+import React, { useMemo, useRef, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   View,
@@ -15,7 +11,6 @@ import {
   Modal,
   Keyboard,
   StatusBar,
-  Dimensions,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -87,11 +82,9 @@ function PdfPreviewColumn({
     marginBottom: 10,
   };
   const smallTitle = {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
-    fontSize: 10,
-    fontWeight: "800" as const,
-    letterSpacing: 1,
-    textTransform: "uppercase" as const,
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "600" as const,
     marginBottom: 6,
   };
   const lineText = { color: colors.sub, fontSize: 11, lineHeight: 16, marginBottom: 4 };
@@ -145,7 +138,6 @@ function PdfPreviewColumn({
 }
 
 function CollapsibleSection({
-  eyebrow,
   title,
   countLabel,
   helper,
@@ -155,7 +147,6 @@ function CollapsibleSection({
   colors,
   darkMode,
 }: {
-  eyebrow: string;
   title: string;
   countLabel: string;
   helper?: string;
@@ -165,17 +156,9 @@ function CollapsibleSection({
   colors: ColorsLike;
   darkMode: boolean;
 }) {
-  const border = darkMode ? "rgba(255,255,255,0.1)" : (colors.line ?? "#e5e5e5");
+  const border = darkMode ? "rgba(148, 163, 184, 0.12)" : (colors.line ?? "#e5e5e5");
   return (
-    <View
-      style={{
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: border,
-        backgroundColor: darkMode ? "rgba(255,255,255,0.025)" : (colors.surface2 ?? "#fafafa"),
-        overflow: "hidden",
-      }}
-    >
+    <View>
       <TouchableOpacity
         onPress={() => {
           hapticLight();
@@ -187,29 +170,17 @@ function CollapsibleSection({
           alignItems: "center",
           gap: 10,
           paddingHorizontal: 14,
-          paddingVertical: 12,
+          paddingVertical: 14,
         }}
       >
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={{
-              color: ESTIMATE_FLOW_CHIP_GREEN,
-              fontSize: 10,
-              fontWeight: "800",
-              letterSpacing: 1.1,
-              textTransform: "uppercase",
-              marginBottom: 4,
-            }}
-          >
-            {eyebrow}
-          </Text>
-          <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>{title}</Text>
-          <Text style={{ color: colors.sub, fontSize: 12, marginTop: 4 }}>{countLabel}</Text>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
+          <Text style={{ color: "#94a3b8", fontSize: 13, lineHeight: 18, marginTop: 4 }}>{countLabel}</Text>
         </View>
         <MaterialIcons
           name={expanded ? "expand-less" : "expand-more"}
           size={24}
-          color={ESTIMATE_FLOW_CHIP_GREEN}
+          color="#94a3b8"
         />
       </TouchableOpacity>
       {expanded ? (
@@ -259,20 +230,17 @@ function CompactClauseRow({
         flexDirection: "row",
         alignItems: subtitle ? "flex-start" : "center",
         gap: 10,
-        paddingVertical: 10,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: darkMode ? "rgba(255,255,255,0.03)" : (colors.bg ?? "#fff"),
-        borderWidth: 1,
-        borderColor: darkMode ? "rgba(255,255,255,0.08)" : (colors.line ?? "#e5e5e5"),
-        marginBottom: 8,
+        paddingVertical: 12,
+        marginBottom: 0,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.2)" : (colors.line ?? "#e5e5e5"),
       }}
     >
       <Text
         style={{
-          color: ESTIMATE_FLOW_CHIP_GREEN,
+          color: "#94a3b8",
           fontSize: 12,
-          fontWeight: "800",
+          fontWeight: "700",
           width: 22,
           textAlign: "right",
           marginTop: subtitle ? 2 : 0,
@@ -316,6 +284,7 @@ export type ContractWordingEditorProps = {
   onResetBusinessTerms: () => void;
   onResetWorkNotes: () => void;
   onResetAll: () => void;
+  showSummary?: boolean;
 };
 
 export function ContractWordingEditor({
@@ -333,8 +302,10 @@ export function ContractWordingEditor({
   onResetBusinessTerms,
   onResetWorkNotes,
   onResetAll,
+  showSummary = true,
 }: ContractWordingEditorProps) {
-  const linkColor = ESTIMATE_FLOW_GREEN;
+  const linkColor = "#e2e8f0";
+  const resetColor = "#94a3b8";
   const insets = useSafeAreaInsets();
 
   const assumptionCount = useMemo(
@@ -361,26 +332,6 @@ export function ContractWordingEditor({
   const [draftBody, setDraftBody] = useState("");
   const bodyInputRef = useRef<TextInput>(null);
   const screenBg = darkMode ? "#000000" : (colors.bg ?? "#fff");
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [textAreaHeight, setTextAreaHeight] = useState(140);
-  const [bodyAreaHeight, setBodyAreaHeight] = useState(160);
-
-  useEffect(() => {
-    if (editTarget == null) {
-      setKeyboardOpen(false);
-      setTextAreaHeight(140);
-      setBodyAreaHeight(160);
-      return;
-    }
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [editTarget]);
 
   const inputBase = {
     paddingVertical: 12,
@@ -446,6 +397,19 @@ export function ContractWordingEditor({
     closeEdit();
   };
 
+  const deleteEdit = () => {
+    if (!editTarget) return;
+    Keyboard.dismiss();
+    if (editTarget.kind === "business") {
+      onChangeBusinessTerms(businessTerms.filter((_, i) => i !== editTarget.index));
+    } else if (editTarget.kind === "assumption") {
+      onChangeAssumptions(assumptions.filter((_, i) => i !== editTarget.index));
+    } else {
+      onChangeWorkNotes(workNotes.filter((_, i) => i !== editTarget.index));
+    }
+    closeEdit();
+  };
+
   const editIndex = editTarget?.index ?? -1;
   const editKind = editTarget?.kind;
 
@@ -475,7 +439,7 @@ export function ContractWordingEditor({
         gap: 12,
         marginTop: 4,
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "flex-start",
         width: "100%",
       }}
     >
@@ -495,7 +459,7 @@ export function ContractWordingEditor({
         }}
         activeOpacity={0.75}
       >
-        <Text style={{ color: linkColor, fontSize: 13, fontWeight: "700" }}>Reset section</Text>
+        <Text style={{ color: resetColor, fontSize: 13, fontWeight: "600" }}>Reset section</Text>
       </TouchableOpacity>
     </View>
   );
@@ -518,26 +482,25 @@ export function ContractWordingEditor({
           ? "Optional language for this project only."
           : "";
 
-  const headerTopPadding = Math.max(insets.top, Platform.OS === "ios" ? 12 : 0) + 8;
-  const windowHeight = Dimensions.get("window").height;
-  const textAreaMaxHeight = Math.round(windowHeight * (keyboardOpen ? 0.52 : 0.38));
-  const textAreaMinHeight = 140;
-
-  useEffect(() => {
-    setTextAreaHeight((height) => Math.min(height, textAreaMaxHeight));
-    setBodyAreaHeight((height) => Math.min(height, textAreaMaxHeight));
-  }, [textAreaMaxHeight]);
-
-  const clampTextAreaHeight = (contentHeight: number, min = textAreaMinHeight) =>
-    Math.max(min, Math.min(textAreaMaxHeight, contentHeight + 28));
+  const headerTopPadding = Math.max(insets.top, Platform.OS === "ios" ? 54 : 0) + 8;
 
   const editorBody = (
-    <View style={{ flex: 1, gap: 12, minWidth: 0 }}>
-      <Text style={{ color: colors.sub, fontSize: 12, lineHeight: 18 }}>{summary}</Text>
+    <View style={{ minWidth: 0 }}>
+      {showSummary ? (
+        <Text style={{ color: colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>{summary}</Text>
+      ) : null}
 
+      <View
+        style={{
+          borderRadius: 14,
+          backgroundColor: darkMode ? "#202022" : (colors.surface2 ?? "#fafafa"),
+          borderWidth: 1,
+          borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : (colors.line ?? "#e5e5e5"),
+          paddingHorizontal: 14,
+        }}
+      >
       <CollapsibleSection
-        eyebrow="Project assumptions"
-        title="What the Price Assumes"
+        title="Project assumptions"
         countLabel={`${assumptionCount} bullet${assumptionCount === 1 ? "" : "s"} on the scope page`}
         helper="Each item becomes a bullet on the scope & pricing page."
         expanded={expanded.assumptions}
@@ -557,11 +520,11 @@ export function ContractWordingEditor({
         ))}
         {sectionActions("+ Add assumption", addAssumption, onResetAssumptions)}
       </CollapsibleSection>
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? "rgba(148, 163, 184, 0.2)" : (colors.line ?? "#e5e5e5") }} />
 
       <CollapsibleSection
-        eyebrow="Business terms"
-        title="Contract Terms"
-        countLabel={`${businessTermCount} numbered clause${businessTermCount === 1 ? "" : "s"} on the agreement`}
+        title="Contract terms"
+        countLabel={`${businessTermCount} clause${businessTermCount === 1 ? "" : "s"} on the agreement`}
         helper="Each item becomes a numbered term on the contract page."
         expanded={expanded.business}
         onToggle={() => toggleSection("business")}
@@ -581,13 +544,13 @@ export function ContractWordingEditor({
         ))}
         {sectionActions("+ Add business term", addBusinessTerm, onResetBusinessTerms)}
       </CollapsibleSection>
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? "rgba(148, 163, 184, 0.2)" : (colors.line ?? "#e5e5e5") }} />
 
       <CollapsibleSection
-        eyebrow="Job-specific notes"
-        title="Optional Project Notes"
+        title="Project notes"
         countLabel={
           workNoteCount === 0
-            ? "None added — tap below to add custom language for this job"
+            ? "None added"
             : `${workNoteCount} note${workNoteCount === 1 ? "" : "s"} on the contract page`
         }
         helper="Add only when this project needs language beyond the standard template."
@@ -609,7 +572,7 @@ export function ContractWordingEditor({
               borderRadius: 10,
               borderWidth: 1,
               borderStyle: "dashed",
-              borderColor: darkMode ? "rgba(52,211,153,0.35)" : ESTIMATE_FLOW_CHIP_GREEN,
+              borderColor: "rgba(148, 163, 184, 0.35)",
               marginBottom: 8,
             }}
           >
@@ -631,6 +594,7 @@ export function ContractWordingEditor({
         )}
         {sectionActions("+ Add project note", addWorkNote, onResetWorkNotes)}
       </CollapsibleSection>
+      </View>
 
       <TouchableOpacity
         onPress={() => {
@@ -638,9 +602,9 @@ export function ContractWordingEditor({
           onResetAll();
         }}
         activeOpacity={0.75}
-        style={{ alignSelf: "flex-start", paddingVertical: 4 }}
+        style={{ alignSelf: "flex-start", marginTop: 16, paddingVertical: 4 }}
       >
-        <Text style={{ color: linkColor, fontSize: 14, fontWeight: "700" }}>Reset all to template defaults</Text>
+        <Text style={{ color: resetColor, fontSize: 15, fontWeight: "600" }}>Reset all to template defaults</Text>
       </TouchableOpacity>
 
       <Modal
@@ -653,39 +617,38 @@ export function ContractWordingEditor({
         <View style={[styles.fullScreenRoot, { backgroundColor: screenBg }]}>
           <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
           <View style={{ flex: 1 }}>
-            <View style={[styles.fullScreenHeader, { paddingTop: headerTopPadding }]}>
-              <TouchableOpacity
-                onPress={() => {
-                  hapticLight();
-                  closeEdit();
-                }}
-                hitSlop={12}
-                accessibilityLabel="Go back"
-                style={styles.fullScreenHeaderBtn}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={colors.text} />
-              </TouchableOpacity>
-              <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 8 }}>
-                <Text style={{ color: colors.text, fontSize: 17, fontWeight: "800" }} numberOfLines={1}>
+            <View style={{ paddingTop: headerTopPadding, paddingHorizontal: 16, paddingBottom: 12 }} pointerEvents="box-none">
+              <View style={{ minHeight: 44, justifyContent: "center" }} pointerEvents="box-none">
+                <Text style={{ textAlign: "center", color: colors.text, fontSize: 18, fontWeight: "700", letterSpacing: -0.25, lineHeight: 23 }} numberOfLines={1}>
                   {modalTitle}
                 </Text>
-                {modalSubtitle ? (
-                  <Text style={{ color: colors.sub, fontSize: 12, lineHeight: 17, marginTop: 2 }} numberOfLines={2}>
-                    {modalSubtitle}
-                  </Text>
-                ) : null}
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticLight();
+                    closeEdit();
+                  }}
+                  hitSlop={12}
+                  accessibilityLabel="Go back"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    zIndex: 2,
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : (colors.surface2 ?? "#f3f4f6"),
+                  }}
+                >
+                  <MaterialIcons name="chevron-left" size={26} color={darkMode ? "#e2e8f0" : colors.text} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                onPress={() => {
-                  hapticLight();
-                  saveEdit();
-                }}
-                hitSlop={12}
-                accessibilityLabel="Save"
-                style={styles.fullScreenHeaderBtn}
-              >
-                <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 16, fontWeight: "800" }}>Save</Text>
-              </TouchableOpacity>
+              {modalSubtitle ? (
+                <Text style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, fontWeight: "500", marginTop: 4, lineHeight: 20 }}>
+                  {modalSubtitle}
+                </Text>
+              ) : null}
             </View>
 
             <ScrollView
@@ -699,7 +662,7 @@ export function ContractWordingEditor({
             >
               {editKind === "business" ? (
                 <>
-                  <Text style={{ color: colors.sub, fontSize: 11, marginBottom: 6 }}>Title</Text>
+                  <Text style={{ color: "#94a3b8", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Title</Text>
                   <TextInput
                     value={draftTitle}
                     onChangeText={setDraftTitle}
@@ -710,7 +673,7 @@ export function ContractWordingEditor({
                     style={[inputBase, { minHeight: 48, marginBottom: 16 }]}
                     {...resolveTextInputKeyboardProps()}
                   />
-                  <Text style={{ color: colors.sub, fontSize: 11, marginBottom: 6 }}>Body</Text>
+                  <Text style={{ color: "#94a3b8", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Body</Text>
                   <TextInput
                     ref={bodyInputRef}
                     value={draftBody}
@@ -720,11 +683,8 @@ export function ContractWordingEditor({
                     multiline
                     scrollEnabled
                     textAlignVertical="top"
-                    onContentSizeChange={(e) =>
-                      setBodyAreaHeight(clampTextAreaHeight(e.nativeEvent.contentSize.height, 160))
-                    }
                     onSubmitEditing={() => Keyboard.dismiss()}
-                    style={[inputBase, { height: bodyAreaHeight }]}
+                    style={[inputBase, { minHeight: 160, maxHeight: 220 }]}
                     {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
                 </>
@@ -739,16 +699,49 @@ export function ContractWordingEditor({
                   multiline
                   scrollEnabled
                   textAlignVertical="top"
-                  onContentSizeChange={(e) =>
-                    setTextAreaHeight(clampTextAreaHeight(e.nativeEvent.contentSize.height))
-                  }
                   onSubmitEditing={() => Keyboard.dismiss()}
-                  style={[inputBase, { height: textAreaHeight }]}
+                  style={[inputBase, { minHeight: 160, maxHeight: 220 }]}
                   autoFocus
                   {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               )}
             </ScrollView>
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 16), gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  saveEdit();
+                }}
+                activeOpacity={0.85}
+                style={{
+                  width: "100%",
+                  backgroundColor: "#2dcc9a",
+                  borderRadius: 14,
+                  minHeight: 50,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: "#050B13", fontSize: 16, fontWeight: "800" }}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  deleteEdit();
+                }}
+                activeOpacity={0.75}
+                style={{
+                  minHeight: 44,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                <Text style={{ color: "#ef4444", fontSize: 15, fontWeight: "600" }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

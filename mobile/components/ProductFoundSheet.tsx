@@ -14,9 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientRingBackInner from './GradientRingBackInner';
 import type {
   ProductScannerDestination,
   ProductScannerSavePayload,
@@ -38,21 +36,10 @@ import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CARD_GAP,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
-  confirmScopeSectionLabelStyle,
   estimateFlowCardStyle,
   estimateFlowInputShellStyle,
-  estimateFlowLineItemsTotalStyle,
-  estimateFlowOutlineActionButtonStyle,
-  estimateFlowOutlineActionButtonTextStyle,
 } from '@/utils/estimateFlowCardStyle';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { useTheme } from '../contexts/ThemeContext';
@@ -190,7 +177,12 @@ export default function ProductFoundSheet({
   const inputShellStyle = useMemo(
     () => ({
       ...estimateFlowInputShellStyle(Colors, darkMode),
-      ...(darkMode ? { backgroundColor: AI_FLOW_CARD_BG_DARK } : {}),
+      ...(darkMode
+        ? {
+            backgroundColor: '#3A3A3C',
+            borderColor: 'rgba(148, 163, 184, 0.35)',
+          }
+        : {}),
     }),
     [Colors, darkMode],
   );
@@ -515,32 +507,21 @@ export default function ProductFoundSheet({
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <View style={styles.sheetHeader}>
-              <View style={styles.sheetTitleRow}>
-                <View style={styles.gradientBackButtonWrapper}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={BRAND_FRAME_GRADIENT_START}
-                    end={BRAND_FRAME_GRADIENT_END}
-                    style={styles.gradientBackButtonBorder}
-                  >
-                    <GradientRingBackInner
-                      onPress={onClose}
-                      darkMode={darkMode}
-                      accessibilityLabel="Back"
-                      hitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
-                      style={[
-                        styles.gradientBackButtonFill,
-                        { backgroundColor: darkMode ? '#000000' : Colors.bg },
-                      ]}
-                    >
-                      <Ionicons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
-                    </GradientRingBackInner>
-                  </LinearGradient>
-                </View>
-                <Text style={[styles.sheetTitle, { color: darkMode ? '#FFFFFF' : Colors.text }]}>
+              <View style={styles.sheetTitleRow} pointerEvents="box-none">
+                <Text
+                  pointerEvents="none"
+                  style={[styles.sheetTitle, { color: darkMode ? '#FFFFFF' : Colors.text }]}
+                >
                   Product Found
                 </Text>
-                <View style={styles.headerSpacer} />
+                <TouchableOpacity
+                  onPress={onClose}
+                  accessibilityLabel="Back"
+                  style={styles.backBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
+                </TouchableOpacity>
               </View>
 
               <View style={[flowCardStyle, styles.productCard]}>
@@ -553,7 +534,7 @@ export default function ProductFoundSheet({
                     />
                   ) : (
                     <View style={[styles.productImage, styles.productImagePlaceholder]}>
-                      <Ionicons name="cube-outline" size={26} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                      <Ionicons name="cube-outline" size={26} color={'#2dcc9a'} />
                     </View>
                   )}
                   <View style={styles.productCopy}>
@@ -585,7 +566,7 @@ export default function ProductFoundSheet({
                         {
                           color:
                             matchStatusLabel === 'Verified product match'
-                              ? ESTIMATE_FLOW_CHIP_GREEN
+                              ? '#2dcc9a'
                               : darkMode
                                 ? 'rgba(226,232,240,0.62)'
                                 : Colors.sub,
@@ -601,7 +582,7 @@ export default function ProductFoundSheet({
 
             {showLoadingBanner ? (
               <View style={[flowCardStyle, styles.infoBanner, styles.loadingBanner]}>
-                <Ionicons name="sync-outline" size={16} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                <Ionicons name="sync-outline" size={16} color={'#2dcc9a'} />
                 <Text style={[styles.infoBannerText, { color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : Colors.sub }]}>
                   Filling in product details...
                 </Text>
@@ -623,13 +604,16 @@ export default function ProductFoundSheet({
                     void openStoreProductPage(productPageUrl);
                   }}
                   style={[
-                    estimateFlowOutlineActionButtonStyle(),
                     styles.storeLinkButton,
-                    { backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG },
+                    darkMode
+                      ? null
+                      : { backgroundColor: Colors.surface2, borderColor: Colors.line },
                   ]}
                 >
-                  <Ionicons name="open-outline" size={16} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                  <Text style={estimateFlowOutlineActionButtonTextStyle()}>{storePageLabel}</Text>
+                  <Ionicons name="open-outline" size={16} color={darkMode ? '#94a3b8' : Colors.sub} />
+                  <Text style={[styles.storeLinkText, { color: darkMode ? '#e2e8f0' : Colors.text }]}>
+                    {storePageLabel}
+                  </Text>
                 </TouchableOpacity>
                 <Text style={[styles.priceDisclaimer, { color: darkMode ? 'rgba(226,232,240,0.46)' : Colors.sub }]}>
                   {isSearchResultLink
@@ -660,16 +644,16 @@ export default function ProductFoundSheet({
                           flexDirection: 'row',
                           alignItems: 'center',
                           borderWidth: 1,
-                          borderColor: selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.12)',
-                          backgroundColor: selected ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.045)',
+                          borderColor: selected ? '#2dcc9a' : 'rgba(255,255,255,0.12)',
+                          backgroundColor: selected ? 'rgba(45, 204, 154, 0.14)' : 'rgba(255,255,255,0.045)',
                         }}
                       >
-                        <Ionicons name={meta.icon} size={18} color={selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(226,232,240,0.7)'} />
+                        <Ionicons name={meta.icon} size={18} color={selected ? '#2dcc9a' : 'rgba(226,232,240,0.7)'} />
                         <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '900' }}>{meta.title}</Text>
                           <Text style={{ color: 'rgba(226,232,240,0.62)', fontSize: 11, marginTop: 1 }}>{meta.subtitle}</Text>
                         </View>
-                        {selected ? <Ionicons name="checkmark-circle" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} /> : null}
+                        {selected ? <Ionicons name="checkmark-circle" size={18} color={'#2dcc9a'} /> : null}
                       </TouchableOpacity>
                     );
                   })}
@@ -712,11 +696,21 @@ export default function ProductFoundSheet({
                 labelColor={darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : Colors.sub}
               />
             </View>
-            <View style={[estimateFlowLineItemsTotalStyle(darkMode), styles.lineTotalCard]}>
-              <Text style={[confirmScopeSectionLabelStyle(), { color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : Colors.sub }]}>
+            <View
+              style={[
+                styles.lineTotalCard,
+                {
+                  backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                },
+              ]}
+            >
+              <Text style={[styles.quietLabel, { color: darkMode ? '#94a3b8' : Colors.sub }]}>
                 Line item total
               </Text>
-              <Text style={styles.lineTotalValue}>{money(costTotal)}</Text>
+              <Text style={[styles.lineTotalValue, costTotal <= 0 ? { color: darkMode ? '#94a3b8' : Colors.sub } : null]}>
+                {money(costTotal)}
+              </Text>
             </View>
             <Field
               label="Description"
@@ -744,8 +738,8 @@ export default function ProductFoundSheet({
                           borderRadius: 13,
                           padding: 11,
                           borderWidth: 1,
-                          borderColor: !changeOrderId ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.13)',
-                          backgroundColor: !changeOrderId ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.06)',
+                          borderColor: !changeOrderId ? '#2dcc9a' : 'rgba(255,255,255,0.13)',
+                          backgroundColor: !changeOrderId ? 'rgba(45, 204, 154, 0.14)' : 'rgba(255,255,255,0.06)',
                         }}
                       >
                         <Text style={{ color: '#FFFFFF', fontSize: 12.5, fontWeight: '800' }}>Create new change order</Text>
@@ -758,8 +752,8 @@ export default function ProductFoundSheet({
                             borderRadius: 13,
                             padding: 11,
                             borderWidth: 1,
-                            borderColor: changeOrderId === co.id ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.13)',
-                            backgroundColor: changeOrderId === co.id ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.06)',
+                            borderColor: changeOrderId === co.id ? '#2dcc9a' : 'rgba(255,255,255,0.13)',
+                            backgroundColor: changeOrderId === co.id ? 'rgba(45, 204, 154, 0.14)' : 'rgba(255,255,255,0.06)',
                           }}
                         >
                           <Text style={{ color: '#FFFFFF', fontSize: 12.5, fontWeight: '800' }}>
@@ -775,8 +769,17 @@ export default function ProductFoundSheet({
                 ) : null}
                 <View style={{ height: 12 }} />
                 <Field label="Markup %" value={markupPct} onChangeText={setMarkupPct} keyboardType="decimal-pad" inputShellStyle={inputShellStyle} labelColor={darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : Colors.sub} />
-                <View style={[estimateFlowLineItemsTotalStyle(darkMode), styles.lineTotalCard, { marginTop: 8 }]}>
-                  <Text style={[confirmScopeSectionLabelStyle(), { color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : Colors.sub }]}>
+                <View
+                  style={[
+                    styles.lineTotalCard,
+                    { marginTop: 8 },
+                    {
+                      backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.quietLabel, { color: darkMode ? '#94a3b8' : Colors.sub }]}>
                     Change order customer price
                   </Text>
                   <Text style={styles.lineTotalValue}>{money(changeOrderSellTotal)}</Text>
@@ -832,18 +835,14 @@ export default function ProductFoundSheet({
                   });
                 }}
                 activeOpacity={0.88}
-                style={{ opacity: canSave ? 1 : 0.45 }}
+                style={[
+                  styles.primaryButton,
+                  { backgroundColor: canSave ? '#2dcc9a' : '#3A3A3C', opacity: canSave ? 1 : 0.45 },
+                ]}
               >
-                <LinearGradient
-                  colors={canSave ? ['#22c55e', '#22d3ee'] : ['#3a3a3c', '#3a3a3c']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.primaryButton}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {primaryActionTitle || selectedMeta?.title || 'Add Product'}
-                  </Text>
-                </LinearGradient>
+                <Text style={[styles.primaryButtonText, { color: canSave ? '#050B13' : 'rgba(226,232,240,0.55)' }]}>
+                  {primaryActionTitle || selectedMeta?.title || 'Add Product'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -889,7 +888,7 @@ function Field({
 
   return (
     <View style={{ flex: 1, marginBottom: ESTIMATE_FLOW_CARD_GAP }}>
-      <Text style={[confirmScopeSectionLabelStyle(), styles.fieldLabel, { color: labelColor }]}>
+      <Text style={[styles.quietLabel, styles.fieldLabel, { color: labelColor }]}>
         {label}
       </Text>
       <TextInput
@@ -936,39 +935,30 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   sheetTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    marginBottom: 12,
+    minHeight: 40,
+    justifyContent: 'center',
+    marginBottom: 14,
+    width: '100%',
   },
-  sheetTitle: {
+  backBtn: {
     position: 'absolute',
-    left: 42,
-    right: 42,
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
-  gradientBackButtonWrapper: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    overflow: 'hidden',
-  },
-  gradientBackButtonBorder: {
-    flex: 1,
-    padding: 1,
-    borderRadius: 21,
-  },
-  gradientBackButtonFill: {
-    flex: 1,
+    left: 0,
+    top: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    zIndex: 2,
   },
-  headerSpacer: {
-    width: 42,
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
+    paddingHorizontal: 56,
   },
   productCard: {
     marginBottom: 0,
@@ -988,7 +978,7 @@ const styles = StyleSheet.create({
   productImagePlaceholder: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
   },
   productCopy: {
     flex: 1,
@@ -1042,7 +1032,7 @@ const styles = StyleSheet.create({
   },
   loadingBanner: {
     borderColor: 'rgba(52, 211, 153, 0.28)',
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
   },
   fallbackBanner: {},
   infoBannerText: {
@@ -1053,9 +1043,25 @@ const styles = StyleSheet.create({
   },
   storeLinkButton: {
     width: '100%',
-    minHeight: 46,
-    marginBottom: 6,
-    gap: 6,
+    minHeight: 48,
+    marginBottom: 8,
+    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  storeLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  quietLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   priceDisclaimer: {
     fontSize: 10.5,
@@ -1101,11 +1107,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: ESTIMATE_FLOW_CARD_GAP,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   lineTotalValue: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
-    fontSize: 16,
-    fontWeight: '900',
+    color: '#2dcc9a',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   sheetFooter: {
     paddingHorizontal: 14,
@@ -1118,15 +1129,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
   },
   primaryButtonText: {
-    color: '#020617',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
   },

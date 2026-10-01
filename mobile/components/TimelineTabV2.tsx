@@ -222,8 +222,8 @@ function statusLabel(status?: string) {
 }
 
 function statusPillStyle(status?: string, darkMode = true) {
-  if (status === "completed") return { bg: "rgba(34, 197, 94, 0.25)", text: "#22c55e", border: "#22c55e" };
-  if (status === "in_progress") return { bg: "rgba(34, 211, 238, 0.15)", text: "#22d3ee", border: "#22c55e" };
+  if (status === "completed") return { bg: "rgba(45, 204, 154, 0.16)", text: "#2dcc9a", border: "rgba(45, 204, 154, 0.45)" };
+  if (status === "in_progress") return { bg: "rgba(45, 204, 154, 0.12)", text: "#2dcc9a", border: "rgba(45, 204, 154, 0.4)" };
   return {
     bg: "rgba(180,195,215,0.18)",
     text: darkMode ? "#FFFFFF" : "rgba(234,241,247,0.75)",
@@ -249,10 +249,12 @@ function sortMilestonesByPlannedDate(items: Milestone[]): Milestone[] {
 function MilestoneCardV2({
   item,
   dependencyTitle,
+  isLast = false,
   onPress,
 }: {
   item: Milestone;
   dependencyTitle?: string;
+  isLast?: boolean;
   onPress: (m: Milestone) => void;
 }) {
   const { theme, darkMode } = useTheme();
@@ -263,24 +265,27 @@ function MilestoneCardV2({
   const pendingPill = !darkMode && item.status !== "completed" && item.status !== "in_progress";
   const pillBg = pendingPill ? "#CBD5E1" : pill.bg;
   const pillText = pendingPill ? "#111827" : pill.text;
-  const pct = clampPct(item.progressPct);
   const hasAmount = typeof item.amount === "number" && item.amount > 0;
-  const metaLines =
-    (item.assignee ? 1 : 0) + (dependencyTitle ? 1 : 0);
+  const assigneeLabel = String(item.assignee || "").trim();
+  const showAssignee = assigneeLabel.length > 0 && assigneeLabel.toLowerCase() !== "client";
+  const dependencyLabel = String(dependencyTitle || "").trim();
+  const canRecord = !isMilestoneReceived(item);
 
   const cardPressStyle = useCallback(
     ({ pressed }: { pressed: boolean }) => [
       styles.mCard,
       {
-        backgroundColor: Colors.surface2,
-        borderWidth: 1,
-        borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
-        borderRadius: 14,
-        opacity: pressed ? 0.92 : 1,
+        backgroundColor: "transparent",
+        borderWidth: 0,
+        borderRadius: 0,
+        borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+        borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+        paddingHorizontal: 0,
+        opacity: pressed ? 0.72 : 1,
       },
       Platform.OS === "web" && ({ cursor: "pointer" } as const),
     ],
-    [Colors.surface2, darkMode]
+    [Colors.line, darkMode, isLast]
   );
 
   return (
@@ -291,51 +296,38 @@ function MilestoneCardV2({
           accessibilityRole="button"
           accessibilityLabel={`Edit ${item.title || "milestone"}`}
         >
+          <View style={styles.mRow}>
+            <View style={styles.mRowBody}>
           <Text style={[styles.mTitle, !darkMode && { color: Colors.text }]} numberOfLines={2}>
             {item.title}
           </Text>
 
           <View style={styles.mAmountRow}>
             {hasAmount ? (
-              <View style={styles.amountPill}>
-                <Text style={styles.amountText}>${Number(item.amount ?? 0).toLocaleString()}</Text>
-              </View>
+              <Text style={styles.amountText}>${Number(item.amount ?? 0).toLocaleString()}</Text>
             ) : (
               <View style={{ flex: 1 }} />
             )}
-            <Text style={[styles.mPctSecondary, { color: caption }]}>{Math.round(pct)}%</Text>
-          </View>
-
-          <View style={[styles.mStatusDateRow, !darkMode && { borderBottomColor: "rgba(15,23,42,0.08)" }]}>
-            <View style={[styles.statusPill, { backgroundColor: pillBg, borderWidth: 1, borderColor: pill.border || "transparent" }]}>
-              <Text style={[styles.statusText, { color: pillText }]}>{statusLabel(item.status)}</Text>
-            </View>
             <Text style={[styles.mDateLine, { color: muted }]}>{formatDate(item.plannedDate)}</Text>
           </View>
 
-          {metaLines > 0 ? (
-            <View
-              style={[
-                styles.mMetaGroup,
-                {
-                  backgroundColor: darkMode ? "rgba(255,255,255,0.045)" : "rgba(15,23,42,0.04)",
-                  borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
-                },
-              ]}
-            >
-              {item.assignee ? (
-                <Text style={styles.mMetaLine}>
-                  <Text style={{ fontWeight: "700", color: caption }}>Assigned </Text>
-                  <Text style={{ color: muted }}>{item.assignee}</Text>
-                </Text>
-              ) : null}
-              {dependencyTitle ? (
-                <Text style={[styles.mMetaLine, { marginTop: item.assignee ? 6 : 0 }]}>
-                  <Text style={{ fontWeight: "700", color: caption }}>Depends on </Text>
-                  <Text style={{ color: muted }}>{dependencyTitle}</Text>
-                </Text>
-              ) : null}
+          <View style={styles.mStatusDateRow}>
+            <View style={[styles.statusPill, { backgroundColor: pillBg, borderWidth: 1, borderColor: pill.border || "transparent" }]}>
+              <Text style={[styles.statusText, { color: pillText }]}>{statusLabel(item.status)}</Text>
             </View>
+          </View>
+
+          {showAssignee ? (
+            <Text style={styles.mMetaLine}>
+              <Text style={{ fontWeight: "700", color: caption }}>Assigned </Text>
+              <Text style={{ color: muted }}>{assigneeLabel}</Text>
+            </Text>
+          ) : null}
+          {canRecord && dependencyLabel ? (
+            <Text style={[styles.mMetaLine, showAssignee ? { marginTop: 4 } : null]}>
+              <Text style={{ fontWeight: "700", color: caption }}>Depends on </Text>
+              <Text style={{ color: muted }}>{dependencyLabel}</Text>
+            </Text>
           ) : null}
 
           {typeof item.costDelta === "number" && item.costDelta !== 0 && item.costCategory ? (
@@ -344,9 +336,12 @@ function MilestoneCardV2({
               {String(item.costCategory).charAt(0).toUpperCase() + String(item.costCategory).slice(1)}
             </Text>
           ) : null}
-
-          <View style={styles.mProgressContainer}>
-            <ProgressBar value={pct} emphasis />
+            </View>
+            {canRecord ? (
+              <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+            ) : (
+              <View style={styles.mChevronSlot} />
+            )}
           </View>
         </Pressable>
     </View>
@@ -1252,10 +1247,11 @@ export default function TimelineTabV2({
     setEditingMilestone(m);
   };
 
-  const renderedPaymentCards = paymentScheduleMilestones.map((item) => (
+  const renderedPaymentCards = paymentScheduleMilestones.map((item, index) => (
     <MilestoneCardV2
       key={item.id}
       item={item}
+      isLast={index === paymentScheduleMilestones.length - 1}
       dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
       onPress={onOpenMilestone}
     />
@@ -1408,21 +1404,8 @@ export default function TimelineTabV2({
                 </Text>
               </View>
 
-              <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
-                <View
-                  style={[
-                    styles.sectionCard,
-                    darkMode && styles.sectionCardElevated,
-                    {
-                      backgroundColor: nestedCardBg,
-                      borderWidth: 1,
-                      borderColor: nestedCardBorder,
-                      borderRadius: 14,
-                    },
-                  ]}
-                >
-                <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="schedule" size={22} color="#22c55e" />
+              <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line, marginTop: 16 }]}>
+                  <MaterialIcons name="schedule" size={22} color="#94a3b8" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Overall Progress
                   </Text>
@@ -1434,14 +1417,12 @@ export default function TimelineTabV2({
                 <View style={styles.progressContent}>
                   <ProgressBar value={overall} emphasis />
                 </View>
-              </View>
-            </View>
           </View>
 
           {/* Daily Logs Section - At the top for recent activity */}
           <View style={timelineFlowCardStyle}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="description" size={22} color="#22c55e" />
+                  <MaterialIcons name="description" size={22} color="#94a3b8" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Daily Logs
                   </Text>
@@ -1461,7 +1442,7 @@ export default function TimelineTabV2({
                     ]}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <MaterialIcons name="add" size={22} color="#22d3ee" />
+                    <MaterialIcons name="add" size={22} color="#2dcc9a" />
                   </TouchableOpacity>
                 </View>
                 {dailyLogs.length > 0 ? (
@@ -1489,15 +1470,15 @@ export default function TimelineTabV2({
                           </Text>
                           <View style={styles.logHeaderRight}>
                             {log.weather && (
-                              <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 211, 238, 0.15)" : "#E0F2FE", borderColor: "#22d3ee" }]}>
-                                <MaterialIcons name="wb-sunny" size={14} color="#22d3ee" />
-                                <Text style={[styles.logBadgeText, { color: "#22d3ee" }]}>{log.weather}</Text>
+                              <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15,23,42,0.06)", borderColor: "rgba(148, 163, 184, 0.35)" }]}>
+                                <MaterialIcons name="wb-sunny" size={14} color={darkMode ? "#94a3b8" : "#64748b"} />
+                                <Text style={[styles.logBadgeText, { color: darkMode ? "#94a3b8" : "#64748b" }]}>{log.weather}</Text>
                               </View>
                             )}
                             {Array.isArray(log.photoIds) && log.photoIds.length > 0 && (
-                              <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 197, 94, 0.15)" : "rgba(34, 197, 94, 0.08)", borderColor: "#22c55e" }]}>
-                                <MaterialIcons name="photo-camera" size={14} color="#22c55e" />
-                                <Text style={[styles.logBadgeText, { color: "#22c55e" }]}>
+                              <View style={[styles.logBadge, { backgroundColor: "rgba(45, 204, 154, 0.14)", borderColor: "rgba(45, 204, 154, 0.4)" }]}>
+                                <MaterialIcons name="photo-camera" size={14} color="#2dcc9a" />
+                                <Text style={[styles.logBadgeText, { color: "#2dcc9a" }]}>
                                   {log.photoIds.length}
                                 </Text>
                               </View>
@@ -1558,35 +1539,13 @@ export default function TimelineTabV2({
                   </View>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
-                    <View style={[styles.emptyLogsIconWrap, { backgroundColor: darkMode ? "rgba(34,211,238,0.1)" : "rgba(14,165,233,0.08)" }]}>
-                      <MaterialIcons name="edit-note" size={32} color="#22d3ee" />
-                    </View>
+                    <MaterialIcons name="edit-note" size={28} color="#94a3b8" />
                     <Text style={[styles.emptyLogsTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                       No site logs yet
                     </Text>
                     <Text style={[styles.emptyLogsBody, { color: muted }]}>
-                      Record daily notes and weather tied to this job.
+                      Tap + to record daily notes and weather tied to this job.
                     </Text>
-                    <TouchableOpacity
-                      style={[
-                        styles.starterButton,
-                        {
-                          marginTop: 18,
-                          flexDirection: "row",
-                          backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9',
-                          borderColor: darkMode ? Colors.line : '#E2E8F0',
-                        },
-                      ]}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        openAddDailyLog();
-                      }}
-                    >
-                      <MaterialIcons name="add" size={20} color="#22d3ee" />
-                      <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text, marginLeft: 8 }]}>
-                        Add daily log
-                      </Text>
-                    </TouchableOpacity>
                   </View>
                 )}
           </View>
@@ -1609,7 +1568,7 @@ export default function TimelineTabV2({
           {(canViewPaymentSchedule && paymentScheduleMilestones.length > 0) || nextWorkMilestone ? (
           <View style={timelineFlowCardStyle}>
                     <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                      <MaterialIcons name="event" size={22} color="#22c55e" />
+                      <MaterialIcons name="event" size={22} color="#94a3b8" />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                         {canViewPaymentSchedule ? "Payments" : "Upcoming"}
                       </Text>
@@ -1623,14 +1582,10 @@ export default function TimelineTabV2({
                                 onPress={() => onOpenMilestone(paymentScheduleHighlight.lastReceived!)}
                                 style={[
                                   styles.upcomingShell,
-                                  styles.paymentHighlightReceived,
-                                  {
-                                    backgroundColor: darkMode ? "rgba(34, 197, 94, 0.12)" : "rgba(34, 197, 94, 0.08)",
-                                    borderColor: darkMode ? "rgba(34, 197, 94, 0.45)" : "rgba(34, 197, 94, 0.35)",
-                                  },
+                                  !paymentScheduleHighlight.nextUpcoming && styles.upcomingShellLast,
                                 ]}
                               >
-                                <View style={[styles.upcomingDot, { backgroundColor: "#22c55e" }]} />
+                                <View style={[styles.upcomingDot, { backgroundColor: "#2dcc9a" }]} />
                                 <View style={styles.upcomingTextCol}>
                                   <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeReceived]}>
                                     <Text style={styles.paymentHighlightBadgeTextReceived}>Received</Text>
@@ -1647,15 +1602,9 @@ export default function TimelineTabV2({
                             {paymentScheduleHighlight.nextUpcoming ? (
                               <Pressable
                                 onPress={() => onOpenMilestone(paymentScheduleHighlight.nextUpcoming!)}
-                                style={[
-                                  styles.upcomingShell,
-                                  {
-                                    backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
-                                    borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
-                                  },
-                                ]}
+                                style={[styles.upcomingShell, styles.upcomingShellLast]}
                               >
-                                <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
+                                <View style={[styles.upcomingDot, { backgroundColor: "#94a3b8" }]} />
                                 <View style={styles.upcomingTextCol}>
                                   <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeUpcoming]}>
                                     <Text style={styles.paymentHighlightBadgeTextUpcoming}>Upcoming</Text>
@@ -1680,15 +1629,9 @@ export default function TimelineTabV2({
                       ) : nextWorkMilestone ? (
                         <Pressable
                           onPress={() => onOpenMilestone(nextWorkMilestone)}
-                          style={[
-                            styles.upcomingShell,
-                            {
-                              backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
-                              borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
-                            },
-                          ]}
+                          style={[styles.upcomingShell, styles.upcomingShellLast]}
                         >
-                          <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
+                          <View style={[styles.upcomingDot, { backgroundColor: "#94a3b8" }]} />
                           <View style={styles.upcomingTextCol}>
                             <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
                               {nextWorkMilestone.title}
@@ -1709,11 +1652,16 @@ export default function TimelineTabV2({
           {canViewPaymentSchedule ? (
           <View style={[timelineFlowCardStyle, embedded && styles.timelineFlowCardFill]}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="list" size={22} color="#22c55e" />
+                  <MaterialIcons name="list" size={22} color="#94a3b8" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     All Payments
                   </Text>
                 </View>
+                {paymentScheduleMilestones.some((item) => !isMilestoneReceived(item)) ? (
+                  <Text style={[styles.paymentRecordHint, { color: muted }]}>
+                    Tap a pending payment to record it.
+                  </Text>
+                ) : null}
                 {paymentScheduleMilestones.length > 0 ? (
                   <View style={styles.milestonesList}>{renderedPaymentCards}</View>
                 ) : (
@@ -2148,7 +2096,7 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: "800",
     letterSpacing: -1,
-    color: "#22d3ee",
+    color: "#2dcc9a",
     fontVariant: ["tabular-nums"],
   },
   timelineHairline: {
@@ -2165,17 +2113,18 @@ const styles = StyleSheet.create({
   upcomingContent: { 
     padding: 0,
     marginTop: 4,
-    gap: 10,
   },
   upcomingShell: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    minHeight: 64,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(148, 163, 184, 0.12)",
+  },
+  upcomingShellLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 2,
   },
   paymentHighlightReceived: {
     borderWidth: 1.5,
@@ -2188,27 +2137,27 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   paymentHighlightBadgeReceived: {
-    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    backgroundColor: "rgba(45, 204, 154, 0.14)",
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.4)",
+    borderColor: "rgba(45, 204, 154, 0.4)",
   },
   paymentHighlightBadgeUpcoming: {
-    backgroundColor: "rgba(34, 211, 238, 0.12)",
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.35)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
   },
   paymentHighlightBadgeTextReceived: {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.3,
-    color: "#22c55e",
+    color: "#2dcc9a",
     textTransform: "uppercase",
   },
   paymentHighlightBadgeTextUpcoming: {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.3,
-    color: "#22d3ee",
+    color: "#94a3b8",
     textTransform: "uppercase",
   },
   paymentAllCollectedText: {
@@ -2244,8 +2193,14 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   milestonesList: {
-    marginTop: 12,
-    gap: 12,
+    marginTop: 4,
+  },
+  paymentRecordHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    marginTop: 10,
+    marginBottom: 2,
   },
   milestoneCardContainer: {
     marginBottom: 0,
@@ -2255,7 +2210,21 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   mCard: {
-    padding: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 0,
+  },
+  mRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  mRowBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mChevronSlot: {
+    width: 22,
+    height: 22,
   },
   mTitle: { 
     color: COLORS.text, 
@@ -2276,14 +2245,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    backgroundColor: "rgba(45, 204, 154, 0.14)",
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.45)",
+    borderColor: "rgba(45, 204, 154, 0.4)",
   },
   amountText: { 
-    color: "#22c55e", 
+    color: "#2dcc9a", 
     fontWeight: "800", 
-    fontSize: 14,
+    fontSize: 16,
+    letterSpacing: -0.2,
     fontVariant: ["tabular-nums"],
   },
   mPctSecondary: {
@@ -2294,12 +2264,7 @@ const styles = StyleSheet.create({
   mStatusDateRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
     marginBottom: 8,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148, 163, 184, 0.14)",
   },
   statusPill: {
     paddingHorizontal: 12,
@@ -2328,7 +2293,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   costImpact: { 
-    color: "#22d3ee", 
+    color: "#2dcc9a", 
     fontWeight: "700", 
     fontSize: 14, 
     marginTop: 10,
@@ -2370,31 +2335,22 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   emptyLogsContainer: {
-    paddingVertical: 28,
-    paddingHorizontal: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
     alignItems: "center",
-  },
-  emptyLogsIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
+    gap: 8,
   },
   emptyLogsTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
     textAlign: "center",
-    letterSpacing: -0.2,
-    marginBottom: 8,
+    marginTop: 4,
   },
   emptyLogsBody: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 19,
     textAlign: "center",
-    fontWeight: "500",
-    maxWidth: 300,
+    maxWidth: 280,
   },
   addLogButton: {
     width: 36,
@@ -2402,9 +2358,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(34, 211, 238, 0.12)",
+    backgroundColor: "rgba(45, 204, 154, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.28)",
+    borderColor: "rgba(45, 204, 154, 0.4)",
   },
   logCard: {
     paddingHorizontal: 16,

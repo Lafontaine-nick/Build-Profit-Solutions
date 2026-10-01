@@ -13,24 +13,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   ESTIMATE_TEMPLATE_PRESERVATION_SHORT,
-  estimateFlowDisabledPrimaryButtonStyle,
-  estimateFlowDisabledPrimaryButtonTextStyle,
-  estimateFlowPrimaryButtonStyle,
-  estimateFlowPrimaryButtonTextStyle,
 } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
@@ -94,9 +84,10 @@ export default function SaveAsTemplateModal({
   const headerTopPadding = Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
   const inputShell = {
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
-    borderColor: Colors.line,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
+  const canSave = nameIsValid && !saving;
 
   return (
     <Modal
@@ -117,31 +108,31 @@ export default function SaveAsTemplateModal({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={handleClose}
-                  style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? '#FFFFFF' : Colors.text}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-              <View style={styles.headerText}>
+            <View
+              pointerEvents="box-none"
+              style={[styles.headerRow, { paddingTop: headerTopPadding }]}
+            >
+              <View pointerEvents="none" style={styles.headerText}>
                 <Text style={[styles.title, { color: Colors.text }]}>Save as template</Text>
-                <Text style={[styles.subtitle, { color: Colors.sub }]}>
+                <Text style={[styles.subtitle, !darkMode && { color: Colors.sub }]}>
                   Reuse this bid package on future estimates
                 </Text>
               </View>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={handleClose}
+                disabled={saving}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                style={[
+                  styles.backButton,
+                  { top: headerTopPadding },
+                  { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+                ]}
+              >
+                <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+              </TouchableOpacity>
             </View>
 
             <View style={styles.form}>
@@ -153,12 +144,10 @@ export default function SaveAsTemplateModal({
                 placeholderTextColor={placeholderColor}
                 style={[styles.input, inputShell, { color: Colors.text }]}
                 autoCorrect={false}
+                {...resolveTextInputKeyboardProps()}
               />
 
               <Text style={[styles.label, { color: Colors.sub }]}>Trade or category (optional)</Text>
-              <Text style={[styles.fieldHelper, { color: Colors.sub }]}>
-                Helps you organize and find this template later.
-              </Text>
               <TextInput
                 value={category}
                 onChangeText={setCategory}
@@ -166,6 +155,7 @@ export default function SaveAsTemplateModal({
                 placeholderTextColor={placeholderColor}
                 style={[styles.input, inputShell, { color: Colors.text }]}
                 autoCorrect={false}
+                {...resolveTextInputKeyboardProps()}
               />
 
               <Text style={[styles.label, { color: Colors.sub }]}>Description (optional)</Text>
@@ -174,8 +164,8 @@ export default function SaveAsTemplateModal({
                 onChangeText={setDescription}
                 placeholder="What this template is best for"
                 placeholderTextColor={placeholderColor}
-                multiline
                 style={[styles.input, styles.textArea, inputShell, { color: Colors.text }]}
+                {...resolveTextInputKeyboardProps({ multiline: true })}
               />
 
               <Text style={[styles.hint, { color: Colors.sub }]}>
@@ -195,31 +185,18 @@ export default function SaveAsTemplateModal({
             ]}
           >
             <TouchableOpacity
-              activeOpacity={nameIsValid ? 0.88 : 1}
-              disabled={!nameIsValid || saving}
+              activeOpacity={canSave ? 0.88 : 1}
+              disabled={!canSave}
               onPress={handleSave}
+              style={[styles.saveButton, { backgroundColor: canSave ? '#2dcc9a' : '#3A3A3C' }]}
             >
-              <View
-                style={
-                  nameIsValid && !saving
-                    ? estimateFlowPrimaryButtonStyle()
-                    : estimateFlowDisabledPrimaryButtonStyle()
-                }
-              >
-                {saving ? (
-                  <ActivityIndicator color="rgba(248, 250, 252, 0.45)" />
-                ) : (
-                  <Text
-                    style={
-                      nameIsValid
-                        ? estimateFlowPrimaryButtonTextStyle()
-                        : estimateFlowDisabledPrimaryButtonTextStyle()
-                    }
-                  >
-                    Save template
-                  </Text>
-                )}
-              </View>
+              {saving ? (
+                <ActivityIndicator color="#050B13" />
+              ) : (
+                <Text style={[styles.saveButtonText, { color: canSave ? '#050B13' : '#94a3b8' }]}>
+                  Save template
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -235,32 +212,45 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
-    paddingBottom: 18,
-    gap: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+    minHeight: 56,
   },
-  backButtonBorder: {
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 2,
     width: 40,
     height: 40,
     borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
-  },
-  backButton: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 19,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerText: { flex: 1 },
-  title: { fontSize: 22, fontWeight: '800' },
-  subtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
+  headerText: {
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 56,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
+  },
+  subtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: '500',
+    letterSpacing: 0.12,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   form: { paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, gap: 8 },
-  label: { fontSize: 12, fontWeight: '700', marginTop: 8 },
-  fieldHelper: { fontSize: 11, lineHeight: 16, marginTop: 2, marginBottom: 2 },
+  label: { fontSize: 12, fontWeight: '600', marginTop: 8 },
   input: {
     borderWidth: 1,
     borderRadius: 14,
@@ -282,5 +272,17 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
     paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  },
+  saveButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
   },
 });

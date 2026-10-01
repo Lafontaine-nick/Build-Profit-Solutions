@@ -5958,7 +5958,7 @@ const getStyles = (
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: Colors.bg === "#000000" ? Colors.card : Colors.bg,
+    backgroundColor: Colors.bg === "#000000" ? "#000000" : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
   },

@@ -186,6 +186,28 @@ export default function AddTransactionModal({
     [pricingMode]
   );
 
+  const sqftCalculatedTotal = useMemo(() => {
+    if (!supportsPerSqftPricing || pricingMode !== "sqft" || isChangeOrdersCategory) return 0;
+    const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+    const rate = decimalMoneyInputToNumber(ratePerSqftInput);
+    return sq * rate;
+  }, [
+    supportsPerSqftPricing,
+    pricingMode,
+    isChangeOrdersCategory,
+    sqftInput,
+    ratePerSqftInput,
+  ]);
+
+  const linkedBudgetGap = useMemo(() => {
+    if (!selectedEstimateLine || selectedEstimateLine.budget <= 0) return 0;
+    const entered = parseAmountFieldToNumber(amount);
+    if (!Number.isFinite(entered) || entered <= 0) return 0;
+    const delta = entered - selectedEstimateLine.budget;
+    if (Math.abs(delta) < 0.005) return 0;
+    return delta;
+  }, [amount, parseAmountFieldToNumber, selectedEstimateLine]);
+
   const applyFlatAmountTextChange = useCallback(
     (text: string) => {
       if (pricingMode === "flat") {
@@ -825,10 +847,9 @@ export default function AddTransactionModal({
       footerFlow: {
         paddingHorizontal: webPoFormPad.footer,
         paddingTop: 14,
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        justifyContent: "space-between" as const,
-        gap: 10,
+        flexDirection: "column" as const,
+        alignItems: "stretch" as const,
+        gap: 8,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: Colors.line,
         backgroundColor: Colors.bg,
@@ -838,27 +859,33 @@ export default function AddTransactionModal({
           : {}),
       },
       cancelBtn: {
-        flex: 1,
-        marginRight: 8,
-        paddingVertical: 15,
+        width: "100%" as const,
+        paddingVertical: 14,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line,
         backgroundColor: darkMode ? "#3A3A3C" : Colors.surface2,
         alignItems: "center" as const,
         justifyContent: "center" as const,
+        minHeight: 48,
       },
       cancelText: {
         fontSize: 15,
         fontWeight: "600" as const,
         color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text,
       },
-      saveBtnWrap: { flex: 1, marginLeft: 8, borderRadius: 14, overflow: "hidden" as const },
-      saveBtnInner: {
+      saveBtnWrap: {
+        width: "100%" as const,
+        borderRadius: 14,
+        minHeight: 50,
         paddingVertical: 15,
         alignItems: "center" as const,
         justifyContent: "center" as const,
         backgroundColor: "#2dcc9a",
+      },
+      saveBtnInner: {
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
       },
       saveBtnText: { fontSize: 15, fontWeight: "700" as const, color: "#050B13", letterSpacing: 0.3 },
     };
@@ -1372,12 +1399,29 @@ export default function AddTransactionModal({
 
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
-                {supportsPerSqftPricing && pricingMode === "sqft"
+                {supportsPerSqftPricing && pricingMode === "sqft" && isChangeOrdersCategory
                   ? "Total (calculated) *"
                   : isChangeOrdersCategory
                     ? "Total Change Order Amount *"
                     : "Amount *"}
               </Text>
+              {selectedEstimateLine ? (
+                <Text style={styles.linkedBudgetHint}>
+                  Budget{" "}
+                  <Text style={linkedBudgetGap > 0 ? styles.linkedBudgetOver : styles.linkedBudgetValue}>
+                    {formatMoneyFull(selectedEstimateLine.budget, { decimals: 0 })}
+                  </Text>
+                  {linkedBudgetGap > 0 ? (
+                    <Text style={styles.linkedBudgetOver}>
+                      {" "}· {formatMoneyFull(linkedBudgetGap, { decimals: 0 })} over
+                    </Text>
+                  ) : linkedBudgetGap < 0 ? (
+                    <Text style={styles.linkedBudgetValue}>
+                      {" "}· {formatMoneyFull(-linkedBudgetGap, { decimals: 0 })} under
+                    </Text>
+                  ) : null}
+                </Text>
+              ) : null}
 
               {supportsPerSqftPricing && pricingMode === "sqft" ? (
                 isChangeOrdersCategory ? (
@@ -1672,17 +1716,11 @@ export default function AddTransactionModal({
                                 ]
                           }
                         >
-                          <Feather
-                            name="maximize-2"
-                            size={16}
-                            color="#8DA0B8"
-                            style={{ marginLeft: 12, marginRight: 8 }}
-                          />
                           <TextInput
                             ref={sqftRef}
                             style={
                               webBudgetExpenseShell && poWebChrome
-                                ? poWebChrome.amountInput
+                                ? [poWebChrome.amountInput, { paddingLeft: 16 }]
                                 : [
                                     styles.input,
                                     styles.amountInput,
@@ -1690,6 +1728,7 @@ export default function AddTransactionModal({
                                       backgroundColor: "transparent",
                                       borderWidth: 0,
                                       color: Colors.text,
+                                      paddingLeft: 16,
                                     },
                                   ]
                             }
@@ -1751,33 +1790,16 @@ export default function AddTransactionModal({
                         </View>
                       </View>
                     </View>
-                    <View
-                      style={{
-                        marginTop: 12,
-                        backgroundColor: "rgba(34, 197, 94, 0.12)",
-                        borderRadius: 12,
-                        padding: 16,
-                        borderWidth: 1,
-                        borderColor: "rgba(34, 197, 94, 0.35)",
-                      }}
+                    <Text
+                      style={[
+                        styles.hint,
+                        sqftCalculatedTotal <= 0
+                          ? { color: darkMode ? "#94a3b8" : "#64748b" }
+                          : null,
+                      ]}
                     >
-                      <Text
-                        style={{
-                          color: "#22c55e",
-                          fontSize: 18,
-                          fontWeight: "700",
-                          textAlign: "center",
-                        }}
-                      >
-                        Total:{" "}
-                        {(() => {
-                          const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-                          const rate = decimalMoneyInputToNumber(ratePerSqftInput);
-                          const t = sq * rate;
-                          return formatMoneyFull(t, { decimals: 2 });
-                        })()}
-                      </Text>
-                    </View>
+                      {formatMoneyFull(sqftCalculatedTotal, { decimals: 2 })}
+                    </Text>
                   </>
                 )
               ) : (
@@ -1947,7 +1969,9 @@ export default function AddTransactionModal({
               </View>
             )}
 
-            {/* Planned vs Unplanned Toggle */}
+            {/* Planned vs Unplanned Toggle — not shown for a materials receipt */}
+            {!isMaterialsEquipmentExpense ? (
+            <>
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Budget Status *</Text>
               <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.pricingRow : { flexDirection: 'row', gap: 12 }}>
@@ -2146,6 +2170,8 @@ export default function AddTransactionModal({
                 {...resolveTextInputKeyboardProps()}
               />
             </View>
+            </>
+            ) : null}
               </View>
             </LinearGradient>
           </ScrollView>
@@ -2153,12 +2179,6 @@ export default function AddTransactionModal({
           {/* Actions */}
           {webBudgetExpenseShell && poWebChrome ? (
             <View style={[poWebChrome.footerFlow, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-              <Pressable
-                onPress={handleFooterDismiss}
-                style={({ pressed }) => [poWebChrome.cancelBtn, pressed && { opacity: 0.75 }]}
-              >
-                <Text style={poWebChrome.cancelText}>{budgetFooterDismissLabel}</Text>
-              </Pressable>
               <Pressable
                 onPress={() => {
                   if (Platform.OS === "web") {
@@ -2174,6 +2194,12 @@ export default function AddTransactionModal({
                 <View style={poWebChrome.saveBtnInner}>
                   <Text style={poWebChrome.saveBtnText}>Save</Text>
                 </View>
+              </Pressable>
+              <Pressable
+                onPress={handleFooterDismiss}
+                style={({ pressed }) => [poWebChrome.cancelBtn, pressed && { opacity: 0.75 }]}
+              >
+                <Text style={poWebChrome.cancelText}>{budgetFooterDismissLabel}</Text>
               </Pressable>
             </View>
           ) : (
@@ -2365,6 +2391,24 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 80,
     textAlignVertical: "top",
+  },
+  linkedBudgetHint: {
+    color: "#94a3b8",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  linkedBudgetValue: {
+    color: "#2dcc9a",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  linkedBudgetOver: {
+    color: "#f87171",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.2,
   },
   hint: {
     color: "#2dcc9a",

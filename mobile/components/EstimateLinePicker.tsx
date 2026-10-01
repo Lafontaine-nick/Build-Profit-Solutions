@@ -10,15 +10,10 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
-import { useTheme } from '@/contexts/ThemeContext';
-import { getColors } from '@/theme/getColors';
-import { estimateFlowCardStyle, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
   getEstimateLineSpendSummaries,
   getUnlinkedExpensesForKind,
@@ -85,6 +80,11 @@ function lineCategoryLabel(kind: EstimateLinePickerKind): string {
   return kind === 'materials' ? 'Materials' : 'Labor';
 }
 
+function spendTone(summary: EstimateLineSpendSummary): string {
+  const color = lineSpendColor(summary);
+  return color === '#22c55e' ? '#2dcc9a' : color;
+}
+
 export default function EstimateLinePicker({
   kind,
   projectLike,
@@ -97,9 +97,7 @@ export default function EstimateLinePicker({
   colors,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const pageInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
-  const themeColors = useMemo(() => getColors(theme), [theme]);
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState('');
   /** Draft highlight inside the modal; committed via footer Select. */
@@ -189,7 +187,7 @@ export default function EstimateLinePicker({
         <Text
           style={[
             styles.selectorSubtitle,
-            { color: lineSpendColor(selectedDisplaySummary), marginTop: 4, fontWeight: '700' },
+            { color: spendTone(selectedDisplaySummary), marginTop: 4, fontWeight: '700' },
           ]}
         >
           {formatSpendDetail(selectedDisplaySummary)}
@@ -226,8 +224,8 @@ export default function EstimateLinePicker({
               selected
                 ? { backgroundColor: colors.card, borderColor: colors.accent }
                 : {
-                    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-                    borderColor: colors.accent,
+                    backgroundColor: darkMode ? '#3A3A3C' : colors.card,
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : colors.border,
                   },
             ]}
             accessibilityRole="button"
@@ -238,7 +236,7 @@ export default function EstimateLinePicker({
                 selectedSummaryContent
               ) : (
                 <>
-                  <Text style={[styles.selectorTitle, { color: colors.accent }]}>
+                  <Text style={[styles.selectorTitle, { color: darkMode ? '#e2e8f0' : colors.text }]}>
                     Choose from estimate
                   </Text>
                   <Text style={[styles.selectorSubtitle, { color: colors.secondary }]}>
@@ -250,7 +248,7 @@ export default function EstimateLinePicker({
             <MaterialIcons
               name="chevron-right"
               size={24}
-              color={selected ? colors.secondary : colors.accent}
+              color={colors.secondary}
             />
           </Pressable>
         )}
@@ -278,26 +276,20 @@ export default function EstimateLinePicker({
               },
             ]}
           >
-            <View style={[styles.headerBack, { left: pageInset }]}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={close}
-                  style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : colors.background }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : colors.text} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={close}
+              style={[
+                styles.headerBack,
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : colors.nestedCard },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : colors.text} />
+            </Pressable>
             <View style={styles.headerCenter}>
               <Text style={[styles.sheetTitle, { color: colors.text }]}>Link to estimate</Text>
-              <Text style={[styles.sheetSubtitle, { color: colors.secondary }]}>
-                Choose a budget item. You can link multiple expenses to the same line.
+              <Text style={[styles.sheetSubtitle, { color: darkMode ? '#94a3b8' : colors.secondary }]}>
+                Choose a budget item
               </Text>
             </View>
           </View>
@@ -311,13 +303,21 @@ export default function EstimateLinePicker({
               { paddingHorizontal: pageInset, paddingBottom: 16 },
             ]}
           >
-            <View style={[estimateFlowCardStyle(themeColors, darkMode), styles.exteriorCard]}>
+            <View
+              style={[
+                styles.listCard,
+                {
+                  backgroundColor: darkMode ? '#202022' : colors.card,
+                  borderColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.border,
+                },
+              ]}
+            >
               <View
                 style={[
                   styles.searchShell,
                   {
-                    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : colors.nestedCard,
-                    borderColor: colors.border,
+                    backgroundColor: darkMode ? '#3A3A3C' : colors.nestedCard,
+                    borderColor: darkMode ? 'rgba(148,163,184,0.35)' : colors.border,
                   },
                 ]}
               >
@@ -332,11 +332,8 @@ export default function EstimateLinePicker({
                 />
               </View>
 
-              {sortedFiltered.length > 0 ? (
-                <Text style={[styles.groupLabel, { color: colors.secondary }]}>{title}</Text>
-              ) : null}
               <View style={styles.optionsList}>
-                {sortedFiltered.map((line) => {
+                {sortedFiltered.map((line, index) => {
                   const rawSummary =
                     spendSummaries[line.id] ??
                     ({
@@ -354,6 +351,7 @@ export default function EstimateLinePicker({
                       : null
                   );
                   const isPending = line.id === pendingLineId;
+                  const isLast = index === sortedFiltered.length - 1;
                   return (
                     <Pressable
                       key={line.id}
@@ -361,9 +359,9 @@ export default function EstimateLinePicker({
                       style={[
                         styles.option,
                         {
-                          backgroundColor: isPending ? 'rgba(34,197,94,0.12)' : colors.nestedCard,
-                          borderColor: isPending ? colors.accent : colors.border,
+                          borderBottomColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.border,
                         },
+                        isLast && styles.optionLast,
                       ]}
                     >
                       <View style={styles.optionText}>
@@ -384,7 +382,7 @@ export default function EstimateLinePicker({
                             <Text
                               style={[
                                 styles.optionSpent,
-                                { color: lineSpendColor(summary) },
+                                { color: spendTone(summary) },
                               ]}
                             >
                               {formatSpendDetail(summary)}
@@ -405,7 +403,7 @@ export default function EstimateLinePicker({
                                     styles.progressFill,
                                     {
                                       width: `${progressFillPercent(summary)}%`,
-                                      backgroundColor: lineSpendColor(summary),
+                                      backgroundColor: spendTone(summary),
                                     },
                                   ]}
                                 />
@@ -417,7 +415,7 @@ export default function EstimateLinePicker({
                       <MaterialIcons
                         name={isPending ? 'radio-button-checked' : 'radio-button-unchecked'}
                         size={22}
-                        color={isPending ? colors.accent : colors.secondary}
+                        color={isPending ? '#2dcc9a' : (darkMode ? '#94a3b8' : colors.secondary)}
                       />
                     </Pressable>
                   );
@@ -431,18 +429,16 @@ export default function EstimateLinePicker({
                   <Text style={[styles.unlinkedHint, { color: colors.secondary }]}>
                     Tap to search for a matching estimate line.
                   </Text>
-                  {unlinkedExpenses.map((expense) => (
+                  {unlinkedExpenses.map((expense, index) => (
                     <Pressable
                       key={expense.id}
                       onPress={() => setQuery(expense.label)}
                       style={[
                         styles.unlinkedRow,
                         {
-                          backgroundColor: darkMode
-                            ? 'rgba(255,255,255,0.03)'
-                            : colors.nestedCard,
-                          borderColor: colors.border,
+                          borderBottomColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.border,
                         },
+                        index === unlinkedExpenses.length - 1 && styles.optionLast,
                       ]}
                     >
                       <Text
@@ -547,6 +543,14 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'stretch',
   },
+  listCard: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
   pageHeader: {
     position: 'relative',
     minHeight: 56,
@@ -559,8 +563,13 @@ const styles = StyleSheet.create({
   headerBack: {
     position: 'absolute',
     top: 8,
-    left: 0,
+    left: 8,
     zIndex: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerCenter: {
     paddingHorizontal: 52,
@@ -581,13 +590,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetTitle: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  sheetTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' },
   sheetSubtitle: { fontSize: 13, marginTop: 4, textAlign: 'center' },
   groupLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0,
     marginTop: 2,
     marginBottom: 10,
   },
@@ -610,16 +618,17 @@ const styles = StyleSheet.create({
       : { textAlignVertical: 'center' as const, includeFontPadding: false }),
   },
   optionsList: {
-    gap: 10,
+    gap: 0,
   },
   option: {
     minHeight: 62,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  optionLast: {
+    borderBottomWidth: 0,
   },
   optionText: { flex: 1, minWidth: 0, marginRight: 10 },
   optionTitleRow: {
@@ -628,11 +637,11 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
-  optionName: { fontSize: 15, fontWeight: '700' },
-  optionMeta: { fontSize: 12, marginTop: 4 },
-  optionSpent: { fontSize: 12, marginTop: 5, fontWeight: '700' },
+  optionName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2 },
+  optionMeta: { fontSize: 15, marginTop: 4, fontWeight: '600' },
+  optionSpent: { fontSize: 15, marginTop: 6, fontWeight: '700' },
   progressTrack: {
-    height: 4,
+    height: 8,
     borderRadius: 999,
     marginTop: 8,
     overflow: 'hidden',
@@ -659,11 +668,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
   },
   unlinkedLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
   unlinkedAmount: { fontSize: 13, fontWeight: '700' },
@@ -695,7 +701,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2dcc9a',
     minHeight: 48,
   },
   selectBtnText: {

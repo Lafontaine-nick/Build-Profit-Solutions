@@ -13,9 +13,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import GradientRingBackInner from './GradientRingBackInner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { 
@@ -25,10 +22,7 @@ import {
 } from '../services/savedMaterialsService';
 import {
   ESTIMATE_FLOW_CARD_GAP,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_GREEN,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
-  estimateFlowPrimaryButtonStyle,
 } from '@/utils/estimateFlowCardStyle';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
@@ -98,26 +92,13 @@ export default function SavedMaterialsScreen({
   };
 
 
-  const getPriceSignal = (price: number) => {
-    const estimatedMarketAvg = price * 1.15;
-    const priceRatio = price / estimatedMarketAvg;
-    
-    if (priceRatio < 0.85) {
-      return { signal: 'good', color: '#10b981', text: 'Good Deal' };
-    } else if (priceRatio > 1.15) {
-      return { signal: 'expensive', color: '#ef4444', text: 'Pricey' };
-    }
-    return { signal: 'fair', color: '#3b82f6', text: 'Fair' };
-  };
-
   const renderMaterial = ({ item }: { item: SavedMaterial }) => {
-    const priceSignal = getPriceSignal(item.price);
     const qty = quantities.get(item.sku) || 1;
 
     return (
       <View style={[styles.materialCard, {
-        backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.03)',
-        borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+        backgroundColor: darkMode ? '#202022' : Colors.surface2,
+        borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
         marginBottom: ESTIMATE_FLOW_CARD_GAP,
       }]}>
         {/* Image */}
@@ -132,7 +113,7 @@ export default function SavedMaterialsScreen({
             <MaterialCommunityIcons
               name="package-variant"
               size={40}
-              color="#8DA0B8"
+              color="#94a3b8"
             />
           )}
         </View>
@@ -147,21 +128,10 @@ export default function SavedMaterialsScreen({
           </Text>
           
           <View style={styles.priceRow}>
-            <Text style={[styles.price, { color: ESTIMATE_FLOW_GREEN }]}>
+            <Text style={[styles.price, { color: item.price > 0 ? '#2dcc9a' : '#94a3b8' }]}>
               ${item.price.toFixed(2)}
               {item.unit ? ` • ${item.unit}` : ''}
             </Text>
-            <View style={[styles.badge, { backgroundColor: priceSignal.color }]}>
-              <MaterialIcons
-                name={
-                  priceSignal.signal === 'good' ? 'trending-down' :
-                  priceSignal.signal === 'expensive' ? 'trending-up' : 'trending-flat'
-                }
-                size={12}
-                color="#FFFFFF"
-              />
-              <Text style={styles.badgeText}>AI: {priceSignal.text}</Text>
-            </View>
           </View>
 
           {/* Quantity Selector */}
@@ -196,17 +166,17 @@ export default function SavedMaterialsScreen({
           <View style={styles.actions}>
             <TouchableOpacity
               onPress={() => handleAddToBid(item)}
-              style={[estimateFlowPrimaryButtonStyle(), { flex: 1, width: undefined, borderRadius: 12, paddingVertical: 10 }]}
+              style={styles.addButton}
             >
-              <MaterialIcons name="add-shopping-cart" size={16} color="#071018" />
-              <Text style={{ color: '#071018', fontWeight: '700', fontSize: 12 }}>Add to Bid</Text>
+              <MaterialIcons name="add-shopping-cart" size={16} color="#050B13" />
+              <Text style={styles.addButtonText}>Add to Bid</Text>
             </TouchableOpacity>
             
             <TouchableOpacity
               onPress={() => item.url && Linking.openURL(item.url)}
               style={styles.viewButton}
             >
-              <MaterialIcons name="open-in-new" size={18} color="#FFFFFF" />
+              <MaterialIcons name="open-in-new" size={18} color="#94a3b8" />
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -222,54 +192,35 @@ export default function SavedMaterialsScreen({
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" />
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
+      <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            padding: 1,
-            marginRight: 12,
-          }}
-        >
-          <GradientRingBackInner
-            darkMode
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onClose();
-            }}
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: 19,
-              backgroundColor: '#000000',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-          </GradientRingBackInner>
-        </LinearGradient>
-        
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Saved Materials</Text>
+      <View pointerEvents="box-none" style={styles.header}>
+        <View pointerEvents="none" style={styles.headerContent}>
+          <Text style={[styles.headerTitle, { color: darkMode ? '#FFFFFF' : Colors.text }]}>Saved Materials</Text>
           <Text style={styles.headerSubtitle}>
             {materials.length} {materials.length === 1 ? 'item' : 'items'}
           </Text>
         </View>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onClose();
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={[styles.backButton, { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 }]}
+        >
+          <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
+        </TouchableOpacity>
       </View>
 
       {/* Content */}
       {loading ? (
         <View style={styles.emptyState}>
-          <ActivityIndicator size="large" color={ESTIMATE_FLOW_GREEN} />
+          <ActivityIndicator size="large" color="#2dcc9a" />
           <Text style={styles.emptyText}>Loading saved materials...</Text>
         </View>
       ) : materials.length === 0 ? (
@@ -277,7 +228,7 @@ export default function SavedMaterialsScreen({
           <MaterialCommunityIcons
             name="bookmark-outline"
             size={64}
-            color="#8DA0B8"
+            color="#94a3b8"
           />
           <Text style={styles.emptyTitle}>No Saved Materials</Text>
           <Text style={styles.emptyText}>
@@ -297,7 +248,7 @@ export default function SavedMaterialsScreen({
                 setRefreshing(true);
                 loadMaterials();
               }}
-              tintColor={ESTIMATE_FLOW_GREEN}
+              tintColor="#2dcc9a"
             />
           }
         />
@@ -312,25 +263,47 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   header: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingTop: 8,
+    paddingBottom: 16,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
   headerContent: {
-    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 56,
+  },
+  backButton: {
+    position: 'absolute',
+    left: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+    top: 8,
+    zIndex: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
     color: '#FFFFFF',
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#8DA0B8',
-    marginTop: 2,
+    color: '#94a3b8',
+    marginTop: 4,
+    fontWeight: '500',
+    letterSpacing: 0.12,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   listContent: {
     paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
@@ -339,7 +312,7 @@ const styles = StyleSheet.create({
   },
   materialCard: {
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     borderWidth: 1,
   },
@@ -368,7 +341,7 @@ const styles = StyleSheet.create({
   },
   details: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: '#94a3b8',
     marginBottom: 8,
   },
   priceRow: {
@@ -382,20 +355,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 10,
-    letterSpacing: 0.3,
-  },
   quantityRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,7 +363,7 @@ const styles = StyleSheet.create({
   },
   quantityLabel: {
     fontSize: 12,
-    color: '#8DA0B8',
+    color: '#94a3b8',
     fontWeight: '600',
     minWidth: 60,
   },
@@ -429,15 +388,31 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    gap: ESTIMATE_FLOW_CARD_GAP,
+    gap: 8,
+    alignItems: 'center',
+  },
+  addButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: '#2dcc9a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  addButtonText: {
+    color: '#050B13',
+    fontWeight: '700',
+    fontSize: 13,
   },
   viewButton: {
     width: 44,
     height: 44,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 8,
+    backgroundColor: '#3A3A3C',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -466,7 +441,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#8DA0B8',
+    color: '#94a3b8',
     textAlign: 'center',
   },
 });
