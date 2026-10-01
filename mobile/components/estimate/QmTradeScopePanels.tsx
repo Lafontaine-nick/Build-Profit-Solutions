@@ -1781,10 +1781,6 @@ export function QmFlooringScopePanels({
   const [newExpanded, setNewExpanded] = useState(false);
   const [prepExpanded, setPrepExpanded] = useState(false);
   const [showMoreNewFlooring, setShowMoreNewFlooring] = useState(false);
-  const [activeNewProductId, setActiveNewProductId] = useState<string | null>(
-    null
-  );
-  const activeNewProductIdRef = useRef<string | null>(null);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
   const [sqftEditingKey, setSqftEditingKey] = useState<string | null>(null);
   const planFloorSqft = (() => {
@@ -2058,19 +2054,9 @@ export function QmFlooringScopePanels({
       const current = Array.isArray(measurements.flooringProductScope)
         ? measurements.flooringProductScope
         : [];
-      if (current.includes(type) && activeNewProductIdRef.current !== type) {
-        activeNewProductIdRef.current = type;
-        setActiveNewProductId(type);
-        return;
-      }
       const nextProducts = current.includes(type)
         ? current.filter(value => value !== type)
         : [...current, type];
-      const nextActive = nextProducts.includes(type)
-        ? type
-        : (nextProducts[nextProducts.length - 1] ?? null);
-      activeNewProductIdRef.current = nextActive;
-      setActiveNewProductId(nextActive);
       const nextInstall = {
         flooringInstallScopeCount: nextProducts.length ? 1 : null,
       };
@@ -2361,14 +2347,6 @@ export function QmFlooringScopePanels({
   const selectedNewFlooringOptions = newFlooringOptions.filter(option =>
     selectedNewProducts.includes(option.id)
   );
-  const openNewProductId = selectedNewProducts.includes(
-    activeNewProductId as (typeof selectedNewProducts)[number]
-  )
-    ? activeNewProductId
-    : (selectedNewProducts[selectedNewProducts.length - 1] ?? null);
-  if (activeNewProductIdRef.current !== openNewProductId) {
-    activeNewProductIdRef.current = openNewProductId;
-  }
   return (
     <>
       {showExistingPanel ? (
@@ -2766,7 +2744,7 @@ export function QmFlooringScopePanels({
           <Text
             style={[
               styles.qmPanelTitle,
-              { color: darkMode ? '#cbd5e1' : '#475569' },
+              { color: darkMode ? '#F5F7FA' : '#475569' },
             ]}
           >
             New Flooring {newExpanded ? '⌃' : '⌄'}
@@ -2784,7 +2762,7 @@ export function QmFlooringScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b' },
+                { color: darkMode ? '#CBD5E1' : '#64748b' },
               ]}
             >
               {(() => {
@@ -2921,7 +2899,7 @@ export function QmFlooringScopePanels({
                             {option.label}
                           </Text>
                         </TouchableOpacity>
-                        {selected && option.id === openNewProductId ? (
+                        {selected ? (
                           <>
                             <QmSqftMeasurementRow
                               label={`${option.label} installation area`}
@@ -3053,18 +3031,21 @@ export function QmFlooringScopePanels({
                 <TouchableOpacity
                   onPress={() => setShowMoreNewFlooring(true)}
                   activeOpacity={0.75}
+                  accessibilityRole='button'
+                  accessibilityLabel='Add another flooring material'
                   style={{ width: '100%', marginTop: 8 }}
                 >
                   <Text
                     style={[
                       styles.qmPanelCaption,
                       {
-                        color: darkMode ? '#94a3b8' : '#64748b',
+                        color: darkMode ? '#F5F7FA' : Colors.text,
+                        fontWeight: '700',
                         textAlign: 'center',
                       },
                     ]}
                   >
-                    Add another product
+                    Add another flooring material
                   </Text>
                 </TouchableOpacity>
               ) : null}

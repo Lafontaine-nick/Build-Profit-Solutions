@@ -961,13 +961,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
           scopeItemId: 'interior_doors',
           measurementKeys: ['interiorDoorCount'],
         }),
-        expect.objectContaining({
-          scopeItemId: 'trim_finish',
-          pricingBehavior: 'SEPARATE_ADDON',
-        }),
       ])
     );
-    expect(getTradeScopeAllowlist('windows_doors')).toContain('trim_finish');
+    expect(getTradeScopeAllowlist('windows_doors')).not.toContain('trim_finish');
     expect(definition.scopeItems).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ scopeItemId: 'garage_doors' }),
@@ -1227,14 +1223,12 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'exterior_doors',
       'sliding_doors',
       'interior_doors',
-      'trim_finish',
     ]);
     expect(filtered.map(item => item.label)).toEqual([
       'Windows',
       'Exterior doors',
       'Sliding doors',
       'Interior doors',
-      'Opening trim & finish',
     ]);
   });
 
@@ -1254,7 +1248,6 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'exterior_doors',
       'sliding_doors',
       'interior_doors',
-      'trim_finish',
     ]);
   });
 
@@ -1276,13 +1269,16 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ]);
   });
 
-  it('keeps explicitly note-backed cross-trade cards during selected-trade filtering', () => {
+  it('drops note-backed site and finish cards from a Windows & doors plan', () => {
     const filtered = filterChecklistItemsForTrade(
       [
         { id: 'windows', noteBacked: false },
         { id: 'insulation', noteBacked: true },
         { id: 'flooring', noteBacked: true },
+        { id: 'pour_flatwork', noteBacked: true },
+        { id: 'demo_clearing', noteBacked: true },
         { id: 'cleanup', noteBacked: false },
+        { id: 'custom_123', label: 'Owner hardware' },
       ],
       'selected_trade',
       'windows_doors'
@@ -1290,12 +1286,10 @@ describe('subcontractor trade architecture (Phase 0)', () => {
 
     expect(filtered.map(item => item.id)).toEqual([
       'windows',
-      'insulation',
-      'flooring',
+      'custom_123',
       'exterior_doors',
       'sliding_doors',
       'interior_doors',
-      'trim_finish',
     ]);
   });
 

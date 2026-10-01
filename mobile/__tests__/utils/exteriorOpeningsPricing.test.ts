@@ -15,6 +15,8 @@ import {
   openingStandardEachTotal,
   resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveInteriorDoorGradePricing,
+  resolveOpeningGrade,
   resolveOpeningSizeTierSuggestedPricing,
   resolveSlidingDoorsLumpSuggestedFill,
 } from '@/utils/exteriorOpeningsPricing';
@@ -252,5 +254,52 @@ describe('exterior openings split + garage door types', () => {
     expect(upgraded?.total).toBe(Math.round(1650 * OPENING_SIZE_TIER_MULTIPLIERS.exterior_doors.medium));
     expect(specialty?.total).toBe(Math.round(1650 * OPENING_SIZE_TIER_MULTIPLIERS.exterior_doors.oversized));
     expect(upgraded?.helper).toMatch(/upgraded \/ glass/i);
+  });
+
+  it('keeps one national rate for notes and two grades for a plan export', () => {
+    expect(resolveOpeningGrade({ planImportMode: null })).toBeNull();
+    expect(
+      resolveOpeningGrade({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'plumbing',
+      })
+    ).toBeNull();
+    expect(
+      resolveOpeningGrade({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'windows_doors',
+      })
+    ).toBe('upgraded');
+    expect(
+      resolveOpeningGrade({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'windows_doors',
+        openingGrade: 'standard',
+      })
+    ).toBe('standard');
+
+    const entryWindows = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'windows',
+      quantity: 28,
+      grade: 'standard',
+    });
+    const semiWindows = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'windows',
+      quantity: 28,
+      grade: 'upgraded',
+    });
+    expect(entryWindows?.total).toBe(16800);
+    expect(semiWindows?.total).toBe(20720);
+
+    const entryDoors = resolveInteriorDoorGradePricing({
+      quantity: 18,
+      grade: 'standard',
+    });
+    const semiDoors = resolveInteriorDoorGradePricing({
+      quantity: 18,
+      grade: 'upgraded',
+    });
+    expect(entryDoors?.total).toBe(5040);
+    expect(semiDoors?.total).toBe(6300);
   });
 });

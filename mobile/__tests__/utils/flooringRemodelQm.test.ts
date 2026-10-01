@@ -69,6 +69,19 @@ describe('flooringRemodel QM', () => {
     expect(demo.flooringDemoScopeCount).toBe(1);
   });
 
+  it('leaves flooring removal off a new-construction plan export', () => {
+    const items = [{ ...item('floor_demo', 'included'), noteBacked: true }];
+    const next = syncFlooringQmScopeItems(items, {
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'flooring',
+      planImportFingerprint: 'lot-49',
+      flooringDemoScopeCount: 1,
+      scopeNotes: 'Flooring installation. Living area 2,571 SF. Propose floor demo only as the sheets support.',
+    });
+    expect(next.find(r => r.id === 'floor_demo')?.state).toBe('excluded');
+    expect(next.find(r => r.id === 'floor_demo')?.noteBacked).toBe(false);
+  });
+
   it('syncs scope checklist from QM counts', () => {
     const items = [item('flooring'), item('floor_demo')];
     const next = syncFlooringQmScopeItems(items, {

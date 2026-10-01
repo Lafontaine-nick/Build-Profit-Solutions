@@ -2193,6 +2193,91 @@ function encodeJpeg(canvas, quality = 82) {
 }
 
 /**
+ * Drop the sheet border and title block, then trim blank margin so a window
+ * or door symbol fills the image the vision model actually sees.
+ */
+async function cropPlanSheetToDrawing(page) {
+  const canvasLib = loadNodeCanvas();
+  if (!canvasLib?.createCanvas || !canvasLib.loadImage || !page?.base64) return page;
+  try {
+    const source = await canvasLib.loadImage(Buffer.from(page.base64, 'base64'));
+    const width = source.width;
+    const height = source.height;
+    if (!(width > 400) || !(height > 300)) return page;
+    const src = canvasLib.createCanvas(width, height);
+    const ctx = src.getContext('2d');
+    ctx.drawImage(source, 0, 0);
+    const leftInset = Math.round(width * 0.04);
+    const topInset = Math.round(height * 0.035);
+    const rightInset = Math.round(width * 0.1);
+    const bottomInset = Math.round(height * 0.04);
+    const left = leftInset;
+    const top = topInset;
+    const cropWidth = width - leftInset - rightInset;
+    const cropHeight = height - topInset - bottomInset;
+    if (cropWidth < 240 || cropHeight < 180) return page;
+    const pixels = ctx.getImageData(left, top, cropWidth, cropHeight).data;
+    const rowInk = new Uint32Array(cropHeight);
+    const colInk = new Uint32Array(cropWidth);
+    const step = 2;
+    for (let y = 0; y < cropHeight; y += step) {
+      for (let x = 0; x < cropWidth; x += step) {
+        const index = (y * cropWidth + x) * 4;
+        const lum = pixels[index] * 0.3 + pixels[index + 1] * 0.59 + pixels[index + 2] * 0.11;
+        if (lum < 205) {
+          rowInk[y] += 1;
+          colInk[x] += 1;
+        }
+      }
+    }
+    const rowThreshold = Math.max(3, Math.round(cropWidth * 0.0015));
+    const colThreshold = Math.max(3, Math.round(cropHeight * 0.0015));
+    let minY = 0;
+    let maxY = cropHeight - 1;
+    let minX = 0;
+    let maxX = cropWidth - 1;
+    while (minY < maxY && rowInk[minY] < rowThreshold) minY += 1;
+    while (maxY > minY && rowInk[maxY] < rowThreshold) maxY -= 1;
+    while (minX < maxX && colInk[minX] < colThreshold) minX += 1;
+    while (maxX > minX && colInk[maxX] < colThreshold) maxX -= 1;
+    const padX = Math.round(cropWidth * 0.02);
+    const padY = Math.round(cropHeight * 0.025);
+    minX = Math.max(0, minX - padX);
+    minY = Math.max(0, minY - padY);
+    maxX = Math.min(cropWidth - 1, maxX + padX);
+    maxY = Math.min(cropHeight - 1, maxY + padY);
+    const outWidth = maxX - minX + 1;
+    const outHeight = maxY - minY + 1;
+    if (outWidth < cropWidth * 0.2 || outHeight < cropHeight * 0.12) return page;
+    const out = canvasLib.createCanvas(outWidth, outHeight);
+    out.getContext('2d').drawImage(
+      src,
+      left + minX,
+      top + minY,
+      outWidth,
+      outHeight,
+      0,
+      0,
+      outWidth,
+      outHeight,
+    );
+    const jpeg = await encodeJpeg(out, 84);
+    const bytes = Buffer.isBuffer(jpeg) ? jpeg : Buffer.from(jpeg);
+    return {
+      ...page,
+      mimeType: 'image/jpeg',
+      base64: bytes.toString('base64'),
+      byteLength: bytes.length,
+      width: outWidth,
+      height: outHeight,
+    };
+  } catch (err) {
+    console.warn('Plan sheet crop skipped:', err?.message || err);
+    return page;
+  }
+}
+
+/**
  * Rasterize Electrical sheets so vision can count symbols. The full PDF file
  * pass reads architectural text and skips tiny E-sheet glyphs.
  */
@@ -3243,6 +3328,7 @@ module.exports = {
   renderElectricalSymbolCrops,
   electricalSymbolCropRects,
   renderWindowsDoorsPlanPages: renderElectricalPlanPages,
+  cropPlanSheetToDrawing,
   renderRoofingPlanPages,
   selectWindowsDoorsSymbolPages,
   selectWholeProjectSymbolPages,

@@ -128,7 +128,6 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'exterior_doors',
     'sliding_doors',
     'interior_doors',
-    'trim_finish',
     'windows_doors',
   ],
 };

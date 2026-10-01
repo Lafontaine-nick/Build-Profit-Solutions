@@ -1363,21 +1363,297 @@ function filterWholeProjectSymbolMeasurements(payload) {
   return out;
 }
 
+const WINDOWS_DOORS_EVIDENCE_KEYS = {
+  window: "windowCount",
+  exterior_swing: "exteriorDoorCount",
+  sliding: "slidingDoorCount",
+  interior: "interiorDoorCount",
+};
+
+const WINDOWS_DOORS_SHEET_CATEGORIES = {
+  elevation: ["window", "exterior_swing", "sliding"],
+  floor_plan: ["interior"],
+  both: ["window", "exterior_swing", "sliding", "interior"],
+  unknown: ["window", "exterior_swing", "sliding", "interior"],
+};
+
+function windowsDoorsSheetRole(reasons) {
+  const list = (Array.isArray(reasons) ? reasons : []).map((reason) =>
+    String(reason || "").toLowerCase(),
+  );
+  const elevation = list.includes("elevation");
+  const floor = list.includes("floor plan");
+  if (elevation && floor) return "both";
+  if (elevation) return "elevation";
+  if (floor) return "floor_plan";
+  return "unknown";
+}
+
+function windowsDoorsEvidenceRows(payload) {
+  if (Array.isArray(payload?.planFacts?.openingEvidence)) {
+    return payload.planFacts.openingEvidence;
+  }
+  if (Array.isArray(payload?.openingEvidence)) return payload.openingEvidence;
+  return [];
+}
+
+function windowsDoorsOpeningText(row) {
+  return [
+    row?.category,
+    row?.kind,
+    row?.type,
+    row?.location,
+    row?.sourceText,
+    row?.operation,
+    row?.interiorSubtype,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function windowsDoorsOpeningDetail(row) {
+  return [row?.kind, row?.type, row?.location, row?.sourceText, row?.operation]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function collapseDividedWindowRows(rows) {
+  const seenFrames = new Set();
+  const kept = [];
+  for (const row of rows) {
+    if (row.category !== "window") {
+      kept.push(row);
+      continue;
+    }
+    const location = String(row.location || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    const lite = location.match(
+      /^(.*?)(?:\s+(?:lite|pane|light|panel)\s*\d+|\s+\d+\s+of\s+\d+)$/,
+    );
+    const frame = lite?.[1]?.trim();
+    if (!frame) {
+      kept.push(row);
+      continue;
+    }
+    if (seenFrames.has(frame)) continue;
+    seenFrames.add(frame);
+    kept.push(row);
+  }
+  return kept;
+}
+
+/**
+ * One drawing mark is not one priced opening. Drop garage glass, sidelights,
+ * and non-doors. Collapse divided lites of one frame. A floor-to-head
+ * multi-panel door is a slider even when the model called it a window.
+ */
+function normalizeWindowsDoorsOpeningRows(rows, role) {
+  const kept = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const text = windowsDoorsOpeningText(row);
+    if (/garage/.test(text)) continue;
+    if (/sidelight|side light|side-light/.test(text)) continue;
+    if (/cased opening|archway|no door|opening only/.test(text)) continue;
+    let category = String(row?.category || row?.kind || "")
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (
+      ["swing", "swing_door", "exterior", "exterior_door", "french"].includes(
+        category,
+      )
+    ) {
+      category = "exterior_swing";
+    }
+    if (["slider", "sliding_door", "patio_door", "multi_slide"].includes(category)) {
+      category = "sliding";
+    }
+    if (["interior_door"].includes(category)) category = "interior";
+    const hinged = /french|hinge|swing|leaf|leaves/.test(text);
+    const multiPanelDoor =
+      /slider|sliding|multi-?panel|multi-?slide|floor to head|bypass|patio door/.test(
+        text,
+      ) && !hinged;
+    if (!["window", "exterior_swing", "sliding", "interior"].includes(category)) {
+      category = multiPanelDoor ? "sliding" : "";
+    }
+    if (!category) continue;
+    if (category === "window" && multiPanelDoor) category = "sliding";
+    if (
+      (category === "sliding" || category === "exterior_swing") &&
+      row?.reachesFloor === false
+    ) {
+      category = "window";
+    }
+    const detail = windowsDoorsOpeningDetail(row);
+    if (
+      category === "exterior_swing" &&
+      /window|clerestory/.test(detail) &&
+      !/door/.test(detail)
+    ) {
+      category = "window";
+    }
+    if (
+      category === "sliding" &&
+      /clerestory|picture window|fixed window|awning|casement/.test(detail) &&
+      !/door|slider|sliding|multi-?panel|floor to head/.test(detail)
+    ) {
+      category = "window";
+    }
+    if (role === "elevation" && category === "interior") continue;
+    if (role === "floor_plan" && category !== "interior") continue;
+    if (
+      category === "interior" &&
+      /exterior|front door|garage|slider|sliding|patio door/.test(text)
+    ) {
+      continue;
+    }
+    kept.push({ ...row, category });
+  }
+  return tightenElevationDoorRows(collapseDividedWindowRows(kept), role);
+}
+
+function tightenElevationDoorRows(rows, role) {
+  const collapsed = [];
+  const seenInterior = new Set();
+  for (const row of rows) {
+    if (row.category !== "interior") {
+      collapsed.push(row);
+      continue;
+    }
+    const location = String(row.location || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\b(door|leaf|leaves|pair|swing)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (location && seenInterior.has(location)) continue;
+    if (location) seenInterior.add(location);
+    collapsed.push(row);
+  }
+  if (role !== "elevation" && role !== "both") return collapsed;
+  const sliders = collapsed.filter((row) => row.category === "sliding");
+  if (sliders.length < 2) return collapsed;
+  const strong = sliders.filter((row) =>
+    /slider|sliding|multi-?panel|multi-?slide|floor to head|bypass|patio door/.test(
+      windowsDoorsOpeningDetail(row),
+    ),
+  );
+  if (!strong.length || strong.length === sliders.length) return collapsed;
+  const weak = new Set(sliders.filter((row) => !strong.includes(row)));
+  return collapsed.filter((row) => !weak.has(row));
+}
+
+function pickTighterOpeningRows(firstRows, correctedRows) {
+  if (!correctedRows.length) return firstRows;
+  if (!firstRows.length) return correctedRows;
+  const categories = ["window", "exterior_swing", "sliding", "interior"];
+  const picked = [];
+  for (const category of categories) {
+    const first = firstRows.filter((row) => row.category === category);
+    const corrected = correctedRows.filter((row) => row.category === category);
+    if (!corrected.length) picked.push(...first);
+    else if (!first.length) picked.push(...corrected);
+    else picked.push(...(corrected.length <= first.length ? corrected : first));
+  }
+  return picked;
+}
+
+function windowsDoorsCategoryCount(rows) {
+  const units = rows.filter((row) => !(Math.round(Number(row?.quantity)) > 1));
+  if (units.length) return units.length;
+  if (rows.length === 1) {
+    const text = windowsDoorsOpeningText(rows[0]);
+    if (/pair|double|french|leaf|leaves|lite|pane/.test(text)) return 1;
+    const quantity = Math.round(Number(rows[0]?.quantity));
+    if (quantity >= 1 && quantity <= 40) return quantity;
+  }
+  return rows.length;
+}
+
+function windowsDoorsScalarCount(payload, key) {
+  const nested =
+    payload?.measurements && typeof payload.measurements === "object"
+      ? payload.measurements
+      : null;
+  const count = Math.round(Number(nested?.[key] ?? payload?.[key]));
+  if (Number.isFinite(count) && count >= 1 && count <= 200) return count;
+  return null;
+}
+
+/**
+ * Add per-sheet opening lists. Elevations contribute windows, swings, and
+ * sliders. Floor plans contribute interior doors. A sheet list wins over that
+ * sheet's own total.
+ */
+function sumWindowsDoorsSheetCounts(sheets) {
+  const list = Array.isArray(sheets) ? sheets : [];
+  const hasElevation = list.some(
+    (sheet) => sheet?.role === "elevation" || sheet?.role === "both",
+  );
+  const hasFloor = list.some(
+    (sheet) => sheet?.role === "floor_plan" || sheet?.role === "both",
+  );
+  const covered = new Set();
+  if (hasElevation) {
+    covered.add("window");
+    covered.add("exterior_swing");
+    covered.add("sliding");
+  }
+  if (hasFloor) {
+    covered.add("interior");
+  }
+  const totals = {};
+  for (const sheet of list) {
+    const role = WINDOWS_DOORS_SHEET_CATEGORIES[sheet?.role]
+      ? sheet.role
+      : "unknown";
+    const payload =
+      sheet?.payload && typeof sheet.payload === "object" ? sheet.payload : {};
+    const allowed = WINDOWS_DOORS_SHEET_CATEGORIES[role].filter(
+      (category) => role !== "unknown" || !covered.has(category),
+    );
+    const rawEvidence = windowsDoorsEvidenceRows(payload);
+    const evidence = normalizeWindowsDoorsOpeningRows(rawEvidence, role);
+    for (const category of allowed) {
+      const key = WINDOWS_DOORS_EVIDENCE_KEYS[category];
+      const rows = evidence.filter(
+        (row) => String(row?.category || "") === category,
+      );
+      const count = rows.length
+        ? windowsDoorsCategoryCount(rows)
+        : rawEvidence.length
+          ? null
+          : windowsDoorsScalarCount(payload, key);
+      if (count >= 1) totals[key] = (totals[key] || 0) + count;
+    }
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(totals)) {
+    if (value >= 1 && value <= 200) out[key] = value;
+  }
+  return out;
+}
+
 const WINDOWS_DOORS_VISION_INSTRUCTIONS = `
 Windows & doors takeoff rules:
 - This trade is fenestration and doors only — never return garage door counts here. Garage doors are a separate trade.
 - Perform an opening takeoff. The contractor should only type a count when the drawings genuinely do not provide a readable schedule, tag, or countable opening.
 - Extraction hierarchy: (1) window/door schedules, (2) floor-plan tags and opening symbols, (3) exterior elevations, (4) cross-check between sheets.
 - Count OPENING UNITS, not individual door leaves or slider panels. A double front entry is 1 exterior swing unit. A double hinged/French patio door is 1 exterior swing unit. A single personnel door is 1 exterior swing unit. A 2-leaf or 3-panel slider is 1 sliding unit.
-- Return these canonical counts: windowCount; exteriorDoorCount (hinged/swing/French/double exterior doors, including doors that open to a patio); slidingDoorCount (ONLY doors explicitly shown as sliding, multi-slide, bypass, or patio-slider units); interiorDoorCount (interior swing/pocket/bifold OPENINGS — bedrooms, baths, closets, laundry, pantry, and similar — exclude exterior and garage).
+- Return these canonical counts: windowCount; exteriorDoorCount (hinged/swing/French/double exterior doors, one unit per opening); slidingDoorCount (track, multi-slide, bypass, or a floor-to-head multi-panel glazed door); interiorDoorCount (interior swing/pocket/bifold OPENINGS — bedrooms, baths, closets, laundry, pantry, and similar — exclude exterior and garage).
 - Do NOT classify a hinged French/double door as a sliding/patio door because it leads to a patio. Swing arcs, inswing/outswing, or French/double callouts are exteriorDoorCount. Two leaves of one French opening are not 2 sliding doors.
-- slidingDoorCount requires a sliding symbol, track, multi-slide, bypass, or an explicit slider callout. Patio adjacency alone is not enough.
+- A floor-to-head multi-panel glazed door is one slidingDoorCount even when the sheet does not print the word slider. Do not count its glass panels as windows. A glass garage door and its lites are not windows. Count framed window units, not panes.
+- slidingDoorCount requires a sliding symbol, track, multi-slide, bypass, an explicit slider callout, or a floor-to-head multi-panel glazed door. Patio adjacency alone is not enough. A hinged French door with a swing is exteriorDoorCount.
 - Count each physical opening once. Deduplicate the same door across the door schedule, floor-plan tags, and elevations using mark/tag, size, and type — not by assuming a typical exterior-door total.
 - Return planFacts.openingEvidence as one row per physical opening, not one grouped row per size. Each row must include category (window, exterior_swing, sliding, or interior), source (schedule, floor_plan, elevation, or section), sheet/page, and a short location such as "main east wall" or "upper Bedroom 3". Include mark, sizeCode/dimensions, operation/type, and interiorSubtype when readable. If the same opening appears on multiple sheets, repeat it with the same mark or location so the app can reconcile it; do not invent an instance when its location or source is not readable.
 - For interior openings, set interiorSubtype to room, bath, closet, laundry, pantry, or other only when documented. Exclude garage doors and exterior openings from the interior inventory.
 - The openingEvidence shape is: { id, category, source, mark, level, location, type, interiorSubtype, sheet, page, sourceText, sizeCode, widthIn, heightIn, confidence }. Use one row per physical opening; source rows that describe the same opening should share the mark or the same level/location/size identity.
 - ALWAYS return windowCount, exteriorDoorCount, and interiorDoorCount in measurements when those openings are visible on floor plans or elevations — even if there is NO window/door schedule. Put those symbol counts in geometryDerived. Blank Review cards are a failed takeoff. Do not omit windows or swing doors because a schedule is missing.
-- Return slidingDoorCount only for true sliders (track, multi-slide, bypass, or an explicit slider callout). If no slider is visible, omit slidingDoorCount. Never type a hinged/French/patio door as a slider.
+- Return slidingDoorCount for a track, multi-slide, bypass, an explicit slider callout, or a floor-to-head multi-panel glazed door. If none of those is visible, omit slidingDoorCount. Never type a hinged French door with a swing as a slider.
 - On a covered-patio plan, count every distinct sliding opening. A great-room slider and a primary-suite slider are 2 slidingDoorCount units even when they share the same patio. Do not collapse two separate sliders into 1.
 - A two-story house can have sliding openings on more than one level. Count each physical slider once; do not assume there is only one patio slider.
 - When returning openingEvidence, tag true sliders as category sliding (not exterior_swing) and include type text such as "multi-slide", "sliding patio", or "bypass".
@@ -4673,12 +4949,26 @@ async function analyzePlanForMeasurements({
       const {
         renderWindowsDoorsPlanPages,
         selectWindowsDoorsSymbolPages,
+        cropPlanSheetToDrawing,
       } = require("./planPdfTextTakeoff");
       const selectedPages = selectWindowsDoorsSymbolPages(pdfTakeoff);
-      windowsDoorsSheetImages = await renderWindowsDoorsPlanPages(
+      const renderedSheets = await renderWindowsDoorsPlanPages(
         pdfBuffers,
         selectedPages,
-        { maxPages: 8, maxDimension: 2200 },
+        { maxPages: 6, maxDimension: 2800 },
+      );
+      windowsDoorsSheetImages = await Promise.all(
+        renderedSheets.map(async (image) => {
+          const meta = selectedPages.find(
+            (page) => Number(page?.page) === Number(image?.page),
+          );
+          const cropped = await cropPlanSheetToDrawing(image);
+          return {
+            ...cropped,
+            sheetRole: windowsDoorsSheetRole(meta?.reasons),
+            detail: "high",
+          };
+        }),
       );
     } catch (err) {
       console.warn("Windows & doors sheet raster skipped:", err?.message || err);
@@ -5133,7 +5423,9 @@ async function analyzePlanForMeasurements({
                   .map((page) => page.page)
                   .filter(Boolean)
                   .join(", ")}).`,
-                "Count each physical opening once. Windows, exterior doors, and sliders come from the elevation sheets only. Do not add the same window again from the floor plan. Interior doors come from the floor plan only. Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount. Count opening units, not door leaves. A hinged or French door is an exterior door. Return slidingDoorCount only for a visible track, multi-slide, bypass, or slider symbol, and omit it when none is visible.",
+                "Count each physical opening once. Windows, exterior doors, and sliders come from the elevation sheets only. Do not add the same opening again from the floor plan. Interior doors come from the floor plan only. Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount.",
+                "Count framed units, not panes, lites, or door leaves. A double or French swing door is 1 exteriorDoorCount. Sidelights are not extra doors. Garage-door glass is not a window.",
+                "A floor-to-head multi-panel glazed door is 1 slidingDoorCount, even when the sheet does not print the word slider. Do not put that glass in windowCount. Omit slidingDoorCount only when no door like that is drawn.",
                 "Do not return garage door counts.",
                 "Switches, ceiling fans, and exhaust fans come from the electrical sheet only. Return singlePoleSwitchCount, threeWaySwitchCount, ceilingFanCount, and bathExhaustFanCount only for symbols you can see. Do not count a recessed light as a switch or a fan. Omit a device type that is not drawn.",
                 "Do not return recessedLightCount, drywall, paint, insulation, foundation, or excavation. Put every returned count in measurements and list those keys in geometryDerived.",
@@ -5149,8 +5441,15 @@ async function analyzePlanForMeasurements({
         },
       ],
     });
-  const createWindowsDoorsSymbolCompletion = (symbolImages) =>
-    createOpenAiChatCompletion(openai, {
+  const createWindowsDoorsSheetCompletion = (page) => {
+    const role = page?.sheetRole || "unknown";
+    const task =
+      role === "elevation"
+        ? "This image is one exterior elevation. List every framed opening on this face only. Do not count interior doors."
+        : role === "floor_plan"
+          ? "This image is one floor plan. List every interior door opening on this sheet only: swing, pocket, or bifold. Do not count windows, exterior doors, sliders, or garage doors."
+          : "This image is one plan sheet. List each visible opening once.";
+    return createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.vision,
       response_format: aiRuntime.assistant.vision.responseFormat,
       temperature: 0,
@@ -5160,7 +5459,7 @@ async function analyzePlanForMeasurements({
         {
           role: "system",
           content:
-            "Count visible window and door openings. Return JSON only, with every count inside measurements. A visible window, swing door, or interior door with no count is a failed takeoff. Omit a count only when that opening type is not on the attached sheets. Never invent a count from living area or a missing schedule.",
+            "List visible openings on this one sheet. Return JSON only. One planFacts.openingEvidence row per physical opening. Never invent a count from living area or a missing schedule.",
         },
         {
           role: "user",
@@ -5168,25 +5467,153 @@ async function analyzePlanForMeasurements({
             {
               type: "text",
               text: [
-                `The attached images are the floor plan and exterior elevations (pages ${symbolImages
-                  .map((page) => page.page)
-                  .filter(Boolean)
-                  .join(", ")}). There may be no window or door schedule.`,
-                "Count each physical opening once. Windows, exterior swing doors, and sliders come from the elevation sheets only. Do not add the same window again from the floor plan. Interior doors come from the floor plan only.",
-                "Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount. Count opening units, not door leaves. A hinged or French door is an exterior door. Return slidingDoorCount only for a visible track, multi-slide, bypass, or slider symbol, and omit it when none is visible.",
-                "Do not return garage door counts. Put every returned count in measurements and list those keys in geometryDerived.",
-                'Example shape: {"measurements":{"windowCount":12,"exteriorDoorCount":4,"interiorDoorCount":18},"geometryDerived":["windowCount","exteriorDoorCount","interiorDoorCount"]}',
+                `Page ${page?.page || ""}. ${task}`,
+                "Return one row per frame, never one row per lite. A window divided into 4 panes is one window. Write panes on that row and do not add the panes again.",
+                "Omit a glass garage door and every lite in it. Omit a narrow sidelight beside a door. A double or French swing is one exterior_swing.",
+                "A floor-to-head multi-panel glazed door is one sliding row, even when the sheet does not print the word slider. It must reach the floor. A tall or fixed window is not a slider. A tall window is not an exterior_swing.",
+                "Set category to window, exterior_swing, sliding, or interior. Set reachesFloor true only when the opening meets the ground. Set location to the place on this sheet, such as stone wall right of entry. Omit quantity.",
+                'Example shape: {"planFacts":{"openingEvidence":[{"category":"window","panes":4,"location":"stone wall right of entry"},{"category":"sliding","location":"stone wall left of entry"},{"category":"exterior_swing","location":"entry"}]}}',
               ].join("\n\n"),
             },
-            ...symbolImages.map((page) => {
-              const part = toVisionContentPart(page);
-              if (part?.image_url) part.image_url.detail = "high";
-              return part;
-            }),
+            toVisionContentPart(page),
           ],
         },
       ],
     });
+  };
+  const createWindowsDoorsSheetCorrection = (page, rows) => {
+    const role = page?.sheetRole || "unknown";
+    const task =
+      role === "floor_plan"
+        ? "Keep one row per interior door that has a swing, pocket, or bifold. Delete exterior doors, garage doors, sliders, and openings with no door. A double door is one row."
+        : "Keep one row per frame. A window split into lites is one window, so delete the extra lite rows. Delete garage-door glass and sidelights. A floor-to-head multi-panel door is one sliding row, and it must reach the floor. A tall or fixed window is not a slider. A hinged or French pair is one exterior_swing. A tall window is not a swing door. Set reachesFloor true only when the opening meets the ground. Delete interior doors.";
+    return createOpenAiChatCompletion(openai, {
+      model: aiModels.assistant.vision,
+      response_format: aiRuntime.assistant.vision.responseFormat,
+      temperature: 0,
+      reasoning_effort: "none",
+      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+      messages: [
+        {
+          role: "system",
+          content:
+            "Correct an opening list for this one sheet. Return JSON only. Fewer rows is correct when the first list split one frame into panes or leaves.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                `Page ${page?.page || ""}. ${task}`,
+                "This is the first list. Replace it with the corrected list.",
+                JSON.stringify({
+                  planFacts: { openingEvidence: rows.slice(0, 60) },
+                }),
+                'Example shape: {"planFacts":{"openingEvidence":[{"category":"window","panes":4,"location":"stone wall right of entry"}]}}',
+              ].join("\n\n"),
+            },
+            toVisionContentPart(page),
+          ],
+        },
+      ],
+    });
+  };
+  const countWindowsDoorsBySheet = async (symbolImages) => {
+    const sheets = (
+      await Promise.all(
+        symbolImages.map(async (page) => {
+          const role = page.sheetRole || "unknown";
+          try {
+            const first = parseVisionJsonPayload(
+              await createWindowsDoorsSheetCompletion(page),
+            );
+            const firstRows = normalizeWindowsDoorsOpeningRows(
+              windowsDoorsEvidenceRows(first),
+              role,
+            );
+            let chosenRows = firstRows;
+            if (windowsDoorsEvidenceRows(first).length) {
+              try {
+                const corrected = parseVisionJsonPayload(
+                  await createWindowsDoorsSheetCorrection(
+                    page,
+                    windowsDoorsEvidenceRows(first),
+                  ),
+                );
+                const correctedRows = normalizeWindowsDoorsOpeningRows(
+                  windowsDoorsEvidenceRows(corrected),
+                  role,
+                );
+                chosenRows = pickTighterOpeningRows(firstRows, correctedRows);
+              } catch (err) {
+                console.warn(
+                  `Windows & doors sheet correction failed for page ${page?.page}:`,
+                  err?.message || err,
+                );
+              }
+            }
+            return {
+              page: page.page,
+              role,
+              payload: {
+                planFacts: { openingEvidence: chosenRows },
+              },
+            };
+          } catch (err) {
+            console.warn(
+              `Windows & doors sheet count failed for page ${page?.page}:`,
+              err?.message || err,
+            );
+            return null;
+          }
+        }),
+      )
+    ).filter(Boolean);
+    const measurements = sumWindowsDoorsSheetCounts(sheets);
+    console.log(
+      "[plan symbol sheets]",
+      sheets.map((sheet) => ({
+        page: sheet.page,
+        role: sheet.role,
+        rows: windowsDoorsEvidenceRows(sheet.payload).length,
+        counts: sumWindowsDoorsSheetCounts([sheet]),
+        openings: windowsDoorsEvidenceRows(sheet.payload).map((row) => ({
+          category: row.category,
+          location: row.location || null,
+        })),
+      })),
+    );
+    return {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              measurements,
+              planFacts: {
+                openingEvidence: sheets.flatMap((sheet) => {
+                  const allowed = new Set(
+                    WINDOWS_DOORS_SHEET_CATEGORIES[sheet.role] || [],
+                  );
+                  return windowsDoorsEvidenceRows(sheet.payload)
+                    .filter((row) => allowed.has(String(row?.category || "")))
+                    .map((row) => ({
+                      ...row,
+                      page: row?.page || sheet.page,
+                      source:
+                        sheet.role === "floor_plan"
+                          ? "floor_plan"
+                          : "elevation",
+                    }));
+                }),
+              },
+              geometryDerived: Object.keys(measurements),
+            }),
+          },
+        },
+      ],
+    };
+  };
   let wholeProjectSymbolPass = false;
   let windowsDoorsSymbolPass = false;
   let wholeProjectElectricalSymbolKeys = [];
@@ -5208,7 +5635,7 @@ async function analyzePlanForMeasurements({
           if (symbolImages.length && windowsDoorsSelected) {
             try {
               windowsDoorsSymbolPass = true;
-              return await createWindowsDoorsSymbolCompletion(symbolImages);
+              return await countWindowsDoorsBySheet(symbolImages);
             } catch (err) {
               windowsDoorsSymbolPass = false;
               console.warn(
@@ -5345,10 +5772,9 @@ async function analyzePlanForMeasurements({
         ];
         focused.fieldConfidence = { ...(focused.fieldConfidence || {}) };
         for (const key of symbolKeys) {
-          focused.fieldConfidence[key] = Math.max(
-            Number(focused.fieldConfidence[key]) || 0,
-            0.8,
-          );
+          focused.fieldConfidence[key] = windowsDoorsSymbolPass
+            ? 0.95
+            : Math.max(Number(focused.fieldConfidence[key]) || 0, 0.8);
         }
       }
       if (electricalSelected) {
@@ -6907,6 +7333,7 @@ module.exports = {
   applyConfidenceFloor,
   applyWindowsDoorsPlanTakeoff,
   filterWholeProjectSymbolMeasurements,
+  sumWindowsDoorsSheetCounts,
   WHOLE_PROJECT_SYMBOL_KEYS,
   buildItemQuantities,
   formatNotesBlock,

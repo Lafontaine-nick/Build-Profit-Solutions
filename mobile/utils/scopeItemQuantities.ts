@@ -184,6 +184,8 @@ import {
   resolveExteriorDoorsLumpSuggestedFill,
   resolveWindowsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveInteriorDoorGradePricing,
+  resolveOpeningGrade,
   resolveOpeningSizeTierSuggestedPricing,
   resolveSlidingDoorsLumpSuggestedFill,
   totalGarageDoorCount,
@@ -7201,7 +7203,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Trim on Opening trim & finish add-on.',
+      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Casing, finish, and paint are not included.',
     missingMessage: 'Enter window count or pricing.',
   },
   exterior_doors: {
@@ -7212,7 +7214,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
+      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Casing, finish, and paint are not included.',
     missingMessage: 'Enter exterior door count or pricing.',
   },
   sliding_doors: {
@@ -7223,7 +7225,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
+      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Casing, finish, and paint are not included.',
     missingMessage: 'Enter sliding door count or pricing.',
   },
   garage_doors: {
@@ -8135,7 +8137,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Trim on Opening trim & finish add-on.',
+      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Casing, finish, and paint are not included.',
     missingMessage: 'Enter window count or pricing.',
   },
   exterior_doors: {
@@ -8146,7 +8148,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
+      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Casing, finish, and paint are not included.',
     missingMessage: 'Enter exterior door count or pricing.',
   },
   sliding_doors: {
@@ -8157,7 +8159,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
+      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Casing, finish, and paint are not included.',
     missingMessage: 'Enter sliding door count or pricing.',
   },
   garage_doors: {
@@ -8250,6 +8252,15 @@ const FLOORING_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
+  floor_demo: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.floor_demo,
+    measurementKey: 'floorDemoSqft',
+    measurementKeys: ['floorDemoSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter the existing flooring area being removed.',
+    missingMessage: 'Enter flooring removal sqft.',
+  },
   floor_prep: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.floor_prep,
     measurementKey: 'floorPrepSqft',
@@ -19461,6 +19472,33 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  const openingGrade = resolveOpeningGrade(measurementsInput);
+  if (count > 0 && itemId === 'interior_doors' && openingGrade) {
+    const interiorPkg = resolveInteriorDoorGradePricing({
+      quantity: count,
+      grade: openingGrade,
+      location: { state: pricingContext?.state },
+    });
+    if (interiorPkg) {
+      return {
+        fill: {
+          material: interiorPkg.material,
+          labor: interiorPkg.labor,
+          total: interiorPkg.total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: interiorPkg.sourceLabel,
+          helper: interiorPkg.helper,
+          mode: 'suggested_price',
+          basis: { quantity: interiorPkg.quantity, unit: 'each' },
+          splitSource: 'source',
+          splitConfidence: 'medium',
+        },
+        comparison: null,
+      };
+    }
+  }
+
   if (
     count > 0 &&
     (itemId === 'windows' ||
@@ -19494,6 +19532,7 @@ export function resolveScopeItemSuggestedPricing(
       quantity: count,
       mix,
       location: { state: pricingContext?.state },
+      grade: openingGrade,
     });
     if (sizedPkg) {
       return {
@@ -27341,6 +27380,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathFloorTileCount?: number | null;
   showerDoorCount?: number | null;
   windowCount?: number | null;
+  /** Plan-export Windows & doors catalog. Notes leave this unset. */
+  openingGrade?: 'standard' | 'upgraded' | 'entry' | 'semi_custom' | null;
   exteriorDoorCount?: number | null;
   slidingDoorCount?: number | null;
   garageDoorSingleCount?: number | null;

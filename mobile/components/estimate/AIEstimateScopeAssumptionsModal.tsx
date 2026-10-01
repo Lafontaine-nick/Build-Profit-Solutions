@@ -205,6 +205,7 @@ import {
   createCustomScopeItem,
   resolveCustomScopeItemPlaceholder,
   bucketWholeProjectScopeGroups,
+  bucketWindowsDoorsPriceGroups,
   groupScopeChecklistItems,
   isMixedExteriorScopeNotes,
   initialScopeGroupCollapse,
@@ -14414,6 +14415,7 @@ function CollapsibleQuickMeasurements({
   stuccoSystemChoiceId = null,
   onStuccoSystemChange,
   onStuccoStoriesChange,
+  onOpeningGradeChange,
   Colors,
   darkMode,
   applying,
@@ -14512,6 +14514,7 @@ function CollapsibleQuickMeasurements({
   stuccoSystemChoiceId?: string | null;
   onStuccoSystemChange?: (choiceId: string | null) => void;
   onStuccoStoriesChange?: () => void;
+  onOpeningGradeChange?: () => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -16320,16 +16323,19 @@ function CollapsibleQuickMeasurements({
       mixedExteriorQmJob ||
       (mixedTradeSet.has('landscaping') &&
         (!compactMixedScope || explicitLandscapingScopeInNotes)));
+  const windowsDoorsPlanImport =
+    (singleTradeImport && tradeKey === 'windows_doors') ||
+    String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors' ||
+    (String(measurements.planImportTradeKey || '') === 'windows_doors' &&
+      String(measurements.planImportMode || '') !== 'whole_project');
   const concreteQmJob =
+    !windowsDoorsPlanImport &&
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'concrete' ||
       mixedExteriorQmJob ||
       (mixedTradeSet.has('concrete') &&
         (!compactMixedScope || explicitConcreteScopeInNotes)));
-  const windowsDoorsPlanImport =
-    (singleTradeImport && tradeKey === 'windows_doors') ||
-    String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors';
   const stuccoQmJob =
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
@@ -20392,6 +20398,79 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          {String(measurements.planImportMode || '') === 'selected_trade' &&
+          String(measurements.planImportTradeKey || '') === 'windows_doors' ? (
+            <View style={{ marginBottom: 12 }}>
+              <Text
+                style={{
+                  color: darkMode ? '#cbd5e1' : Colors.text,
+                  fontSize: 12,
+                  fontWeight: '800',
+                  marginBottom: 4,
+                }}
+              >
+                House grade
+              </Text>
+              <Text
+                style={{
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 11,
+                  marginBottom: 8,
+                }}
+              >
+                Upgraded is the plan price. Standard is a production house.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {(
+                  [
+                    ['upgraded', 'Upgraded'],
+                    ['standard', 'Standard'],
+                  ] as const
+                ).map(([grade, label]) => {
+                  const selected =
+                    (measurements.openingGrade === 'entry' ||
+                    measurements.openingGrade === 'standard'
+                      ? 'standard'
+                      : 'upgraded') === grade;
+                  return (
+                    <TouchableOpacity
+                      key={grade}
+                      disabled={applying}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        if (selected) return;
+                        setMeasurements(prev => ({
+                          ...prev,
+                          openingGrade: grade,
+                        }));
+                        onOpeningGradeChange?.();
+                      }}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: selected ? '#34d399' : '#3A3A3C',
+                        backgroundColor: selected
+                          ? 'rgba(52, 211, 153, 0.12)'
+                          : 'transparent',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: selected ? '#34d399' : Colors.text,
+                          fontSize: 13,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
           {notesScopeSelectorVisible ? (
             <NotesScopeSelector
               mode={notesTradeMode}
@@ -25989,9 +26068,16 @@ export default function AIEstimateScopeAssumptionsModal({
           : checklist?.templateKey,
       scopeGroupingContext
     );
-    const pricedGroups = collapsedScopeGroupSummary
-      ? bucketWholeProjectScopeGroups(grouped)
-      : grouped;
+    const windowsDoorsBid =
+      String(checklist?.templateKey || '').toLowerCase() === 'windows_doors' ||
+      (String(measurements.planImportTradeKey || '') === 'windows_doors' &&
+        String(measurements.planImportMode || '') !== 'whole_project') ||
+      (singleTradePlanImport && singleTradeKey === 'windows_doors');
+    const pricedGroups = windowsDoorsBid
+      ? bucketWindowsDoorsPriceGroups(grouped)
+      : collapsedScopeGroupSummary
+        ? bucketWholeProjectScopeGroups(grouped)
+        : grouped;
     return filterGroupedItemsWithoutPinnedTexture(
       pricedGroups,
       pinnedDrywallFinishItem
@@ -25999,6 +26085,10 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     templateDisplayItems,
     checklist?.templateKey,
+    measurements.planImportMode,
+    measurements.planImportTradeKey,
+    singleTradePlanImport,
+    singleTradeKey,
     roofingPlanExport,
     collapsedScopeGroupSummary,
     scopeGroupingContext,
@@ -26603,9 +26693,10 @@ export default function AIEstimateScopeAssumptionsModal({
   useEffect(() => {
     const templateKey = checklist?.templateKey || draft?.projectType;
     if (String(templateKey || '').toLowerCase() !== 'flooring') return;
-    syncFlooringScopeItemsFromMeasurements(
-      measurements as Record<string, unknown>
-    );
+    syncFlooringScopeItemsFromMeasurements({
+      ...(measurements as Record<string, unknown>),
+      scopeNotes,
+    });
   }, [
     checklist?.templateKey,
     draft?.projectType,
@@ -26619,6 +26710,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringInstallScopeCount,
     measurements.flooringDemoScopeCount,
     measurements.flooringExistingTypes,
+    scopeNotes,
     measurements.flooringNewLvpInstallMethod,
     measurements.flooringExistingLvpInstallMethod,
     syncFlooringScopeItemsFromMeasurements,
@@ -29374,6 +29466,17 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (String(checklist?.templateKey || '').toLowerCase() === 'flooring') {
+      const userEnteredFloorDemo =
+        Number(String(measurements.floorDemoSqft ?? '').replace(/,/g, '')) >
+          0 &&
+        measurements.quickMeasurementSources?.floorDemoSqft === 'user_entered';
+      if (
+        item.id === 'floor_demo' &&
+        flooringPlanOmitsExistingWork &&
+        !userEnteredFloorDemo
+      ) {
+        return null;
+      }
       const flooringProductScopeByItemId: Record<string, string> = {
         flooring_lvp: 'lvp',
         flooring_laminate: 'laminate',
@@ -30636,6 +30739,16 @@ export default function AIEstimateScopeAssumptionsModal({
               handleClearAcceptedPricing('stucco');
             }}
             onStuccoStoriesChange={() => handleClearAcceptedPricing('stucco')}
+            onOpeningGradeChange={() => {
+              for (const itemId of [
+                'windows',
+                'exterior_doors',
+                'sliding_doors',
+                'interior_doors',
+              ]) {
+                handleClearAcceptedPricing(itemId);
+              }
+            }}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
             onElectricalAttributesPreview={previewElectricalAttributes}

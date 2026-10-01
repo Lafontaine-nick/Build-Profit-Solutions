@@ -1,5 +1,6 @@
 const {
   filterWholeProjectSymbolMeasurements,
+  sumWindowsDoorsSheetCounts,
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,
@@ -186,6 +187,169 @@ describe("estimatePlanToMeasurements", () => {
       windowCount: 14,
       exteriorDoorCount: 2,
       interiorDoorCount: 1,
+    });
+  });
+
+  test("adds windows and doors from each sheet list", () => {
+    expect(
+      sumWindowsDoorsSheetCounts([
+        {
+          role: "elevation",
+          payload: {
+            measurements: { windowCount: 40, interiorDoorCount: 9 },
+            planFacts: {
+              openingEvidence: [
+                { category: "window", location: "upper left" },
+                { category: "window", location: "upper right" },
+                { category: "window", quantity: 6, location: "clerestory band" },
+                { category: "exterior_swing", location: "entry" },
+                { category: "sliding", location: "patio" },
+                { category: "interior", location: "bedroom" },
+              ],
+            },
+          },
+        },
+        {
+          role: "elevation",
+          payload: {
+            planFacts: {
+              openingEvidence: [
+                { category: "window", location: "side" },
+                { category: "sliding", location: "suite" },
+              ],
+            },
+          },
+        },
+        {
+          role: "floor_plan",
+          payload: {
+            measurements: { windowCount: 12, interiorDoorCount: 4 },
+            planFacts: {
+              openingEvidence: [
+                { category: "interior", location: "bed 1" },
+                { category: "interior", location: "bath" },
+                { category: "window", location: "ignored on plan" },
+              ],
+            },
+          },
+        },
+        {
+          role: "unknown",
+          payload: {
+            measurements: { windowCount: 15, interiorDoorCount: 6 },
+          },
+        },
+      ]),
+    ).toEqual({
+      windowCount: 3,
+      exteriorDoorCount: 1,
+      slidingDoorCount: 2,
+      interiorDoorCount: 2,
+    });
+
+    expect(
+      sumWindowsDoorsSheetCounts([
+        {
+          role: "elevation",
+          payload: { measurements: { windowCount: 8, slidingDoorCount: 2 } },
+        },
+        {
+          role: "floor_plan",
+          payload: { measurements: { interiorDoorCount: 11 } },
+        },
+      ]),
+    ).toEqual({
+      windowCount: 8,
+      slidingDoorCount: 2,
+      interiorDoorCount: 11,
+    });
+  });
+
+  test("counts one frame and drops garage glass, sidelights, and non-interior doors", () => {
+    expect(
+      sumWindowsDoorsSheetCounts([
+        {
+          role: "elevation",
+          payload: {
+            measurements: { windowCount: 15 },
+            planFacts: {
+              openingEvidence: [
+                { category: "window", location: "stone window lite 1" },
+                { category: "window", location: "stone window lite 2" },
+                { category: "window", location: "stone window lite 3" },
+                { category: "window", location: "stone window lite 4" },
+                { category: "window", location: "garage door lite 1" },
+                { category: "window", location: "garage door lite 2" },
+                { category: "window", location: "upper clerestory" },
+                { category: "window", location: "sidelight beside entry" },
+                {
+                  category: "window",
+                  location: "floor-to-head multi-panel patio door",
+                },
+                { category: "exterior_swing", location: "entry pair", quantity: 2 },
+              ],
+            },
+          },
+        },
+        {
+          role: "floor_plan",
+          payload: {
+            planFacts: {
+              openingEvidence: [
+                { category: "interior", location: "bed 2" },
+                { category: "interior", location: "bath" },
+                { category: "interior", location: "front door" },
+                { category: "interior", location: "cased opening to living" },
+              ],
+            },
+          },
+        },
+      ]),
+    ).toEqual({
+      windowCount: 2,
+      exteriorDoorCount: 1,
+      slidingDoorCount: 1,
+      interiorDoorCount: 2,
+    });
+
+    expect(
+      sumWindowsDoorsSheetCounts([
+        {
+          role: "elevation",
+          payload: {
+            planFacts: {
+              openingEvidence: [
+                { category: "sliding", location: "patio multi-panel door" },
+                { category: "sliding", location: "tall fixed window" },
+                {
+                  category: "sliding",
+                  location: "upper clerestory",
+                  reachesFloor: false,
+                },
+                { category: "exterior_swing", location: "entry door" },
+                { category: "exterior_swing", location: "tall side window" },
+              ],
+            },
+          },
+        },
+        {
+          role: "floor_plan",
+          payload: {
+            planFacts: {
+              openingEvidence: [
+                { category: "interior", location: "bed 2 door" },
+                { category: "interior", location: "bed 2 leaf" },
+                { category: "interior", location: "bath" },
+              ],
+            },
+          },
+        },
+      ]),
+    ).toEqual({
+      windowCount: 3,
+      exteriorDoorCount: 1,
+      slidingDoorCount: 1,
+      interiorDoorCount: 2,
     });
   });
 

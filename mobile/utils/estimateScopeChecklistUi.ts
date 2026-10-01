@@ -2047,19 +2047,19 @@ function migrateGroundUpTakeoffScopeItems(
     inject(
       'windows',
       'Windows',
-      'Window units, frames, glazing, flashing, screens, shimming, and standard installation. Casing, jamb extensions, stool/apron, and finish are on the Opening trim & finish add-on.',
+      'Window units, frames, glazing, flashing, screens, shimming, and standard installation. Casing, jamb extensions, stool, apron, finish, and paint are not included.',
       hasWindows
     );
     inject(
       'exterior_doors',
       'Exterior doors',
-      'Swing entry/exit door units, frames, thresholds, weatherstripping, flashing, and standard installation. Decorative casing and finish are on the Opening trim & finish add-on.',
+      'Swing entry/exit door units, frames, thresholds, weatherstripping, flashing, and standard installation. Decorative casing, finish, and paint are not included.',
       hasExtDoors
     );
     inject(
       'sliding_doors',
       'Exterior sliding doors',
-      'Patio / multi-panel door units, frames, hardware, flashing, and standard installation. Exterior casing and finish are on the Opening trim & finish add-on.',
+      'Patio / multi-panel door units, frames, hardware, flashing, and standard installation. Exterior casing, finish, and paint are not included.',
       hasSliding
     );
     inject(
@@ -2611,7 +2611,7 @@ export function ensureGroundUpOpeningScopeCards(
   ensure(
     'exterior_doors',
     'Exterior doors',
-    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
+    'Standard swing entry and exit doors — material and install. Not sliding, garage, or site gates.',
     'windows'
   );
   ensure(
@@ -5738,17 +5738,17 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
   windows:
-    'Window units, frames, glazing, flashing, shimming, and standard installation. Casing and finish are on the Opening trim & finish add-on.',
+    'Window units, frames, glazing, flashing, shimming, and standard installation. Casing, finish, and paint are not included.',
   exterior_doors:
-    'Swing entry/exit doors including iron/specialty entry — unit, frame, threshold, weatherstripping, flashing, and standard install. Not sliding, garage, or site gates.',
+    'Standard swing entry and exit doors — unit, frame, threshold, weatherstripping, flashing, and standard install. Not sliding, garage, or site gates.',
   sliding_doors:
-    'Patio / multi-panel sliding doors — unit, frame, hardware, flashing, and standard install. Exterior casing and finish are on the Opening trim & finish add-on.',
+    'Patio / multi-panel sliding doors — unit, frame, hardware, flashing, and standard install. Exterior casing, finish, and paint are not included.',
   garage_doors:
     'Priced by type: single (~$1,800), double (~$2,400), RV (~$8,300). Double+RV ≈ $10,700 locally.',
   garage_door_openers:
     'Count openers only when labeled or specified. Do not assume one opener per door.',
   interior_doors:
-    'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+    'Prehung interior door units, jambs, hinges, and standard hardware install. Casing, finish, and paint are not included.',
   trim_finish: OPENING_TRIM_FINISH_SCOPE_HELPER,
   windows_doors:
     'Window, exterior swing, sliding/patio, and interior door counts. Garage doors are a separate trade.',
@@ -6163,14 +6163,12 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   plumbing: PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
   framing: FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
   windows_doors: [
+    { title: 'Windows', itemIds: ['windows'] },
     {
-      title: 'Openings',
-      itemIds: ['windows', 'exterior_doors', 'sliding_doors', 'interior_doors'],
+      title: 'Exterior doors',
+      itemIds: ['exterior_doors', 'sliding_doors'],
     },
-    {
-      title: 'Add-ons',
-      itemIds: ['trim_finish', 'openings'],
-    },
+    { title: 'Interior doors', itemIds: ['interior_doors'] },
   ],
   addition: [
     {
@@ -6616,6 +6614,52 @@ export function bucketWholeProjectScopeGroups(
   } else if (other.length) {
     buckets.push({ title: 'Other', items: other });
   }
+  return buckets.filter(group => group.items.length > 0);
+}
+
+const WINDOWS_DOORS_PRICE_GROUPS: Array<{
+  title: string;
+  test: (itemId: string) => boolean;
+}> = [
+  {
+    title: 'Windows',
+    test: id => id === 'windows' || id === 'window_install',
+  },
+  {
+    title: 'Exterior doors',
+    test: id =>
+      id === 'exterior_doors' ||
+      id === 'exterior_door_install' ||
+      id === 'sliding_doors',
+  },
+  {
+    title: 'Interior doors',
+    test: id =>
+      id === 'interior_doors' || id === 'interior_door_install' || id === 'doors',
+  },
+];
+
+/** Windows & doors bids name the work. Whole-project finish buckets stay separate. */
+export function bucketWindowsDoorsPriceGroups(
+  groups: Array<{ title: string; items: ScopeChecklistItem[] }>
+): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  const buckets = WINDOWS_DOORS_PRICE_GROUPS.map(group => ({
+    title: group.title,
+    items: [] as ScopeChecklistItem[],
+  }));
+  const other: ScopeChecklistItem[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      const bucket = WINDOWS_DOORS_PRICE_GROUPS.find(entry => entry.test(item.id));
+      const target = buckets.find(entry => entry.title === bucket?.title);
+      if (target) target.items.push(item);
+      else other.push(item);
+    }
+  }
+  if (other.length) buckets.push({ title: 'Other', items: other });
   return buckets.filter(group => group.items.length > 0);
 }
 

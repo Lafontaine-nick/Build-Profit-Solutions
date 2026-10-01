@@ -70,6 +70,53 @@ export function openingStandardEachTotal(
   return base.material + base.labor;
 }
 
+export type OpeningGrade = 'standard' | 'upgraded';
+
+/** Plan-export catalog. Notes keep the single national each-rate. */
+export const OPENING_GRADE_EACH_RATES: Record<
+  OpeningGrade,
+  Record<
+    'windows' | 'exterior_doors' | 'sliding_doors' | 'interior_doors',
+    { material: number; labor: number }
+  >
+> = {
+  standard: {
+    windows: { material: 375, labor: 225 },
+    exterior_doors: { material: 730, labor: 470 },
+    sliding_doors: { material: 1550, labor: 850 },
+    interior_doors: { material: 145, labor: 135 },
+  },
+  upgraded: {
+    windows: { material: 465, labor: 275 },
+    exterior_doors: { material: 1000, labor: 650 },
+    sliding_doors: { material: 2200, labor: 1200 },
+    interior_doors: { material: 180, labor: 170 },
+  },
+};
+
+/**
+ * Two prices only on a Windows & doors plan export.
+ * Notes, and every other bid, stay on the single national rate.
+ */
+export function resolveOpeningGrade(measurements?: {
+  openingGrade?: string | null;
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+} | null): OpeningGrade | null {
+  if (
+    String(measurements?.planImportMode || '') !== 'selected_trade' ||
+    String(measurements?.planImportTradeKey || '') !== 'windows_doors'
+  ) {
+    return null;
+  }
+  const grade = String(measurements?.openingGrade || '');
+  return grade === 'entry' || grade === 'standard' ? 'standard' : 'upgraded';
+}
+
+export function openingGradeLabel(grade: OpeningGrade): string {
+  return grade === 'standard' ? 'Standard' : 'Upgraded';
+}
+
 /** Human-readable size tier labels for pricing helpers. */
 export const OPENING_SIZE_TIER_LABELS: Record<
   'windows' | 'exterior_doors' | 'sliding_doors',
@@ -434,6 +481,7 @@ export function resolveOpeningSizeTierSuggestedPricing(params: {
   quantity: number;
   mix?: OpeningSizeMix | null;
   location?: { state?: string | null } | null;
+  grade?: OpeningGrade | null;
 }): {
   material: number;
   labor: number;
@@ -445,7 +493,9 @@ export function resolveOpeningSizeTierSuggestedPricing(params: {
 } | null {
   const quantity = Math.round(Number(params.quantity) || 0);
   if (quantity <= 0) return null;
-  const base = EXTERIOR_OPENING_NATIONAL_RATES[params.itemId];
+  const base = params.grade
+    ? OPENING_GRADE_EACH_RATES[params.grade][params.itemId]
+    : EXTERIOR_OPENING_NATIONAL_RATES[params.itemId];
   const multipliers = OPENING_SIZE_TIER_MULTIPLIERS[params.itemId];
   const mix = params.mix || {
     standard: quantity,
@@ -474,13 +524,53 @@ export function resolveOpeningSizeTierSuggestedPricing(params: {
       : openingStandardTierHelper(params.itemId);
   const stateSuffix =
     scaled.stateCode && scaled.multiplier !== 1 ? ` · ${scaled.stateCode}` : '';
+  const gradeLabel = params.grade ? openingGradeLabel(params.grade) : null;
+  const each = base.material + base.labor;
   return {
     material: scaled.material,
     labor: scaled.labor,
     total: scaled.total,
     quantity,
     unit: 'each',
-    sourceLabel: `Suggested budget split · National Average · size-tier each${stateSuffix}`,
-    helper: sized || base.sourceLabel,
+    sourceLabel: gradeLabel
+      ? `Suggested budget split · ${gradeLabel} · ~$${each.toLocaleString()}/ea${stateSuffix}`
+      : `Suggested budget split · National Average · size-tier each${stateSuffix}`,
+    helper: gradeLabel
+      ? `${gradeLabel} · ${sized || ''}`.trim()
+      : sized || ('sourceLabel' in base ? base.sourceLabel : ''),
+  };
+}
+
+export function resolveInteriorDoorGradePricing(params: {
+  quantity: number;
+  grade: OpeningGrade;
+  location?: { state?: string | null } | null;
+}): {
+  material: number;
+  labor: number;
+  total: number;
+  quantity: number;
+  unit: 'each';
+  sourceLabel: string;
+  helper: string;
+} | null {
+  const quantity = Math.round(Number(params.quantity) || 0);
+  if (quantity <= 0) return null;
+  const base = OPENING_GRADE_EACH_RATES[params.grade].interior_doors;
+  const scaled = scaleSplitLumpForState(
+    base.material * quantity,
+    base.labor * quantity,
+    params.location
+  );
+  const each = base.material + base.labor;
+  const gradeLabel = openingGradeLabel(params.grade);
+  return {
+    material: scaled.material,
+    labor: scaled.labor,
+    total: scaled.total,
+    quantity,
+    unit: 'each',
+    sourceLabel: `Suggested budget split · ${gradeLabel} · ~$${each.toLocaleString()}/ea`,
+    helper: `${gradeLabel} prehung door, hung. Casing, finish, and paint are not included.`,
   };
 }

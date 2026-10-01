@@ -13,8 +13,6 @@ import {
   FRAMING_PLAN_QUICK_MEASUREMENT_KEYS,
   FRAMING_PLAN_SCOPE_ALLOWLIST,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
-import { OPENING_TRIM_FINISH_SCOPE_HELPER } from '@/utils/windowsDoorsTrimFinishPricing';
-
 export type PlanEstimatingMode = 'whole_project' | 'selected_trade';
 
 export type { SubcontractorTradeKey, LegacyPlanTradeKey };
@@ -346,8 +344,9 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
         if (allowed.includes(item.id)) return true;
         if (String(item.id || '').startsWith('custom_')) return true;
         // Plan notes mention drainage, permits, and MEP words. Those are not
-        // concrete scope on a concrete plan export.
-        if (tradeKey === 'concrete') return false;
+        // concrete scope on a concrete plan export. The same notes mention
+        // sitework and flatwork on a windows & doors export.
+        if (tradeKey === 'concrete' || tradeKey === 'windows_doors') return false;
         return Boolean((item as T & { noteBacked?: boolean }).noteBacked);
       })
     : items;
@@ -407,12 +406,7 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
     [
       'interior_doors',
       'Interior doors',
-      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
-    ],
-    [
-      'trim_finish',
-      'Opening trim & finish',
-      OPENING_TRIM_FINISH_SCOPE_HELPER,
+      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing, finish, and paint are not included.',
     ],
   ] as const;
   const combinedIndex =
@@ -437,9 +431,6 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
         id,
         label,
         helperText,
-        ...(id === 'trim_finish'
-          ? { inputType: 'choice' as const, state: 'unsure' as const }
-          : {}),
       } as T)
     ),
     ...withoutCombined.slice(combinedIndex),

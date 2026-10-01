@@ -404,6 +404,31 @@ function notesMentionExistingFloor(n: string): boolean {
   );
 }
 
+/** A new-construction flooring plan has no floor to remove unless the sheet says so. */
+export function flooringPlanOmitsRemoval(
+  m: Record<string, unknown>
+): boolean {
+  const planFlooring =
+    (m.planImportMode === 'selected_trade' &&
+      m.planImportTradeKey === 'flooring') ||
+    Boolean(m.planImportFingerprint);
+  if (!planFlooring) return false;
+  const notes = String(m.scopeNotes || '');
+  if (
+    /\b(?:existing|current|old)\s+(?:floor|flooring|carpet|tile|hardwood|lvp|vinyl)\b/i.test(
+      notes
+    )
+  ) {
+    return false;
+  }
+  const sources = m.quickMeasurementSources as
+    | Record<string, unknown>
+    | undefined;
+  const userEnteredDemo =
+    Number(m.floorDemoSqft) > 0 && sources?.floorDemoSqft === 'user_entered';
+  return !userEnteredDemo;
+}
+
 export function inferExistingFlooringFromNotes(
   notes: string | null | undefined
 ): FlooringExistingCounts {
@@ -644,6 +669,13 @@ export function syncFlooringQmScopeItems(
           return { ...row, state: 'included' as const, noteBacked: true };
         }
       }
+    }
+    if (row.id === 'floor_demo' && flooringPlanOmitsRemoval(m)) {
+      if (row.state !== 'excluded' || row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'excluded' as const, noteBacked: false };
+      }
+      return row;
     }
     if (
       row.id === 'floor_demo' &&
