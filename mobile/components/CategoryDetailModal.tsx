@@ -1,8 +1,6 @@
 // @ts-nocheck
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, Pressable, useWindowDimensions } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
@@ -23,7 +21,6 @@ import {
   ScreenLayout,
   PROJECT_WIDE_CONTAINER_CARD_INSET,
 } from "@/constants/ScreenLayout";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
 import CategoryEstimateBudgetCard from "./CategoryEstimateBudgetCard";
 import ReceiptStatusPill from "./ReceiptStatusPill";
@@ -567,7 +564,6 @@ export default function CategoryDetailModal({
         : categoryName.toLowerCase().includes('subs')
           ? '👥'
           : '📦';
-
   // Check for duplicate transactions
   const checkForDuplicates = (transaction: any): boolean => {
     const expenses = projectData.expenses || [];
@@ -800,79 +796,23 @@ export default function CategoryDetailModal({
         >
         {/* Header */}
         <View style={[styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
-          <View style={styles.headerTop}>
-            <View style={styles.backButtonWrapper}>
-              {darkMode ? (
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode
-                  onPress={onClose}
-                  style={[styles.backButton, { backgroundColor: "#000000" }]}
-                >
-                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </GradientRingBackInner>
-              </LinearGradient>
-              ) : (
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={false}
-                    onPress={onClose}
-                    style={[styles.backButton, { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color="#000000" />
-                  </GradientRingBackInner>
-                </LinearGradient>
-              )}
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                  <View style={styles.headerIconContainerWrapper}>
-                  {darkMode ? (
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.headerIconBorder}
-                  >
-                      <View style={[styles.headerIconContainer, { backgroundColor: "#000000" }]}>
-                      <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
-                    </View>
-                  </LinearGradient>
-                  ) : (
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.headerIconBorder}
-                    >
-                      <View style={[styles.headerIconContainer, { backgroundColor: Colors.bg }]}>
-                        <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
-                      </View>
-                    </LinearGradient>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.headerTitle, !darkMode && { color: Colors.text }]}>
-                    {categoryName.replace('/', ' & ')}
-                  </Text>
-                  <Text style={[styles.headerSubtitle, { color: supportSub }]}>
-                    Transactions & Invoices
-                  </Text>
-                </View>
-                </View>
-              </View>
-            </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onClose}
+            style={[
+              styles.backButtonPlain,
+              { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
+            ]}
+          >
+            <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : "#000000"} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerTitle, !darkMode && { color: Colors.text }]}>
+              {categoryName.replace('/', ' & ')}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: supportSub }]}>
+              Transactions & Invoices
+            </Text>
           </View>
         </View>
 
@@ -1040,7 +980,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.materialsScanButton,
                     darkMode
-                      ? { backgroundColor: cardBg, borderColor: nestedCardBorder }
+                      ? { backgroundColor: "#3A3A3C", borderColor: "rgba(148,163,184,0.35)" }
                       : { backgroundColor: Colors.surface2, borderColor: Colors.line },
                   ]}
                   onPress={() => {
@@ -1049,7 +989,7 @@ export default function CategoryDetailModal({
                   }}
                   activeOpacity={0.88}
                 >
-                  <Ionicons name="camera-outline" size={18} color="#22c55e" />
+                  <Ionicons name="camera-outline" size={18} color={darkMode ? "#94a3b8" : "#64748b"} />
                   <Text style={[styles.materialsScanButtonText, { color: darkMode ? "#F5F7FA" : Colors.text }]}>
                     Scan Product
                   </Text>
@@ -1063,14 +1003,9 @@ export default function CategoryDetailModal({
                 }}
                 activeOpacity={0.88}
               >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.addButton}
-                >
+                <View style={[styles.addButton, styles.addButtonSolid]}>
                   <Text style={styles.addButtonText}>+ Add Materials/Equipment</Text>
-                </LinearGradient>
+                </View>
               </TouchableOpacity>
               {Platform.OS !== "web" ? (
                 <Text style={[styles.materialsScanHelper, { color: supportSub }]}>
@@ -1086,14 +1021,9 @@ export default function CategoryDetailModal({
                 setShowAddForm(true);
               }}
             >
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.addButton}
-              >
+              <View style={[styles.addButton, styles.addButtonSolid]}>
                 <Text style={styles.addButtonText}>+ Add {categoryName}</Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           )}
 
@@ -1543,7 +1473,7 @@ export default function CategoryDetailModal({
                         <View style={[styles.transactionFooter, { marginTop: 12, borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line }]}>
                           <Text style={[styles.date, { color: mutedText }]}>{scannedDate}</Text>
                           <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
-                          <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                          <Text style={styles.tapToEdit}>Edit</Text>
                         </View>
                       </TouchableOpacity>
                     </View>
@@ -1760,7 +1690,20 @@ export default function CategoryDetailModal({
                           </>
                         )}
                       </View>
-                      <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
+                      <View style={styles.amountRow}>
+                        <Text
+                          style={[
+                            styles.amount,
+                            itemBudgetSummary &&
+                              itemBudgetSummary.budget > 0 &&
+                              itemBudgetSummary.remaining < 0 &&
+                              styles.amountOver,
+                          ]}
+                        >
+                          {formatMoneyFull(item.amount, { decimals: 2 })}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={18} color={darkMode ? "#e2e8f0" : "#64748b"} />
+                      </View>
                     </View>
 
                     {itemBudgetSummary ? (
@@ -1901,7 +1844,7 @@ export default function CategoryDetailModal({
                           <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
                         ) : null}
                         {!item.isChangeOrderMirror ? (
-                        <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                        <Text style={styles.tapToEdit}>Edit</Text>
                         ) : onRequestOpenChangeOrder ? (
                         <Text style={styles.tapToEdit}>Tap to open change order →</Text>
                         ) : null}
@@ -2058,7 +2001,20 @@ export default function CategoryDetailModal({
                                 </View>
                               )}
                             </View>
-                            <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
+                            <View style={styles.amountRow}>
+                        <Text
+                          style={[
+                            styles.amount,
+                            itemBudgetSummary &&
+                              itemBudgetSummary.budget > 0 &&
+                              itemBudgetSummary.remaining < 0 &&
+                              styles.amountOver,
+                          ]}
+                        >
+                          {formatMoneyFull(item.amount, { decimals: 2 })}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={18} color={darkMode ? "#e2e8f0" : "#64748b"} />
+                      </View>
                           </View>
 
                           {itemBudgetSummary ? (
@@ -2086,7 +2042,7 @@ export default function CategoryDetailModal({
                               <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
                             ) : null}
                             {!item.isChangeOrderMirror ? (
-                            <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                            <Text style={styles.tapToEdit}>Edit</Text>
                             ) : onRequestOpenChangeOrder ? (
                             <Text style={styles.tapToEdit}>Tap to open change order →</Text>
                             ) : null}
@@ -2372,12 +2328,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 56,
     paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: 'transparent',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    alignItems: 'center',
+  },
+  headerCenter: {
+    alignItems: 'center',
+    width: '100%',
   },
   headerTop: {
     flexDirection: 'row',
@@ -2405,17 +2366,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerIconPlain: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonPlain: {
+    position: 'absolute',
+    left: 8,
+    top: 64,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
   headerTitle: {
     color: "white",
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    lineHeight: 34,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
   },
   headerSubtitle: {
-    color: "rgba(226, 232, 240, 0.78)",
+    color: "#94a3b8",
     fontSize: 14,
-    marginTop: 6,
+    marginTop: 4,
+    textAlign: 'center',
     fontWeight: "500",
     letterSpacing: 0.12,
     lineHeight: 20,
@@ -2575,14 +2557,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     width: '100%',
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
+  },
+  addButtonSolid: {
+    backgroundColor: '#2dcc9a',
   },
   addButtonText: {
-    color: "#020617",
+    color: "#050B13",
     fontSize: 17,
     fontWeight: "700",
     letterSpacing: 0.2,
@@ -2686,11 +2666,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.6,
   },
+  amountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
   amount: {
-    color: "#22c55e",
+    color: "#2dcc9a",
     fontSize: 20,
     fontWeight: "800",
     letterSpacing: -0.4,
+  },
+  amountOver: {
+    color: "#f87171",
   },
   description: {
     color: "rgba(226, 232, 240, 0.72)",
@@ -2765,8 +2753,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   tapToEdit: {
-    color: "rgba(226, 232, 240, 0.5)",
-    fontSize: 11,
+    color: "#e2e8f0",
+    fontSize: 13,
     fontWeight: "600",
     letterSpacing: 0.12,
   },

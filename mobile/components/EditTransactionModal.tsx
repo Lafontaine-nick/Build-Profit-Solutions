@@ -14,18 +14,15 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
 } from "react-native";
-import { MaterialIcons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
+import { MaterialIcons, Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import {
   nativeNumericKeyboardProps,
   resolveTextInputKeyboardProps,
 } from "@/constants/inputKeyboardPresets";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -103,19 +100,6 @@ export default function EditTransactionModal({
   const scrollViewRef = useRef<ScrollView>(null);
   const descriptionRef = useRef<TextInput>(null);
 
-  const headerMci = useMemo(() => {
-    if (categoryLower.includes("labor") || categoryLower.includes("subs")) {
-      return "account-hard-hat" as const;
-    }
-    if (categoryLower.includes("change")) {
-      return "file-document-edit-outline" as const;
-    }
-    if (categoryLower.includes("purchase")) {
-      return "file-document-outline" as const;
-    }
-    return "package-variant-closed" as const;
-  }, [categoryLower]);
-
   const vendorFeatherIcon = useMemo(() => {
     if (categoryLower.includes("labor") || categoryLower.includes("subs")) {
       return "user" as const;
@@ -129,9 +113,8 @@ export default function EditTransactionModal({
   const expenseChrome = useMemo(
     () => ({
       headerRow: {
-        flexDirection: "row" as const,
         alignItems: "center" as const,
-        paddingHorizontal: formPad.header,
+        paddingHorizontal: 56,
         paddingTop: Platform.OS === "web" ? 20 : 8,
         paddingBottom: 14,
         marginBottom: 8,
@@ -139,21 +122,21 @@ export default function EditTransactionModal({
         borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
       },
       materialTitle: {
-        fontSize: 24,
-        fontWeight: "800" as const,
+        fontSize: 18,
+        fontWeight: "700" as const,
         color: Colors.text,
-        letterSpacing: -0.35,
-        lineHeight: 30,
+        letterSpacing: -0.25,
+        lineHeight: 23,
+        textAlign: "center" as const,
       },
       materialSubtitle: {
         fontSize: 13,
-        color: Colors.sub,
-        marginTop: 5,
+        color: darkMode ? "#94a3b8" : Colors.sub,
+        marginTop: 4,
         lineHeight: 18,
         fontWeight: "500" as const,
-        opacity: 0.92,
+        textAlign: "center" as const,
       },
-      iconBorder: { borderRadius: 12, padding: 1 },
       fieldGroup: { marginBottom: 18 },
       materialLabel: {
         fontSize: 13,
@@ -202,7 +185,7 @@ export default function EditTransactionModal({
       dollarSign: {
         fontSize: 18,
         fontWeight: "600" as const,
-        color: "#22c55e",
+        color: "#2dcc9a",
         marginLeft: 12,
         marginRight: 4,
       },
@@ -217,7 +200,7 @@ export default function EditTransactionModal({
         ...(Platform.OS === "web" ? { outlineStyle: "none" as const, outlineWidth: 0 } : {}),
       },
       hint: {
-        color: "#22d3ee",
+        color: "#2dcc9a",
         fontSize: 13,
         marginTop: 8,
         fontWeight: "600" as const,
@@ -267,7 +250,7 @@ export default function EditTransactionModal({
         paddingVertical: 15,
         alignItems: "center" as const,
         justifyContent: "center" as const,
-        backgroundColor: "#22c55e",
+        backgroundColor: "#2dcc9a",
         minHeight: 48,
       },
       saveBtnText: {
@@ -422,54 +405,27 @@ export default function EditTransactionModal({
           ]}
         >
           <View style={expenseChrome.headerRow}>
-            <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onClose();
-                  }}
-                  style={[styles.backBtn, { backgroundColor: Colors.bg }]}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? "#FFFFFF" : Colors.text}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.headerTitleRow}>
-              <View style={styles.headerIconContainerWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={expenseChrome.iconBorder}
-                >
-                  <View
-                    style={[
-                      styles.headerIconContainer,
-                      { backgroundColor: Colors.bg },
-                    ]}
-                  >
-                    <MaterialCommunityIcons name={headerMci} size={24} color="#22c55e" />
-                  </View>
-                </LinearGradient>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={expenseChrome.materialTitle}>
-                  Edit {displayCategoryName}
-                </Text>
-                <Text style={expenseChrome.materialSubtitle}>{subtitleText}</Text>
-              </View>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onClose();
+              }}
+              style={[
+                styles.backBtn,
+                { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons
+                name="arrow-back"
+                size={22}
+                color={darkMode ? "#FFFFFF" : Colors.text}
+              />
+            </Pressable>
+            <Text style={expenseChrome.materialTitle}>
+              Edit {displayCategoryName}
+            </Text>
+            <Text style={expenseChrome.materialSubtitle}>{subtitleText}</Text>
           </View>
 
           <ScrollView
@@ -506,7 +462,7 @@ export default function EditTransactionModal({
                     secondary: Colors.sub,
                     border: Colors.line,
                     nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-                    accent: "#22c55e",
+                    accent: "#2dcc9a",
                   }}
                 />
               ) : null}
@@ -516,7 +472,7 @@ export default function EditTransactionModal({
                   <Feather
                     name={vendorFeatherIcon}
                     size={16}
-                    color="#8DA0B8"
+                    color={darkMode ? "#94a3b8" : "#64748b"}
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -525,7 +481,7 @@ export default function EditTransactionModal({
                     value={vendor}
                     onChangeText={setVendor}
                     autoCapitalize="words"
-                    selectionColor="#22c55e"
+                    selectionColor="#2dcc9a"
                     underlineColorAndroid="transparent"
                     {...resolveTextInputKeyboardProps()}
                   />
@@ -551,7 +507,7 @@ export default function EditTransactionModal({
                       }
                     }}
                     keyboardType="decimal-pad"
-                    selectionColor="#22c55e"
+                    selectionColor="#2dcc9a"
                     underlineColorAndroid="transparent"
                     {...nativeNumericKeyboardProps}
                   />
@@ -569,7 +525,7 @@ export default function EditTransactionModal({
                   <Feather
                     name="file-text"
                     size={16}
-                    color="#8DA0B8"
+                    color={darkMode ? "#94a3b8" : "#64748b"}
                     style={{ marginRight: 12, marginTop: 2 }}
                   />
                   <TextInput
@@ -583,7 +539,7 @@ export default function EditTransactionModal({
                         scrollViewRef.current?.scrollToEnd({ animated: true });
                       }, 100);
                     }}
-                    selectionColor="#22c55e"
+                    selectionColor="#2dcc9a"
                     underlineColorAndroid="transparent"
                     {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
@@ -593,7 +549,7 @@ export default function EditTransactionModal({
               <View style={expenseChrome.fieldGroup}>
                 <Text style={expenseChrome.materialLabel}>PO Number</Text>
                 <View style={expenseChrome.materialInputWrap}>
-                  <Feather name="hash" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                  <Feather name="hash" size={16} color={darkMode ? "#94a3b8" : "#64748b"} style={{ marginRight: 12 }} />
                   <TextInput
                     style={expenseChrome.materialInput}
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
@@ -605,7 +561,7 @@ export default function EditTransactionModal({
                       }, 100);
                     }}
                     autoCapitalize="characters"
-                    selectionColor="#22c55e"
+                    selectionColor="#2dcc9a"
                     underlineColorAndroid="transparent"
                     {...resolveTextInputKeyboardProps()}
                   />
@@ -640,7 +596,7 @@ export default function EditTransactionModal({
               ]}
             >
               <View style={expenseChrome.saveBtnInner}>
-                <Text style={expenseChrome.saveBtnText}>✓ Save</Text>
+                <Text style={expenseChrome.saveBtnText}>Save</Text>
               </View>
             </Pressable>
           </View>
@@ -666,20 +622,16 @@ const styles = StyleSheet.create({
   formScroll: {
     flex: 1,
   },
-  backBtnWrapper: {
-    marginRight: 12,
-  },
-  backBtnBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
-  },
   backBtn: {
+    position: "absolute",
+    left: 8,
+    top: 10,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 2,
   },
   headerTitleRow: {
     flex: 1,

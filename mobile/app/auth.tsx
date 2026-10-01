@@ -40,8 +40,6 @@ import {
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
 import {
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_GREEN,
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   confirmScopeSectionLabelStyle,
   estimateFlowCardStyle,
@@ -1419,7 +1417,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                   <Ionicons
                     name="person-add-outline"
                     size={14}
-                    color={isSignup ? "#022C22" : (darkMode ? "#FFFFFF" : "#334155")}
+                    color={isSignup ? "#022C22" : (darkMode ? "#94a3b8" : "#64748b")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1452,7 +1450,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                   <Ionicons
                     name="log-in-outline"
                     size={14}
-                    color={!isSignup ? "#022C22" : (darkMode ? "#FFFFFF" : "#334155")}
+                    color={!isSignup ? "#022C22" : (darkMode ? "#94a3b8" : "#64748b")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1738,8 +1736,8 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                       void setStaySignedInPreference(v);
                     }}
                     disabled={loading}
-                    trackColor={{ false: '#64748B', true: 'rgba(34, 197, 94, 0.45)' }}
-                    thumbColor={staySignedIn ? '#22c55e' : '#f4f4f5'}
+                    trackColor={{ false: '#64748B', true: 'rgba(45, 204, 154, 0.45)' }}
+                    thumbColor={staySignedIn ? AUTH_ACCENT : '#f4f4f5'}
                     ios_backgroundColor="#64748B"
                   />
                   <Text style={styles.staySignedInLabel}>{t('auth.staySignedIn')}</Text>
@@ -1850,6 +1848,9 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
   );
 };
 
+/** Same mint as the landing primary button. */
+const AUTH_ACCENT = "#2dcc9a";
+
 const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   const wideWeb =
     Platform.OS === "web" && windowWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
@@ -1903,7 +1904,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   },
   headerEyebrow: {
     ...confirmScopeSectionLabelStyle(),
-    color: isDark ? "#f9fafb" : Colors.sub,
+    color: isDark ? "#94a3b8" : "#64748b",
     marginBottom: 8,
     ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
@@ -1924,7 +1925,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     fontWeight: "800",
   },
   headerSubtitle: {
-    color: isDark ? "rgba(255,255,255,0.82)" : "#475569",
+    color: isDark ? "#94a3b8" : "#64748b",
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8,
@@ -1963,7 +1964,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : "transparent",
   },
   modeChipActive: {
-    backgroundColor: ESTIMATE_FLOW_GREEN,
+    backgroundColor: AUTH_ACCENT,
     shadowColor: "transparent",
     shadowOpacity: 0,
     shadowRadius: 0,
@@ -2038,7 +2039,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginRight: 4,
   },
   strengthBarActive: {
-    backgroundColor: "#22C55E",
+    backgroundColor: AUTH_ACCENT,
   },
   strengthText: {
     color: isDark ? "#FFFFFF" : "#475569",
@@ -2051,7 +2052,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginBottom: 6,
   },
   forgotText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: isDark ? "#94a3b8" : "#64748b",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -2094,6 +2095,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   },
   primaryBtn: {
     marginTop: 0,
+    backgroundColor: AUTH_ACCENT,
   },
   primaryBtnText: {
     color: "#071018",
@@ -2106,11 +2108,11 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginTop: 4,
   },
   footerText: {
-    color: isDark ? "#FFFFFF" : "#475569",
+    color: isDark ? "#94a3b8" : "#64748b",
     fontSize: 13,
   },
   footerLink: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: isDark ? "#e2e8f0" : "#0f172a",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -2126,7 +2128,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     lineHeight: 16,
   },
   termsLink: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: isDark ? "#94a3b8" : "#64748b",
     fontWeight: "500",
     textDecorationLine: "underline",
   },

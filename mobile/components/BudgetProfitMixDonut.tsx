@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import Svg, { Circle, Text as SvgText } from "react-native-svg";
 
 export type BudgetProfitMixSegment = {
   key: string;
@@ -11,9 +10,9 @@ export type BudgetProfitMixSegment = {
 };
 
 /** Segment colors: teal (spent), blue (remaining), green (profit); shortfall stays distinct when EAC > contract. */
-const COLOR_SPENT_TEAL = "#14B8A6";
-const COLOR_REMAINING_BLUE = "#3B82F6";
-const COLOR_PROFIT_GREEN = "#22C55E";
+const COLOR_SPENT = "#94a3b8";
+const COLOR_REMAINING = "rgba(148, 163, 184, 0.35)";
+const COLOR_PROFIT = "#2dcc9a";
 const COLOR_SHORTFALL = "#FB7185";
 
 /**
@@ -45,11 +44,11 @@ export function computeBudgetProfitMixSegments(params: {
   const remainLabel = done ? "Remaining cost" : "Projected Remaining Cost";
   const thirdLabel =
     profit >= 0 ? (done ? "Net profit" : "Projected Profit") : done ? "Net shortfall" : "Projected Shortfall";
-  const thirdColor = profit >= 0 ? COLOR_PROFIT_GREEN : COLOR_SHORTFALL;
+  const thirdColor = profit >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
 
   const parts = [
-    { key: "spent", label: "Spent to Date", value: s, color: COLOR_SPENT_TEAL },
-    { key: "remain", label: remainLabel, value: remaining, color: COLOR_REMAINING_BLUE },
+    { key: "spent", label: "Spent to Date", value: s, color: COLOR_SPENT },
+    { key: "remain", label: remainLabel, value: remaining, color: COLOR_REMAINING },
     {
       key: profit >= 0 ? "profit" : "shortfall",
       label: thirdLabel,
@@ -81,11 +80,6 @@ export function computeBudgetProfitMixSegments(params: {
 
   return { segments, contractValue: cv };
 }
-
-/** Donut geometry — wider ring + larger center type */
-const SIZE = 228;
-const STROKE = 28;
-const R = SIZE / 2 - STROKE / 2 - 3;
 
 type Props = {
   contractValue: number;
@@ -127,127 +121,52 @@ export default function BudgetProfitMixDonut({
     return `Budget and profit mix. ${rows.map((s) => `${s.label} ${formatMoney(s.value, currency)}`).join(". ")}`;
   }, [segments, formatMoney, currency]);
 
-  const circumference = 2 * Math.PI * R;
-  const labelDim = darkMode ? "rgba(255,255,255,0.52)" : "rgba(15,23,42,0.52)";
+  const labelDim = darkMode ? "#94a3b8" : "#64748b";
   const valueBright = darkMode ? "#FFFFFF" : "#0f172a";
-  const centerPctColor =
-    projectedMarginPct >= 0
-      ? COLOR_PROFIT_GREEN
-      : "#FB7185";
-
-  /** Midpoint of each ring segment (degrees from +x), for % labels on the stroke centerline */
-  const segmentRingLabels = useMemo(() => {
-    let rotation = -90;
-    const cx = SIZE / 2;
-    const cy = SIZE / 2;
-    /** Hide on-card % only if the arc is too small to place text (very thin sliver) */
-    const MIN_SWEEP_DEG = 4;
-    return segments
-      .filter((s) => s.key !== "empty")
-      .map((seg) => {
-        const midDeg = rotation + seg.sweepDeg / 2;
-        const rad = (midDeg * Math.PI) / 180;
-        const x = cx + R * Math.cos(rad);
-        const y = cy + R * Math.sin(rad);
-        rotation += seg.sweepDeg;
-        const pct = (seg.sweepDeg / 360) * 100;
-        const pctStr =
-          pct < 1 && pct > 0 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`;
-        return {
-          key: seg.key,
-          x,
-          y,
-          pctStr,
-          show: seg.sweepDeg >= MIN_SWEEP_DEG,
-          fontSize: seg.sweepDeg < 14 ? 11 : seg.sweepDeg < 28 ? 12 : 13,
-        };
-      });
-  }, [segments]);
-
-  let rotation = -90;
-  const circles = segments.map((seg, idx) => {
-    const len = (seg.sweepDeg / 360) * circumference;
-    const el = (
-      <Circle
-        key={seg.key + idx}
-        cx={SIZE / 2}
-        cy={SIZE / 2}
-        r={R}
-        stroke={seg.color}
-        strokeWidth={STROKE}
-        strokeLinecap="round"
-        fill="none"
-        strokeDasharray={`${len} ${circumference}`}
-        rotation={rotation}
-        originX={SIZE / 2}
-        originY={SIZE / 2}
-      />
-    );
-    rotation += seg.sweepDeg;
-    return el;
-  });
+  const centerPctColor = projectedMarginPct >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
+  const visibleSegments = segments.filter((s) => s.key !== "empty");
 
   return (
     <View
       style={styles.wrap}
       accessible
-      accessibilityRole="image"
+      accessibilityRole="summary"
       accessibilityLabel={accessibilityLabel}
     >
-      <View style={styles.chartBox}>
-        <Svg width={SIZE} height={SIZE}>
-          <Circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={R}
-            stroke={darkMode ? "rgba(255,255,255,0.07)" : "rgba(15, 23, 42, 0.07)"}
-            strokeWidth={STROKE}
-            fill="none"
+      <Text style={[styles.centerLabel, { color: labelDim }]}>
+        {jobCompleted ? "NET MARGIN" : "PROJECTED MARGIN"}
+      </Text>
+      <Text style={[styles.centerValue, { color: centerPctColor }]}>
+        {`${projectedMarginPct.toFixed(1)}%`}
+      </Text>
+      <View style={styles.mixTrack}>
+        {visibleSegments.map((seg) => (
+          <View
+            key={seg.key}
+            style={{
+              flex: Math.max(seg.sweepDeg, 0.01),
+              backgroundColor: seg.color,
+            }}
           />
-          {circles}
-          {segmentRingLabels
-            .filter((l) => l.show)
-            .map((l) => (
-              <SvgText
-                key={`pct-${l.key}`}
-                x={l.x}
-                y={l.y}
-                fill="rgba(255,255,255,0.96)"
-                fontSize={l.fontSize}
-                fontWeight="700"
-                textAnchor="middle"
-                alignmentBaseline="central"
-              >
-                {l.pctStr}
-              </SvgText>
-            ))}
-        </Svg>
-        <View style={styles.centerOverlay} pointerEvents="none">
-          <Text style={[styles.centerLabel, { color: labelDim }]}>
-            {jobCompleted ? "NET MARGIN" : "PROJECTED MARGIN"}
-          </Text>
-          <Text
-            style={[styles.centerValue, { color: centerPctColor }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            {`${projectedMarginPct.toFixed(1)}%`}
-          </Text>
-        </View>
+        ))}
       </View>
-
       <View style={styles.legend}>
-        {segments
-          .filter((s) => s.key !== "empty")
-          .map((seg) => (
+        {visibleSegments.map((seg) => {
+          const pct = (seg.sweepDeg / 360) * 100;
+          const pctStr = pct < 1 && pct > 0 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`;
+          return (
             <View key={seg.key} style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: seg.color }]} />
-              <View style={styles.legendTextCol}>
-                <Text style={[styles.legendLabel, { color: labelDim }]}>{seg.label}</Text>
-                <Text style={[styles.legendValue, { color: valueBright }]}>{formatMoney(seg.value, currency)}</Text>
-              </View>
+              <Text style={[styles.legendLabel, { color: labelDim }]}>
+                {seg.label}
+              </Text>
+              <Text style={[styles.legendPct, { color: labelDim }]}>{pctStr}</Text>
+              <Text style={[styles.legendValue, { color: valueBright }]}>
+                {formatMoney(seg.value, currency)}
+              </Text>
             </View>
-          ))}
+          );
+        })}
       </View>
     </View>
   );
@@ -256,69 +175,61 @@ export default function BudgetProfitMixDonut({
 const styles = StyleSheet.create({
   wrap: {
     width: "100%",
-    alignItems: "center",
-    paddingVertical: 2,
-  },
-  chartBox: {
-    width: SIZE,
-    height: SIZE,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    marginBottom: 18,
-  },
-  centerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 18,
+    alignItems: "stretch",
+    paddingTop: 4,
   },
   centerLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 1.6,
-    marginBottom: 6,
-    textAlign: "center",
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
   centerValue: {
-    fontSize: 40,
+    fontSize: 32,
     fontWeight: "800",
-    lineHeight: 44,
-    textAlign: "center",
+    letterSpacing: -0.4,
+    lineHeight: 38,
+  },
+  mixTrack: {
+    marginTop: 14,
+    height: 8,
+    borderRadius: 999,
+    overflow: "hidden",
+    flexDirection: "row",
+    backgroundColor: "rgba(148, 163, 184, 0.2)",
   },
   legend: {
     width: "100%",
-    marginTop: 4,
-    gap: 14,
+    marginTop: 14,
+    gap: 12,
   },
   legendRow: {
     flexDirection: "row",
     alignItems: "center",
     width: "100%",
+    gap: 8,
   },
   legendDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 12,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     flexShrink: 0,
-  },
-  legendTextCol: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
   },
   legendLabel: {
     fontSize: 14,
     fontWeight: "500",
     flex: 1,
   },
+  legendPct: {
+    fontSize: 13,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
   legendValue: {
     fontSize: 15,
     fontWeight: "700",
     textAlign: "right",
+    minWidth: 88,
     fontVariant: ["tabular-nums"],
   },
 });

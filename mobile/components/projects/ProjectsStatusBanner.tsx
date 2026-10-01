@@ -11,7 +11,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
@@ -23,30 +22,12 @@ type FlowColors = {
   text: string;
 };
 
-const VARIANTS: Record<
-  ProjectsStatusBannerVariant,
-  {
-    accent: readonly [string, string];
-    iconBg: string;
-    iconColor: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    borderTint: string;
-  }
-> = {
-  submitted: {
-    accent: ['#0ea5e9', '#22c55e'],
-    iconBg: 'rgba(14, 165, 233, 0.16)',
-    iconColor: '#38bdf8',
-    icon: 'paper-plane-outline',
-    borderTint: 'rgba(56, 189, 248, 0.32)',
-  },
-  activated: {
-    accent: ['#22c55e', '#2DFFC4'],
-    iconBg: 'rgba(34, 197, 94, 0.16)',
-    iconColor: '#4ade80',
-    icon: 'checkmark-circle-outline',
-    borderTint: 'rgba(74, 222, 128, 0.32)',
-  },
+const BANNER_ACCENT = '#2dcc9a';
+const BANNER_MUTED = '#94a3b8';
+
+const BANNER_ICONS: Record<ProjectsStatusBannerVariant, keyof typeof Ionicons.glyphMap> = {
+  submitted: 'paper-plane-outline',
+  activated: 'checkmark-circle-outline',
 };
 
 type ProjectsStatusBannerProps = {
@@ -81,8 +62,6 @@ export function ProjectsStatusBanner({
   const panStartY = useRef(0);
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
-
-  const theme = VARIANTS[variant];
 
   const dismissAnimated = useCallback(() => {
     if (closingRef.current) return;
@@ -177,7 +156,10 @@ export function ProjectsStatusBanner({
         styles.wrap,
         estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0, marginTop: 0 }),
         {
-          borderColor: darkMode ? theme.borderTint : Colors.line,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+          padding: 0,
+          shadowOpacity: 0,
+          elevation: 0,
           opacity,
           transform: [{ translateY }],
         },
@@ -185,16 +167,8 @@ export function ProjectsStatusBanner({
       ]}
       {...panResponder.panHandlers}
     >
-      <LinearGradient
-        colors={theme.accent}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.leftAccent}
-      />
       <View style={styles.row}>
-        <View style={[styles.iconWrap, { backgroundColor: theme.iconBg }]}>
-          <Ionicons name={theme.icon} size={18} color={theme.iconColor} />
-        </View>
+        <Ionicons name={BANNER_ICONS[variant]} size={18} color={BANNER_ACCENT} />
         <View style={styles.textCol}>
           <Text
             style={[
@@ -208,9 +182,7 @@ export function ProjectsStatusBanner({
             style={[
               styles.body,
               {
-                color: darkMode
-                  ? 'rgba(248, 250, 252, 0.72)'
-                  : 'rgba(51, 65, 85, 0.9)',
+                color: darkMode ? BANNER_MUTED : '#64748b',
               },
             ]}
             numberOfLines={bodyLines}
@@ -235,7 +207,7 @@ export function ProjectsStatusBanner({
           <Ionicons
             name="close"
             size={16}
-            color={darkMode ? 'rgba(248, 250, 252, 0.55)' : 'rgba(51, 65, 85, 0.55)'}
+            color={darkMode ? BANNER_MUTED : '#64748b'}
           />
         </Pressable>
       </View>
@@ -249,31 +221,14 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     paddingHorizontal: 0,
   },
-  leftAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingLeft: 16,
-    paddingRight: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingLeft: 14,
+    paddingRight: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
     gap: 10,
-  },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
   },
   textCol: {
     flex: 1,

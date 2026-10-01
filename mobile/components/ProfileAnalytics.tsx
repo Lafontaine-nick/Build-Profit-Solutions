@@ -1,20 +1,21 @@
 import React, { useMemo, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
-  ESTIMATE_FLOW_GREEN,
-  ESTIMATE_FLOW_PROGRESS_GRADIENT,
-  ESTIMATE_FLOW_TEXT_LABEL_DARK,
   ESTIMATE_FLOW_TEXT_MUTED_DARK,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
   ESTIMATE_FLOW_TRACK_BG_DARK,
   estimateFlowCardStyle,
 } from "@/utils/estimateFlowCardStyle";
+
+function isQuietAnalyticsMoney(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "—" || trimmed === "-" || trimmed === "" || /^\$?0+(\.0+)?$/.test(trimmed);
+}
 
 interface ProjectTypeStat {
   label: string;
@@ -51,7 +52,6 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
   activeWonCount = 0,
   completedCount,
   projectTypeStats = [],
-  overviewProfit = 0,
   completedProjects = [],
   profitOutlook,
 }) => {
@@ -263,7 +263,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
       {/* Live Data pill */}
       <View style={styles.livePillRow}>
         <View style={styles.livePill}>
-          <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
+          <Ionicons name="checkmark-circle" size={14} color="#2dcc9a" />
           <Text style={styles.livePillText}>
             Live Data · {activeWonCount} Active
             {completedCount != null && completedCount > 0 ? ` · ${completedCount} Completed` : ""}
@@ -276,7 +276,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           <Text style={styles.forecastEyebrow}>Completed profit</Text>
           <View style={styles.forecastTitleRow}>
             <View style={styles.blockHeaderLeft}>
-              <Ionicons name="bar-chart-outline" size={20} color="#22C55E" />
+              <Ionicons name="bar-chart-outline" size={20} color="#94a3b8" />
               <Text style={styles.forecastBlockTitle}>Monthly Profit Trend</Text>
             </View>
           </View>
@@ -305,21 +305,10 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
                   {item.value}
                 </Text>
 
-                <View
-                  style={[
-                    styles.barTrack,
-                    item.isEmpty && styles.barTrackEmpty,
-                  ]}
-                >
-                  {item.isEmpty ? (
-                    <View
-                      style={[
-                        styles.barFill,
-                        styles.barFillEmpty,
-                        { height: `${item.heightPct}%` },
-                      ]}
-                    />
-                  ) : (
+                {item.isEmpty ? (
+                  <View style={styles.barBaseline} />
+                ) : (
+                  <View style={styles.barTrack}>
                     <View
                       style={[
                         styles.barFill,
@@ -327,8 +316,8 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
                         { height: `${item.heightPct}%` },
                       ]}
                     />
-                  )}
-                </View>
+                  </View>
+                )}
 
                 <View style={[styles.monthPill, item.isEmpty && styles.monthPillMuted]}>
                   <Text
@@ -345,35 +334,12 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           </ScrollView>
       </View>
 
-      {/* Profit Analytics & Profitability by Project Type - Combined */}
+      {(completedCount ?? 0) > 0 || completedProjects.length > 0 ? (
       <View style={styles.flowCardStacked}>
-          {/* Profit Analytics Section */}
-          <Text style={styles.forecastEyebrow}>Historical performance</Text>
+          <Text style={styles.forecastEyebrow}>Completed jobs</Text>
           <View style={styles.forecastTitleRow}>
             <View style={styles.blockHeaderLeft}>
-              <Feather name="trending-up" size={20} color="#22C55E" />
-              <Text style={styles.forecastBlockTitle}>Profit Analytics</Text>
-            </View>
-          </View>
-
-          <View style={styles.singleProfitRow}>
-            <View>
-              <Text style={styles.forecastLabel}>Overview Profit (completed)</Text>
-              <Text style={styles.forecastValue}>{formatCurrency(overviewProfit)}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.forecastSub}>
-            From completed jobs.
-          </Text>
-
-          {/* Divider */}
-          <View style={styles.sectionDivider} />
-
-          {/* Profitability by Project Type Section */}
-          <View style={[styles.forecastTitleRow, styles.projectTypeTitleRow]}>
-            <View style={styles.blockHeaderLeft}>
-              <Feather name="triangle" size={20} color="#22C55E" />
+              <Ionicons name="triangle-outline" size={20} color="#94a3b8" />
               <Text style={styles.forecastBlockTitle}>
                 Profitability by Project Type
               </Text>
@@ -382,8 +348,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
           {projectTypeStats.length === 0 ? (
             <Text style={styles.forecastSub}>
-              Add a project type on estimates, then complete jobs to see margins by
-              type.
+              Add a project type on the estimate to see margins by type.
             </Text>
           ) : (
             projectTypeStats.map((pt) => (
@@ -396,14 +361,12 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
                   Avg margin {pt.percent.toFixed(1)}%
                 </Text>
                 <View style={styles.progressTrack}>
-                  <LinearGradient
-                    colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
+                  <View
                     style={[
                       styles.progressFill,
                       {
                         width: `${Math.min(100, Math.max(0, pt.percent))}%`,
+                        backgroundColor: "#2dcc9a",
                       },
                     ]}
                   />
@@ -412,6 +375,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             ))
           )}
       </View>
+      ) : null}
 
       {/* Revenue Forecast */}
       <View style={styles.flowCardStacked}>
@@ -421,7 +385,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             </Text>
             <View style={[styles.forecastTitleRow, styles.forecastRevenueTitleRow]}>
               <View style={styles.blockHeaderLeft}>
-                <Feather name="trending-up" size={20} color="#22C55E" />
+                <Ionicons name="trending-up-outline" size={20} color="#94a3b8" />
                 <Text style={styles.forecastBlockTitle}>Net profit</Text>
               </View>
             </View>
@@ -441,7 +405,12 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               </View>
               <View style={styles.forecastValueSlot}>
                 <Text
-                  style={[styles.forecastValue, styles.forecastTileTextCenter]}
+                  style={[
+                    styles.forecastValue,
+                    styles.forecastTileTextCenter,
+                    isQuietAnalyticsMoney(completedNetDisplay) && styles.forecastValueQuiet,
+                    !isQuietAnalyticsMoney(completedNetDisplay) && styles.forecastValueLive,
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.32}
@@ -469,7 +438,12 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               </View>
               <View style={styles.forecastValueSlot}>
                 <Text
-                  style={[styles.forecastValue, styles.forecastTileTextCenter]}
+                  style={[
+                    styles.forecastValue,
+                    styles.forecastTileTextCenter,
+                    isQuietAnalyticsMoney(pipelineNetDisplay) && styles.forecastValueQuiet,
+                    !isQuietAnalyticsMoney(pipelineNetDisplay) && styles.forecastValueLive,
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.32}
@@ -514,14 +488,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: "rgba(22, 163, 74, 0.12)",
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.55)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
   },
   livePillText: {
     marginLeft: 6,
     fontSize: 12,
-    color: darkMode ? "rgba(255,255,255,0.92)" : "#0f172a",
+    color: darkMode ? "#94a3b8" : "#64748b",
     fontWeight: "500",
   },
 
@@ -539,7 +513,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
+    color: darkMode ? "#94a3b8" : "#64748b",
     marginBottom: 8,
   },
   forecastTitleRow: {
@@ -644,6 +618,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     justifyContent: "flex-end",
     overflow: "hidden",
   },
+  barBaseline: {
+    width: 22,
+    height: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.35)" : "rgba(148,163,184,0.45)",
+    marginTop: 56,
+  },
   barTrackEmpty: {
     backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : "rgba(241,245,249,0.9)",
     borderColor: darkMode ? "rgba(148, 163, 184, 0.15)" : "rgba(148,163,184,0.45)",
@@ -653,7 +634,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 999,
   },
   barFillGreen: {
-    backgroundColor: ESTIMATE_FLOW_GREEN,
+    backgroundColor: "#2dcc9a",
   },
   barFillEmpty: {
     backgroundColor: "rgba(148, 163, 184, 0.25)",
@@ -697,8 +678,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginRight: 8,
   },
   rangeChipActive: {
-    backgroundColor: "#22C55E",
-    borderColor: "#22C55E",
+    backgroundColor: "#2dcc9a",
+    borderColor: "#2dcc9a",
   },
   rangeChipText: {
     fontSize: 12,
@@ -767,10 +748,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     minWidth: 0,
     paddingHorizontal: 6,
     paddingVertical: 8,
-    borderRadius: 11,
-    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface,
-    borderWidth: 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
+    backgroundColor: "transparent",
     overflow: "hidden",
   },
   forecastTileCentered: {
@@ -795,7 +773,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.75,
     textTransform: "uppercase",
-    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
+    color: darkMode ? "#94a3b8" : "#64748b",
   },
   forecastValueSlot: {
     minHeight: 48,
@@ -811,6 +789,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     letterSpacing: -0.28,
     color: darkMode ? "#F5F7FA" : Colors.text,
     fontVariant: ["tabular-nums"],
+  },
+  forecastValueQuiet: {
+    color: darkMode ? "#94a3b8" : "#64748b",
+  },
+  forecastValueLive: {
+    color: "#2dcc9a",
   },
   forecastSubSlot: {
     flex: 1,

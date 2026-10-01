@@ -10,7 +10,7 @@ export default function ReceiptStatusPill({ hasReceipt }: Props) {
   if (hasReceipt) {
     return (
       <View style={[styles.pill, styles.receiptPill]}>
-        <MaterialIcons name="receipt" size={11} color="#4ade80" />
+        <MaterialIcons name="receipt" size={11} color="#2dcc9a" />
         <Text style={[styles.text, styles.receiptText]}>Receipt</Text>
       </View>
     );
@@ -36,8 +36,8 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   receiptPill: {
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-    borderColor: 'rgba(34, 197, 94, 0.28)',
+    backgroundColor: 'rgba(45, 204, 154, 0.12)',
+    borderColor: 'rgba(45, 204, 154, 0.32)',
   },
   missingPill: {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
@@ -48,6 +48,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  receiptText: { color: '#4ade80' },
+  receiptText: { color: '#2dcc9a' },
   missingText: { color: '#f87171' },
 });

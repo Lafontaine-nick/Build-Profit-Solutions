@@ -21,8 +21,6 @@ import { clerkAuthService } from '../services/clerkAuth';
 import { onboardingDataKeyForUser, setPendingOpenBuildWithAi } from '../lib/onboardingStorage';
 import {
   AI_FLOW_CARD_BG_DARK,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
   confirmScopeSectionLabelStyle,
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
@@ -37,6 +35,10 @@ import { mergeOnboardingRoleIntoContractorProfile } from '../lib/onboardingRoleM
 import { clearUnifiedProjectsListCache } from '../lib/projectListCache';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
+
+/** Same mint as the landing and sign-in primary buttons. */
+const ONBOARDING_ACCENT = '#2dcc9a';
+const ONBOARDING_MUTED = '#94a3b8';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -79,10 +81,10 @@ function OnboardingFlowCore({
     card: AI_FLOW_CARD_BG_DARK,
     cardElevated: '#242424',
     text: '#f9fafb',
-    subtext: 'rgba(255,255,255,0.82)',
-    muted: 'rgba(229,231,235,0.55)',
-    accent: ESTIMATE_FLOW_CHIP_GREEN,
-    accentCyan: ESTIMATE_FLOW_CHIP_GREEN,
+    subtext: ONBOARDING_MUTED,
+    muted: ONBOARDING_MUTED,
+    accent: ONBOARDING_ACCENT,
+    accentCyan: ONBOARDING_MUTED,
     accentGradient: BRAND_FRAME_GRADIENT_COLORS,
     border: 'rgba(148,163,184,0.20)',
     borderLight: 'rgba(148,163,184,0.10)',
@@ -202,7 +204,7 @@ function OnboardingFlowCore({
       style={[
         confirmScopeSectionLabelStyle(),
         stepIndex === 0 ? styles.stepEyebrowCenter : styles.stepEyebrow,
-        { color: colors.text },
+        { color: ONBOARDING_MUTED },
       ]}
     >
       {label ?? `Step ${stepIndex + 1} of ${ONBOARDING_PAGE_COUNT}`}
@@ -210,8 +212,8 @@ function OnboardingFlowCore({
   );
 
   const optionCardStyle = (selected: boolean) => ({
-    backgroundColor: selected ? ESTIMATE_FLOW_CHIP_GREEN_BG : colors.card,
-    borderColor: selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(148,163,184,0.22)',
+    backgroundColor: selected ? 'rgba(45, 204, 154, 0.12)' : colors.card,
+    borderColor: selected ? ONBOARDING_ACCENT : 'rgba(148,163,184,0.22)',
     borderWidth: selected ? 1.5 : 1,
   });
 
@@ -264,19 +266,19 @@ function OnboardingFlowCore({
         </Text>
         <View style={[styles.bulletList, styles.bulletListHero]}>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="auto-awesome" size={iconMd} color={colors.accentCyan} />
+            <MaterialIcons name="auto-awesome" size={iconMd} color={ONBOARDING_MUTED} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Create detailed estimates with AI
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="trending-up" size={iconMd} color={colors.accent} />
+            <MaterialIcons name="trending-up" size={iconMd} color={ONBOARDING_MUTED} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Track costs and progress from the estimate
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="shield" size={iconMd} color={colors.accent} />
+            <MaterialIcons name="shield" size={iconMd} color={ONBOARDING_MUTED} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Protect your margin throughout the job
             </Text>
@@ -359,7 +361,7 @@ function OnboardingFlowCore({
                 <MaterialIcons
                   name={role.icon}
                   size={iconSm}
-                  color={isSelected ? ESTIMATE_FLOW_CHIP_GREEN : colors.muted}
+                  color={isSelected ? ONBOARDING_ACCENT : colors.muted}
                   style={styles.optionIcon}
                 />
                 <Text
@@ -375,7 +377,7 @@ function OnboardingFlowCore({
                   {role.label}
                 </Text>
                 {isSelected ? (
-                  <MaterialIcons name="check-circle" size={iconSm} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <MaterialIcons name="check-circle" size={iconSm} color={ONBOARDING_ACCENT} />
                 ) : null}
               </TouchableOpacity>
             );
@@ -430,7 +432,7 @@ function OnboardingFlowCore({
                 <MaterialIcons
                   name={option.icon}
                   size={iconSm}
-                  color={isSelected ? ESTIMATE_FLOW_CHIP_GREEN : colors.muted}
+                  color={isSelected ? ONBOARDING_ACCENT : colors.muted}
                   style={styles.optionIcon}
                 />
                 <Text
@@ -446,7 +448,7 @@ function OnboardingFlowCore({
                   {option.label}
                 </Text>
                 {isSelected ? (
-                  <MaterialIcons name="check-circle" size={iconSm} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <MaterialIcons name="check-circle" size={iconSm} color={ONBOARDING_ACCENT} />
                 ) : null}
               </TouchableOpacity>
             );
@@ -504,7 +506,7 @@ function OnboardingFlowCore({
         </Text>
         <View style={styles.finalActionsContainer}>
           <TouchableOpacity
-            style={[estimateFlowPrimaryButtonStyle(), webDesktop && styles.primaryButtonWeb]}
+            style={[estimateFlowPrimaryButtonStyle(), styles.accentButton, webDesktop && styles.primaryButtonWeb]}
             onPress={() => completeOnboarding({ openBuildWithAi: true })}
             activeOpacity={0.88}
           >
@@ -516,7 +518,7 @@ function OnboardingFlowCore({
             onPress={() => completeOnboarding({ openBuildWithAi: false })}
             activeOpacity={0.88}
           >
-            <MaterialIcons name="description" size={iconMd} color={ESTIMATE_FLOW_CHIP_GREEN} />
+            <MaterialIcons name="description" size={iconMd} color={ONBOARDING_MUTED} />
             <Text style={styles.outlineButtonText}>Start manually instead</Text>
           </TouchableOpacity>
         </View>
@@ -583,7 +585,7 @@ function OnboardingFlowCore({
                 onPress={handleBack}
                 activeOpacity={0.88}
               >
-                <MaterialIcons name="arrow-back" size={iconMd} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                <MaterialIcons name="arrow-back" size={iconMd} color={ONBOARDING_MUTED} />
                 <Text style={styles.outlineButtonText}>Back</Text>
               </TouchableOpacity>
             )}
@@ -593,6 +595,7 @@ function OnboardingFlowCore({
                 style={[
                   estimateFlowPrimaryButtonStyle(),
                   styles.nextButtonSolid,
+                  styles.accentButton,
                   webDesktop && styles.nextButtonInnerWeb,
                 ]}
                 onPress={handleNext}
@@ -617,7 +620,7 @@ function OnboardingFlowCore({
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[styles.skipButtonText, { color: colors.text }]}>
+          <Text style={[styles.skipButtonText, { color: ONBOARDING_MUTED }]}>
             {currentPage === 0 ? 'Skip setup' : 'Skip for now'}
           </Text>
         </TouchableOpacity>
@@ -870,13 +873,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     backgroundColor: 'transparent',
     gap: 8,
     width: '100%',
   },
   outlineButtonText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#e2e8f0',
     fontSize: 15,
     fontWeight: '700',
   },
@@ -888,7 +891,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     backgroundColor: 'transparent',
     gap: 6,
     flexGrow: 0,
@@ -906,6 +909,9 @@ const styles = StyleSheet.create({
   },
   secondaryButtonWeb: {
     minHeight: 48,
+  },
+  accentButton: {
+    backgroundColor: ONBOARDING_ACCENT,
   },
   nextButtonSolid: {
     flexDirection: 'row',

@@ -34,6 +34,9 @@ export default function CategoryEstimateBudgetCard({
   const isOver = summary.hasEstimateBudget && summary.remaining < 0;
   const statusVariant = categoryBudgetStatusVariant(summary);
   const subtitle = formatCategoryBudgetSubtitle(summary);
+  const spendColor = categoryBudgetSpendColor(summary) === '#22c55e'
+    ? '#2dcc9a'
+    : categoryBudgetSpendColor(summary);
 
   if (!summary.hasEstimateBudget) {
     return (
@@ -44,7 +47,7 @@ export default function CategoryEstimateBudgetCard({
         ]}
       >
         <Text style={[styles.label, { color: labelColor }]}>{spentOnlyLabel}</Text>
-        <Text style={styles.spentValue}>
+        <Text style={[styles.spentValue, summary.totalSpent === 0 && styles.spentValueQuiet]}>
           {formatMoneyFull(summary.totalSpent, { decimals: 2 })}
         </Text>
       </View>
@@ -67,7 +70,7 @@ export default function CategoryEstimateBudgetCard({
         </View>
         <View style={[styles.statBlock, styles.statBlockRight]}>
           <Text style={[styles.label, { color: labelColor }]}>Total spent</Text>
-          <Text style={[styles.spentValue, isOver && styles.spentValueOver]}>
+          <Text style={[styles.spentValue, summary.totalSpent === 0 && styles.spentValueQuiet, isOver && styles.spentValueOver]}>
             {formatMoneyFull(summary.totalSpent, { decimals: 2 })}
           </Text>
         </View>
@@ -75,7 +78,7 @@ export default function CategoryEstimateBudgetCard({
 
       <View style={styles.statusRow}>
         {subtitle ? (
-          <Text style={[styles.subtitle, { color: categoryBudgetSpendColor(summary) }]}>
+          <Text style={[styles.subtitle, { color: spendColor }]}>
             {subtitle}
           </Text>
         ) : null}
@@ -98,7 +101,7 @@ export default function CategoryEstimateBudgetCard({
               styles.progressFill,
               {
                 width: `${categoryBudgetProgressPercent(summary)}%`,
-                backgroundColor: categoryBudgetSpendColor(summary),
+                backgroundColor: spendColor,
               },
             ]}
           />
@@ -139,10 +142,11 @@ const styles = StyleSheet.create({
   spentValue: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#22c55e',
+    color: '#2dcc9a',
     letterSpacing: -0.4,
   },
   spentValueOver: { color: '#f87171' },
+  spentValueQuiet: { color: '#94a3b8' },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -160,7 +164,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   progressTrack: {
-    height: 4,
+    height: 8,
     borderRadius: 999,
     marginTop: 10,
     overflow: 'hidden',

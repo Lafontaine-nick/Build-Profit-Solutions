@@ -21,12 +21,6 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from "@/constants/brandFrameGradient";
 import { SegmentNavBar, type SegmentNavItem } from '@/components/navigation/SegmentNavBar';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -102,7 +96,6 @@ import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
-  ESTIMATE_FLOW_PROGRESS_GRADIENT,
   ESTIMATE_FLOW_TEXT_LABEL_DARK,
   ESTIMATE_FLOW_TEXT_MUTED_DARK,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
@@ -176,13 +169,13 @@ function getProjectScreenTitleTypography(title: string): {
   letterSpacing: number;
 } {
   const len = title.trim().length;
-  if (len <= 22) {
-    return { fontSize: 26, lineHeight: 31, letterSpacing: -0.45 };
+  if (len <= 18) {
+    return { fontSize: 22, lineHeight: 26, letterSpacing: -0.35 };
   }
-  if (len <= 40) {
-    return { fontSize: 20, lineHeight: 25, letterSpacing: -0.3 };
+  if (len <= 36) {
+    return { fontSize: 18, lineHeight: 23, letterSpacing: -0.25 };
   }
-  return { fontSize: 17, lineHeight: 22, letterSpacing: -0.15 };
+  return { fontSize: 16, lineHeight: 21, letterSpacing: -0.15 };
 }
 
 // Circular Progress Component
@@ -1975,7 +1968,7 @@ function ProjectDetailContent() {
                       <View style={styles.overviewCardHeaderRow}>
                         <View style={styles.overviewCardHeaderTitleCluster}>
                           <View style={styles.iconBadge}>
-                            <Feather name="bar-chart-2" size={16} color="#22c55e" />
+                            <Feather name="bar-chart-2" size={16} color="#94a3b8" />
                           </View>
                           <View style={styles.overviewCardHeaderTitleWrap}>
                             <Text
@@ -2025,17 +2018,17 @@ function ProjectDetailContent() {
                           </Text>
                         </View>
                         <View style={styles.projectStatusBarTrack}>
-                          <LinearGradient
-                            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
+                          {metrics.budgetProgress > 0 ? (
+                          <View
                             style={[
                               styles.projectStatusBarFill,
                               {
                                 width: `${Math.min(100, metrics.budgetProgress)}%`,
+                                backgroundColor: '#2dcc9a',
                               },
                             ]}
                           />
+                          ) : null}
                         </View>
 
                         <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
@@ -2050,17 +2043,17 @@ function ProjectDetailContent() {
                           </Text>
                         </View>
                         <View style={styles.projectStatusBarTrack}>
-                          <LinearGradient
-                            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
+                          {metrics.scheduleProgress > 0 ? (
+                          <View
                             style={[
                               styles.projectStatusBarFill,
                               {
                                 width: `${Math.min(100, metrics.scheduleProgress)}%`,
+                                backgroundColor: '#2dcc9a',
                               },
                             ]}
                           />
+                          ) : null}
                         </View>
                       </View>
 
@@ -2379,27 +2372,20 @@ function ProjectDetailContent() {
           {/* HEADER */}
           <View style={[styles.headerRow, styles.wideContainer]}>
             <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (backToProjects) {
+                    router.replace("/(tabs)/projects");
+                    return;
+                  }
+                  router.back();
+                }}
+                style={styles.backButton}
               >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (backToProjects) {
-                      router.replace("/(tabs)/projects");
-                      return;
-                    }
-                    router.back();
-                  }}
-                  style={styles.backButton}
-                >
-                  <Ionicons name="arrow-back" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
+                <Ionicons name="arrow-back" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
+              </GradientRingBackInner>
             </View>
 
             <View style={styles.headerTitleBlock}>
@@ -2425,11 +2411,7 @@ function ProjectDetailContent() {
               </View>
             </View>
 
-            <LinearGradient
-              pointerEvents="box-none"
-              colors={["#22c55e", "#22d3ee"]}
-              style={styles.profileOuter}
-            >
+            <View style={styles.profileOuter}>
               <Pressable
                 style={styles.profileInner}
                 onPress={() => router.push("/(tabs)/profile")}
@@ -2438,7 +2420,7 @@ function ProjectDetailContent() {
               >
                 <Text style={styles.profileInitials}>{profileGreeting.initials}</Text>
               </Pressable>
-            </LinearGradient>
+            </View>
           </View>
 
           {/* Post-Activation Command Center - Action-Driven Success Card */}
@@ -2752,7 +2734,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
+    color: darkMode ? "#94a3b8" : "#64748b",
   },
   overviewHeroCard: {
     paddingVertical: 18,
@@ -3080,13 +3062,13 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 19,
-    backgroundColor: darkMode ? '#000000' : Colors.bg,
+    borderRadius: 20,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
     justifyContent: "center",
     alignItems: "center",
   },
   screenTitle: {
-    fontWeight: "800",
+    fontWeight: "700",
     color: Colors.text,
     textAlign: "center",
     width: "100%",
@@ -3216,15 +3198,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 16,
   },
   iconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(34, 197, 94, 0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.22)",
+    width: 22,
+    height: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 8,
   },
   cardTitle: {
     fontSize: 18,
@@ -3515,14 +3493,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     width: 54,
     height: 54,
     borderRadius: 27,
-    padding: 2,
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.9,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#2dcc9a",
   },
   profileInner: {
     width: "100%",

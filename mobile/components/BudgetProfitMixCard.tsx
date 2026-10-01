@@ -1,14 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import {
-  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
   ESTIMATE_FLOW_TEXT_LABEL_DARK,
   ESTIMATE_FLOW_TEXT_MUTED_DARK,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
-  estimateFlowCardStyle,
 } from '../utils/estimateFlowCardStyle';
 import type { ProfitForecastOutput } from '../src/lib/profitForecast';
 import BudgetProfitMixDonut from './BudgetProfitMixDonut';
@@ -67,14 +64,6 @@ export default function BudgetProfitMixCard({
   const pageCaption = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#64748b';
   const pageInstructional = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#64748b';
 
-  const budgetMixChipSurface = useMemo(
-    () => ({
-      borderColor: darkMode ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.12)',
-      backgroundColor: darkMode ? 'rgba(255,255,255,0.055)' : 'rgba(15,23,42,0.055)',
-    }),
-    [darkMode]
-  );
-
   const costBudgetUsedPctDisplay = useMemo(() => {
     const cap = adjustedCostBudget;
     if (!(cap > 0)) return 0;
@@ -104,7 +93,7 @@ export default function BudgetProfitMixCard({
     Math.abs(marginDriftPts) < 0.15
       ? pageSubtext
       : marginDriftPts >= 0
-        ? '#22C55E'
+        ? '#2dcc9a'
         : '#F97316';
   const estimateDriftPillLabel =
     Math.abs(marginDriftPts) < 0.15
@@ -120,7 +109,7 @@ export default function BudgetProfitMixCard({
       ? pageSubtext
       : burnVsPlanPts > 0
         ? '#F97316'
-        : '#22C55E';
+        : '#2dcc9a';
   /** Same number as before (budget used % minus job progress %); wording aimed at non-finance users. */
   const burnVsPlanPillLabel =
     Math.abs(burnVsPlanPts) < 3
@@ -137,9 +126,10 @@ export default function BudgetProfitMixCard({
           styles.sectionCard,
           !darkMode && styles.sectionCardElevated,
           {
-            backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
+            backgroundColor: 'transparent',
+            borderWidth: 0,
+            paddingHorizontal: 0,
+            paddingVertical: 0,
           },
         ]}
       >
@@ -152,22 +142,13 @@ export default function BudgetProfitMixCard({
         >
           <View style={styles.budgetProfitMixTitleRow}>
             <View style={styles.budgetProfitMixTitleCenter}>
-              <MaterialCommunityIcons name="chart-donut" size={21} color="#22c55e" />
-              <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 9 }]} numberOfLines={1}>
+              <Text style={[styles.totalsTitle, { color: theme.text }]} numberOfLines={1}>
                 Budget & Profit Mix
               </Text>
             </View>
           </View>
           {hasContractForMix ? (
-            <View
-              style={[
-                styles.signalPillRow,
-                {
-                  borderTopColor: darkMode ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.1)',
-                  backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.04)',
-                },
-              ]}
-            >
+            <View style={styles.signalPillRow}>
               <View style={styles.signalPill}>
                 <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
                   Margin vs bid
@@ -202,7 +183,6 @@ export default function BudgetProfitMixCard({
                 onPress={onChipsPress}
                 style={({ pressed }) => [
                   styles.referenceChip,
-                  budgetMixChipSurface,
                   pressed && { opacity: 0.82 },
                 ]}
               >
@@ -217,7 +197,6 @@ export default function BudgetProfitMixCard({
                 onPress={onChipsPress}
                 style={({ pressed }) => [
                   styles.referenceChip,
-                  budgetMixChipSurface,
                   pressed && { opacity: 0.82 },
                 ]}
               >
@@ -228,7 +207,7 @@ export default function BudgetProfitMixCard({
                   Cap {money(adjustedCostBudget, currency)}
                 </Text>
               </Pressable>
-              <View style={[styles.referenceChip, budgetMixChipSurface]}>
+              <View style={styles.referenceChip}>
                 <Text
                   style={[styles.referenceChipText, { color: pageInstructional }]}
                   numberOfLines={1}
@@ -345,76 +324,60 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   budgetProfitMixTitleRow: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     width: '100%',
   },
   budgetProfitMixTitleCenter: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     maxWidth: '100%',
   },
   signalPillRow: {
-    marginTop: 10,
-    marginHorizontal: -2,
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    justifyContent: 'space-between',
+    marginTop: 12,
+    flexDirection: 'column',
     alignSelf: 'stretch',
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    gap: 6,
+    paddingTop: 4,
+    gap: 8,
   },
   signalPill: {
-    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 38,
+    justifyContent: 'space-between',
+    gap: 12,
   },
   signalPillDivider: {
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(148,163,184,0.18)',
-    alignSelf: 'stretch',
+    display: 'none',
   },
   signalPillLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    lineHeight: 13,
-    textAlign: 'center',
-    marginBottom: 3,
-    letterSpacing: 0.2,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+    flex: 1,
   },
   signalPillValue: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 16,
-    textAlign: 'center',
+    lineHeight: 20,
+    textAlign: 'right',
     fontVariant: ['tabular-nums'],
   },
   referenceChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 8,
+    justifyContent: 'flex-start',
+    gap: 10,
+    marginTop: 10,
   },
   referenceChip: {
-    paddingHorizontal: 8,
     paddingVertical: 2,
-    minHeight: 22,
     justifyContent: 'center',
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   referenceChipText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '500',
-    lineHeight: 13,
-    letterSpacing: 0.1,
+    lineHeight: 18,
   },
   budgetProfitMixDonutWrap: {
     paddingHorizontal: 8,
@@ -434,20 +397,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     lineHeight: 17,
-    textAlign: 'center',
-    paddingHorizontal: 8,
+    textAlign: 'left',
+    paddingHorizontal: 0,
   },
   budgetProfitMixFooterDisclaimer: {
     marginTop: 8,
     fontSize: 11,
     fontWeight: '500',
     lineHeight: 16,
-    textAlign: 'center',
+    textAlign: 'left',
     paddingHorizontal: 8,
   },
   learnMoreToggle: {
     marginTop: 6,
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     paddingVertical: 2,
     paddingHorizontal: 6,
   },
@@ -460,5 +423,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
     paddingTop: 2,
   },
-  totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
+  totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.2, textAlign: 'left' },
 });

@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1, minWidth: 0 },
   lineName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
   tripCount: { fontSize: 12, marginTop: 4, fontWeight: '500' },
-  totalAmount: { color: '#22c55e', fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
+  totalAmount: { color: '#2dcc9a', fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
   tripsSection: {
     marginTop: 14,
     paddingTop: 14,
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   vendor: { flex: 1, fontSize: 15, fontWeight: '700' },
-  rowAmount: { color: '#22c55e', fontSize: 16, fontWeight: '700' },
+  rowAmount: { color: '#2dcc9a', fontSize: 16, fontWeight: '700' },
   rowFooter: {
     flexDirection: 'row',
     alignItems: 'center',

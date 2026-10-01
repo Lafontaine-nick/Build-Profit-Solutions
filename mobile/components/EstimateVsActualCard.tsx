@@ -1,11 +1,9 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { EstimateFeedbackResult } from '@/utils/estimateFeedback';
-import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
-import { ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
   ESTIMATE_VS_ACTUAL_MIN_COVERAGE_FOR_TIPS,
   formatCategoriesLinkedLabel,
@@ -152,21 +150,7 @@ export default function EstimateVsActualCard({
     <>
         <View style={{ marginBottom: 18 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                borderWidth: 1,
-                borderColor: 'rgba(34, 197, 94, 0.22)',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <MaterialIcons name="analytics" size={16} color="#22c55e" />
-            </View>
+            <MaterialIcons name="analytics" size={18} color="#94a3b8" />
             <Text
               style={{
                 flex: 1,
@@ -184,7 +168,7 @@ export default function EstimateVsActualCard({
             style={{
               alignSelf: 'flex-start',
               marginTop: 10,
-              marginLeft: 52,
+              marginLeft: 0,
               paddingHorizontal: 10,
               paddingVertical: 4,
               borderRadius: 999,
@@ -221,12 +205,15 @@ export default function EstimateVsActualCard({
               backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)',
             }}
           >
-            <LinearGradient
-              colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: '100%', width: `${spendProgress.progressPercent}%` }}
+            {spendProgress.progressPercent > 0 ? (
+            <View
+              style={{
+                height: '100%',
+                width: `${spendProgress.progressPercent}%`,
+                backgroundColor: '#2dcc9a',
+              }}
             />
+            ) : null}
           </View>
           <Text style={{ color: pageCaption, fontSize: 11, lineHeight: 15, marginTop: 5 }}>
             Spent vs cost budget — not bid price
@@ -270,7 +257,7 @@ export default function EstimateVsActualCard({
 
         {showMapCosts ? (
           <Pressable onPress={onMapCosts} accessibilityRole="button" accessibilityLabel={mapCostsCtaLabel.replace(/\s*→\s*$/, '')}>
-            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700', marginTop: 10 }}>
+            <Text style={{ color: '#e2e8f0', fontSize: 13, fontWeight: '700', marginTop: 10 }}>
               {mapCostsCtaLabel}
             </Text>
           </Pressable>
@@ -278,16 +265,11 @@ export default function EstimateVsActualCard({
 
         {showInsightsCta && shouldShowRateInsightsCta(estimateFeedback, tipCount) ? (
           <Pressable onPress={onReviewTips} accessibilityRole="button" accessibilityLabel={`View rate insights (${tipCount})`}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={{ marginTop: 12, borderRadius: 10, paddingVertical: 11, alignItems: 'center' }}
-            >
-              <Text style={{ color: '#04140C', fontWeight: '800', fontSize: 14 }}>
+            <View style={{ marginTop: 12, borderRadius: 14, paddingVertical: 12, alignItems: 'center', backgroundColor: '#2dcc9a' }}>
+              <Text style={{ color: '#050B13', fontWeight: '700', fontSize: 15 }}>
                 View rate insights ({tipCount})
               </Text>
-            </LinearGradient>
+            </View>
           </Pressable>
         ) : null}
     </>

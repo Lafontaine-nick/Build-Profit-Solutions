@@ -33,9 +33,10 @@ import {
   estimateFlowCardStyle,
 } from "@/utils/estimateFlowCardStyle";
 
-const LANDING_CTA_GRADIENT = ["#22c55e", "#22d3ee"] as const;
+/** Solid fill on the green side of the logo glow. The ring fades to cyan, so a cyan fill reads bluer than the halo. */
+const LANDING_BUTTON_MINT = "#2dcc9a";
 
-function LandingGradientCTA({
+function LandingPrimaryCTA({
   styles,
   label,
   onPress,
@@ -55,19 +56,11 @@ function LandingGradientCTA({
       activeOpacity={0.85}
       disabled={disabled}
     >
-      <LinearGradient
-        colors={[...LANDING_CTA_GRADIENT]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.buttonGradient}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color="#020617" />
-        ) : (
-          <Ionicons name="rocket-outline" size={20} color="#020617" />
-        )}
+      {loading ? (
+        <ActivityIndicator size="small" color="#050B13" />
+      ) : (
         <Text style={styles.primaryButtonText}>{label}</Text>
-      </LinearGradient>
+      )}
     </TouchableOpacity>
   );
 }
@@ -178,7 +171,7 @@ function ClerkLandingHeroContent({
         </View>
       </View>
 
-      <LandingGradientCTA
+      <LandingPrimaryCTA
         styles={styles}
         label={buttonLabel}
         onPress={onPress}
@@ -198,7 +191,7 @@ function DefaultGetStartedCTA({
 }) {
   const router = useRouter();
   return (
-    <LandingGradientCTA
+    <LandingPrimaryCTA
       styles={styles}
       label={t("landing.getStartedButton")}
       onPress={() => {
@@ -288,7 +281,9 @@ function RotatingTestimonial({
                 {
                   backgroundColor:
                     i === index
-                      ? "#22c55e"
+                      ? darkMode
+                        ? "#e2e8f0"
+                        : "#0f172a"
                       : darkMode
                         ? "rgba(148, 163, 184, 0.45)"
                         : "rgba(100, 116, 139, 0.35)",
@@ -397,11 +392,7 @@ export default function LandingScreen() {
               </Text>
             </View>
 
-            <View style={styles.taglineRow}>
-              <Ionicons name="sparkles" size={14} color="#22c55e" />
-              <Text style={styles.tagline}>{t("landing.tagline")}</Text>
-              <Ionicons name="sparkles" size={14} color="#22c55e" />
-            </View>
+            <Text style={styles.tagline}>{t("landing.tagline")}</Text>
 
             <Text style={styles.aiStatusText}>{t("landing.aiPowered")}</Text>
           </View>
@@ -439,7 +430,7 @@ export default function LandingScreen() {
                     <Ionicons
                       name="calculator-outline"
                       size={22}
-                      color="#22c55e"
+                      color={darkMode ? "#94a3b8" : "#64748b"}
                     />
                   </View>
                   <Text style={styles.featureTitle}>
@@ -452,7 +443,7 @@ export default function LandingScreen() {
                     <Ionicons
                       name="trending-up-outline"
                       size={22}
-                      color="#22c55e"
+                      color={darkMode ? "#94a3b8" : "#64748b"}
                     />
                   </View>
                   <Text style={styles.featureTitle}>
@@ -462,7 +453,7 @@ export default function LandingScreen() {
 
                 <View style={styles.featureItem}>
                   <View style={styles.featureIconContainer}>
-                    <Ionicons name="people-outline" size={22} color="#22c55e" />
+                    <Ionicons name="people-outline" size={22} color={darkMode ? "#94a3b8" : "#64748b"} />
                   </View>
                   <Text style={styles.featureTitle}>
                     {t("landing.teamManagement")}
@@ -474,7 +465,7 @@ export default function LandingScreen() {
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={16}
-                  color={darkMode ? "#6ee7b7" : "#16a34a"}
+                  color={darkMode ? "#94a3b8" : "#64748b"}
                 />
                 <Text style={styles.reassureText}>
                   {t("landing.dataPrivacy")}
@@ -504,7 +495,7 @@ export default function LandingScreen() {
                   <Ionicons
                     name="chatbubbles-outline"
                     size={26}
-                    color="#22c55e"
+                    color={darkMode ? "#94a3b8" : "#64748b"}
                   />
                 </View>
                 <RotatingTestimonial
@@ -657,23 +648,19 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     lineHeight: 32,
     paddingHorizontal: 8,
   },
-  taglineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 10,
-  },
   tagline: {
+    marginTop: 10,
     fontSize: 14,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    color: darkMode ? "#94a3b8" : "#64748b",
     fontWeight: "500",
+    textAlign: "center",
   },
   aiStatusText: {
     fontSize: 13,
-    marginTop: 10,
+    marginTop: 6,
     textAlign: "center",
     paddingHorizontal: 12,
-    color: darkMode ? "#6ee7b7" : "#15803d",
+    color: darkMode ? "#94a3b8" : "#64748b",
     fontWeight: "500",
   },
 
@@ -694,13 +681,11 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: darkMode ? "rgba(34, 197, 94, 0.12)" : "rgba(34, 197, 94, 0.1)",
+    backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "#F1F5F9",
     justifyContent: "center",
     alignItems: "center",
     marginTop: 14,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: darkMode ? "rgba(34, 197, 94, 0.35)" : "rgba(34, 197, 94, 0.25)",
   },
   testimonialContent: {
     width: "100%",
@@ -791,29 +776,20 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
       : {}),
     marginBottom: wideWeb ? 18 : 22,
     borderRadius: 18,
-    overflow: "hidden",
-    shadowColor: "#22c55e",
-    shadowOffset: { width: 0, height: darkMode ? 6 : 4 },
-    shadowOpacity: darkMode ? 0.35 : 0.25,
-    shadowRadius: 14,
-    elevation: darkMode ? 10 : 2,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  buttonGradient: {
-    flexDirection: "row",
+    backgroundColor: LANDING_BUTTON_MINT,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 16,
     paddingHorizontal: 32,
-    gap: 10,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.7,
   },
   primaryButtonText: {
-    color: "#020617",
+    color: "#050B13",
     fontSize: 17,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
 
   featuresRow: {

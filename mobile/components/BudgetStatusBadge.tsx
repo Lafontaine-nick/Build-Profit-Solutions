@@ -19,9 +19,9 @@ const VARIANT_STYLES: Record<
     defaultLabel: 'Over budget',
   },
   onTrack: {
-    bg: 'rgba(34, 197, 94, 0.14)',
-    border: 'rgba(34, 197, 94, 0.32)',
-    color: '#4ade80',
+    bg: 'rgba(45, 204, 154, 0.14)',
+    border: 'rgba(45, 204, 154, 0.4)',
+    color: '#2dcc9a',
     defaultLabel: 'On track',
   },
   neutral: {

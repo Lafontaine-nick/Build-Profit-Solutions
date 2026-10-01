@@ -33,6 +33,7 @@ export default function EstimateLineBudgetStrip({
   if (!showDetail) return null;
 
   const statusVariant = lineBudgetStatusVariant(summary);
+  const spendColor = lineSpendColor(summary) === '#22c55e' ? '#2dcc9a' : lineSpendColor(summary);
   const insetBg = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(148, 163, 184, 0.08)';
 
   const content = (
@@ -42,7 +43,7 @@ export default function EstimateLineBudgetStrip({
           <Text
             style={[
               styles.detail,
-              { color: lineSpendColor(summary) },
+              { color: spendColor },
               compact && styles.detailCompact,
             ]}
             numberOfLines={2}
@@ -67,7 +68,7 @@ export default function EstimateLineBudgetStrip({
               styles.progressFill,
               {
                 width: `${progressFillPercent(summary)}%`,
-                backgroundColor: lineSpendColor(summary),
+                backgroundColor: spendColor,
               },
             ]}
           />
@@ -111,7 +112,7 @@ const styles = StyleSheet.create({
   detail: { fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
   detailCompact: { fontSize: 11, lineHeight: 16 },
   progressTrack: {
-    height: 4,
+    height: 8,
     borderRadius: 999,
     marginTop: 8,
     overflow: 'hidden',

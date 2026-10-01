@@ -3,15 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import {
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
-  ESTIMATE_FLOW_GREEN,
-} from '@/utils/estimateFlowCardStyle';
+import { ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
 import { EstimateJobDurationFooter } from '@/components/estimate/EstimateJobDurationFooter';
 
 /** Lifted surface inside charcoal flow cards — lighter than #202022 for readable calendars */
 const CALENDAR_SURFACE_DARK = '#2e2e30';
+/** Same mint as the homepage button and the dashboard selected tab. */
+const CALENDAR_MINT = '#2dcc9a';
 
 interface GreyCalendarProps {
   onDayPress: (day: { dateString: string }) => void;
@@ -182,7 +180,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
                   <View
                     style={[
                       styles.dayEventDot,
-                      { backgroundColor: markedConfig.dotColor || markedConfig.selectedColor || ESTIMATE_FLOW_CHIP_GREEN },
+                      { backgroundColor: markedConfig.dotColor || markedConfig.selectedColor || CALENDAR_MINT },
                     ]}
                   />
                 )}
@@ -320,13 +318,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-    backgroundColor: darkMode ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(52, 211, 153, 0.08)',
+    borderColor: CALENDAR_MINT,
+    backgroundColor: darkMode ? 'rgba(45, 204, 154, 0.16)' : 'rgba(45, 204, 154, 0.08)',
   },
   todayButtonText: {
     fontSize: 12,
     fontWeight: '700',
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: CALENDAR_MINT,
   },
   dayNamesRow: {
     flexDirection: 'row',
@@ -369,9 +367,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 2,
   },
   dayInnerSelected: {
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
     borderWidth: 2,
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: CALENDAR_MINT,
   },
   dayInnerRangeEndpoint: {
     backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.08)',
@@ -391,7 +389,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayInnerTodayHint: {
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(52, 211, 153, 0.45)' : 'rgba(52, 211, 153, 0.4)',
+    borderColor: darkMode ? 'rgba(45, 204, 154, 0.45)' : 'rgba(45, 204, 154, 0.4)',
   },
   dayText: {
     fontSize: 14,
@@ -401,12 +399,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   dayTextToday: {
     fontSize: 14,
     fontWeight: '700',
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: CALENDAR_MINT,
   },
   dayTextSelected: {
     fontSize: 15,
     fontWeight: '800',
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: CALENDAR_MINT,
   },
   dayTextRangeEndpoint: {
     fontSize: 15,

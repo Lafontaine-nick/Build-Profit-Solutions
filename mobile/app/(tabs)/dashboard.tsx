@@ -17,7 +17,6 @@ import {
   InteractionManager,
   ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { SegmentNavBar } from '@/components/navigation/SegmentNavBar';
 import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
@@ -66,7 +65,7 @@ import WebPageShell from "@/components/layout/WebPageShell";
 import TabScreenBottomScrollFade from "@/components/layout/TabScreenBottomScrollFade";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
-import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import {
   formatMoneyUSD,
   formatMoneyCompact,
@@ -239,10 +238,10 @@ type TabKey = "overview" | "analytics" | "calendar" | "insights";
 
 // Status theme matching projects page
 const statusTheme: Record<string, { bg: string; border: string; color: string }> = {
-  Active: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
-  Completed: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
+  Active: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.4)', color: '#2dcc9a' },
+  Completed: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.4)', color: '#2dcc9a' },
   Submitted: { bg: 'rgba(148, 163, 184, 0.24)', border: 'rgba(148, 163, 184, 0.4)', color: '#f1f5f9' },
-  Won: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
+  Won: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.4)', color: '#2dcc9a' },
   Draft: { bg: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.35)', color: '#e2e8f0' },
 };
 
@@ -885,7 +884,7 @@ const DEADLINE_KEYWORDS = ['deadline', 'due', 'permit', 'completion', 'complete 
 const NOISE_KEYWORDS = ['daily log', 'receipt', 'checklist', 'internal reminder', 'small task', 'note only', 'todo'];
 
 const CALENDAR_CATEGORY_COLORS = {
-  payment: '#22c55e', // green
+  payment: '#2dcc9a', // same mint as the dashboard accent
   inspection: '#f59e0b', // yellow
   phase: '#3b82f6', // blue
   delivery: '#8b5cf6', // purple
@@ -925,9 +924,11 @@ const EVENT_TYPE_COLORS: Record<CalendarEvent["type"], string> = {
   other: "#f97316",
 };
 const ACCENT_GREEN = "#19E180";
-/** Emerald + cyan — Dashboard segment tabs, metrics, Profile, bpsThemeV2 */
-const BPS_BRAND_GREEN = "#22c55e";
-const BPS_BRAND_TEAL = "#22d3ee";
+/** Same mint as the homepage button. Color stays on the selected tab, status, and a number that moved. */
+const DASHBOARD_ACCENT = "#2dcc9a";
+const DASHBOARD_MUTED = "#94a3b8";
+const BPS_BRAND_GREEN = DASHBOARD_ACCENT;
+const BPS_BRAND_TEAL = DASHBOARD_MUTED;
 
 const DISMISSED_NEXT_STEPS_STORAGE_KEY = "bps.dashboard.dismissedNextSteps.v1";
 
@@ -1709,7 +1710,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
       inspection: '#f59e0b', // yellow
       work: '#3b82f6', // blue
       delivery: '#8b5cf6', // purple
-      payment: '#22c55e', // green
+      payment: '#2dcc9a', // same mint as the dashboard accent
       deadline: '#ef4444', // red
       other: '#f97316', // orange
     };
@@ -1750,7 +1751,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         text: '#FFFFFF',
         subtext: 'rgba(255,255,255,0.92)',
         border: '#334155',
-        green: '#22c55e',
+        green: '#2dcc9a',
       }
     : {
         bg: Colors.bg,
@@ -1759,7 +1760,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         text: Colors.text,
         subtext: Colors.sub,
         border: Colors.line,
-        green: '#22c55e',
+        green: '#2dcc9a',
       };
 
   const calendarLegend = [
@@ -1865,7 +1866,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
       <Modal
         visible={showDateEventsModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => {
           setShowDateEventsModal(false);
         }}
@@ -1886,7 +1887,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               maxHeight: '90%',
               paddingBottom: Platform.OS === 'ios' ? 34 : 20,
               /* Match ProjectCalendar date modal (project detail calendar) */
-              backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
+              backgroundColor: darkMode ? '#000000' : COLORS.surface,
               overflow: 'hidden',
               elevation: 0,
               shadowColor: 'transparent',
@@ -1904,9 +1905,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+              paddingHorizontal: 20,
+              paddingTop: 18,
+              paddingBottom: 14,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)',
             }}>
               <Text style={{
                 fontSize: 20,
@@ -1928,8 +1931,16 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 onPress={() => {
                   setShowDateEventsModal(false);
                 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                }}
               >
-                <Ionicons name="close" size={24} color={COLORS.text} />
+                <Ionicons name="close" size={20} color={COLORS.text} />
               </Pressable>
             </View>
 
@@ -1949,8 +1960,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             marginTop: 20,
                             paddingHorizontal: 24,
                             paddingVertical: 12,
-                            borderRadius: 12,
-                            backgroundColor: ACCENT_GREEN,
+                            borderRadius: 14,
+                            backgroundColor: DASHBOARD_ACCENT,
                           }}
                           onPress={() => {
                             setShowDateEventsModal(false);
@@ -1964,7 +1975,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           }}
                         >
-                          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>New Event</Text>
+                          <Text style={{ color: "#050B13", fontSize: 16, fontWeight: "700" }}>New Event</Text>
                         </Pressable>
                       ) : null}
                     </View>
@@ -1989,11 +2000,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           (notePrimary || "").trim()
                         );
                       const notesPrimary = hidePayMeta ? "" : notePrimary;
-                      const categoryTint = pay
-                        ? darkMode
-                          ? "rgba(34, 197, 94, 0.12)"
-                          : "rgba(34, 197, 94, 0.1)"
-                        : `${getEventColor(event)}20`;
                       const typeLabel =
                         formatCalendarCategoryLabel(event.calendarCategory) ||
                         (event.type ? String(event.type).replace(/-/g, " ") : null);
@@ -2017,49 +2023,49 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         }}
                         style={{
                           flexDirection: 'row',
-                          borderRadius: 12,
-                          padding: 12,
-                          marginBottom: 8,
+                          alignItems: 'flex-start',
+                          borderRadius: 14,
+                          padding: 16,
+                          marginBottom: 10,
                           borderWidth: 1,
-                          backgroundColor: darkMode ? '#1e293b' : COLORS.surface2,
-                          borderColor: COLORS.border,
+                          backgroundColor: darkMode ? '#202022' : '#FFFFFF',
+                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)',
                         }}
                       >
-                        <View style={{
-                          width: 4,
-                          borderRadius: 2,
-                          marginRight: 12,
-                          alignSelf: 'stretch',
-                          backgroundColor: getEventColor(event),
-                        }} />
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <View style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                          }}>
-                            <Text style={{
-                              fontSize: 16,
-                              fontWeight: '600',
-                              flex: 1,
-                              color: COLORS.text,
-                            }} numberOfLines={2}>{event.title}</Text>
-                            <MaterialIcons
-                              name={getEventIcon(event) as any}
-                              size={18}
-                              color={getEventColor(event)}
-                            />
-                          </View>
+                          {(() => {
+                            const moneyMatch = String(event.title || '').match(/^(.*?)\s*(\$[\d,]+(?:\.\d{2})?)\s*$/);
+                            const titleLead = moneyMatch ? moneyMatch[1].replace(/[:\s]+$/, '') : event.title;
+                            const titleAmount = moneyMatch ? moneyMatch[2] : null;
+                            const quietAmount = !titleAmount || /^\$0+(?:\.0+)?$/.test(titleAmount);
+                            return (
+                              <>
+                                <Text style={{
+                                  fontSize: 16,
+                                  fontWeight: '600',
+                                  color: COLORS.text,
+                                }}>{titleLead}</Text>
+                                {titleAmount ? (
+                                  <Text style={{
+                                    fontSize: 22,
+                                    fontWeight: '800',
+                                    marginTop: 4,
+                                    letterSpacing: -0.3,
+                                    color: quietAmount ? DASHBOARD_MUTED : DASHBOARD_ACCENT,
+                                  }}>{titleAmount}</Text>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                           <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
                             flexWrap: 'wrap',
                             gap: 6,
-                            marginTop: 6,
+                            marginTop: 8,
                           }}>
-                            <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                            <Text style={{ fontSize: 13, color: COLORS.subtext, flexShrink: 1 }} numberOfLines={1}>
+                            <Ionicons name="folder-outline" size={14} color={DASHBOARD_MUTED} />
+                            <Text style={{ fontSize: 13, color: DASHBOARD_MUTED, flexShrink: 1 }} numberOfLines={1}>
                               {event.projectName || 'Project'}
                             </Text>
                             {me.isCompletedProject ? (
@@ -2086,8 +2092,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                               gap: 6,
                               marginTop: 4,
                             }}>
-                              <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
-                              <Text style={{ fontSize: 13, color: COLORS.subtext }} numberOfLines={1}>
+                              <Ionicons name="person-outline" size={14} color={DASHBOARD_MUTED} />
+                              <Text style={{ fontSize: 13, color: DASHBOARD_MUTED }} numberOfLines={1}>
                                 {event.subcontractor}
                               </Text>
                             </View>
@@ -2099,8 +2105,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                               gap: 6,
                               marginTop: 4,
                             }}>
-                              <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
-                              <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                              <Ionicons name="time-outline" size={14} color={DASHBOARD_MUTED} />
+                              <Text style={{ fontSize: 13, color: DASHBOARD_MUTED }}>
                                 {event.time}
                               </Text>
                             </View>
@@ -2115,14 +2121,16 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             {typeLabel ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
+                                paddingVertical: 4,
+                                borderRadius: 8,
                                 alignSelf: 'flex-start',
-                                backgroundColor: categoryTint,
+                                borderWidth: 1,
+                                borderColor: getEventColor(event),
+                                backgroundColor: 'transparent',
                               }}>
                                 <Text style={{
                                   fontSize: 11,
-                                  fontWeight: '600',
+                                  fontWeight: '700',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.4,
                                   color: getEventColor(event),
@@ -2134,19 +2142,19 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             {pay ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
+                                paddingVertical: 4,
+                                borderRadius: 8,
                                 alignSelf: 'flex-start',
-                                backgroundColor: payDone
-                                  ? 'rgba(34, 197, 94, 0.14)'
-                                  : 'rgba(245, 158, 11, 0.14)',
+                                borderWidth: 1,
+                                borderColor: payDone ? DASHBOARD_ACCENT : '#f59e0b',
+                                backgroundColor: 'transparent',
                               }}>
                                 <Text style={{
                                   fontSize: 11,
-                                  fontWeight: '600',
+                                  fontWeight: '700',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.4,
-                                  color: payDone ? COLORS.green : '#f59e0b',
+                                  color: payDone ? DASHBOARD_ACCENT : '#f59e0b',
                                 }}>
                                   {payDone ? 'Paid' : 'Due'}
                                 </Text>
@@ -2155,20 +2163,19 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             {hasInspectionResult ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
+                                paddingVertical: 4,
+                                borderRadius: 8,
                                 alignSelf: 'flex-start',
-                                backgroundColor:
-                                  event.inspectionResult === 'passed'
-                                    ? 'rgba(34, 197, 94, 0.14)'
-                                    : 'rgba(239, 68, 68, 0.14)',
+                                borderWidth: 1,
+                                borderColor: event.inspectionResult === 'passed' ? DASHBOARD_ACCENT : '#ef4444',
+                                backgroundColor: 'transparent',
                               }}>
                                 <Text style={{
                                   fontSize: 11,
-                                  fontWeight: '600',
+                                  fontWeight: '700',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.4,
-                                  color: event.inspectionResult === 'passed' ? COLORS.green : '#ef4444',
+                                  color: event.inspectionResult === 'passed' ? DASHBOARD_ACCENT : '#ef4444',
                                 }}>
                                   {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
                                 </Text>
@@ -2181,17 +2188,19 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             event.calendarCategory !== 'delivery' ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
+                                paddingVertical: 4,
+                                borderRadius: 8,
                                 alignSelf: 'flex-start',
-                                backgroundColor: 'rgba(34, 197, 94, 0.14)',
+                                borderWidth: 1,
+                                borderColor: DASHBOARD_ACCENT,
+                                backgroundColor: 'transparent',
                               }}>
                                 <Text style={{
                                   fontSize: 11,
-                                  fontWeight: '600',
+                                  fontWeight: '700',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.4,
-                                  color: COLORS.green,
+                                  color: DASHBOARD_ACCENT,
                                 }}>Completed</Text>
                               </View>
                             ) : null}
@@ -2200,26 +2209,28 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             !pay ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
+                                paddingVertical: 4,
+                                borderRadius: 8,
                                 alignSelf: 'flex-start',
-                                backgroundColor: 'rgba(34, 197, 94, 0.14)',
+                                borderWidth: 1,
+                                borderColor: DASHBOARD_ACCENT,
+                                backgroundColor: 'transparent',
                               }}>
                                 <Text style={{
                                   fontSize: 11,
-                                  fontWeight: '600',
+                                  fontWeight: '700',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.4,
-                                  color: COLORS.green,
+                                  color: DASHBOARD_ACCENT,
                                 }}>Received</Text>
                               </View>
                             ) : null}
                           </View>
                           {notesPrimary ? (
                             <Text style={{
-                              fontSize: 12,
-                              marginTop: 6,
-                              color: COLORS.subtext,
+                              fontSize: 13,
+                              marginTop: 8,
+                              color: DASHBOARD_MUTED,
                             }} numberOfLines={3}>
                               {notesPrimary}
                             </Text>
@@ -2250,35 +2261,14 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               })()}
             </ScrollView>
 
-            <View style={{
-              flexDirection: "row",
-              gap: 12,
-              padding: 20,
-              borderTopWidth: 1,
-              borderTopColor: "rgba(255, 255, 255, 0.1)",
-            }}>
-              <Pressable
-                style={{
-                  flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  alignItems: "center",
-                  backgroundColor: COLORS.border,
-                }}
-                onPress={() => {
-                  setShowDateEventsModal(false);
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "700" }}>Close</Text>
-              </Pressable>
-              {canEditCalendar ? (
+            {canEditCalendar ? (
+              <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
                 <Pressable
                   style={{
-                    flex: 1,
-                    padding: 14,
-                    borderRadius: 12,
+                    paddingVertical: 16,
+                    borderRadius: 14,
                     alignItems: "center",
-                    backgroundColor: ACCENT_GREEN,
+                    backgroundColor: DASHBOARD_ACCENT,
                   }}
                   onPress={() => {
                     setShowDateEventsModal(false);
@@ -2292,10 +2282,10 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   }}
                 >
-                  <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>New Event</Text>
+                  <Text style={{ color: "#050B13", fontSize: 17, fontWeight: "700" }}>New Event</Text>
                 </Pressable>
-              ) : null}
-            </View>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -2314,7 +2304,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         <KeyboardAvoidingView
           style={{
             flex: 1,
-            backgroundColor: darkMode ? "#0A0A0A" : "#F2F2F7",
+            backgroundColor: darkMode ? "#000000" : "#F2F2F7",
             ...(calendarDesktopWeb ? { alignItems: "center" as const } : {}),
           }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -2366,114 +2356,97 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
 
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
             >
-              {/* Project picker - only for new events */}
               {!editingEvent && (
-                <View style={{ marginBottom: 32 }}>
+                <View style={{ marginBottom: 28 }}>
                   <Text style={{
-                    fontSize: 13,
-                    fontWeight: "600",
-                    letterSpacing: 0.3,
-                    marginBottom: 8,
-                    marginLeft: 4,
-                    opacity: 0.9,
-                    color: COLORS.subtext,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    letterSpacing: 0.8,
+                    marginBottom: 10,
+                    color: DASHBOARD_MUTED,
                   }}>PROJECT</Text>
-                  <View style={{
-                    borderRadius: 12,
-                    overflow: "hidden",
-                    backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
-                  }}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ padding: 12 }}>
-                      {activeProjects
-                        .filter((p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed")
-                        .map((p) => {
-                        const pid = String(p.id);
-                        const name = p.title || p.name || "Untitled Project";
-                        const isSelected = selectedProjectId === pid;
-                        return (
-                          <TouchableOpacity
-                            key={pid}
-                            activeOpacity={0.7}
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              setSelectedProjectId(pid);
-                            }}
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 6,
-                              paddingHorizontal: 14,
-                              paddingVertical: 10,
-                              borderRadius: 10,
-                              borderWidth: 1.5,
-                              marginRight: 8,
-                              backgroundColor: isSelected ? ACCENT_GREEN : "transparent",
-                              borderColor: isSelected ? ACCENT_GREEN : (darkMode ? "rgba(255,255,255,0.2)" : "rgba(60,60,67,0.2)"),
-                            }}
-                          >
-                            <Ionicons name="folder-outline" size={18} color={isSelected ? "#fff" : COLORS.text} />
-                            <Text style={{
-                              fontSize: 15,
-                              fontWeight: "600",
-                              color: isSelected ? "#fff" : COLORS.text,
-                            }} numberOfLines={1}>{name}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {activeProjects
+                      .filter((p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed")
+                      .map((p) => {
+                      const pid = String(p.id);
+                      const name = p.title || p.name || "Untitled Project";
+                      const isSelected = selectedProjectId === pid;
+                      return (
+                        <TouchableOpacity
+                          key={pid}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setSelectedProjectId(pid);
+                          }}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 6,
+                            paddingHorizontal: 14,
+                            paddingVertical: 10,
+                            borderRadius: 12,
+                            borderWidth: 1.5,
+                            marginRight: 8,
+                            backgroundColor: isSelected ? DASHBOARD_ACCENT : "transparent",
+                            borderColor: isSelected ? DASHBOARD_ACCENT : "rgba(148, 163, 184, 0.35)",
+                          }}
+                        >
+                          <Ionicons name="folder-outline" size={16} color={isSelected ? "#050B13" : (darkMode ? "#e2e8f0" : "#334155")} />
+                          <Text style={{
+                            fontSize: 15,
+                            fontWeight: "600",
+                            color: isSelected ? "#050B13" : (darkMode ? "#e2e8f0" : "#334155"),
+                          }} numberOfLines={1}>{name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
                 </View>
               )}
 
-              {/* Event Details */}
-              <View style={{ marginBottom: 32 }}>
-                <Text style={{
-                  fontSize: 13,
-                  fontWeight: "600",
-                  letterSpacing: 0.3,
-                  marginBottom: 8,
-                  marginLeft: 4,
-                  opacity: 0.9,
-                  color: COLORS.subtext,
-                }}>EVENT DETAILS</Text>
+              <View style={{
+                marginBottom: 28,
+                borderRadius: 14,
+                overflow: "hidden",
+                backgroundColor: darkMode ? "#202022" : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.08)",
+              }}>
                 <View style={{
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                  paddingHorizontal: 16,
+                  paddingTop: 14,
+                  paddingBottom: 12,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
                 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "500", marginBottom: 6, color: DASHBOARD_MUTED }}>Title</Text>
+                  <TextInput
+                    style={{ fontSize: 17, fontWeight: "600", paddingVertical: 2, paddingHorizontal: 0, color: COLORS.text }}
+                    value={eventTitle}
+                    onChangeText={setEventTitle}
+                    placeholder="Framing inspection"
+                    placeholderTextColor={DASHBOARD_MUTED}
+                  />
+                </View>
+                <View style={{ flexDirection: "row" }}>
                   <View style={{
-                    flexDirection: "row",
-                    alignItems: "center",
+                    flex: 1,
                     paddingHorizontal: 16,
-                    minHeight: 44,
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
+                    paddingTop: 14,
+                    paddingBottom: 12,
+                    borderRightWidth: StyleSheet.hairlineWidth,
+                    borderRightColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
                   }}>
-                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Title</Text>
+                    <Text style={{ fontSize: 13, fontWeight: "500", marginBottom: 6, color: DASHBOARD_MUTED }}>Date</Text>
                     <TextInput
-                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
-                      value={eventTitle}
-                      onChangeText={setEventTitle}
-                      placeholder="e.g., Framing Inspection"
-                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
-                    />
-                  </View>
-                  <View style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 16,
-                    minHeight: 44,
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
-                  }}>
-                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Date</Text>
-                    <TextInput
-                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      style={{ fontSize: 17, fontWeight: "600", paddingVertical: 2, paddingHorizontal: 0, color: COLORS.text }}
                       value={eventDate ? (() => {
                         const [year, month, day] = eventDate.split("-");
                         if (year && month && day && year.length === 4) {
@@ -2490,159 +2463,134 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         setEventDate(formatted);
                       }}
                       placeholder="MM-DD-YY"
-                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
+                      placeholderTextColor={DASHBOARD_MUTED}
                     />
                   </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 44 }}>
-                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Time</Text>
+                  <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "500", marginBottom: 6, color: DASHBOARD_MUTED }}>Time</Text>
                     <TextInput
-                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      style={{ fontSize: 17, fontWeight: "600", paddingVertical: 2, paddingHorizontal: 0, color: COLORS.text }}
                       value={eventTime}
                       onChangeText={setEventTime}
                       placeholder="09:00"
-                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
+                      placeholderTextColor={DASHBOARD_MUTED}
                     />
                   </View>
                 </View>
               </View>
 
-              {/* Type */}
-              <View style={{ marginBottom: 32 }}>
+              <View style={{ marginBottom: 28 }}>
                 <Text style={{
-                  fontSize: 13,
-                  fontWeight: "600",
-                  letterSpacing: 0.3,
-                  marginBottom: 8,
-                  marginLeft: 4,
-                  opacity: 0.9,
-                  color: COLORS.subtext,
+                  fontSize: 12,
+                  fontWeight: "700",
+                  letterSpacing: 0.8,
+                  marginBottom: 10,
+                  color: DASHBOARD_MUTED,
                 }}>TYPE</Text>
-                <View style={{
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
-                  padding: 12,
-                }}>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                    {(["inspection", "work", "delivery", "payment", "deadline", "other"] as const).map((type) => (
-                      <TouchableOpacity
-                        key={type}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          setEventType(type);
-                        }}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          paddingHorizontal: 14,
-                          paddingVertical: 10,
-                          borderRadius: 10,
-                          borderWidth: 1.5,
-                          backgroundColor: eventType === type ? EVENT_TYPE_COLORS[type] : "transparent",
-                          borderColor: eventType === type ? EVENT_TYPE_COLORS[type] : (darkMode ? "rgba(255,255,255,0.2)" : "rgba(60,60,67,0.2)"),
-                        }}
-                      >
-                        <Feather
-                          name={EVENT_TYPE_FORM_ICONS[type] as any}
-                          size={18}
-                          color={eventType === type ? "#fff" : COLORS.text}
-                          strokeWidth={2}
-                        />
-                        <Text style={{ fontSize: 15, fontWeight: "600", color: eventType === type ? "#fff" : COLORS.text }}>
-                          {type.charAt(0).toUpperCase() + type.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {(["inspection", "work", "delivery", "payment", "deadline", "other"] as const).map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setEventType(type);
+                      }}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        borderWidth: 1.5,
+                        backgroundColor: eventType === type ? DASHBOARD_ACCENT : "transparent",
+                        borderColor: eventType === type ? DASHBOARD_ACCENT : "rgba(148, 163, 184, 0.35)",
+                      }}
+                    >
+                      <Feather
+                        name={EVENT_TYPE_FORM_ICONS[type] as any}
+                        size={16}
+                        color={eventType === type ? "#050B13" : (darkMode ? "#e2e8f0" : "#334155")}
+                        strokeWidth={2}
+                      />
+                      <Text style={{ fontSize: 15, fontWeight: "600", color: eventType === type ? "#050B13" : (darkMode ? "#e2e8f0" : "#334155") }}>
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
 
-              {/* Additional Info */}
-              <View style={{ marginBottom: 32 }}>
-                <Text style={{
-                  fontSize: 13,
-                  fontWeight: "600",
-                  letterSpacing: 0.3,
-                  marginBottom: 8,
-                  marginLeft: 4,
-                  opacity: 0.9,
-                  color: COLORS.subtext,
-                }}>ADDITIONAL INFO</Text>
+              <View style={{
+                borderRadius: 14,
+                overflow: "hidden",
+                backgroundColor: darkMode ? "#202022" : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.08)",
+              }}>
                 <View style={{
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                  paddingHorizontal: 16,
+                  paddingTop: 14,
+                  paddingBottom: 12,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
                 }}>
-                  <View style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 16,
-                    minHeight: 44,
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
-                  }}>
-                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Subcontractor</Text>
-                    <TextInput
-                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
-                      value={eventSubcontractor}
-                      onChangeText={setEventSubcontractor}
-                      placeholder="e.g., ABC Electric"
-                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
-                    />
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, minHeight: 100 }}>
-                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, paddingTop: 12, color: COLORS.text }}>Notes</Text>
-                    <TextInput
-                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, minHeight: 80, color: COLORS.text }}
-                      value={eventNotes}
-                      onChangeText={setEventNotes}
-                      placeholder="Additional details..."
-                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
-                      multiline
-                      numberOfLines={4}
-                      textAlignVertical="top"
-                    />
-                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: "500", marginBottom: 6, color: DASHBOARD_MUTED }}>Subcontractor</Text>
+                  <TextInput
+                    style={{ fontSize: 17, fontWeight: "600", paddingVertical: 2, paddingHorizontal: 0, color: COLORS.text }}
+                    value={eventSubcontractor}
+                    onChangeText={setEventSubcontractor}
+                    placeholder="ABC Electric"
+                    placeholderTextColor={DASHBOARD_MUTED}
+                  />
                 </View>
-              </View>
-
-              {/* Actions */}
-              <View style={{ marginTop: 16, gap: 12 }}>
-                {editingEvent && (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={handleDeleteEvent}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      paddingVertical: 14,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: darkMode ? "rgba(255,59,48,0.5)" : "rgba(255,59,48,0.3)",
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                    <Text style={{ fontSize: 17, fontWeight: "600", color: "#ef4444" }}>Delete Event</Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={handleSaveEvent}
-                  style={{
-                    paddingVertical: 16,
-                    borderRadius: 12,
-                    alignItems: "center",
-                    backgroundColor: darkMode ? ACCENT_GREEN : COLORS.green,
-                  }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 17, fontWeight: "600" }}>Save</Text>
-                </TouchableOpacity>
+                <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "500", marginBottom: 6, color: DASHBOARD_MUTED }}>Notes</Text>
+                  <TextInput
+                    style={{ fontSize: 17, fontWeight: "600", paddingVertical: 2, paddingHorizontal: 0, minHeight: 72, color: COLORS.text }}
+                    value={eventNotes}
+                    onChangeText={setEventNotes}
+                    placeholder="Additional details"
+                    placeholderTextColor={DASHBOARD_MUTED}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
+                </View>
               </View>
             </ScrollView>
+
+            <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 10 }}>
+              {editingEvent ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={handleDeleteEvent}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: "#ef4444" }}>Delete Event</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleSaveEvent}
+                style={{
+                  paddingVertical: 16,
+                  borderRadius: 14,
+                  alignItems: "center",
+                  backgroundColor: DASHBOARD_ACCENT,
+                }}
+              >
+                <Text style={{ color: "#050B13", fontSize: 17, fontWeight: "700" }}>Save</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -3966,14 +3914,14 @@ const DashboardScreen: React.FC = () => {
             title={t('dashboard.title')}
             subtitle={`${t('dashboard.welcome')}, ${dashboardGreeting.name}`}
             titleColor={Colors.text}
-            subtitleColor={darkMode ? "rgba(255,255,255,0.92)" : "#334155"}
+            subtitleColor={darkMode ? DASHBOARD_MUTED : "#64748b"}
             darkMode={darkMode}
-            titleStyle={desktopWeb ? styles.headerTitleDesktop : undefined}
+            titleStyle={desktopWeb ? styles.headerTitleDesktop : styles.headerTitle}
             subtitleStyle={desktopWeb ? styles.headerSubtitleDesktop : undefined}
             belowTitle={(() => {
               const isDark = darkMode;
-              const aiStatusColor = isDark ? "#6ee7b7" : "#16a34a";
-              const dotColor = "#22c55e";
+              const aiStatusColor = isDark ? DASHBOARD_MUTED : "#64748b";
+              const dotColor = DASHBOARD_ACCENT;
               const ruleBasedTime = aiData?.ruleBasedUpdatedAt
                 ? formatTimeShort(aiData.ruleBasedUpdatedAt)
                 : null;
@@ -4025,11 +3973,7 @@ const DashboardScreen: React.FC = () => {
               );
             })()}
             right={
-              <LinearGradient
-                pointerEvents="box-none"
-                colors={["#22c55e", "#22d3ee"]}
-                style={styles.profileOuter}
-              >
+              <View style={styles.profileOuter}>
                 <Pressable
                   style={styles.profileInner}
                   onPress={() => router.push("/(tabs)/profile")}
@@ -4038,7 +3982,7 @@ const DashboardScreen: React.FC = () => {
                 >
                   <Text style={styles.profileInitials}>{dashboardGreeting.initials}</Text>
                 </Pressable>
-              </LinearGradient>
+              </View>
             }
           />
 
@@ -4145,30 +4089,6 @@ const DashboardScreen: React.FC = () => {
 
 /* ----------------- ENHANCED METRIC CARD ----------------- */
 
-/** One gradient across the Overview key-metrics carousel (phone swipe + desktop row). */
-const METRICS_CAROUSEL_GRADIENT = [
-  "#22c55e",
-  "#22d3ee",
-  "#1AD0B2",
-  "#0088FF",
-  "#003E66",
-] as const;
-
-const METRICS_CAROUSEL_GRADIENT_SOLO = ["#1AD0B2", "#0088FF", "#003E66"] as const;
-
-function metricsCarouselGradientEndpoints(stripIndex: number, stripCount: number) {
-  if (stripCount <= 1) {
-    return {
-      start: { x: 0, y: 0 } as const,
-      end: { x: 1, y: 1 } as const,
-    };
-  }
-  return {
-    start: { x: -stripIndex, y: 0 } as const,
-    end: { x: stripCount - stripIndex, y: 1 } as const,
-  };
-}
-
 const EnhancedMetricCard = ({
   label,
   value,
@@ -4176,9 +4096,7 @@ const EnhancedMetricCard = ({
   trend,
   trendDirection,
   context,
-  desktopEqualColumns,
-  stripIndex = 0,
-  stripCount = 1,
+  isFirst = false,
 }: {
   label: string;
   value: string;
@@ -4186,124 +4104,39 @@ const EnhancedMetricCard = ({
   trend: string;
   trendDirection: "up" | "down";
   context: string;
-  /** Desktop web: equal-width columns to match segment nav width */
+  /** First row has no divider above it. */
+  isFirst?: boolean;
+  /** Unused. Call sites still pass it from the old column layout. */
   desktopEqualColumns?: boolean;
-  /** Slice of the shared carousel gradient (0-based). */
+  /** Kept so existing call sites stay valid. Cards no longer slice a shared gradient. */
   stripIndex?: number;
-  /** Total cards in the carousel strip. */
   stripCount?: number;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
-  const scale = useRef(new Animated.Value(1)).current;
-  const gradientEndpoints = metricsCarouselGradientEndpoints(stripIndex, stripCount);
-  const useDarkText = stripCount > 1 && stripIndex === 0;
-
-  const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.97,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 8,
-    }).start();
-  };
-  const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 8,
-    }).start();
-  };
-
-  const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <LinearGradient
-      colors={
-        stripCount > 1
-          ? [...METRICS_CAROUSEL_GRADIENT]
-          : [...METRICS_CAROUSEL_GRADIENT_SOLO]
-      }
-      start={gradientEndpoints.start}
-      end={gradientEndpoints.end}
-      style={styles.metricGradientCard}
-    >
-      {children}
-    </LinearGradient>
-  );
+  const valueIsPlaceholder = value === "—" || value === "-" || value === "";
+  const trendIsPlaceholder = trend === "—" || trend === "-";
+  const trendColor = trendDirection === "up" ? DASHBOARD_ACCENT : "#fb7185";
 
   return (
-    <Animated.View
-      style={[
-        desktopEqualColumns ? styles.metricOuterDesktopEqual : styles.metricOuter,
-        { transform: [{ scale }] },
-      ]}
-    >
-      <Pressable
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={{ flex: 1 }}
-      >
-        <CardWrapper>
-          <View style={styles.metricTopRow}>
-            <View style={styles.metricIconCircle}>
-              <Ionicons
-                name={trendDirection === "up" ? "trending-up" : "trending-down"}
-                size={14}
-                color={useDarkText ? "#020617" : "#22d3ee"}
-                  />
-                </View>
-          </View>
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.55}
-            style={[
-              styles.metricValue,
-              (useDarkText) && { color: "#020617" },
-              { width: "100%" },
-            ]}
-          >
-            {value}
-          </Text>
-          <Text style={[styles.metricLabel, useDarkText && { color: "rgba(2,6,23,0.75)" }]}>
-            {label}
-          </Text>
-
-          <View style={styles.metricBottomRow}>
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>{timeframe}</Text>
-                  </View>
-            <View style={styles.trendRow}>
-              <MaterialIcons
-                name={trendDirection === "up" ? "north-east" : "south-east"}
-                size={12}
-                color={trendDirection === "up" ? "#15803d" : "#ea580c"}
-              />
-              <Text
-                style={[
-                  styles.trendText,
-                  trendDirection === "up"
-                    ? { color: "#15803d" }
-                    : { color: "#ea580c" },
-                ]}
-              >
-                {trend}
-              </Text>
-                </View>
-              </View>
-
-          <Text
-            style={[
-              styles.metricContext,
-              useDarkText && styles.metricContextOnLight,
-            ]}
-          >
-            {context}
-                  </Text>
-        </CardWrapper>
-      </Pressable>
-    </Animated.View>
+    <View style={[styles.overviewMetricRow, isFirst && styles.overviewMetricRowFirst]}>
+      <Text style={styles.analyticsLabel}>{label}</Text>
+      <View style={styles.overviewMetricAmountRow}>
+        <Text
+          style={valueIsPlaceholder ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmount}
+          numberOfLines={1}
+        >
+          {valueIsPlaceholder ? "—" : value}
+        </Text>
+        {trendIsPlaceholder ? null : (
+          <Text style={[styles.overviewMetricTrend, { color: trendColor }]}>{trend}</Text>
+        )}
+      </View>
+      <Text style={styles.metricContext} numberOfLines={2}>
+        {timeframe} · {context}
+      </Text>
+    </View>
   );
 };
 
@@ -4330,7 +4163,7 @@ const bucketChipVisual = (
   return {
     label: "Quick win",
     bg: dark ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.12)",
-    text: dark ? "#86efac" : BPS_BRAND_GREEN,
+      text: dark ? DASHBOARD_ACCENT : DASHBOARD_ACCENT,
   };
 };
 
@@ -4433,8 +4266,8 @@ const InsightItem = ({
   };
   const colorMap: Record<typeof type, string> = {
     alert: "#f97316",
-    opportunity: "#22c55e",
-    info: "#22d3ee",
+    opportunity: DASHBOARD_ACCENT,
+    info: DASHBOARD_MUTED,
   };
 
   // Transform body text to use less certain language
@@ -4507,11 +4340,6 @@ const InsightItem = ({
           </View>
         )}
         <Text style={styles.insightBody}>{transformedBody}</Text>
-        {onPress ? (
-          <Text style={[styles.insightBody, styles.insightTapToOpen]}>
-            Tap to open →
-          </Text>
-        ) : null}
       </View>
     </Pressable>
   );
@@ -4524,6 +4352,8 @@ type DashboardProjectSummaryCardProps = {
   timelineLatestPlannedMs: Record<string, number>;
   onPress: () => void;
   hideFinancialMetrics?: boolean;
+  /** Last row has no divider under it. */
+  isLast?: boolean;
 };
 
 const DashboardProjectSummaryCard = ({
@@ -4531,6 +4361,7 @@ const DashboardProjectSummaryCard = ({
   timelineLatestPlannedMs,
   onPress,
   hideFinancialMetrics = false,
+  isLast = false,
 }: DashboardProjectSummaryCardProps) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -4552,6 +4383,7 @@ const DashboardProjectSummaryCard = ({
       onPress={onPress}
       style={({ pressed }) => [
         styles.projectSummaryPressable,
+        isLast && styles.projectSummaryPressableLast,
         pressed && { opacity: 0.85 },
       ]}
       accessibilityRole="button"
@@ -4584,25 +4416,41 @@ const DashboardProjectSummaryCard = ({
           </Text>
         </View>
       </View>
-      <View style={styles.projectSummaryProgress}>
-        <View style={styles.progressBarTrack}>
-          <LinearGradient
-            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={[
-              styles.progressBarFill,
-              {
-                width: `${Math.min(Math.max(project.progress * 100, 0), 100)}%`,
-              },
-            ]}
-          />
-        </View>
-        <Text style={styles.progressPercent}>{Math.round(project.progress * 100)}%</Text>
-      </View>
-      <Text style={[styles.projectSummarySignal, signalStyle]} numberOfLines={1}>
-        {op.text}
-      </Text>
+      {(() => {
+        const progressPct = Math.min(Math.max(project.progress * 100, 0), 100);
+        const progressLabel = `${Math.round(progressPct)}%`;
+        if (progressPct <= 0) {
+          return (
+            <View style={styles.projectSummaryQuietProgress}>
+              <Text style={[styles.projectSummarySignal, signalStyle, styles.projectSummarySignalInline]} numberOfLines={1}>
+                {op.text}
+              </Text>
+              <Text style={styles.progressPercent}>{progressLabel}</Text>
+            </View>
+          );
+        }
+        return (
+          <>
+            <View style={styles.projectSummaryProgress}>
+              <View style={styles.progressBarTrack}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    {
+                      width: `${progressPct}%`,
+                      backgroundColor: DASHBOARD_ACCENT,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressPercent}>{progressLabel}</Text>
+            </View>
+            <Text style={[styles.projectSummarySignal, signalStyle]} numberOfLines={1}>
+              {op.text}
+            </Text>
+          </>
+        );
+      })()}
     </Pressable>
   );
 };
@@ -4781,54 +4629,25 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
   return (
     <>
-      {/* KEY METRICS */}
-      <View
-        style={desktopWideWeb ? styles.keyMetricsClusterDesktop : undefined}
-      >
+      {/* KEY METRICS — same figures, stacked like the analytics snapshot */}
       <View
         style={[
-          styles.sectionHeaderRow,
-          styles.overviewKeyMetricsAiInsights,
-          desktopWideWeb && styles.keyMetricsHeaderDesktop,
+          styles.wideContainer,
+          styles.overviewKeyMetricsBottomSpacing,
+          desktopWideWeb && styles.keyMetricsClusterDesktop,
         ]}
       >
-        <View style={desktopWideWeb ? { alignItems: "center" } : undefined}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              desktopWideWeb && { textAlign: "center" },
-            ]}
-          >
-            Key Metrics
-          </Text>
-          <Text
-            style={[
-              styles.sectionSubtitle,
-              desktopWideWeb && { textAlign: "center" },
-            ]}
-          >
-            This month at a glance
-          </Text>
-        </View>
-        {!desktopWideWeb ? (
-          <Text style={styles.metricsSwipeHint}>Swipe</Text>
-        ) : null}
-      </View>
-
-        <View
-          style={[
-            styles.metricsRow,
-            styles.wideContainer,
-            styles.overviewKeyMetricsBottomSpacing,
-          ]}
-        >
-          {desktopWideWeb ? (
-            <View style={styles.metricsRowEqualDesktop}>
-              {!hideFinancialMetrics ? (
+        <View style={styles.performanceSnapshotCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardTitle}>Key Metrics</Text>
+              <Text style={styles.cardSubtitle}>This month at a glance</Text>
+            </View>
+          </View>
+          <View style={styles.overviewMetricsList}>
+            {!hideFinancialMetrics ? (
               <EnhancedMetricCard
-                desktopEqualColumns
-                stripIndex={0}
-                stripCount={3}
+                isFirst
                 label="Total Bids"
                 value={metrics.totalBids}
                 timeframe="This Month"
@@ -4836,23 +4655,18 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 trendDirection="up"
                 context="12% under expected at this phase"
               />
-              ) : null}
+            ) : null}
+            <EnhancedMetricCard
+              isFirst={hideFinancialMetrics}
+              label="Projects"
+              value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
+              timeframe="In Progress"
+              trend={hideFinancialMetrics ? "—" : "+4.1%"}
+              trendDirection="up"
+              context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
+            />
+            {!hideFinancialMetrics ? (
               <EnhancedMetricCard
-                desktopEqualColumns
-                stripIndex={hideFinancialMetrics ? 0 : 1}
-                stripCount={hideFinancialMetrics ? 1 : 3}
-                label="Projects"
-                value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
-                timeframe="In Progress"
-                trend={hideFinancialMetrics ? "—" : "+4.1%"}
-                trendDirection="up"
-                context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
-              />
-              {!hideFinancialMetrics ? (
-              <EnhancedMetricCard
-                desktopEqualColumns
-                stripIndex={2}
-                stripCount={3}
                 label="Avg Net Profit"
                 value={metrics.avgMargin}
                 timeframe="Completed jobs"
@@ -4860,51 +4674,9 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 trendDirection="down"
                 context="Net profit ÷ contract on closed work (realized)"
               />
-              ) : null}
-            </View>
-          ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingRight: 28, paddingLeft: 2 }}
-          >
-          {!hideFinancialMetrics ? (
-          <EnhancedMetricCard
-            stripIndex={0}
-            stripCount={3}
-            label="Total Bids"
-            value={metrics.totalBids}
-            timeframe="This Month"
-            trend="+12.5%"
-            trendDirection="up"
-            context="12% under expected at this phase"
-          />
-          ) : null}
-          <EnhancedMetricCard
-            stripIndex={hideFinancialMetrics ? 0 : 1}
-            stripCount={hideFinancialMetrics ? 1 : 3}
-            label="Projects"
-            value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
-            timeframe="In Progress"
-            trend={hideFinancialMetrics ? "—" : "+4.1%"}
-            trendDirection="up"
-            context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
-          />
-          {!hideFinancialMetrics ? (
-          <EnhancedMetricCard
-            stripIndex={2}
-            stripCount={3}
-            label="Avg Net Profit"
-            value={metrics.avgMargin}
-            timeframe="Completed jobs"
-            trend="—"
-            trendDirection="down"
-            context="Net profit ÷ contract on closed work (realized)"
-          />
-          ) : null}
-        </ScrollView>
-          )}
-                  </View>
+            ) : null}
+          </View>
+        </View>
       </View>
 
       {!hideFinancialMetrics ? (
@@ -4973,7 +4745,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 <Ionicons
                   name="chevron-forward"
                   size={16}
-                  color={BPS_BRAND_GREEN}
+                  color={"#e2e8f0"}
                 />
               </Pressable>
           </View>
@@ -5017,7 +4789,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                   <Ionicons
                     name={item.type === "payment" ? "cash-outline" : "calendar-outline"}
                     size={17}
-                    color={item.type === "payment" ? BPS_BRAND_GREEN : BPS_BRAND_TEAL}
+                    color={DASHBOARD_MUTED}
                   />
                   <Text style={styles.insightsPatternText}>
                     {formatUpcomingScheduleItem(item)}
@@ -5030,7 +4802,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 accessibilityRole="button"
               >
                 <Text style={styles.linkText}>View all schedule insights</Text>
-                <Ionicons name="chevron-forward" size={16} color={BPS_BRAND_GREEN} />
+                <Ionicons name="chevron-forward" size={16} color="#e2e8f0" />
               </Pressable>
             </View>
           </View>
@@ -5060,27 +4832,22 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
             {showAllProjectsLoading ? (
               <View style={styles.emptyState}>
-                <ActivityIndicator size="small" color="#22c55e" />
+                <ActivityIndicator size="small" color={DASHBOARD_ACCENT} />
               </View>
             ) : projects.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyStateIconCircle}>
-                  <Ionicons name="document-text-outline" size={32} color="#22c55e" />
+                  <Ionicons name="document-text-outline" size={32} color={DASHBOARD_MUTED} />
                 </View>
                 <Text style={styles.emptyStateText}>No projects yet</Text>
                 <Text style={styles.emptyStateSubtext}>
                   Create your first estimate to get started
                 </Text>
                 <Pressable onPress={onCreateEstimate} style={styles.emptyStateCTA}>
-                  <LinearGradient
-                    colors={["#22c55e", "#22d3ee"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.emptyStateCTAGradient}
-                  >
-                    <Ionicons name="add" size={18} color="#020617" />
+                  <View style={[styles.emptyStateCTAGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
+                    <Ionicons name="add" size={18} color="#050B13" />
                     <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
-                  </LinearGradient>
+                  </View>
                 </Pressable>
               </View>
             ) : projects.length >= 4 ? (
@@ -5092,10 +4859,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 keyboardShouldPersistTaps="always"
                 {...KEYBOARD_SCROLL_DEFAULTS}
               >
-                {projects.map((project) => (
+                {projects.map((project, index) => (
                   <DashboardProjectSummaryCard
                     key={project.id}
                     project={project}
+                    isLast={index === projects.length - 1}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
                     hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
@@ -5106,10 +4874,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               </ScrollView>
             ) : (
               <View style={styles.allProjectsList}>
-                {projects.map((project) => (
+                {projects.map((project, index) => (
                   <DashboardProjectSummaryCard
                     key={project.id}
                     project={project}
+                    isLast={index === projects.length - 1}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
                     hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
@@ -5198,19 +4967,6 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
 
   return (
     <View style={styles.analyticsPageShell}>
-      {darkMode ? (
-        <LinearGradient
-          pointerEvents="none"
-          colors={[
-            "rgba(34, 197, 94, 0.05)",
-            "rgba(0, 166, 255, 0.04)",
-            "transparent",
-          ]}
-          locations={[0, 0.38, 0.9]}
-          style={styles.analyticsPageGlow}
-        />
-      ) : null}
-
       {/* Top snapshot card (4 mini metrics) */}
       <View style={[styles.analyticsSection, styles.wideContainer]}>
         <View style={styles.performanceSnapshotCard}>
@@ -5221,8 +4977,8 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
               </View>
             </View>
 
-            <View style={styles.analyticsGrid}>
-              <AnalyticsMetric label="Total Bids" value={metrics.totalBids} />
+            <View style={styles.overviewMetricsList}>
+              <AnalyticsMetric isFirst label="Total Bids" value={metrics.totalBids} />
               <AnalyticsMetric
                 label="Active Projects"
                 value={activeCount.toString()}
@@ -5256,57 +5012,32 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   );
 };
 
+function isQuietAnalyticsValue(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "—" || trimmed === "-" || trimmed === "" || /^\$?0+(\.0+)?$/.test(trimmed);
+}
+
 const AnalyticsMetric = ({
   label,
   value,
-  extra,
+  isFirst = false,
 }: {
   label: string;
   value: string;
+  isFirst?: boolean;
   extra?: string;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
-  
-  // Get icon and color for each metric type
-  const isDark = Colors.bg === '#000000';
-  const getMetricConfig = (label: string) => {
-    const baseConfigs: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string; darkBg: string; lightBg: string }> = {
-      "Total Bids": { icon: "cash-outline", color: "#3b82f6", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
-      "Active Projects": { icon: "folder-outline", color: "#22c55e", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
-      "Avg Project Value": { icon: "trending-up-outline", color: "#22d3ee", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
-      "Avg Net Profit": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
-    };
-    const config = baseConfigs[label] || { icon: "stats-chart-outline", color: "#FFFFFF", darkBg: Colors.surface2, lightBg: "#E2E8F0" };
-    return {
-      icon: config.icon,
-      color: config.color,
-      bgColor: isDark ? config.darkBg : config.lightBg,
-    };
-  };
-
-  const config = getMetricConfig(label);
+  const quiet = isQuietAnalyticsValue(value);
 
   return (
-    <View
-      style={[
-        styles.analyticsMetricInner,
-        !isDark && { borderWidth: 1, borderColor: Colors.line },
-      ]}
-    >
-      <View style={[styles.analyticsMetricIconContainer, { backgroundColor: config.bgColor }]}>
-        <Ionicons name={config.icon} size={19} color={config.color} />
-      </View>
-      <View style={styles.analyticsMetricContent}>
-        <Text style={styles.analyticsLabel}>{label}</Text>
-        <Text style={styles.analyticsValue}>{value}</Text>
-        {extra ? (
-          <View style={styles.analyticsExtraContainer}>
-            <Text style={styles.analyticsExtra}>{extra}</Text>
-          </View>
-        ) : null}
-      </View>
+    <View style={[styles.overviewMetricRow, isFirst && styles.overviewMetricRowFirst]}>
+      <Text style={styles.analyticsLabel}>{label}</Text>
+      <Text style={quiet ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmountLive}>
+        {value}
+      </Text>
     </View>
   );
 };
@@ -5339,6 +5070,12 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   const [showAllActions, setShowAllActions] = useState(false);
   const [dismissedNextStepIds, setDismissedNextStepIds] = useState<Set<string>>(() => new Set());
   const [localScheduleItems, setLocalScheduleItems] = useState<DailyBriefUpcomingScheduleItem[]>([]);
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const projectScheduleKey = useMemo(
+    () => projects.map((project) => String(project?.id ?? "")).join("|"),
+    [projects]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -5371,7 +5108,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       const collected: DailyBriefUpcomingScheduleItem[] = [];
 
       await Promise.all(
-        projects.map(async (project) => {
+        projectsRef.current.map(async (project) => {
           try {
             const raw = await AsyncStorage.getItem(`calendar_events_${project.id}`);
             const events = raw ? JSON.parse(raw) : [];
@@ -5397,12 +5134,28 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
           }
         })
       );
-      if (alive) setLocalScheduleItems(collected);
+      if (!alive) return;
+      setLocalScheduleItems((prev) => {
+        if (prev.length !== collected.length) return collected;
+        const same = prev.every((item, index) => {
+          const next = collected[index];
+          return (
+            item.id === next.id &&
+            item.title === next.title &&
+            item.date === next.date &&
+            item.time === next.time &&
+            item.projectId === next.projectId &&
+            item.type === next.type &&
+            item.notes === next.notes
+          );
+        });
+        return same ? prev : collected;
+      });
     })();
     return () => {
       alive = false;
     };
-  }, [projects]));
+  }, [projectScheduleKey]));
 
   /** Drop dismissals that no longer match the current feed (e.g. after API refresh). */
   useEffect(() => {
@@ -5570,28 +5323,55 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   const heroImpactPhrase = heroUsesAggregate
     ? formatHeroImpactPhrase("line_over_estimate", heroLineSummary!.totalOver)
     : formatHeroImpactPhrase(dailyRisk?.type, dailyRisk?.impactEstimate);
+  const heroInsightRecord =
+    (dailyRisk
+      ? sortedInsights.find((insight) => String(insight.id) === String(dailyRisk.id)) ||
+        sortedInsights.find((insight) => insight.title === dailyRisk.headline)
+      : undefined) || null;
+  const heroRateFacts = (() => {
+    if (heroUsesAggregate) return null;
+    const source = heroInsightRecord || dailyRisk;
+    if (!source) return null;
+    const evidence = source.evidence || [];
+    const valueAfter = (prefix: RegExp) => {
+      const line = evidence.find((entry) => prefix.test(String(entry)));
+      if (!line) return null;
+      const value = String(line).replace(prefix, "").trim();
+      return value || null;
+    };
+    let estimated = valueAfter(/^estimate:\s*/i);
+    let logged = valueAfter(/^logged:\s*/i);
+    const body = String(source.body || "");
+    if (!logged) {
+      logged = body.match(/(\$[\d,]+(?:\.\d+)?)\s+logged vs/i)?.[1] ?? null;
+    }
+    if (!estimated) {
+      estimated = body.match(/logged vs\s+(\$[\d,]+(?:\.\d+)?)\s+est/i)?.[1] ?? null;
+    }
+    const pct = body.match(/\(\s*([+-][\d.,]+%)\s*\)/)?.[1] ?? null;
+    if (!estimated && !logged) return null;
+    return { estimated, logged, pct };
+  })();
   const heroSupport = (() => {
     if (!dailyRisk) return "";
     if (!heroProjectTitle && !dailyRisk.projectTitle) {
-      return "The command center is tracking your highest-value risks and actions.";
+      return "Tracking the highest-value risks and actions.";
     }
+    const impactRaw = heroImpactPhrase.replace(/^\s*·\s*/, "").trim();
     const scopePhrase =
       heroUsesAggregate &&
       heroLineSummary!.materialsCount > 0 &&
       heroLineSummary!.laborCount > 0
-        ? " across materials & labor"
+        ? " across materials and labor"
         : "";
-    const base = heroUsesAggregate
-      ? `${heroProjectTitle}${heroImpactPhrase}${scopePhrase}.`
-      : `${dailyRisk.projectTitle || heroProjectTitle}${heroImpactPhrase}.`;
-    if (heroUsesAggregate) return base;
-    if (dailyAction?.label) {
-      return `${base} Next move: ${compactActionStepTitle(dailyAction)}.`;
+    const parts: string[] = [];
+    if (impactRaw) parts.push(`${impactRaw}${scopePhrase}.`);
+    if (!heroUsesAggregate && nextPayment?.projectTitle) {
+      parts.push(
+        `Next payment: ${nextPayment.projectTitle}${nextPayment.date ? ` due ${formatDateShort(nextPayment.date)}` : ""}.`
+      );
     }
-    if (nextPayment?.projectTitle) {
-      return `${base} Next payment: ${nextPayment.projectTitle}${nextPayment.date ? ` due ${formatDateShort(nextPayment.date)}` : ""}.`;
-    }
-    return base;
+    return parts.join(" ");
   })();
   const showHeroCta = Boolean(dailyRisk?.projectId);
 
@@ -5599,6 +5379,32 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     () => portfolioPatternBullets(filteredInsights, filteredNextSteps),
     [filteredInsights, filteredNextSteps]
   );
+  const visiblePatterns = useMemo(() => {
+    const restatesHero = (line: string) => {
+      if (!dailyRisk?.type) return false;
+      if (
+        dailyRisk.type === "line_over_estimate" &&
+        /\b(material|labor|estimate) lines?\b/i.test(line) &&
+        /over estimate|over budget/i.test(line)
+      ) {
+        return true;
+      }
+      if (
+        dailyRisk.type === "category_over_budget" &&
+        /categor/i.test(line) &&
+        /over cost budget/i.test(line)
+      ) {
+        return true;
+      }
+      if (dailyRisk.type === "over_budget" && /over total cost budget/i.test(line)) {
+        return true;
+      }
+      return false;
+    };
+    return patterns.filter(
+      (line) => !restatesHero(line) && !line.startsWith("Patterns sharpen")
+    );
+  }, [patterns, dailyRisk]);
 
   const heroAccent = dailyRisk
     ? dailyRisk.severity === "high"
@@ -5670,7 +5476,6 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
           <View style={[styles.insightsHeroAccent, { backgroundColor: heroAccent }]} />
           <View style={styles.insightsHeroBody}>
             <View style={styles.insightsHeroEyebrowRow}>
-              <Ionicons name="sparkles" size={14} color={heroAccent} />
               <Text style={[styles.insightsHeroEyebrow, { color: heroAccent }]}>
                 {dailyRisk
                   ? heroKickerForLeakType(dailyRisk.type, {
@@ -5706,16 +5511,32 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
                   {heroHeadline}
                 </Text>
-                <Text style={styles.insightsHeroSupport} numberOfLines={4}>
-                  {heroSupport}
-                </Text>
+                {heroRateFacts ? (
+                  <View style={styles.insightsHeroFacts}>
+                    {heroRateFacts.estimated ? (
+                      <Text style={[styles.insightsHeroSupport, { marginTop: 0 }]}>
+                        Estimated {heroRateFacts.estimated}
+                      </Text>
+                    ) : null}
+                    {heroRateFacts.logged ? (
+                      <Text style={[styles.insightsHeroLogged, { color: heroAccent }]}>
+                        Logged {heroRateFacts.logged}
+                        {heroRateFacts.pct ? ` · ${heroRateFacts.pct} over estimate` : ""}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : heroSupport ? (
+                  <Text style={styles.insightsHeroSupport} numberOfLines={3}>
+                    {heroSupport}
+                  </Text>
+                ) : null}
+                {heroRateFacts && heroSupport.includes("Next payment:") ? (
+                  <Text style={styles.insightsHeroSupport} numberOfLines={2}>
+                    {heroSupport.slice(heroSupport.indexOf("Next payment:"))}
+                  </Text>
+                ) : null}
                 {showHeroCta ? (
-                <LinearGradient
-                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.insightsHeroCtaGradient}
-                >
+                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                   <Pressable
                     style={({ pressed }) => [
                       styles.insightsHeroCtaInner,
@@ -5746,7 +5567,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
                   </Pressable>
-                </LinearGradient>
+                </View>
                 ) : null}
               </>
             )}
@@ -5759,12 +5580,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>
                   {firstSupportingSentence(primaryInsight.body)}
                 </Text>
-                <LinearGradient
-                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.insightsHeroCtaGradient}
-                >
+                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                   <Pressable
                     style={({ pressed }) => [
                       styles.insightsHeroCtaInner,
@@ -5784,7 +5600,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
                   </Pressable>
-                </LinearGradient>
+                </View>
               </>
             )}
 
@@ -5804,12 +5620,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                       ? "Budget alerts from logged costs still appear below when costs exceed estimate."
                       : "Add live costs to sharpen risk and next actions."}
                 </Text>
-                <LinearGradient
-                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.insightsHeroCtaGradient}
-                >
+                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                   <Pressable
                     style={({ pressed }) => [
                       styles.insightsHeroCtaInner,
@@ -5820,7 +5631,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                     <Text style={styles.insightsHeroCtaText}>View projects</Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
                   </Pressable>
-                </LinearGradient>
+                </View>
               </>
             )}
 
@@ -5828,14 +5639,19 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
         </View>
       </View>
 
-      {/* Prioritized actions */}
+      {/* Prioritized actions — hidden when nothing is queued */}
+      {aiLoading || sortedSteps.length > 0 || (filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0) ? (
       <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.sectionTitle}>Prioritized actions</Text>
-          <Text style={styles.sectionSubtitle}>Critical first · then today · quick wins</Text>
+          {sortedSteps.length > 0 ? (
+            <Text style={styles.sectionSubtitle}>Critical first · then today · quick wins</Text>
+          ) : null}
         </View>
       </View>
+      ) : null}
 
+      {aiLoading || sortedSteps.length > 0 || (filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0) ? (
       <View style={styles.wideContainer}>
         <View>
           {aiLoading && (
@@ -5886,25 +5702,24 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                   <Ionicons
                     name={showAllActions ? "chevron-up" : "chevron-down"}
                     size={18}
-                    color={BPS_BRAND_GREEN}
+                    color="#e2e8f0"
                   />
                 </Pressable>
               ) : null}
             </>
           )}
 
-          {!aiLoading && !aiError && sortedSteps.length === 0 && (
+          {!aiLoading && !aiError && sortedSteps.length === 0 && filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0 && (
             <Text style={styles.insightsAuxText}>
-              {filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0
-                ? "All current actions are dismissed. New ones will show when your dashboard refreshes."
-                : "No queued actions. Nice work."}
+              All current actions are dismissed. New ones will show when your dashboard refreshes.
             </Text>
           )}
         </View>
       </View>
+      ) : null}
 
-      {/* Portfolio patterns */}
-      {!aiLoading && !aiError && (
+      {/* Portfolio patterns — skip lines that only repeat the hero */}
+      {!aiLoading && !aiError && visiblePatterns.length > 0 && (
         <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
           <View>
             <Text style={styles.sectionTitle}>What we&apos;re seeing</Text>
@@ -5913,15 +5728,15 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
         </View>
       )}
 
-      {!aiLoading && !aiError && (
+      {!aiLoading && !aiError && visiblePatterns.length > 0 && (
         <View style={styles.wideContainer}>
           <View style={styles.insightsPatternsCard}>
-            {patterns.map((line, i) => (
+            {visiblePatterns.map((line, i) => (
               <View
                 key={i}
                 style={[
                   styles.insightsPatternRow,
-                  i === patterns.length - 1 && { marginBottom: 0 },
+                  i === visiblePatterns.length - 1 && { marginBottom: 0 },
                 ]}
               >
                 <View style={styles.insightsPatternDot} />
@@ -6062,10 +5877,15 @@ const getStyles = (
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 12 : 8,
   },
+  headerTitle: {
+    fontSize: 30,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+  },
   headerTitleDesktop: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: -0.6,
+    fontSize: 30,
+    fontWeight: "700",
+    letterSpacing: -0.4,
   },
   headerSubtitleDesktop: {
     fontSize: 15,
@@ -6090,12 +5910,12 @@ const getStyles = (
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#22c55e",
+    backgroundColor: DASHBOARD_ACCENT,
     marginRight: 6,
   },
   aiStatusText: {
     fontSize: 12,
-    color: "#6ee7b7", // Will be overridden inline, but keep as fallback
+    color: DASHBOARD_MUTED,
   },
   aiTimestampContainer: {
     flexDirection: "row",
@@ -6131,10 +5951,8 @@ const getStyles = (
     padding: 2,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.9,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 14,
+    borderWidth: 1.5,
+    borderColor: DASHBOARD_ACCENT,
   },
   profileInner: {
     width: "100%",
@@ -6158,7 +5976,7 @@ const getStyles = (
   slideHintText: {
     fontSize: 11,
     fontWeight: "500",
-    color: "#22c55e",
+    color: DASHBOARD_MUTED,
     textAlign: "center",
     textTransform: "lowercase",
   },
@@ -6241,7 +6059,7 @@ const getStyles = (
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: Colors.bg === '#000000' ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -6258,11 +6076,11 @@ const getStyles = (
   },
   insightsHeroCard: {
     flexDirection: "row",
-    borderRadius: 20,
+    borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
+    backgroundColor: Colors.bg === '#000000' ? "#202022" : Colors.surface,
     borderWidth: 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
+    borderColor: Colors.bg === '#000000' ? "rgba(148, 163, 184, 0.12)" : Colors.line,
     marginBottom: 4,
   },
   insightsHeroAccent: {
@@ -6298,7 +6116,17 @@ const getStyles = (
     marginTop: 8,
     fontSize: 14,
     lineHeight: 20,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : Colors.sub,
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
+  },
+  insightsHeroFacts: {
+    marginTop: 10,
+    gap: 2,
+  },
+  insightsHeroLogged: {
+    marginTop: 2,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "600",
   },
   insightsHeroCtaGradient: {
     marginTop: 16,
@@ -6382,7 +6210,7 @@ const getStyles = (
   insightsActionCta: {
     fontSize: 13,
     fontWeight: "700",
-    color: BPS_BRAND_GREEN,
+    color: Colors.bg === "#000000" ? "#e2e8f0" : "#0f172a",
   },
   insightsBucketChip: {
     paddingHorizontal: 8,
@@ -6424,14 +6252,14 @@ const getStyles = (
   insightsViewAllText: {
     fontSize: 14,
     fontWeight: "700",
-    color: BPS_BRAND_GREEN,
+    color: Colors.bg === "#000000" ? "#e2e8f0" : "#0f172a",
   },
   insightsPatternsCard: {
-    borderRadius: 18,
+    borderRadius: 14,
     padding: 16,
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
+    backgroundColor: Colors.bg === '#000000' ? "#202022" : Colors.surface,
     borderWidth: 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
+    borderColor: Colors.bg === '#000000' ? "rgba(148, 163, 184, 0.12)" : Colors.line,
     marginBottom: 8,
   },
   insightsPatternRow: {
@@ -6445,7 +6273,7 @@ const getStyles = (
     height: 6,
     borderRadius: 3,
     marginTop: 6,
-    backgroundColor: BPS_BRAND_GREEN,
+    backgroundColor: DASHBOARD_MUTED,
     opacity: 0.9,
   },
   insightsPatternText: {
@@ -6466,7 +6294,7 @@ const getStyles = (
   insightsAuxText: {
     fontSize: 13,
     lineHeight: 19,
-    color: Colors.bg === '#000000' ? "#e2e8f0" : "#334155",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
     marginBottom: 10,
   },
   insightsSectionTitle: {
@@ -6484,7 +6312,7 @@ const getStyles = (
   linkText: {
     fontSize: 14,
     fontWeight: "600",
-    color: BPS_BRAND_GREEN,
+    color: Colors.bg === "#000000" ? "#e2e8f0" : "#0f172a",
   },
   metricsSwipeHint: {
     fontSize: 11,
@@ -6551,7 +6379,7 @@ const getStyles = (
     marginTop: 1,
     fontSize: 12,
     fontWeight: "600",
-    color: "rgba(230,245,255,0.78)",
+    color: Colors.bg === "#000000" ? DASHBOARD_MUTED : "#64748b",
   },
   metricLabelSecondary: {
     marginTop: 2,
@@ -6681,7 +6509,7 @@ const getStyles = (
   progressPercent: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#E5F7FF" : Colors.text,
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
   },
   progressLabel: {
     marginTop: 4,
@@ -6708,14 +6536,27 @@ const getStyles = (
 
   // PROJECT SUMMARY CARDS
   projectSummaryPressable: {
-    marginTop: 6,
-    paddingVertical: 11,
-    paddingHorizontal: 11,
-    borderRadius: 14,
-    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-    borderWidth: 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
+    marginTop: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.22)" : "rgba(15, 23, 42, 0.1)",
     zIndex: 2,
+  },
+  projectSummaryPressableLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 2,
+  },
+  projectSummaryQuietProgress: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 6,
+  },
+  projectSummarySignalInline: {
+    flex: 1,
+    marginTop: 0,
   },
   allProjectsList: {
     marginTop: 12,
@@ -6776,10 +6617,10 @@ const getStyles = (
     color: "#d97706",
   },
   projectSummarySignalWatch: {
-    color: Colors.bg === '#000000' ? "rgba(203,213,225,0.98)" : "#475569",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
   },
   projectSummarySignalMuted: {
-    color: Colors.bg === '#000000' ? "rgba(226,232,240,0.92)" : "rgba(51,65,85,0.92)",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
   },
 
   // ANALYTICS
@@ -6824,6 +6665,50 @@ const getStyles = (
     paddingVertical: 12,
     paddingHorizontal: 12,
   },
+  overviewMetricsList: {
+    marginTop: 6,
+  },
+  overviewMetricRow: {
+    paddingTop: 14,
+    paddingBottom: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: darkMode ? "rgba(148, 163, 184, 0.22)" : "rgba(15, 23, 42, 0.1)",
+  },
+  overviewMetricRowFirst: {
+    borderTopWidth: 0,
+    paddingTop: 2,
+  },
+  overviewMetricAmountRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    marginTop: 2,
+  },
+  overviewMetricAmount: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    color: Colors.bg === "#000000" ? "#F5F7FA" : Colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+  overviewMetricAmountQuiet: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.bg === "#000000" ? DASHBOARD_MUTED : "#64748b",
+  },
+  overviewMetricAmountLive: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    marginTop: 2,
+    color: DASHBOARD_ACCENT,
+    fontVariant: ["tabular-nums"],
+  },
+  overviewMetricTrend: {
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
   analyticsMetricIconContainer: {
     width: 40,
     height: 40,
@@ -6844,7 +6729,7 @@ const getStyles = (
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: Colors.bg === '#000000' ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
     marginBottom: 6,
   },
   /** Budget rowValueIntelHero */
@@ -6883,7 +6768,7 @@ const getStyles = (
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
@@ -6943,6 +6828,9 @@ const getStyles = (
     padding: 12,
     minHeight: 118,
     justifyContent: "space-between",
+    backgroundColor: Colors.bg === "#000000" ? "#202022" : Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.bg === "#000000" ? "rgba(148, 163, 184, 0.12)" : Colors.line,
   },
   metricTopRow: {
     flexDirection: "row",
@@ -6952,7 +6840,7 @@ const getStyles = (
     width: 24,
     height: 24,
     borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.55)",
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -6966,11 +6854,11 @@ const getStyles = (
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.55)",
+    backgroundColor: "rgba(148, 163, 184, 0.16)",
   },
   chipText: {
     fontSize: 10,
-    color: "rgba(229,231,235,0.94)",
+    color: Colors.bg === "#000000" ? "#e2e8f0" : "#334155",
     fontWeight: "500",
   },
   trendRow: {
@@ -6985,7 +6873,7 @@ const getStyles = (
   metricContext: {
     fontSize: 11,
     lineHeight: 15,
-    color: "rgba(243,244,246,0.88)",
+    color: Colors.bg === "#000000" ? DASHBOARD_MUTED : "#64748b",
     marginTop: 6,
     fontWeight: "400",
   },
@@ -7037,7 +6925,7 @@ const getStyles = (
   },
   sectionSubtitle: {
     fontSize: desktopWeb ? 14 : 13,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#334155",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
     marginTop: 2,
   },
   overviewAiInsightsSubtitle: {
@@ -7064,16 +6952,10 @@ const getStyles = (
   aiInsightsOpenTabRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    marginTop: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor:
-      Colors.bg === "#000000"
-        ? "rgba(255,255,255,0.12)"
-        : "rgba(15, 23, 42, 0.1)",
+    justifyContent: "flex-end",
+    gap: 4,
+    marginTop: 12,
+    paddingVertical: 2,
   },
   /** Space below AI Insights (hint, preview, or expanded card) before All Projects */
   aiInsightsSectionBottomSpacing: {
@@ -7122,15 +7004,15 @@ const getStyles = (
     color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
   },
   insightBody: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
-    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
+    marginTop: 4,
   },
   insightTapToOpen: {
-    color: BPS_BRAND_GREEN,
+    color: Colors.bg === "#000000" ? "#e2e8f0" : "#0f172a",
     marginTop: 6,
-    fontWeight: "700",
+    fontWeight: "600",
   },
 
   // NEXT STEPS
@@ -7173,7 +7055,7 @@ const getStyles = (
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#22c55e",
+    backgroundColor: DASHBOARD_MUTED,
     marginRight: 10,
     marginTop: 6,
   },
@@ -7195,7 +7077,7 @@ const getStyles = (
   nextStepChipText: {
     fontSize: 12,
     lineHeight: 16,
-    color: Colors.bg === '#000000' ? "#86efac" : "#166534",
+    color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
     fontWeight: "600",
   },
 

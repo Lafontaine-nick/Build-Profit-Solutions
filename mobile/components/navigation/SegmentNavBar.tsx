@@ -11,13 +11,12 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
 
-export const BPS_BRAND_GREEN = '#22c55e';
+export const BPS_BRAND_GREEN = '#2dcc9a';
 
 export type SegmentNavItem = {
   key: string;
@@ -52,7 +51,7 @@ const SegmentTab = React.memo(function SegmentTab({
   darkMode,
   equalWidth,
 }: SegmentTabProps) {
-  const iconColor = isActive ? '#050B13' : darkMode ? '#FFFFFF' : '#334155';
+  const iconColor = isActive ? '#050B13' : darkMode ? '#e2e8f0' : '#334155';
   const badgeCount = item.badgeCount ?? 0;
 
   const tabContent = (
@@ -94,16 +93,14 @@ const SegmentTab = React.memo(function SegmentTab({
     return (
       <Pressable
         onPress={onPress}
-        style={[tabStyle, styles.segmentTabClipped, equalWidth && styles.segmentTabFlex]}
+        style={[
+          tabStyle,
+          styles.segmentTabClipped,
+          styles.segmentTabActive,
+          equalWidth && styles.segmentTabFlex,
+        ]}
       >
-        <LinearGradient
-          colors={['#22c55e', '#22d3ee']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFillObject, styles.segmentTabActive]}
-        >
-          {tabContent}
-        </LinearGradient>
+        {tabContent}
       </Pressable>
     );
   }
@@ -169,19 +166,19 @@ function createStyles(Colors: ReturnType<typeof getColors>, desktopWeb: boolean)
       borderRadius: 999,
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: BPS_BRAND_GREEN,
+      borderColor: 'rgba(148, 163, 184, 0.35)',
       marginBottom: desktopWeb ? 22 : 18,
     },
     segmentInner: {
       flexDirection: 'row',
       padding: desktopWeb ? 5 : 4,
-      backgroundColor: isDarkBg ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+      backgroundColor: isDarkBg ? '#202022' : Colors.surface2,
       minWidth: '100%',
     },
     segmentInnerScroll: {
       flexDirection: 'row',
       padding: desktopWeb ? 5 : 4,
-      backgroundColor: isDarkBg ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+      backgroundColor: isDarkBg ? '#202022' : Colors.surface2,
       gap: 2,
     },
     segmentTab: {
@@ -202,11 +199,7 @@ function createStyles(Colors: ReturnType<typeof getColors>, desktopWeb: boolean)
     },
     segmentTabActive: {
       borderRadius: 999,
-      backgroundColor: isDarkBg ? 'transparent' : '#FFFFFF',
-      shadowColor: isDarkBg ? BPS_BRAND_GREEN : '#000',
-      shadowOpacity: isDarkBg ? 0.4 : 0.12,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 0 },
+      backgroundColor: BPS_BRAND_GREEN,
     },
     segmentTabInner: {
       flexDirection: 'row',
@@ -228,7 +221,7 @@ function createStyles(Colors: ReturnType<typeof getColors>, desktopWeb: boolean)
     segmentLabel: {
       fontSize: desktopWeb ? 14 : 13,
       fontWeight: '600',
-      color: isDarkBg ? '#FFFFFF' : Colors.text,
+      color: isDarkBg ? '#e2e8f0' : '#334155',
       flexShrink: 1,
     },
     segmentLabelActive: {

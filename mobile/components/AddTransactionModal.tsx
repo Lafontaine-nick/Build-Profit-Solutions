@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from "react-native";
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -20,7 +20,6 @@ import {
   dollarsToCentsDigits,
   sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
-import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
@@ -709,17 +708,6 @@ export default function AddTransactionModal({
     return getProjectExpenseFormHorizontalPadding({ desktopWeb: false });
   }, [webBudgetExpenseShell, webPoDesktopWide]);
 
-  const webShellHeaderMci = useMemo(() => {
-    if (!webBudgetExpenseShell) return null;
-    if (categoryNameLower.includes("labor") || categoryNameLower.includes("subs")) {
-      return "account-hard-hat" as const;
-    }
-    if (categoryNameLower.includes("change")) {
-      return "file-document-edit-outline" as const;
-    }
-    return "package-variant-closed" as const;
-  }, [webBudgetExpenseShell, categoryNameLower]);
-
   const webVendorFeatherIcon = useMemo(() => {
     if (!webBudgetExpenseShell) return "package" as const;
     if (categoryNameLower.includes("labor") || categoryNameLower.includes("subs")) {
@@ -735,9 +723,8 @@ export default function AddTransactionModal({
     if (!webBudgetExpenseShell) return null;
     return {
       headerRow: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        paddingHorizontal: webPoFormPad.header,
+        width: "100%" as const,
+        alignItems: "stretch" as const,
         paddingTop: 8,
         paddingBottom: 14,
         marginBottom: 8,
@@ -745,19 +732,22 @@ export default function AddTransactionModal({
         borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
       },
       materialTitle: {
-        fontSize: 24,
-        fontWeight: "800" as const,
+        fontSize: 18,
+        fontWeight: "700" as const,
         color: Colors.text,
-        letterSpacing: -0.35,
-        lineHeight: 30,
+        letterSpacing: -0.25,
+        lineHeight: 23,
+        textAlign: "center" as const,
+        paddingHorizontal: 56,
       },
       materialSubtitle: {
         fontSize: 13,
-        color: Colors.sub,
-        marginTop: 5,
+        color: darkMode ? "#94a3b8" : Colors.sub,
+        marginTop: 4,
         lineHeight: 18,
         fontWeight: "500" as const,
-        opacity: 0.92,
+        textAlign: "center" as const,
+        paddingHorizontal: 56,
       },
       iconBorder: { borderRadius: 12, padding: 1 },
       fieldGroup: { marginBottom: 18 },
@@ -796,15 +786,15 @@ export default function AddTransactionModal({
         alignItems: "center" as const,
         justifyContent: "center" as const,
         minHeight: 48,
-        borderColor: active ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "rgba(148, 163, 184, 0.18)" : Colors.line),
+        borderColor: active ? "#2dcc9a" : (darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line),
         backgroundColor: active
-          ? ESTIMATE_FLOW_CHIP_GREEN_BG
+          ? "#2dcc9a"
           : darkMode
-            ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK
+            ? "#3A3A3C"
             : Colors.bg,
       }),
       pricingText: (active: boolean) => ({
-        color: active ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+        color: active ? "#050B13" : (darkMode ? "#e2e8f0" : Colors.text),
         fontWeight: (active ? "700" : "600") as "700" | "600",
         fontSize: 13,
       }),
@@ -819,7 +809,7 @@ export default function AddTransactionModal({
       dollarSign: {
         fontSize: 18,
         fontWeight: "600" as const,
-        color: "#22c55e",
+        color: "#2dcc9a",
         marginLeft: 12,
         marginRight: 4,
       },
@@ -854,7 +844,7 @@ export default function AddTransactionModal({
         borderRadius: 14,
         borderWidth: 1,
         borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
-        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+        backgroundColor: darkMode ? "#3A3A3C" : Colors.surface2,
         alignItems: "center" as const,
         justifyContent: "center" as const,
       },
@@ -868,7 +858,7 @@ export default function AddTransactionModal({
         paddingVertical: 15,
         alignItems: "center" as const,
         justifyContent: "center" as const,
-        backgroundColor: "#22c55e",
+        backgroundColor: "#2dcc9a",
       },
       saveBtnText: { fontSize: 15, fontWeight: "700" as const, color: "#050B13", letterSpacing: 0.3 },
     };
@@ -916,61 +906,27 @@ export default function AddTransactionModal({
       ]}>
           {/* Header */}
           <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.headerRow : [styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
-            <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    dismissModal();
-                  }}
-                  style={[styles.backBtn, { backgroundColor: Colors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.headerTitleRow}>
-              <View style={styles.headerIconContainerWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={webBudgetExpenseShell && poWebChrome ? poWebChrome.iconBorder : styles.headerIconBorder}
-                >
-                  <View style={[
-                    styles.headerIconContainer,
-                    { backgroundColor: Colors.bg },
-                    webBudgetExpenseShell && poWebChrome && {
-                      width: 40,
-                      height: 40,
-                      borderRadius: 11,
-                    },
-                  ]}>
-                    {webBudgetExpenseShell && webShellHeaderMci ? (
-                      <MaterialCommunityIcons name={webShellHeaderMci} size={24} color="#22c55e" />
-                    ) : (
-                      <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
-                    )}
-                  </View>
-                </LinearGradient>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialTitle : [styles.title, { color: Colors.text }]}>
-                  Add {displayCategoryName}
-                </Text>
-                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub }]}>
-                  {isMaterialsEquipmentExpense
-                    ? "Log your material or equipment expense"
-                    : "Log your expense"}
-                </Text>
-              </View>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                dismissModal();
+              }}
+              style={[
+                styles.backBtn,
+                { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
+            </Pressable>
+            <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialTitle : [styles.title, { color: Colors.text }]}>
+              Add {displayCategoryName}
+            </Text>
+            <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub, textAlign: "center" }]}>
+              {isMaterialsEquipmentExpense
+                ? "Log your material or equipment expense"
+                : "Log your expense"}
+            </Text>
           </View>
 
           {/* Form */}
@@ -1039,7 +995,7 @@ export default function AddTransactionModal({
                       secondary: Colors.sub,
                       border: Colors.line,
                       nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-                      accent: '#22c55e',
+                      accent: '#2dcc9a',
                     }}
                   />
                 ) : null}
@@ -1149,7 +1105,7 @@ export default function AddTransactionModal({
                   secondary: Colors.sub,
                   border: Colors.line,
                   nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-                  accent: '#22c55e',
+                  accent: '#2dcc9a',
                 }}
               />
             ) : null}
@@ -1267,8 +1223,8 @@ export default function AddTransactionModal({
                             paddingHorizontal: 16,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: pricingMode === "flat" ? "#22c55e" : Colors.line,
-                            backgroundColor: pricingMode === "flat" ? "#22c55e" : Colors.surface2,
+                            borderColor: pricingMode === "flat" ? "#2dcc9a" : Colors.line,
+                            backgroundColor: pricingMode === "flat" ? "#2dcc9a" : (darkMode ? "#3A3A3C" : Colors.surface2),
                             alignItems: "center",
                             justifyContent: "center",
                           }
@@ -1279,13 +1235,13 @@ export default function AddTransactionModal({
                         webBudgetExpenseShell && poWebChrome
                           ? poWebChrome.pricingText(pricingMode === "flat")
                           : {
-                              color: pricingMode === "flat" ? "#000000" : Colors.text,
+                              color: pricingMode === "flat" ? "#050B13" : (darkMode ? "#e2e8f0" : Colors.text),
                               fontWeight: "600",
                               fontSize: 14,
                             }
                       }
                     >
-                      💵 Flat amount
+                      Flat amount
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1309,8 +1265,8 @@ export default function AddTransactionModal({
                             paddingHorizontal: 16,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: pricingMode === "sqft" ? "#22c55e" : Colors.line,
-                            backgroundColor: pricingMode === "sqft" ? "#22c55e" : Colors.surface2,
+                            borderColor: pricingMode === "sqft" ? "#2dcc9a" : Colors.line,
+                            backgroundColor: pricingMode === "sqft" ? "#2dcc9a" : (darkMode ? "#3A3A3C" : Colors.surface2),
                             alignItems: "center",
                             justifyContent: "center",
                           }
@@ -1321,13 +1277,13 @@ export default function AddTransactionModal({
                         webBudgetExpenseShell && poWebChrome
                           ? poWebChrome.pricingText(pricingMode === "sqft")
                           : {
-                              color: pricingMode === "sqft" ? "#000000" : Colors.text,
+                              color: pricingMode === "sqft" ? "#050B13" : (darkMode ? "#e2e8f0" : Colors.text),
                               fontWeight: "600",
                               fontSize: 14,
                             }
                       }
                     >
-                      📐 Per sq ft
+                      Per sq ft
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2216,7 +2172,7 @@ export default function AddTransactionModal({
                 style={({ pressed }) => [poWebChrome.saveBtnWrap, pressed && { opacity: 0.92 }]}
               >
                 <View style={poWebChrome.saveBtnInner}>
-                  <Text style={poWebChrome.saveBtnText}>✓ Save</Text>
+                  <Text style={poWebChrome.saveBtnText}>Save</Text>
                 </View>
               </Pressable>
             </View>
@@ -2261,8 +2217,8 @@ export default function AddTransactionModal({
               }} 
               style={styles.saveButton}
             >
-              <View style={[styles.saveButtonGradient, { backgroundColor: "#22c55e" }]}>
-                <Text style={styles.saveButtonText}>✓ Save</Text>
+              <View style={[styles.saveButtonGradient, { backgroundColor: "#2dcc9a" }]}>
+                <Text style={styles.saveButtonText}>Save</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -2305,12 +2261,16 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   backBtn: {
+    position: "absolute",
+    left: 8,
+    top: 8,
+    alignSelf: "flex-start",
     width: 40,
     height: 40,
-    borderRadius: 19,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -2393,7 +2353,7 @@ const styles = StyleSheet.create({
   dollarSign: {
     position: "absolute",
     left: 16,
-    color: "#22c55e",
+    color: "#2dcc9a",
     fontSize: 18,
     fontWeight: "600",
     zIndex: 1,
@@ -2407,7 +2367,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   hint: {
-    color: "#22d3ee",
+    color: "#2dcc9a",
     fontSize: 13,
     marginTop: 6,
     fontWeight: "600",
@@ -2458,11 +2418,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
   },
   saveButtonText: {
     color: "#FFFFFF",

@@ -21,7 +21,6 @@ import {
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -67,7 +66,7 @@ import {
   ProjectsStatusBanner,
 } from '@/components/projects/ProjectsStatusBanner';
 import { PROJECT_ACTIVATED_BANNER_BODY } from '@/utils/projectsStatusBannerCopy';
-import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
@@ -322,17 +321,17 @@ function getEffectiveScheduleEndPick(
 }
 
 // Palette aligned with key metric cards
-const projectCardGradient = ['#070f1e', '#0b1f31', '#0c2f35', '#0fb493'];
-const progressGradient = ['#22c55e', '#14b8a6', '#0ea5e9'] as const;
+const PROJECTS_ACCENT = '#2dcc9a';
+const PROJECTS_MUTED = '#94a3b8';
 const getStatusTheme = (darkMode: boolean) => ({
-  Active: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
-  Completed: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
+  Active: { bg: PROJECTS_ACCENT, border: PROJECTS_ACCENT, color: '#050B13' },
+  Completed: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.45)', color: PROJECTS_ACCENT },
   Submitted: { 
     bg: darkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.15)', 
     border: darkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.25)', 
     color: darkMode ? '#f1f5f9' : '#334155' 
   },
-  Won: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
+  Won: { bg: PROJECTS_ACCENT, border: PROJECTS_ACCENT, color: '#050B13' },
   Draft: { 
     bg: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)', 
     border: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', 
@@ -1057,14 +1056,11 @@ export default function ProjectsScreen() {
           title={t('projects.allProjects')}
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
           titleColor={darkMode ? '#F5F7FA' : Colors.text}
-          subtitleColor={darkMode ? 'rgba(255,255,255,0.62)' : '#475569'}
+          subtitleColor={darkMode ? PROJECTS_MUTED : '#64748b'}
+          titleStyle={styles.pageTitle}
           darkMode={darkMode}
           right={
-            <LinearGradient
-              pointerEvents="box-none"
-              colors={progressGradient}
-              style={styles.profileOuter}
-            >
+            <View style={styles.profileOuter}>
               <Pressable
                 style={styles.profileInner}
                 onPress={() => router.push('/(tabs)/profile')}
@@ -1073,7 +1069,7 @@ export default function ProjectsScreen() {
               >
                 <Text style={styles.profileInitials}>{profileGreeting.initials}</Text>
               </Pressable>
-            </LinearGradient>
+            </View>
           }
         />
 
@@ -1158,15 +1154,6 @@ export default function ProjectsScreen() {
         <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
         <View style={[styles.wideContainer, styles.tabFlowWide]}>
           <View style={styles.allProjectsCard}>
-              <View style={styles.cardHeaderRow}>
-                <View>
-                  <Text style={styles.allProjectsCardTitle}>{t('projects.allProjects')}</Text>
-                  <Text style={styles.allProjectsCardSubtitle}>
-                    {projects.length} {t('dashboard.total')} · {t('projects.latestActivity')}
-                  </Text>
-                </View>
-              </View>
-              
               {projects.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Ionicons name="folder-outline" size={48} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
@@ -1186,18 +1173,24 @@ export default function ProjectsScreen() {
                   </Text>
                 </View>
               ) : (
-                <View style={{ marginTop: 12 }}>
-                  {projects.map((project) => {
+                <View>
+                  {projects.map((project, projectIndex) => {
                     const statusThemeMap = getStatusTheme(darkMode);
                     const statusKey =
                       (project.status in statusThemeMap ? project.status : 'Draft') as keyof typeof statusThemeMap;
                     const pill = statusThemeMap[statusKey];
                     const isCompletedProject =
                       project.status === 'Completed' || project.rawStatus === 'completed';
+                    const locationLabel = formatLocationDisplay(project.location);
+                    const showLocation = locationLabel !== 'Location not set';
+                    const progressPct = Math.min(Math.max(project.progress * 100, 0), 100);
                     return (
                     <Pressable
                       key={project.id}
-                      style={styles.projectCard}
+                      style={[
+                        styles.projectCard,
+                        projectIndex === projects.length - 1 && styles.projectCardLast,
+                      ]}
                       onPress={() => handleProjectPress(project)}
                     >
                       <View
@@ -1229,6 +1222,7 @@ export default function ProjectsScreen() {
                           styles.statusPillBase,
                           {
                             backgroundColor: pill.bg,
+                            borderColor: pill.border,
                           },
                         ]}
                       >
@@ -1332,21 +1326,26 @@ export default function ProjectsScreen() {
                   </View>
 
                   <View style={styles.projectMetaSection}>
+                    {showLocation ? (
                     <View style={styles.projectLocationRow}>
                       <Ionicons
                         name="location-outline"
                         size={14}
-                        color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'}
+                        color={PROJECTS_MUTED}
                       />
                       <Text style={styles.projectLocationText}>
-                        {formatLocationDisplay(project.location)}
+                        {locationLabel}
                       </Text>
                     </View>
+                    ) : null}
                     {(project.rawProject?.client || project.rawProject?.estimateData?.customerName || project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail) && (
                       <View style={styles.projectClientRow}>
-                        {(project.rawProject?.client || project.rawProject?.estimateData?.customerName) && (
+                        {(project.rawProject?.client || project.rawProject?.estimateData?.customerName) &&
+                        formatClientNameDisplay(
+                          project.rawProject?.client || project.rawProject?.estimateData?.customerName
+                        ) !== 'Client not added' && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="person-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
+                            <Ionicons name="person-outline" size={12} color={PROJECTS_MUTED} />
                             <Text style={styles.projectClientText}>
                               {formatClientNameDisplay(
                                 project.rawProject?.client || project.rawProject?.estimateData?.customerName
@@ -1356,7 +1355,7 @@ export default function ProjectsScreen() {
                         )}
                         {(project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail) && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="mail-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
+                            <Ionicons name="mail-outline" size={12} color={PROJECTS_MUTED} />
                             <Text style={styles.projectClientText}>
                               {project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail}
                             </Text>
@@ -1364,7 +1363,7 @@ export default function ProjectsScreen() {
                         )}
                         {(project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone) && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="call-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
+                            <Ionicons name="call-outline" size={12} color={PROJECTS_MUTED} />
                             <Text style={styles.projectClientText}>
                               {project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone}
                             </Text>
@@ -1386,26 +1385,22 @@ export default function ProjectsScreen() {
                     <View style={styles.progressHeaderRow}>
                       <Text style={styles.progressHeaderLabel}>Progress</Text>
                       <Text style={styles.progressHeaderPercent}>
-                        {Math.round(project.progress * 100)}%
+                        {Math.round(progressPct)}%
                       </Text>
                     </View>
+                    {progressPct > 0 ? (
                     <View style={styles.progressBarTrack}>
-                      <LinearGradient
-                        colors={progressGradient}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
+                      <View
                         style={[
                           styles.progressBarFill,
                           {
-                            width: `${Math.min(
-                              Math.max(project.progress * 100, 0),
-                              100
-                            )}%`,
-                            opacity: darkMode ? 1 : 0.9,
+                            width: `${progressPct}%`,
+                            backgroundColor: PROJECTS_ACCENT,
                           },
                         ]}
                       />
                     </View>
+                    ) : null}
                   </View>
                   
                   {/* Mark as Won button for submitted projects */}
@@ -1415,14 +1410,7 @@ export default function ProjectsScreen() {
                       onPress={(e) => handleMarkAsWon(project, e)}
                       activeOpacity={0.8}
                     >
-                      <LinearGradient
-                        colors={['#2DFFC4', '#00A6FF']}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
-                        style={styles.markAsWonGradient}
-                      >
-                        <Text style={styles.markAsWonText}>Mark as Won</Text>
-                      </LinearGradient>
+                      <Text style={styles.markAsWonText}>Mark as Won</Text>
                     </TouchableOpacity>
                   )}
                         </View>
@@ -1474,16 +1462,10 @@ export default function ProjectsScreen() {
                 <Text style={styles.bottomSheetCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.bottomSheetActionButton}
+                style={[styles.bottomSheetActionButton, styles.bottomSheetConfirmButton]}
                 activeOpacity={0.88}
                 onPress={confirmMarkAsWon}
               >
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
                 <Text style={styles.bottomSheetConfirmText}>Mark as won</Text>
               </TouchableOpacity>
             </View>
@@ -1535,6 +1517,11 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
   },
+  pageTitle: {
+    fontSize: 30,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+  },
   tabFlowWide: {
     flex: 1,
   },
@@ -1583,7 +1570,12 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     color: darkMode ? 'rgba(255,255,255,0.62)' : '#475569',
   },
   projectCard: {
-    marginTop: 8,
+    marginTop: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)',
+  },
+  projectCardLast: {
+    borderBottomWidth: 0,
   },
   projectCardBorderLight: {
     borderRadius: 20,
@@ -1599,22 +1591,12 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     padding: 1,
   },
   projectCardInner: {
-    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
-    ...Platform.select({
-      ios: darkMode
-        ? {}
-        : {
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.08,
-            shadowRadius: 12,
-          },
-      android: darkMode ? {} : { elevation: 2 },
-    }),
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingVertical: 16,
+    paddingHorizontal: 2,
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
   projectCardGradient: {
     width: '100%',
@@ -1653,13 +1635,10 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
-    color: darkMode ? 'rgba(255,255,255,0.88)' : '#475569',
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   projectFinancialBlock: {
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.45)',
+    marginBottom: 10,
   },
   projectAmountRow: {
     flexDirection: 'row',
@@ -1680,19 +1659,18 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     maxWidth: '40%',
   },
   projectProfitLine: {
-    marginTop: 8,
+    marginTop: 6,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: -0.2,
-    color: darkMode ? '#F5F7FA' : '#1e293b',
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   projectMarginLine: {
-    marginTop: 4,
-    fontSize: 12,
-    lineHeight: 16,
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '500',
-    letterSpacing: 0.15,
-    color: darkMode ? 'rgba(255,255,255,0.56)' : '#64748b',
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   projectMetaSection: {
     gap: 6,
@@ -1709,8 +1687,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     gap: 4,
   },
   projectClientText: {
-    fontSize: 11,
-    color: darkMode ? 'rgba(255,255,255,0.87)' : '#475569',
+    fontSize: 13,
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
     maxWidth: 200,
   },
   waitingClientRow: {
@@ -1758,7 +1736,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    color: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   progressSection: {
     marginTop: 14,
@@ -1775,14 +1753,14 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    color: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   progressHeaderPercent: {
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.28,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
     fontVariant: ['tabular-nums'],
-    color: darkMode ? '#F5F7FA' : Colors.text,
+    color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   progressBarTrack: {
     width: '100%',
@@ -1837,9 +1815,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   deleteButton: {
     padding: 4,
     borderRadius: 6,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : '#FFFFFF',
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(220, 38, 38, 0.35)',
+    backgroundColor: 'transparent',
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
   },
@@ -1847,13 +1823,10 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     width: 54,
     height: 54,
     borderRadius: 27,
-    padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.9,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 14,
+    borderWidth: 1.5,
+    borderColor: PROJECTS_ACCENT,
   },
   profileInner: {
     width: '100%',
@@ -1892,17 +1865,17 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     position: 'relative',
   },
   tabActive: {
-    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.15)' : 'rgba(45, 255, 196, 0.1)',
-    borderWidth: 2,
-    borderColor: darkMode ? '#2DFFC4' : '#0EA5E9',
+    backgroundColor: PROJECTS_ACCENT,
+    borderWidth: 1,
+    borderColor: PROJECTS_ACCENT,
   },
   tabText: {
     fontSize: 15,
     fontWeight: '600',
-    color: darkMode ? 'rgba(255,255,255,0.91)' : '#475569',
+    color: darkMode ? '#e2e8f0' : '#334155',
   },
   tabTextActive: {
-    color: darkMode ? '#2DFFC4' : '#0EA5E9',
+    color: '#050B13',
     fontWeight: '700',
   },
   tabIndicator: {
@@ -1916,18 +1889,16 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     borderTopRightRadius: 3,
   },
   markAsWonButton: {
-    marginTop: 12,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  markAsWonGradient: {
-    paddingVertical: 12,
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: PROJECTS_ACCENT,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   markAsWonText: {
-    color: '#000',
+    color: '#050B13',
     fontSize: 15,
     fontWeight: '700',
   },
@@ -2009,6 +1980,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingHorizontal: 8,
     paddingVertical: 14,
   },
+  bottomSheetConfirmButton: {
+    backgroundColor: PROJECTS_ACCENT,
+  },
   bottomSheetCancelButton: {
     backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#f1f5f9',
     borderWidth: darkMode ? 1 : 0,
@@ -2021,7 +1995,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     textAlign: 'center',
   },
   bottomSheetConfirmText: {
-    color: '#000',
+    color: '#050B13',
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
