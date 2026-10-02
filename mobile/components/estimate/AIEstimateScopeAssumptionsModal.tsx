@@ -221,6 +221,9 @@ import {
   filterRoomRemodelNoteScopeItems,
   ensureWholeProjectGroundUpScopeItems,
   isWholeProjectPlanExport,
+  shouldSeedWholeProjectShellChecklist,
+  resolveWholeHouseLivingSqft,
+  withWholeHousePlanAreaDefaults,
   applyMeasuredStuccoScopeInferences,
   suppressBathroomFalsePositiveFloorDemoScope,
   stripBathroomFalsePositiveFloorDemoQuantities,
@@ -22389,6 +22392,53 @@ export default function AIEstimateScopeAssumptionsModal({
         planImport?.planFacts?.buildingAreas?.totalLivingSqft
     ),
   });
+  const wholeHouseLivingSqft =
+    resolveWholeHouseLivingSqft({
+      floorAreaSqft: measurements.floorAreaSqft,
+      planFacts:
+        measurements.planFacts ||
+        draft?.scopeMeasurements?.planFacts ||
+        planImport?.planFacts,
+      notes: `${scopeNotes || ''}\n${draft?.originalNotes || notesFallback || ''}`,
+    }) || 0;
+  const wholeHouseGarageSqft =
+    Number(String(measurements.garageSqft || '').replace(/,/g, '')) ||
+    Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
+    Number(draft?.scopeMeasurements?.planFacts?.buildingAreas?.garageSqft) ||
+    Number(planImport?.buildingAreas?.garageSqft) ||
+    Number(planImport?.planFacts?.buildingAreas?.garageSqft) ||
+    0;
+  const seedWholeProjectShell = shouldSeedWholeProjectShellChecklist({
+    planImportMode:
+      measurements.planImportMode ||
+      draft?.scopeMeasurements?.planImportMode ||
+      planImport?.estimatingMode,
+    planImportTradeKey:
+      measurements.planImportTradeKey ||
+      draft?.scopeMeasurements?.planImportTradeKey ||
+      planImport?.selectedTrade,
+    planImportFingerprint:
+      measurements.planImportFingerprint ||
+      draft?.scopeMeasurements?.planImportFingerprint ||
+      planImport?.planImportFingerprint,
+    planScopeRecords:
+      measurements.planScopeRecords ||
+      draft?.scopeMeasurements?.planScopeRecords,
+    notes: scopeNotes,
+    originalNotes: draft?.originalNotes || notesFallback,
+    hasPlanBuildingAreas: wholeHouseLivingSqft > 0,
+    templateKey: checklist?.templateKey,
+    projectType: draft?.projectType,
+    mixedScope: mixedScopeReviewMode,
+    floorAreaSqft: wholeHouseLivingSqft,
+    windowCount:
+      Number(String(measurements.windowCount || '').replace(/,/g, '')) ||
+      Number(measurements.itemQuantities?.windows?.quantity) ||
+      Number(measurements.itemQuantities?.window_install?.quantity) ||
+      null,
+    garageSqft: wholeHouseGarageSqft,
+    singleTradePlan: singleTradePlanImport,
+  });
   const concretePlanExport =
     (singleTradePlanImport && singleTradeKey === 'concrete') ||
     ((measurements.planImportMode || planImport?.estimatingMode) ===
@@ -22429,13 +22479,14 @@ export default function AIEstimateScopeAssumptionsModal({
     !concretePlanExport &&
     !plumbingPlanExport &&
     (wholeProjectPlanChecklist ||
+      seedWholeProjectShell ||
       (mixedScopeReviewMode && !dedicatedElectricalChecklist));
   const scopeCardTemplateKey = useCallback(
     (itemId: string) => {
       if (notesPlumbingFlow && plumbingItemIds.has(itemId)) {
         return notesPlumbingPricingTemplateKey;
       }
-      if (wholeProjectPlanChecklist) return 'ground_up';
+      if (wholeProjectPlanChecklist || seedWholeProjectShell) return 'ground_up';
       return checklist?.templateKey ?? null;
     },
     [
@@ -22444,11 +22495,12 @@ export default function AIEstimateScopeAssumptionsModal({
       notesPlumbingPricingTemplateKey,
       checklist?.templateKey,
       wholeProjectPlanChecklist,
+      seedWholeProjectShell,
     ]
   );
   const scopePricingTemplateKey = notesPlumbingFlow
     ? notesPlumbingPricingTemplateKey
-    : wholeProjectPlanChecklist
+    : wholeProjectPlanChecklist || seedWholeProjectShell
       ? 'ground_up'
       : (checklist?.templateKey ?? null);
   const wholeProjectFlow =
@@ -22750,7 +22802,7 @@ export default function AIEstimateScopeAssumptionsModal({
         checklist?.templateKey,
         drywallLayoutCtx
       );
-    if (wholeProjectPlanChecklist) {
+    if (wholeProjectPlanChecklist || seedWholeProjectShell) {
       return withDrywallLayout(
         syncElectricalScopeItems(
           applyFinishScheduleToChecklistItems(
@@ -22997,6 +23049,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.planImportTradeKey,
     measurements.planImportFingerprint,
     wholeProjectPlanChecklist,
+    seedWholeProjectShell,
     measurements.recessedLightCount,
     measurements.singlePoleSwitchCount,
     measurements.threeWaySwitchCount,
@@ -23048,11 +23101,14 @@ export default function AIEstimateScopeAssumptionsModal({
       : measurements;
   const measurementsForAppliedPricing = useMemo(
     () =>
-      clearSupersededStageHostPricing(
-        appliedPricingMeasurementInput,
-        scopePricingTemplateKey
+      withWholeHousePlanAreaDefaults(
+        clearSupersededStageHostPricing(
+          appliedPricingMeasurementInput,
+          scopePricingTemplateKey
+        ),
+        scopeNotes
       ),
-    [appliedPricingMeasurementInput, scopePricingTemplateKey]
+    [appliedPricingMeasurementInput, scopeNotes, scopePricingTemplateKey]
   );
   const appliedPricingItems = useMemo(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
@@ -26091,7 +26147,7 @@ export default function AIEstimateScopeAssumptionsModal({
       templateDisplayItems,
       roofingPlanExport
         ? 'roofing'
-        : wholeProjectPlanChecklist
+        : wholeProjectPlanChecklist || seedWholeProjectShell
           ? 'ground_up'
           : checklist?.templateKey,
       scopeGroupingContext
@@ -26119,10 +26175,26 @@ export default function AIEstimateScopeAssumptionsModal({
     singleTradeKey,
     roofingPlanExport,
     collapsedScopeGroupSummary,
+    seedWholeProjectShell,
     scopeGroupingContext,
     pinnedDrywallFinishItem,
   ]);
   const embedQmScopeInQuickMeasurements = useMemo(() => {
+    // General-contractor plan export keeps every trade on Confirm Scope.
+    // Quick Measurements still holds the plan counts; it must not hide the
+    // framing, drywall, and other trade cards.
+    if (
+      wholeProjectPlanChecklist ||
+      seedWholeProjectShell ||
+      String(
+        measurements.planImportMode ||
+          draft?.scopeMeasurements?.planImportMode ||
+          planImport?.estimatingMode ||
+          ''
+      ) === 'whole_project'
+    ) {
+      return false;
+    }
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
       Number(measurements.planFacts?.buildingAreas?.mainFloorLivingSqft) ||
@@ -26147,10 +26219,15 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     checklist?.templateKey,
     draft?.projectType,
+    draft?.scopeMeasurements?.planImportMode,
     measurements.floorAreaSqft,
     measurements.garageSqft,
+    measurements.planImportMode,
     measurements.planRooms,
     measurements.planFacts,
+    planImport?.estimatingMode,
+    seedWholeProjectShell,
+    wholeProjectPlanChecklist,
   ]);
   const qmEmbeddedScopeIds = useMemo(() => {
     const living =
@@ -26462,6 +26539,7 @@ export default function AIEstimateScopeAssumptionsModal({
               (item.state === 'included' && item.noteBacked === true)) &&
             (!embedQmScopeInQuickMeasurements ||
               !qmScopeEmbeddedInQuickMeasurements(item.id) ||
+              seedWholeProjectShell ||
               keepBathroomPricingCard(item.id))
         ),
       }))
@@ -27291,7 +27369,8 @@ export default function AIEstimateScopeAssumptionsModal({
       if (hideDuplicateRoofingBaseCard(item.id)) continue;
       if (
         embedQmScopeInQuickMeasurements &&
-        qmScopeEmbeddedInQuickMeasurements(item.id)
+        qmScopeEmbeddedInQuickMeasurements(item.id) &&
+        !seedWholeProjectShell
       ) {
         continue;
       }
@@ -29342,11 +29421,12 @@ export default function AIEstimateScopeAssumptionsModal({
       isElectricalConfirmScope && electricalPreviewMeasurements
         ? electricalPreviewMeasurements
         : measurements;
+    const withPlanAreas = withWholeHousePlanAreaDefaults(source, scopeNotes);
     if (
       String(checklist?.templateKey || '').toLowerCase() !== 'painting' ||
-      Number(source.baseboardLf || 0) > 0
+      Number(withPlanAreas.baseboardLf || 0) > 0
     ) {
-      return source;
+      return withPlanAreas;
     }
     const trimEntry =
       source.itemQuantities?.trim_paint ||
@@ -29354,8 +29434,8 @@ export default function AIEstimateScopeAssumptionsModal({
       source.itemQuantities?.trim;
     const trimLf = Number(String(trimEntry?.quantity ?? '').replace(/,/g, ''));
     return Number.isFinite(trimLf) && trimLf > 0
-      ? { ...source, baseboardLf: trimLf }
-      : source;
+      ? { ...withPlanAreas, baseboardLf: trimLf }
+      : withPlanAreas;
   })();
 
   const autoCollapsedScopeItemIds = useMemo(() => {
@@ -29458,6 +29538,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       embedQmScopeInQuickMeasurements &&
       qmScopeEmbeddedInQuickMeasurements(item.id) &&
+      !seedWholeProjectShell &&
       !keepBathroomPricingCard
     ) {
       return null;

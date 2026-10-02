@@ -417,9 +417,9 @@ function QmScopeChoiceChip({
     backgroundColor = 'rgba(251, 191, 36, 0.12)';
     textColor = '#fbbf24';
   } else if (active) {
-    borderColor = '#34d399';
-    backgroundColor = 'rgba(52, 211, 153, 0.12)';
-    textColor = '#34d399';
+    borderColor = 'rgba(45, 204, 154, 0.55)';
+    backgroundColor = 'rgba(45, 204, 154, 0.16)';
+    textColor = '#8eecc9';
   }
   return (
     <TouchableOpacity
@@ -456,7 +456,7 @@ function QmScopeChoiceChip({
               active && reviewState === 'needs_confirmation'
                 ? '#fcd34d'
                 : active
-                  ? '#6ee7b7'
+                  ? '#8eecc9'
                   : darkMode
                     ? '#94a3b8'
                     : '#64748b',

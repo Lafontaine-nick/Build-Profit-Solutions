@@ -44,19 +44,16 @@ export function planProvenanceColor(
 ): string {
   switch (status) {
     case 'plan_verified':
-      return '#22c55e';
     case 'ai_verified':
-      return '#38bdf8';
+    case 'user_confirmed':
+      return '#2dcc9a';
     case 'from_plan_symbols':
-      return '#60a5fa';
     case 'ai_inferred':
-      return '#fbbf24';
-    case 'calculated':
-      return '#60a5fa';
+    case 'planning_estimate':
     case 'needs_review':
       return '#fbbf24';
-    case 'user_confirmed':
-      return '#a78bfa';
+    case 'calculated':
+      return colors.sub;
     default:
       return colors.sub;
   }

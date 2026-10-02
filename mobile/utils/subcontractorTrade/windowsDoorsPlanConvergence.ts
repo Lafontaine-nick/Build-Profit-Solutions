@@ -397,10 +397,10 @@ export function windowsDoorsReviewSelectionAppearance(input: {
   if (!input.include) {
     return { icon: 'square-outline', color: input.colors.sub };
   }
-  if (input.tier === 'not_found') {
+  if (input.tier === 'not_found' || input.tier === 'plan_derived') {
     return { icon: 'checkbox', color: '#fbbf24' };
   }
-  return { icon: 'checkbox', color: '#22c55e' };
+  return { icon: 'checkbox', color: '#2dcc9a' };
 }
 
 export type OpeningSizeTier = 'standard' | 'medium' | 'large' | 'oversized';

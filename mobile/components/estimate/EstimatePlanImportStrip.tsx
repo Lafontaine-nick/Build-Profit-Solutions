@@ -1501,6 +1501,7 @@ export default function EstimatePlanImportStrip({
       <EstimateFlowActionButton
         label='Import PDF'
         icon='picture-as-pdf'
+        iconColor='#2dcc9a'
         iconAccent='green'
         Colors={Colors}
         darkMode={darkMode}
@@ -1643,6 +1644,7 @@ export default function EstimatePlanImportStrip({
             <EstimateFlowActionButton
               label="General contractor"
               icon="domain"
+              iconColor="#2dcc9a"
               iconAccent="green"
               Colors={Colors}
               darkMode={darkMode}
@@ -1662,6 +1664,7 @@ export default function EstimatePlanImportStrip({
           <EstimateFlowActionButton
             label={routingLocked ? 'Plumbing subcontractor' : 'Subcontractor'}
             icon="handyman"
+            iconColor="#2dcc9a"
             iconAccent="blue"
             Colors={Colors}
             darkMode={darkMode}
@@ -1684,6 +1687,7 @@ export default function EstimatePlanImportStrip({
             <EstimateFlowActionButton
               label="Whole Project / General Contractor"
               icon="domain"
+              iconColor="#2dcc9a"
               iconAccent="green"
               Colors={Colors}
               darkMode={darkMode}
@@ -1707,6 +1711,7 @@ export default function EstimatePlanImportStrip({
                 : 'Single Trade / Subcontractor'
             }
             icon="handyman"
+            iconColor="#2dcc9a"
             iconAccent="blue"
             Colors={Colors}
             darkMode={darkMode}
@@ -1756,7 +1761,7 @@ export default function EstimatePlanImportStrip({
               Select your trade
             </Text>
             {embedded && selectedTradeLabel ? (
-              <Text style={{ color: '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
+              <Text style={{ color: '#8eecc9', fontSize: 11, fontWeight: '700' }}>
                 {selectedTradeLabel}
               </Text>
             ) : null}
@@ -1780,6 +1785,7 @@ export default function EstimatePlanImportStrip({
                       Colors={Colors}
                       darkMode={darkMode}
                       selected={selected}
+                      selectedTone="wash"
                       selectedAccent="blue"
                       onPress={() => handleTradePress(trade.key)}
                       style={{

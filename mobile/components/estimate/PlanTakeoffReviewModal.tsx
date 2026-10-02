@@ -97,16 +97,12 @@ import {
   roomSourceLabel,
   scopeTakeoffStatusLines,
   planRoomSizeLabel,
-  spacesDetectedTitle,
   WHOLE_PROJECT_ROOM_LIST_HINT,
   wholeProjectGarageRoomNote,
   wholeProjectReviewOmitsMeasurement,
   wholeProjectReviewOmitsRoom,
 } from '@/utils/planTakeoffReviewUi';
-import {
-  buildPlanScopeRecords,
-  formatPlanScopeFinding,
-} from '@/utils/planScopeRecords';
+import { buildPlanScopeRecords } from '@/utils/planScopeRecords';
 import {
   planProvenanceColor,
   resolvePlanMeasurementProvenance,
@@ -336,23 +332,131 @@ function isNeedsConfirmationValue(value: string | null | undefined): boolean {
   );
 }
 
+function DisclosureList({
+  darkMode,
+  rows,
+}: {
+  darkMode: boolean;
+  rows: Array<{
+    key: string;
+    title: string;
+    open: boolean;
+    onPress: () => void;
+    detail?: React.ReactNode;
+  }>;
+}) {
+  if (!rows.length) return null;
+  const borderColor = darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT;
+  const cardStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    borderColor,
+    backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
+    marginHorizontal: -8,
+    overflow: 'hidden' as const,
+  };
+  const blocks: Array<
+    | { kind: 'group'; rows: typeof rows }
+    | { kind: 'open'; row: (typeof rows)[number] }
+  > = [];
+  let closedRows: typeof rows = [];
+  const flushClosed = () => {
+    if (!closedRows.length) return;
+    blocks.push({ kind: 'group', rows: closedRows });
+    closedRows = [];
+  };
+  rows.forEach(row => {
+    if (row.open && row.detail) {
+      flushClosed();
+      blocks.push({ kind: 'open', row });
+      return;
+    }
+    closedRows = [...closedRows, row];
+  });
+  flushClosed();
+
+  const renderRow = (
+    row: (typeof rows)[number],
+    index: number,
+    divided: boolean
+  ) => (
+    <TouchableOpacity
+      key={row.key}
+      onPress={row.onPress}
+      activeOpacity={0.75}
+      style={{
+        minHeight: 48,
+        paddingHorizontal: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        borderTopWidth: divided && index > 0 ? StyleSheet.hairlineWidth : 0,
+        borderTopColor: borderColor,
+      }}
+    >
+      <Text
+        numberOfLines={1}
+        style={{
+          flex: 1,
+          color: darkMode ? '#f8fafc' : '#0f172a',
+          fontSize: 15,
+          fontWeight: '600',
+        }}
+      >
+        {row.title}
+      </Text>
+      <Ionicons
+        name={row.open ? 'chevron-up' : 'chevron-down'}
+        size={16}
+        color='#94a3b8'
+      />
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={{ gap: 12 }}>
+      {blocks.map(block =>
+        block.kind === 'group' ? (
+          <View
+            key={block.rows.map(row => row.key).join('-')}
+            style={cardStyle}
+          >
+            {block.rows.map((row, index) => renderRow(row, index, true))}
+          </View>
+        ) : (
+          <View key={block.row.key} style={{ gap: 12 }}>
+            <View style={cardStyle}>{renderRow(block.row, 0, false)}</View>
+            {block.row.detail}
+          </View>
+        )
+      )}
+    </View>
+  );
+}
+
 function ReviewPanel({
   darkMode,
   children,
+  style,
 }: {
   darkMode: boolean;
   children: React.ReactNode;
+  style?: object;
 }) {
   return (
     <View
-      style={{
-        borderWidth: 1,
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 12,
-        borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
-        backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
-      }}
+      style={[
+        {
+          borderWidth: 1,
+          borderRadius: 14,
+          padding: 14,
+          marginBottom: 12,
+          marginHorizontal: -8,
+          borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
+          backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
+        },
+        style,
+      ]}
     >
       {children}
     </View>
@@ -490,6 +594,9 @@ export default function PlanTakeoffReviewModal({
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
   const [roomRows, setRoomRows] = useState<PlanReviewRoomRow[]>([]);
   const [scopeChecked, setScopeChecked] = useState<Record<string, boolean>>({});
+  const [planReadOpen, setPlanReadOpen] = useState(false);
+  const [allowancesOpen, setAllowancesOpen] = useState(false);
+  const [spacesOpen, setSpacesOpen] = useState(false);
   const [conflictChoices, setConflictChoices] = useState<
     Record<string, PlanConflictChoice | undefined>
   >({});
@@ -2763,7 +2870,19 @@ export default function PlanTakeoffReviewModal({
                               size={22}
                               color={
                                 windowsDoorsAppearance?.color ||
-                                (row.include ? '#22c55e' : Colors.sub)
+                                (!row.include
+                                  ? Colors.sub
+                                  : confirmRow ||
+                                      row.provenance.status ===
+                                        'needs_review' ||
+                                      row.provenance.status ===
+                                        'from_plan_symbols' ||
+                                      row.provenance.status ===
+                                        'ai_inferred' ||
+                                      row.provenance.status ===
+                                        'planning_estimate'
+                                    ? '#fbbf24'
+                                    : '#2dcc9a')
                               }
                             />
                           </TouchableOpacity>
@@ -2900,8 +3019,8 @@ export default function PlanTakeoffReviewModal({
                                 style={[
                                   styles.useCount,
                                   {
-                                    borderColor: '#34d399',
-                                    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+                                    borderColor: 'rgba(45, 204, 154, 0.55)',
+                                    backgroundColor: 'rgba(45, 204, 154, 0.16)',
                                   },
                                 ]}
                               >
@@ -3198,49 +3317,212 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : null}
 
-            {planScopeRecords.length ? (
+            {planScopeRecords.length || hasRooms ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
-                  Plan read
-                </Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  What the sheets showed
-                </Text>
-                <Text style={[styles.roomHint, { color: Colors.sub }]}>
-                  Cover totals and symbol counts were read from the sheets.
-                  Drawn openings and devices without a count stay uncounted.
-                  Trades with no printed quantity stay planning allowances.
-                </Text>
-                {planScopeRecords
-                  .filter(record => !record.id.startsWith('room-'))
-                  .map(record => (
-                  <ReviewPanel key={record.id} darkMode={darkMode}>
-                    <Text style={[styles.itemTitle, { color: Colors.text }]}>
-                      {record.title}
-                    </Text>
-                    {record.findings.map(item => (
-                      <Text
-                        key={item.id}
-                        style={[styles.evidenceText, { color: Colors.sub, marginTop: 4 }]}
-                      >
-                        {formatPlanScopeFinding(item)}
-                      </Text>
-                    ))}
-                  </ReviewPanel>
-                ))}
+                {(() => {
+                  const sheetRecords = planScopeRecords.filter(
+                    record => !record.id.startsWith('room-')
+                  );
+                  const allowanceRecords = sheetRecords.filter(
+                    record =>
+                      record.findings.length > 0 &&
+                      record.findings.every(
+                        finding => finding.status === 'planning_allowance'
+                      )
+                  );
+                  const detailRecords = sheetRecords.filter(
+                    record => !allowanceRecords.includes(record)
+                  );
+                  const allowanceCount = allowanceRecords.reduce(
+                    (sum, record) => sum + record.findings.length,
+                    0
+                  );
+                  const sheetSummary = detailRecords.some(record =>
+                    /cover|electrical/i.test(record.title)
+                  )
+                    ? 'Cover sheet and electrical counts are in the measurements above.'
+                    : 'These counts are already in the measurements above.';
+                  const referenceRows = [
+                    detailRecords.length
+                      ? {
+                          key: 'sheets',
+                          title: 'What the sheets showed',
+                          open: planReadOpen,
+                          onPress: () => setPlanReadOpen(open => !open),
+                        }
+                      : null,
+                    allowanceCount > 0
+                      ? {
+                          key: 'allowances',
+                          title: `${allowanceCount} trade${allowanceCount === 1 ? '' : 's'} stay planning allowances`,
+                          open: allowancesOpen,
+                          onPress: () => setAllowancesOpen(open => !open),
+                        }
+                      : null,
+                    hasRooms
+                      ? {
+                          key: 'spaces',
+                          title: semanticsOn
+                            ? `${roomRows.length} space${roomRows.length === 1 ? '' : 's'}`
+                            : `${roomRows.length} room${roomRows.length === 1 ? '' : 's'}`,
+                          open: spacesOpen,
+                          onPress: () => setSpacesOpen(open => !open),
+                        }
+                      : null,
+                  ].filter(
+                    (row): row is NonNullable<typeof row> => row != null
+                  );
+                  return (
+                    <>
+                      <DisclosureList
+                        darkMode={darkMode}
+                        rows={referenceRows.map(row => ({
+                          ...row,
+                          detail:
+                            row.key === 'sheets' ? (
+                              <>
+                                <Text
+                                  style={[
+                                    styles.roomHint,
+                                    { color: Colors.sub, marginBottom: 12 },
+                                  ]}
+                                >
+                                  {sheetSummary}
+                                </Text>
+                                {detailRecords.map((record, recordIndex) => (
+                                <ReviewPanel
+                                  key={record.id}
+                                  darkMode={darkMode}
+                                  style={{
+                                    marginBottom:
+                                      recordIndex === detailRecords.length - 1
+                                        ? 0
+                                        : 12,
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.itemTitle,
+                                      { color: Colors.text },
+                                    ]}
+                                  >
+                                    {record.title}
+                                  </Text>
+                                  {record.findings.map(item => {
+                                    const qty =
+                                      item.quantity != null && item.unit
+                                        ? `${item.quantity.toLocaleString()} ${item.unit}`
+                                        : null;
+                                    const status =
+                                      item.status === 'counted_from_drawings'
+                                        ? 'Counted from the drawings — confirm'
+                                        : item.status === 'planning_allowance'
+                                          ? 'Planning allowance'
+                                          : 'Read from the plan';
+                                    const statusColor =
+                                      item.status === 'read_from_plan'
+                                        ? '#2dcc9a'
+                                        : '#fbbf24';
+                                    return (
+                                      <View
+                                        key={item.id}
+                                        style={{ marginTop: 10 }}
+                                      >
+                                        <View
+                                          style={{
+                                            flexDirection: 'row',
+                                            justifyContent: 'space-between',
+                                            gap: 10,
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              color: Colors.text,
+                                              fontSize: 14,
+                                              fontWeight: '600',
+                                              flex: 1,
+                                            }}
+                                          >
+                                            {item.label}
+                                          </Text>
+                                          {qty ? (
+                                            <Text
+                                              style={{
+                                                color: Colors.text,
+                                                fontSize: 14,
+                                                fontWeight: '700',
+                                              }}
+                                            >
+                                              {qty}
+                                            </Text>
+                                          ) : null}
+                                        </View>
+                                        <Text
+                                          style={{
+                                            color: statusColor,
+                                            fontSize: 12,
+                                            fontWeight: '700',
+                                            marginTop: 2,
+                                          }}
+                                        >
+                                          {status}
+                                        </Text>
+                                      </View>
+                                    );
+                                  })}
+                                </ReviewPanel>
+                                ))}
+                              </>
+                            ) : row.key === 'allowances' ? (
+                              <>
+                                {allowanceRecords.map((record, recordIndex) => (
+                                <ReviewPanel
+                                  key={record.id}
+                                  darkMode={darkMode}
+                                  style={{
+                                    marginBottom:
+                                      recordIndex === allowanceRecords.length - 1
+                                        ? 0
+                                        : 12,
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.itemTitle,
+                                      { color: Colors.text },
+                                    ]}
+                                  >
+                                    {record.title}
+                                  </Text>
+                                  {record.findings.map(item => (
+                                    <Text
+                                      key={item.id}
+                                      style={{
+                                        color: '#fbbf24',
+                                        fontSize: 13,
+                                        fontWeight: '600',
+                                        marginTop: 8,
+                                      }}
+                                    >
+                                      {item.label}
+                                    </Text>
+                                  ))}
+                                </ReviewPanel>
+                                ))}
+                              </>
+                            ) : null,
+                        }))}
+                      />
+                    </>
+                  );
+                })()}
               </View>
             ) : null}
 
-            {hasRooms ? (
+            {hasRooms && spacesOpen ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
-                  Spaces
-                </Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  {semanticsOn
-                    ? spacesDetectedTitle(roomRows.length)
-                    : `Rooms (${roomRows.length})`}
-                </Text>
+                {spacesOpen ? (
+                  <>
                 <Text style={[styles.roomHint, { color: Colors.sub }]}>
                   {semanticsOn
                     ? WHOLE_PROJECT_ROOM_LIST_HINT
@@ -3309,6 +3591,8 @@ export default function PlanTakeoffReviewModal({
                     </View>
                   </ReviewPanel>
                 ))}
+                  </>
+                ) : null}
               </View>
             ) : null}
 
@@ -3429,6 +3713,20 @@ export default function PlanTakeoffReviewModal({
                       return measuredTotal > 0 ? measuredTotal : null;
                     })(),
                   });
+                  const scopeNeedLine = [...statusLines]
+                    .reverse()
+                    .find(line =>
+                      /\bneeds\b|still required|ready for review|takeoff confirmed/i.test(
+                        line
+                      )
+                    );
+                  const scopeNeedsAttention = Boolean(
+                    scopeNeedLine &&
+                      /\bneeds\b|still required|ready for review/i.test(
+                        scopeNeedLine
+                      ) &&
+                      !/confirmed/i.test(scopeNeedLine)
+                  );
                   return (
                     <TouchableOpacity
                       key={d.itemId}
@@ -3450,7 +3748,11 @@ export default function PlanTakeoffReviewModal({
                             }
                             size={22}
                             color={
-                              scopeChecked[d.itemId] ? '#22c55e' : Colors.sub
+                              scopeChecked[d.itemId]
+                                ? scopeNeedsAttention
+                                  ? '#fbbf24'
+                                  : '#2dcc9a'
+                                : Colors.sub
                             }
                             style={styles.checkbox}
                           />
@@ -3461,18 +3763,21 @@ export default function PlanTakeoffReviewModal({
                             >
                               {d.label || d.itemId}
                             </Text>
-                            {statusLines.map(line => (
-                              <Text
-                                key={`${d.itemId}-${line}`}
-                                style={[
-                                  styles.evidenceText,
-                                  { color: Colors.sub },
-                                ]}
-                                numberOfLines={2}
-                              >
-                                {line}
-                              </Text>
-                            ))}
+                            {scopeNeedLine ? (
+                                <Text
+                                  style={{
+                                    color: scopeNeedsAttention
+                                      ? '#fbbf24'
+                                      : '#2dcc9a',
+                                    fontSize: 12,
+                                    fontWeight: '700',
+                                    marginTop: 4,
+                                  }}
+                                  numberOfLines={2}
+                                >
+                                  {scopeNeedLine}
+                                </Text>
+                              ) : null}
                           </View>
                         </View>
                       </ReviewPanel>
@@ -3533,18 +3838,16 @@ const styles = StyleSheet.create({
   },
   section: { marginBottom: 24 },
   mutedEyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
     marginBottom: 6,
   },
   attentionEyebrow: {
     color: CONFIRM_YELLOW,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
     marginBottom: 6,
   },
   attentionTitle: {
@@ -3595,7 +3898,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 9,
   },
-  useCountText: { color: '#34d399', fontSize: 12, fontWeight: '700' },
+  useCountText: { color: '#8eecc9', fontSize: 12, fontWeight: '700' },
   valueShell: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3622,17 +3925,25 @@ const styles = StyleSheet.create({
   reconcileStatus: { fontSize: 12.5, fontWeight: '700', marginTop: 3 },
   reconcileHint: { fontSize: 11.5, lineHeight: 16, marginTop: 10 },
   footer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   primaryBtn: {
-    backgroundColor: '#22c55e',
-    borderRadius: 12,
+    backgroundColor: '#2dcc9a',
+    borderRadius: 14,
+    minHeight: 50,
     paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
   },
-  primaryBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 15 },
-  cancelBtn: { alignItems: 'center', paddingVertical: 6 },
+  primaryBtnText: { color: '#050B13', fontWeight: '800', fontSize: 16 },
+  cancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+  },
 });

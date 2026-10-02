@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import type {
@@ -22,7 +23,7 @@ import {
 import { measurementDisplayLabel } from '@/utils/planTakeoffReviewUi';
 import { quickMeasurementFieldMeta } from '@/utils/scopeQuickMeasurements';
 
-const SELECTED_GREEN = '#34d399';
+const SELECTED_GREEN = '#2dcc9a';
 const COLLAPSE_THRESHOLD = 3; // hide/show toggle only — list starts expanded
 
 export function PlanTakeoffLowConfidenceChooser({
@@ -81,16 +82,18 @@ export function PlanTakeoffLowConfidenceChooser({
         <TouchableOpacity
           onPress={() => setExpanded(value => !value)}
           activeOpacity={0.75}
-          style={[
-            styles.collapseTrigger,
-            { borderColor: panelBorder, backgroundColor: panelBg },
-          ]}
+          style={styles.collapseTrigger}
         >
-          <Text style={[styles.collapseText, { color: titleColor }]}>
+          <Text style={[styles.collapseText, { color: titleColor, flex: 1 }]}>
             {expanded
               ? `Hide ${total} unverified quantities`
               : `Show ${total} unverified quantities`}
           </Text>
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={16}
+            color={captionColor}
+          />
         </TouchableOpacity>
       ) : null}
       {expanded ? (
@@ -266,10 +269,9 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   eyebrow: {
     color: '#fbbf24',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.12,
     marginBottom: 6,
   },
   sectionTitle: {
@@ -280,14 +282,13 @@ const styles = StyleSheet.create({
   },
   sectionHint: { fontSize: 12, lineHeight: 18, marginBottom: 12 },
   collapseTrigger: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    minHeight: 44,
+    marginBottom: 4,
   },
-  collapseText: { fontSize: 13, fontWeight: '700' },
+  collapseText: { fontSize: 15, fontWeight: '600' },
   cardList: { gap: 16 },
   card: {
     borderWidth: 1,
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   editButtonText: {
-    color: '#34d399',
+    color: '#8eecc9',
     fontSize: 12,
     fontWeight: '700',
   },

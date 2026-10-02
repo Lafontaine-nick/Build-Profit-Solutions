@@ -362,17 +362,18 @@ export const CONFIRM_SCOPE_PRICE_TEXT: TextStyle = {
   letterSpacing: -0.5,
 };
 
-/** Confirm Scope — ghost Apply (matches Build with AI footer CTAs). */
+/** Confirm Scope — light mint wash, same as selected trade choices. */
 export function confirmScopeApplyButtonStyle(): ViewStyle {
   return {
     marginTop: 10,
     alignSelf: 'stretch',
     minHeight: 44,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2dcc9a',
-    borderWidth: 0,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
     paddingVertical: 10,
     paddingHorizontal: 16,
   };
@@ -380,7 +381,7 @@ export function confirmScopeApplyButtonStyle(): ViewStyle {
 
 export function confirmScopeApplyButtonTextStyle(): TextStyle {
   return {
-    color: '#050B13',
+    color: '#8eecc9',
     fontSize: 14,
     fontWeight: '700',
   };
@@ -389,9 +390,9 @@ export function confirmScopeApplyButtonTextStyle(): TextStyle {
 /** Confirm Scope — selected Yes / No / Not sure. */
 export function confirmScopeChoiceSelectedYesColors() {
   return {
-    borderColor: '#2dcc9a',
-    backgroundColor: '#2dcc9a',
-    textColor: '#050B13',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    textColor: '#8eecc9',
   };
 }
 

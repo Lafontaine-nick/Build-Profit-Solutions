@@ -21,7 +21,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
-import { aiFlowCardBackground, estimateStep1InputCardStyle, ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
+import { aiFlowCardBackground, estimateStep1InputCardStyle } from '@/utils/estimateFlowCardStyle';
 import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import {
@@ -859,11 +859,17 @@ export default function AIEstimateBuilderModal({
             onPress={handleContinueDraft}
             style={[
               styles.primaryBtn,
-              { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 4 },
+              {
+                backgroundColor: '#2dcc9a',
+                borderRadius: 14,
+                minHeight: 50,
+                marginBottom: 4,
+                overflow: 'visible',
+              },
             ]}
           >
-            <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
-            <Text style={styles.primaryBtnText}>
+            <MaterialIcons name='arrow-forward' size={20} color='#050B13' />
+            <Text style={[styles.primaryBtnText, { color: '#050B13' }]}>
               {resumeToScopeConfirm
                 ? 'Continue to Confirm scope'
                 : 'Continue to review'}

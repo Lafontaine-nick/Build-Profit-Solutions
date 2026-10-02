@@ -17,6 +17,8 @@ import {
   groupScopeChecklistItems,
   isMixedExteriorScopeNotes,
   isWholeProjectPlanExport,
+  resolveWholeHouseLivingSqft,
+  shouldSeedWholeProjectShellChecklist,
   applyScopeInferencesFromNotes,
   hydrateScopeChecklistFromNotes,
 } from '@/utils/estimateScopeChecklistUi';
@@ -615,6 +617,65 @@ describe('ground-up owner-handled scope exclusions', () => {
       { templateKey: 'ground_up', notes }
     );
     expect(flatwork.quantity).not.toBe(2571);
+  });
+
+  test('a whole-house mixed confirm scope still seeds shell pricing', () => {
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        mixedScope: true,
+        floorAreaSqft: 2571,
+        templateKey: 'painting',
+        notes: 'Plan takeoff. Living area 2,571 sqft. Windows 31.',
+      })
+    ).toBe(true);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'electrical',
+        mixedScope: true,
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        templateKey: 'electrical',
+      })
+    ).toBe(true);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'electrical',
+        floorAreaSqft: 120,
+      })
+    ).toBe(false);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        mixedScope: true,
+        windowCount: 31,
+        templateKey: 'painting',
+        notes: 'Plan takeoff. Windows 31. Garage doors.',
+      })
+    ).toBe(true);
+    expect(resolveWholeHouseLivingSqft({
+      planFacts: { buildingAreas: { mainFloorLivingSqft: 2571 } },
+    })).toBe(2571);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        templateKey: 'room_remodel',
+      })
+    ).toBe(true);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        mixedScope: true,
+        floorAreaSqft: 2571,
+        templateKey: 'bathroom',
+      })
+    ).toBe(false);
+    expect(
+      isWholeProjectPlanExport({
+        planImportMode: 'whole_project',
+        planImportTradeKey: 'electrical',
+      })
+    ).toBe(true);
   });
 
   test('applyScopeInferencesFromNotes excludes owner sitework and includes shell', () => {

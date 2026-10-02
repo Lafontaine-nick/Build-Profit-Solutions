@@ -8556,6 +8556,7 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
     measurementKeys: ['concreteSqft'],
     requiresUserQuantity: true,
+    canUseRoomSqft: false,
     dualAllowanceField: true,
     quantityHelper:
       'Enter exterior flatwork SF (driveway, walks, porch) — not house/garage slab. Local allowance when SF is unknown.',
@@ -10516,6 +10517,13 @@ export function resolveAllowanceEditorPricingBasis(
         )
       );
       if (quantity && quantity > 0) {
+        if (
+          id === 'pour_flatwork' &&
+          livingSf &&
+          Math.abs(quantity - livingSf) < 0.51
+        ) {
+          continue;
+        }
         // Undercounted drywall takeoff must not win over living×3.5 planning.
         if (
           (id === 'drywall' || id === 'hang' || id === 'finish_tape') &&
@@ -10552,7 +10560,8 @@ export function resolveAllowanceEditorPricingBasis(
         id === 'paint_trim' ||
         id === 'drywall' ||
         id === 'hang' ||
-        id === 'finish_tape')
+        id === 'finish_tape' ||
+        id === 'pour_flatwork')
     )) {
       return fromPricingBasis;
     }
@@ -10570,7 +10579,8 @@ export function resolveAllowanceEditorPricingBasis(
         id === 'paint_trim' ||
         id === 'drywall' ||
         id === 'hang' ||
-        id === 'finish_tape')
+        id === 'finish_tape' ||
+        id === 'pour_flatwork')
     )) {
       return fromRule;
     }
@@ -10606,7 +10616,8 @@ export function resolveAllowanceEditorPricingBasis(
     id === 'exterior_paint' ||
     id === 'drywall' ||
     id === 'hang' ||
-    id === 'finish_tape'
+    id === 'finish_tape' ||
+    id === 'pour_flatwork'
   ) {
     return null;
   }
@@ -23233,30 +23244,35 @@ export function resolveChecklistItemQuantity(
       String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
     );
     const planLiving = Number(
-      measurements.planFacts?.buildingAreas?.totalLivingSqft
+      measurements.planFacts?.buildingAreas?.totalLivingSqft ||
+        measurements.planFacts?.buildingAreas?.mainFloorLivingSqft
     );
     const concrete = Number(
       String(measurements.concreteSqft ?? '').replace(/,/g, '')
     );
     const stored = Number(measurements.itemQuantities?.pour_flatwork?.quantity);
-    const planExport =
-      String(
-        (measurements as { planImportMode?: string | null }).planImportMode ||
-          ''
-      ) === 'whole_project' ||
-      notesAreImportedPlanSummary(ctx.notes) ||
-      (planLiving > 0 && planLiving === living);
-    if (
-      planExport &&
+    const copiedFromLivingArea =
       living > 0 &&
-      (concrete === living || stored === living)
-    ) {
-      const itemQuantities = { ...(measurements.itemQuantities || {}) };
-      delete itemQuantities.pour_flatwork;
-      measurements = {
-        ...measurements,
-        concreteSqft: concrete === living ? '' : measurements.concreteSqft,
-        itemQuantities,
+      ((Number.isFinite(concrete) && Math.abs(concrete - living) < 0.51) ||
+        (Number.isFinite(stored) && Math.abs(stored - living) < 0.51) ||
+        (planLiving > 0 &&
+          Number.isFinite(concrete) &&
+          Math.abs(concrete - planLiving) < 0.51));
+    if (copiedFromLivingArea) {
+      const rule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
+      return {
+        quantity: null,
+        unit: rule?.defaultUnit || 'sqft',
+        quantitySource: 'missing',
+        sourceLabel: null,
+        pricingReady: false,
+        quantityHelper:
+          rule?.quantityHelper ||
+          'Enter exterior flatwork SF (driveway, walks, porch) — not house/garage slab.',
+        missingMessage:
+          rule?.missingMessage ||
+          'Needs exterior flatwork SF (driveway / walks / porch), or use local allowance.',
+        showInput: true,
       };
     }
   }

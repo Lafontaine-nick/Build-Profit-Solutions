@@ -1762,8 +1762,8 @@ export function isWholeProjectPlanExport(input: {
   originalNotes?: string | null;
   hasPlanBuildingAreas?: boolean | null;
 }): boolean {
-  if (String(input.planImportTradeKey || '').trim()) return false;
   if (String(input.planImportMode || '') === 'whole_project') return true;
+  if (String(input.planImportTradeKey || '').trim()) return false;
   if (String(input.planImportFingerprint || '').trim()) return true;
   if (
     Array.isArray(input.planScopeRecords) &&
@@ -1776,6 +1776,158 @@ export function isWholeProjectPlanExport(input: {
     notesAreImportedPlanSummary(input.notes) ||
     notesAreImportedPlanSummary(input.originalNotes)
   );
+}
+
+const ROOM_REMODEL_SHELL_TEMPLATES = new Set([
+  'bathroom',
+  'kitchen',
+  'room_remodel',
+]);
+
+/**
+ * Confirm Scope for a whole house should keep the ground-up shell (framing,
+ * drywall, insulation, MEP) so those planning prices show with the openings.
+ * A selected single trade or a room remodel stays on its own checklist.
+ */
+export function shouldSeedWholeProjectShellChecklist(input: {
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+  planImportFingerprint?: string | null;
+  planScopeRecords?: unknown[] | null;
+  notes?: string | null;
+  originalNotes?: string | null;
+  hasPlanBuildingAreas?: boolean | null;
+  templateKey?: string | null;
+  projectType?: string | null;
+  mixedScope?: boolean;
+  floorAreaSqft?: number | null;
+  windowCount?: number | null;
+  garageSqft?: number | null;
+  singleTradePlan?: boolean;
+}): boolean {
+  const living = Number(input.floorAreaSqft);
+  const garageSqft = Number(input.garageSqft);
+  // A plan with living area and a garage is a whole house, even when the
+  // draft was classified as a room remodel or a single trade.
+  if (
+    Number.isFinite(living) &&
+    living >= 800 &&
+    Number.isFinite(garageSqft) &&
+    garageSqft >= 200
+  ) {
+    return true;
+  }
+  const template = String(input.templateKey || '').toLowerCase();
+  if (ROOM_REMODEL_SHELL_TEMPLATES.has(template)) return false;
+  if (input.singleTradePlan) return false;
+  if (String(input.planImportMode || '') === 'selected_trade') return false;
+  if (
+    isWholeProjectPlanExport({
+      planImportMode: input.planImportMode,
+      planImportTradeKey:
+        String(input.planImportMode || '') === 'whole_project'
+          ? null
+          : input.planImportTradeKey,
+      planImportFingerprint: input.planImportFingerprint,
+      planScopeRecords: input.planScopeRecords,
+      notes: input.notes,
+      originalNotes: input.originalNotes,
+      hasPlanBuildingAreas: input.hasPlanBuildingAreas,
+    })
+  ) {
+    return true;
+  }
+  const project = String(input.projectType || '').toLowerCase();
+  if (
+    template === 'ground_up' ||
+    project === 'ground_up' ||
+    project === 'whole_project' ||
+    template === 'whole_project'
+  ) {
+    return true;
+  }
+  const windowCount = Number(input.windowCount);
+  const planScale =
+    Boolean(input.hasPlanBuildingAreas) ||
+    Boolean(String(input.planImportFingerprint || '').trim()) ||
+    (Array.isArray(input.planScopeRecords) &&
+      input.planScopeRecords.length > 0) ||
+    (Number.isFinite(living) && living >= 800) ||
+    (Number.isFinite(windowCount) && windowCount >= 6) ||
+    (Number.isFinite(garageSqft) && garageSqft >= 200);
+  if (!input.mixedScope || !planScale) return false;
+  const notes = `${input.notes || ''}\n${input.originalNotes || ''}`;
+  const wholeHomeRemodel =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      notes
+    ) &&
+    /\b(?:kitchen|bathroom)\s+(?:remodel|renovation)\b/i.test(notes);
+  return !wholeHomeRemodel;
+}
+
+function positivePlanArea(value: unknown): number | null {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Living area from the plan, the measurement field, or plan-takeoff notes. */
+export function resolveWholeHouseLivingSqft(input: {
+  floorAreaSqft?: unknown;
+  planFacts?: {
+    buildingAreas?: {
+      totalLivingSqft?: unknown;
+      mainFloorLivingSqft?: unknown;
+      upstairsLivingSqft?: unknown;
+    };
+  } | null;
+  notes?: string | null;
+}): number | null {
+  const areas = input.planFacts?.buildingAreas;
+  const total = positivePlanArea(areas?.totalLivingSqft);
+  if (total) return total;
+  const main = positivePlanArea(areas?.mainFloorLivingSqft);
+  const upstairs = positivePlanArea(areas?.upstairsLivingSqft);
+  if (main && upstairs) return main + upstairs;
+  if (main) return main;
+  const field = positivePlanArea(input.floorAreaSqft);
+  if (field) return field;
+  const match = String(input.notes || '').match(
+    /\bliving(?:\s+area)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)/i
+  );
+  return match ? positivePlanArea(match[1]) : null;
+}
+
+/** Fill blank living/garage fields from the plan so shell planning prices can run. */
+export function withWholeHousePlanAreaDefaults<
+  T extends {
+    floorAreaSqft?: unknown;
+    garageSqft?: unknown;
+    planFacts?: {
+      buildingAreas?: {
+        totalLivingSqft?: unknown;
+        mainFloorLivingSqft?: unknown;
+        upstairsLivingSqft?: unknown;
+        garageSqft?: unknown;
+      };
+    } | null;
+  },
+>(measurements: T, notes?: string | null): T {
+  const living = resolveWholeHouseLivingSqft({
+    floorAreaSqft: measurements.floorAreaSqft,
+    planFacts: measurements.planFacts,
+    notes,
+  });
+  const garage =
+    positivePlanArea(measurements.garageSqft) ??
+    positivePlanArea(measurements.planFacts?.buildingAreas?.garageSqft);
+  const next: T = { ...measurements };
+  if (living && !positivePlanArea(measurements.floorAreaSqft)) {
+    next.floorAreaSqft = String(living);
+  }
+  if (garage && !positivePlanArea(measurements.garageSqft)) {
+    next.garageSqft = String(garage);
+  }
+  return next;
 }
 
 /** Set Yes/choice from note hints for items still on Not sure. */

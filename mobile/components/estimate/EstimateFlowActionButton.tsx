@@ -20,6 +20,8 @@ type Props = {
   disabled?: boolean;
   loading?: boolean;
   selected?: boolean;
+  /** Solid mint fill, or the light mint wash used for trade choices. */
+  selectedTone?: 'solid' | 'wash';
   /** Tint + ring when selected — green (Camera / Whole project) or blue (Library / Single trade). */
   selectedAccent?: 'green' | 'blue';
   onPress: () => void;
@@ -36,11 +38,17 @@ export default function EstimateFlowActionButton({
   disabled = false,
   loading = false,
   selected = false,
+  selectedTone = 'solid',
   onPress,
   style,
   labelStyle,
 }: Props) {
-  const resolvedIconColor = selected ? '#050B13' : iconColor || '#94a3b8';
+  const selectedWash = selected && selectedTone === 'wash';
+  const resolvedIconColor = selectedWash
+    ? '#8eecc9'
+    : selected
+      ? '#050B13'
+      : iconColor || '#94a3b8';
   const shellLayout = {
     flex: 1 as const,
     minHeight: 44,
@@ -57,8 +65,10 @@ export default function EstimateFlowActionButton({
       ? {
           ...shellLayout,
           borderWidth: 1,
-          borderColor: '#2dcc9a',
-          backgroundColor: '#2dcc9a',
+          borderColor: selectedWash ? 'rgba(45, 204, 154, 0.55)' : '#2dcc9a',
+          backgroundColor: selectedWash
+            ? 'rgba(45, 204, 154, 0.16)'
+            : '#2dcc9a',
         }
       : {
           ...shellLayout,
@@ -83,7 +93,7 @@ export default function EstimateFlowActionButton({
       ) : null}
       <Text
         style={{
-          color: selected ? '#050B13' : Colors.text,
+          color: selectedWash ? '#8eecc9' : selected ? '#050B13' : Colors.text,
           fontSize: labelStyle?.fontSize ?? 13,
           fontWeight: '700',
           textAlign: icon ? undefined : 'center',
