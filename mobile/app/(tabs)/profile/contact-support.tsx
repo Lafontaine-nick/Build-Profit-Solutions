@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -23,7 +22,6 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import {
@@ -47,15 +45,15 @@ export default function ContactSupportScreen() {
 
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
+    card: darkMode ? '#1C1D20' : Colors.surface2,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
     border: Colors.line,
     softBorder: Colors.line,
     iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-    inputBg: Colors.surface2,
-  }), [Colors]);
+    inputBg: darkMode ? '#2C2C2E' : 'rgba(0, 0, 0, 0.08)',
+  }), [Colors, darkMode]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -147,6 +145,161 @@ export default function ContactSupportScreen() {
     }
   };
 
+  const iconWell = darkMode ? '#3A3A3C' : '#e2e8f0';
+  const cardBorder = darkMode ? 'rgba(255,255,255,0.08)' : theme.border;
+
+  const pageBody = (
+    <>
+      <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Contact</Text>
+        <TouchableOpacity
+          style={[styles.quickContactRow, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : theme.border }]}
+          onPress={handleEmailPress}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.quickContactIcon, { backgroundColor: iconWell }]}>
+            <MaterialIcons name="email" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.quickContactText}>
+            <Text style={[styles.quickContactLabel, { color: theme.text }]}>Email</Text>
+            <Text style={[styles.quickContactValue, { color: theme.subtext }]}>
+              support@buildprofitsolutions.com
+            </Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={theme.subtext} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickContactRowLast} onPress={handlePhonePress} activeOpacity={0.7}>
+          <View style={[styles.quickContactIcon, { backgroundColor: iconWell }]}>
+            <MaterialIcons name="phone" size={20} color={theme.accent} />
+          </View>
+          <View style={styles.quickContactText}>
+            <Text style={[styles.quickContactLabel, { color: theme.text }]}>Phone</Text>
+            <Text style={[styles.quickContactValue, { color: theme.subtext }]}>(702) 861-8618</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={theme.subtext} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Send a message</Text>
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.text }]}>
+              Name <Text style={{ color: '#ef4444' }}>*</Text>
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.15)',
+                  color: theme.text,
+                  textAlign: 'left',
+                },
+              ]}
+              placeholder="Enter your name"
+              placeholderTextColor="#8E8E93"
+              value={formData.name}
+              onChangeText={(value) => handleInputChange('name', value)}
+              autoCapitalize="words"
+              {...resolveTextInputKeyboardProps()}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.text }]}>
+              Email <Text style={{ color: '#ef4444' }}>*</Text>
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.15)',
+                  color: theme.text,
+                  textAlign: 'left',
+                },
+              ]}
+              placeholder="Enter your email"
+              placeholderTextColor="#8E8E93"
+              value={formData.email}
+              onChangeText={(value) => handleInputChange('email', value)}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.text }]}>
+              Subject <Text style={{ color: '#ef4444' }}>*</Text>
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.15)',
+                  color: theme.text,
+                  textAlign: 'left',
+                },
+              ]}
+              placeholder="What is this regarding?"
+              placeholderTextColor="#8E8E93"
+              value={formData.subject}
+              onChangeText={(value) => handleInputChange('subject', value)}
+              {...resolveTextInputKeyboardProps()}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.text }]}>
+              Message <Text style={{ color: '#ef4444' }}>*</Text>
+            </Text>
+            <View>
+              {!formData.message ? (
+                <Text style={styles.messagePlaceholder} pointerEvents="none">
+                  Describe your issue or question...
+                </Text>
+              ) : null}
+              <TextInput
+                style={[
+                  styles.textArea,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.15)',
+                    color: theme.text,
+                    textAlign: 'left',
+                  },
+                ]}
+                placeholder=""
+                value={formData.message}
+                onChangeText={(value) => handleInputChange('message', value)}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+                {...resolveTextInputKeyboardProps({ multiline: true })}
+              />
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[styles.submitButton, { backgroundColor: theme.accent, opacity: loading ? 0.7 : 1 }]}
+            onPress={handleSubmit}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color="#04120C" />
+            ) : (
+              <Text style={styles.submitButtonText}>Send Message</Text>
+            )}
+          </TouchableOpacity>
+          <Text style={[styles.infoText, { color: theme.subtext }]}>
+            We typically reply within one business day.
+          </Text>
+        </View>
+      </View>
+    </>
+  );
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -164,32 +317,33 @@ export default function ContactSupportScreen() {
                 webHelpHeaderMargins={webHelpHeaderMargins}
               />
             ) : (
-              <View style={[styles.headerRow, webHelpHeaderMargins]}>
-                <View style={styles.backButtonWrapper}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.backButtonBorder}
-                  >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.back();
-                      }}
-                      style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-                    >
-                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                    </GradientRingBackInner>
-                  </LinearGradient>
-                </View>
-                <View style={styles.titleContainer}>
-                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+              <View style={styles.headerRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Back"
+                  style={[
+                    styles.backButton,
+                    { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+                  ]}
+                >
+                  <MaterialIcons
+                    name="chevron-left"
+                    size={22}
+                    color={darkMode ? '#e2e8f0' : '#000000'}
+                  />
+                </TouchableOpacity>
+                <View style={styles.headerCopy}>
+                  <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
                     Contact Support
                   </Text>
+                  <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                    Email, phone, or a message
+                  </Text>
                 </View>
-                <View style={styles.backButtonWrapper} />
               </View>
             )}
 
@@ -204,205 +358,23 @@ export default function ContactSupportScreen() {
               {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
+              {Platform.OS === 'web' ? (
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.chromeFrame}
               >
-                <View
-                  style={[
-                    styles.contentCard,
-                    {
-                      backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                      borderColor: theme.border,
-                      borderWidth: 1,
-                    },
-                  ]}
-                >
+                <View style={[styles.contentCard, { backgroundColor: darkMode ? Colors.cardDark : Colors.bg }]}>
                   <View style={styles.scrollContent}>
-                    {/* Quick Contact Options */}
-                    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                        Quick Contact
-                      </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                        Reach us directly via email or phone
-                      </Text>
-
-                      <TouchableOpacity
-                        style={[styles.quickContactRow, { borderBottomColor: theme.border }]}
-                        onPress={handleEmailPress}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[styles.quickContactIcon, { backgroundColor: theme.iconBg }]}>
-                          <MaterialIcons name='email' size={24} color={theme.accent} />
-                        </View>
-                        <View style={styles.quickContactText}>
-                          <Text style={[styles.quickContactLabel, { color: theme.text }]}>
-                            Email Support
-                          </Text>
-                          <Text style={[styles.quickContactValue, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                            support@buildprofitsolutions.com
-                          </Text>
-                        </View>
-                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.7 }} />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.quickContactRow}
-                        onPress={handlePhonePress}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[styles.quickContactIcon, { backgroundColor: theme.iconBg }]}>
-                          <MaterialIcons name='phone' size={24} color={theme.accent} />
-                        </View>
-                        <View style={styles.quickContactText}>
-                          <Text style={[styles.quickContactLabel, { color: theme.text }]}>
-                            Phone Support
-                          </Text>
-                          <Text style={[styles.quickContactValue, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                            (702) 861-8618
-                          </Text>
-                        </View>
-                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.7 }} />
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Contact Form */}
-                    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                        Send us a Message
-                      </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                        Fill out the form below and we'll get back to you soon
-                      </Text>
-
-                <View style={styles.form}>
-                      <View style={styles.inputGroup}>
-                        <Text style={[styles.label, { color: theme.text }]}>
-                          Name <Text style={{ color: '#ef4444' }}>*</Text>
-                        </Text>
-                        <TextInput
-                          style={[
-                            styles.input,
-                            {
-                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
-                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
-                              color: theme.text,
-                            },
-                          ]}
-                          placeholder='Enter your name'
-                          placeholderTextColor={theme.subtext}
-                          value={formData.name}
-                          onChangeText={(value) => handleInputChange('name', value)}
-                          autoCapitalize='words'
-                          {...resolveTextInputKeyboardProps()}
-                        />
-                      </View>
-
-                      <View style={styles.inputGroup}>
-                        <Text style={[styles.label, { color: theme.text }]}>
-                          Email <Text style={{ color: '#ef4444' }}>*</Text>
-                        </Text>
-                        <TextInput
-                          style={[
-                            styles.input,
-                            {
-                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
-                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
-                              color: theme.text,
-                            },
-                          ]}
-                          placeholder='Enter your email'
-                          placeholderTextColor={theme.subtext}
-                          value={formData.email}
-                          onChangeText={(value) => handleInputChange('email', value)}
-                          keyboardType='email-address'
-                          autoCapitalize='none'
-                          autoCorrect={false}
-                          {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
-                        />
-                      </View>
-
-                      <View style={styles.inputGroup}>
-                        <Text style={[styles.label, { color: theme.text }]}>
-                          Subject <Text style={{ color: '#ef4444' }}>*</Text>
-                        </Text>
-                        <TextInput
-                          style={[
-                            styles.input,
-                            {
-                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
-                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
-                              color: theme.text,
-                            },
-                          ]}
-                          placeholder='What is this regarding?'
-                          placeholderTextColor={theme.subtext}
-                          value={formData.subject}
-                          onChangeText={(value) => handleInputChange('subject', value)}
-                          {...resolveTextInputKeyboardProps()}
-                        />
-                      </View>
-
-                      <View style={styles.inputGroup}>
-                        <Text style={[styles.label, { color: theme.text }]}>
-                          Message <Text style={{ color: '#ef4444' }}>*</Text>
-                        </Text>
-                        <TextInput
-                          style={[
-                            styles.textArea,
-                            {
-                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
-                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
-                              color: theme.text,
-                            },
-                          ]}
-                          placeholder='Describe your issue or question...'
-                          placeholderTextColor={theme.subtext}
-                          value={formData.message}
-                          onChangeText={(value) => handleInputChange('message', value)}
-                          multiline
-                          numberOfLines={6}
-                          textAlignVertical='top'
-                          {...resolveTextInputKeyboardProps({ multiline: true })}
-                        />
-                      </View>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.submitButton,
-                          {
-                            opacity: loading ? 0.7 : 1,
-                          },
-                        ]}
-                        onPress={handleSubmit}
-                        disabled={loading}
-                        activeOpacity={0.8}
-                      >
-                        {loading ? (
-                          <ActivityIndicator color='#FFFFFF' />
-                        ) : (
-                          <>
-                            <MaterialIcons name='send' size={20} color='#FFFFFF' />
-                            <Text style={styles.submitButtonText}>Send Message</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Response Time Info */}
-                    <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <MaterialIcons name='info-outline' size={20} color={theme.accent} />
-                      <Text style={[styles.infoText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                        We typically respond within 24 hours during business days
-                      </Text>
-                    </View>
+                    {pageBody}
                   </View>
                 </View>
               </LinearGradient>
+              ) : (
+                <View style={styles.scrollContent}>{pageBody}</View>
+              )}
+
               </WebPageShell>
             </ScrollView>
           </KeyboardAvoidingView>
@@ -423,13 +395,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 40,
-    marginBottom: 12,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    marginHorizontal: 8,
+  },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   chromeFrame: {
     borderRadius: 24,
@@ -437,32 +420,20 @@ const styles = StyleSheet.create({
     marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
     marginBottom: 16,
   },
-  backButtonWrapper: {
-    width: 42,
-    zIndex: 1,
-    alignItems: 'center',
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
-  },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  titleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
     textAlign: 'center',
   },
   contentCard: {
@@ -470,19 +441,19 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   sectionCard: {
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    marginBottom: 8,
   },
   sectionSubtitle: {
     fontSize: 13,
@@ -492,13 +463,18 @@ const styles = StyleSheet.create({
   quickContactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
+  quickContactRowLast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+  },
   quickContactIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -526,47 +502,50 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    height: 50,
+    height: 56,
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-  },
-  textArea: {
-    minHeight: 120,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
     paddingTop: 16,
     fontSize: 16,
   },
+  textArea: {
+    minHeight: 96,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    fontSize: 16,
+  },
+  messagePlaceholder: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    top: 18,
+    zIndex: 1,
+    color: '#8E8E93',
+    fontSize: 16,
+  },
   submitButton: {
-    flexDirection: 'row',
+    minHeight: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 52,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 8,
-    backgroundColor: '#43cea2',
+    marginTop: 4,
   },
   submitButtonText: {
-    color: '#FFFFFF',
+    color: '#04120C',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
+    fontWeight: '700',
   },
   infoText: {
-    flex: 1,
+    marginTop: 12,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });
 

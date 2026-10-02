@@ -10,12 +10,10 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
@@ -30,46 +28,31 @@ interface StepCardProps {
   theme: any;
   onPress?: () => void;
   isLast?: boolean;
+  darkMode: boolean;
 }
 
-const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: StepCardProps) => (
-  <View style={styles.stepContainer}>
-    <View style={styles.stepRow}>
-      <View style={styles.stepLeft}>
-        <View style={[styles.stepNumber, { backgroundColor: theme.iconBg }]}>
-          <Text style={[styles.stepNumberText, { color: theme.accent }]}>
-            {number}
-          </Text>
-        </View>
-        {!isLast && (
-          <View style={[styles.stepConnector, { backgroundColor: theme.border }]} />
-        )}
-      </View>
-      <TouchableOpacity
-        style={[
-          styles.stepCard,
-          { borderColor: theme.border, backgroundColor: theme.card },
-          onPress && styles.stepCardClickable,
-        ]}
-        onPress={onPress}
-        activeOpacity={onPress ? 0.7 : 1}
-        disabled={!onPress}
-      >
-        <View style={styles.stepContent}>
-          <View style={styles.stepHeader}>
-            <MaterialIcons name={icon as any} size={24} color={theme.accent} />
-            <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
-            {onPress && (
-              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} />
-            )}
-          </View>
-          <Text style={[styles.stepDescription, { color: theme.subtext }]}>
-            {description}
-          </Text>
-        </View>
-      </TouchableOpacity>
+const StepCard = ({ number, title, description, theme, onPress, isLast, darkMode }: StepCardProps) => (
+  <TouchableOpacity
+    style={[
+      styles.stepRow,
+      {
+        borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : theme.border,
+        borderBottomWidth: isLast ? 0 : 1,
+      },
+    ]}
+    onPress={onPress}
+    activeOpacity={onPress ? 0.7 : 1}
+    disabled={!onPress}
+  >
+    <View style={[styles.stepNumber, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+      <Text style={[styles.stepNumberText, { color: theme.accent }]}>{number}</Text>
     </View>
-  </View>
+    <View style={styles.stepCopy}>
+      <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
+      <Text style={[styles.stepDescription, { color: theme.subtext }]}>{description}</Text>
+    </View>
+    {onPress ? <MaterialIcons name="chevron-right" size={22} color={theme.subtext} /> : null}
+  </TouchableOpacity>
 );
 
 
@@ -83,13 +66,13 @@ export default function GettingStartedScreen() {
 
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
+    card: darkMode ? '#1C1D20' : Colors.surface2,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
     border: Colors.line,
     iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-  }), [Colors]);
+  }), [Colors, darkMode]);
 
   const steps = [
     {
@@ -153,6 +136,44 @@ export default function GettingStartedScreen() {
     },
   ];
 
+  const tipLines = [
+    'Turn on Remember my pricing so approved rates come back on the next bid.',
+    'Check quantities on Confirm Scope before you apply a price.',
+    'Restore a subscription from Payment & Billing if you reinstall.',
+  ];
+
+  const pageBody = (
+    <>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: darkMode ? 'rgba(255,255,255,0.08)' : theme.border }]}>
+        {steps.map((step, index) => (
+          <StepCard
+            key={step.number}
+            number={step.number}
+            title={step.title}
+            description={step.description}
+            icon={step.icon}
+            theme={theme}
+            darkMode={darkMode}
+            onPress={step.onPress}
+            isLast={index === steps.length - 1}
+          />
+        ))}
+      </View>
+      <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: darkMode ? 'rgba(255,255,255,0.08)' : theme.border }]}>
+        <View style={[styles.stepNumber, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+          <MaterialIcons name="lightbulb-outline" size={20} color={theme.accent} />
+        </View>
+        <View style={styles.tipsContent}>
+          <Text style={[styles.tipsTitle, { color: theme.text }]}>Pro Tips</Text>
+          {tipLines.map((line) => (
+            <Text key={line} style={[styles.tipsText, { color: theme.subtext }]}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      </View>
+    </>
+  );
 
   return (
     <>
@@ -168,32 +189,33 @@ export default function GettingStartedScreen() {
               webHelpHeaderMargins={webHelpHeaderMargins}
             />
           ) : (
-            <View style={[styles.headerRow, webHelpHeaderMargins]}>
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.back();
-                    }}
-                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </GradientRingBackInner>
-                </LinearGradient>
-              </View>
-              <View style={styles.titleContainer}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+            <View style={styles.headerRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.back();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Back"
+                style={[
+                  styles.backButton,
+                  { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+                ]}
+              >
+                <MaterialIcons
+                  name="chevron-left"
+                  size={22}
+                  color={darkMode ? '#e2e8f0' : '#000000'}
+                />
+              </TouchableOpacity>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
                   Getting Started
                 </Text>
+                <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                  Tap a step to open it
+                </Text>
               </View>
-              <View style={styles.backButtonWrapper} />
             </View>
           )}
 
@@ -208,78 +230,20 @@ export default function GettingStartedScreen() {
             showsVerticalScrollIndicator={true}
           >
             <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
-            <LinearGradient
-              colors={["#2DFFC4", "#00A6FF"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.chromeFrame}
-            >
-              <View
-                style={[
-                  styles.contentCard,
-                  {
-                    backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                    borderColor: Colors.line,
-                    borderWidth: 1,
-                  },
-                ]}
+            {Platform.OS === 'web' ? (
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.chromeFrame}
               >
-                <View style={styles.scrollContent}>
-                  {/* Welcome Section */}
-                  <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
-                      <MaterialIcons name='rocket-launch' size={32} color={theme.accent} />
-                    </View>
-                    <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                      Welcome to Build Profit Solutions!
-                    </Text>
-                    <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-                      We're here to help you manage your construction business more
-                      efficiently. Follow these steps to get started.
-                    </Text>
-                  </View>
-
-                  {/* Steps Section */}
-                  <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                      Quick Start Guide
-                    </Text>
-                    <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
-                      Tap on any step to get started
-                    </Text>
-                    {steps.map((step, index) => (
-                      <StepCard
-                        key={step.number}
-                        number={step.number}
-                        title={step.title}
-                        description={step.description}
-                        icon={step.icon}
-                        theme={theme}
-                        onPress={step.onPress}
-                        isLast={index === steps.length - 1}
-                      />
-                    ))}
-                  </View>
-
-                  {/* Tips Section */}
-                  <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <MaterialIcons name='lightbulb-outline' size={24} color={theme.accent} />
-                    <View style={styles.tipsContent}>
-                      <Text style={[styles.tipsTitle, { color: theme.text }]}>
-                        Pro Tips
-                      </Text>
-                      <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Complete your profile to unlock all features{'\n'}
-                        • Use the Dashboard to track your business metrics{'\n'}
-                        • Create estimates to win more projects{'\n'}
-                        • Manage leads to grow your pipeline
-                      </Text>
-                    </View>
-                  </View>
-
+                <View style={[styles.contentCard, { backgroundColor: darkMode ? Colors.cardDark : Colors.bg }]}>
+                  <View style={styles.scrollContent}>{pageBody}</View>
                 </View>
-              </View>
-            </LinearGradient>
+              </LinearGradient>
+            ) : (
+              <View style={styles.scrollContent}>{pageBody}</View>
+            )}
             </WebPageShell>
           </ScrollView>
           </View>
@@ -301,13 +265,24 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 40,
-    marginBottom: 12,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    marginHorizontal: 8,
+  },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   chromeFrame: {
     borderRadius: 24,
@@ -318,155 +293,86 @@ const styles = StyleSheet.create({
       default: { marginHorizontal: 8 },
     }),
   },
-  backButtonWrapper: {
-    width: 42,
-    zIndex: 1,
-    alignItems: 'center',
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
-  },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  titleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
   contentCard: {
     borderRadius: 23,
     overflow: 'visible',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
-  welcomeCard: {
-    borderRadius: 12,
-    padding: 24,
-    marginBottom: 24,
-    alignItems: 'center',
+  card: {
+    borderRadius: 16,
     borderWidth: 1,
-  },
-  welcomeIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
     marginBottom: 16,
-  },
-  welcomeTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  welcomeText: {
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: 'center',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    marginBottom: 16,
-  },
-  stepContainer: {
-    marginBottom: 8,
   },
   stepRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  stepLeft: {
     alignItems: 'center',
-    marginRight: 12,
-    width: 40,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
   },
   stepNumber: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stepNumberText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '700',
   },
-  stepConnector: {
-    width: 2,
+  stepCopy: {
     flex: 1,
-    minHeight: 40,
-    marginTop: 4,
-  },
-  stepCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-  },
-  stepCardClickable: {
-    // Additional styling for clickable cards if needed
-  },
-  stepContent: {
-    flex: 1,
-  },
-  stepHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
   },
   stepTitle: {
     fontSize: 16,
     fontWeight: '600',
-    flex: 1,
   },
   stepDescription: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   tipsCard: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
-    gap: 16,
+    gap: 12,
     alignItems: 'flex-start',
   },
   tipsContent: {
     flex: 1,
   },
   tipsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
   },
   tipsText: {
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 20,
+    marginTop: 8,
   },
 });
 

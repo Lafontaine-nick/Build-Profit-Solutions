@@ -235,6 +235,9 @@ export function build1099ReviewSummary(args: {
       actionNeeded.push('Missing W-9');
     }
 
+    const savedMethod = String(linked?.defaultPaymentMethod || '').trim();
+    if (g.methods.size === 0 && savedMethod) g.methods.add(savedMethod);
+
     if (g.methods.size === 0 && g.paid1099Total > 0) {
       actionNeeded.push('Confirm Payment Method');
     }

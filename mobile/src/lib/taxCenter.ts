@@ -1244,26 +1244,26 @@ export function buildRuleBasedTaxInsights(
   if (summary.committedCosts > 0) {
     const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
     lines.push(
-      `Expenses Paid (${fmt.format(summary.totalExpenses)}) plus open PO commitments (${fmt.format(summary.committedCosts)}) equals ${fmt.format(summary.totalExpenses + summary.committedCosts)} total recorded job spend. Net income in this summary uses Expenses Paid only—confirm with your CPA.`
+      `Expenses Paid (${fmt.format(summary.totalExpenses)}) plus open PO commitments (${fmt.format(summary.committedCosts)}) equals ${fmt.format(summary.totalExpenses + summary.committedCosts)} total recorded job spend. Net income in this summary uses Expenses Paid only.`
     );
   }
   if (summary.netProfit > 0) {
     const reserve = Math.round(summary.netProfit * 0.25);
     lines.push(
-      `Based on net profit in this summary, some businesses set aside approximately ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(reserve)} for estimated taxes. This is not tax advice—confirm with your CPA or tax professional.`
+      `Based on net profit in this summary, some businesses set aside approximately ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(reserve)} for estimated taxes.`
     );
   }
   const review = subcontractors.filter((s) => s.potential1099Review);
   if (review.length > 0) {
     const total = review.reduce((s, v) => s + v.totalPaid, 0);
     lines.push(
-      `You paid ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(total)} to vendors flagged for Potential 1099 review. Confirm vendor eligibility, payment method, W-9 status, and filing requirements with your CPA or tax professional.`
+      `You paid ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(total)} to vendors flagged for Potential 1099 review.`
     );
   }
   const top = [...categoryRows].sort((a, b) => b.amount - a.amount)[0];
   if (top && top.amount > 0) {
     lines.push(
-      `Your largest recorded expense category this year was ${top.category}. Review deductibility and tax treatment with your CPA or tax professional.`
+      `Your largest recorded expense category this year was ${top.category}.`
     );
   }
   if (lines.length === 0) {

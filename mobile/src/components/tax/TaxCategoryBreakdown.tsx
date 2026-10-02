@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   amount: {
-    color: '#2DFFC4',
+    color: '#2dcc9a',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   fill: {
     height: '100%',
     borderRadius: 99,
-    backgroundColor: '#2DFFC4',
+    backgroundColor: '#2dcc9a',
   },
   accounting: {
     color: 'rgba(148, 163, 184, 0.88)',

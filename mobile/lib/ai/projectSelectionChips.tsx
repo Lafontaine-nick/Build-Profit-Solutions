@@ -6,7 +6,6 @@
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
 export type ProjectOption = {
@@ -60,19 +59,17 @@ export default function ProjectSelectionChips({
               activeOpacity={0.7}
               style={styles.compactChipWrapper}
             >
-              <LinearGradient
-                colors={darkMode
-                  ? ['rgba(71, 85, 105, 0.42)', 'rgba(30, 41, 59, 0.72)']
-                  : ['rgba(226, 232, 240, 0.92)', 'rgba(203, 213, 225, 0.92)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.compactChip}
+              <View
+                style={[
+                  styles.compactChip,
+                  { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' },
+                ]}
               >
                 <Text style={[styles.compactChipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]} numberOfLines={1}>
                   {option.title}
                   {option.status ? ` · ${option.status}` : ''}
                 </Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -93,24 +90,21 @@ export default function ProjectSelectionChips({
             activeOpacity={0.7}
             style={styles.chipWrapper}
           >
-            <LinearGradient
-              colors={darkMode 
-                ? ['rgba(71, 85, 105, 0.42)', 'rgba(30, 41, 59, 0.72)']
-                : ['rgba(226, 232, 240, 0.92)', 'rgba(203, 213, 225, 0.92)']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.chip}
+            <View
+              style={[
+                styles.chip,
+                { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' },
+              ]}
             >
               <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
                 {option.title}
               </Text>
               {option.status && (
-                <Text style={[styles.chipStatus, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
+                <Text style={[styles.chipStatus, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
                   {option.status}
                 </Text>
               )}
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         ))}
       </View>
@@ -148,7 +142,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.34)',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     minWidth: 120,
   },
   chipText: {
@@ -197,7 +191,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.34)',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     minWidth: 60,
   },
   compactChipText: {

@@ -4,6 +4,7 @@
  * pipeline is healthy — assertions are standard Jest.
  */
 import {
+  buildProjectTaxSummaries,
   calculateOutstandingInvoices,
   computeTaxCenterSummary,
   getCommittedCostsDetailRows,
@@ -54,6 +55,13 @@ describe('Tax Center golden fixtures', () => {
     expect(s.grossIncomeCollected).toBe(1000);
     expect(s.totalExpenses).toBe(300);
     expect(s.netProfit).toBe(700);
+    const rows = buildProjectTaxSummaries(projects, 2026);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].revenueCollected).toBe(s.grossIncomeCollected);
+    expect(rows[0].expensesPaid).toBe(s.totalExpenses);
+    expect(rows[0].netIncome).toBe(700);
+    expect(rows[0].outstandingInvoices).toBe(s.outstandingReceivables);
+    expect(rows[0].margin).toBeCloseTo(0.7);
     const ye = getYearExpenses(projects, 2026);
     expect(ye.length).toBe(1);
     expect(getYearCollectedPayments(projects, 2026).length).toBe(1);
@@ -101,6 +109,10 @@ describe('Tax Center golden fixtures', () => {
     expect(s.grossIncomeCollected).toBe(0);
     expect(s.outstandingReceivables).toBe(500);
     expect(calculateOutstandingInvoices(projects[0], 2026)).toBe(500);
+    const rows = buildProjectTaxSummaries(projects, 2026);
+    expect(rows[0].revenueCollected).toBe(0);
+    expect(rows[0].outstandingInvoices).toBe(500);
+    expect(rows[0].netIncome).toBe(0);
   });
 
   it('Caps duplicated open milestones at the project contract less collected cash', () => {

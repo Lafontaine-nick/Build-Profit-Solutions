@@ -962,6 +962,31 @@ const QUICK_ACTIONS = [
   "Find Subcontractors",
 ];
 
+const CENTRAL_MINT = "#2dcc9a";
+const CENTRAL_SLATE = "#94a3b8";
+const CENTRAL_CARD = "#202022";
+const CENTRAL_CARD_BORDER = "rgba(148, 163, 184, 0.12)";
+const CENTRAL_GOLD = "#fbbf24";
+
+function centralBriefInsightColor(insight: string): string {
+  if (/\b(over budget|over-budget|cost increase|price increase)\b/i.test(insight)) return "#f87171";
+  if (/\b(missing|overdue|review|alert|risk|attention|behind|unpaid)\b/i.test(insight)) {
+    return CENTRAL_GOLD;
+  }
+  return CENTRAL_MINT;
+}
+
+function centralLiveNumberColor(label: string, value: string): string {
+  const text = `${label} ${value}`;
+  if (/\b(over budget|over-budget|cost increase|price increase)\b/i.test(text)) return "#f87171";
+  if (/\b(missing|overdue|review|alert|risk|unpaid|attention)\b/i.test(text)) return CENTRAL_GOLD;
+  const numeric = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  if (!numeric) return CENTRAL_SLATE;
+  const amount = Number(numeric[0]);
+  if (!Number.isFinite(amount) || amount === 0) return CENTRAL_SLATE;
+  return CENTRAL_MINT;
+}
+
 const CENTRAL_COMMAND_PROMPTS = [
   {
     label: "Compare projects",
@@ -4063,7 +4088,10 @@ const AIAssistantModal: React.FC<Props> = ({
               .replace(/\bthis job\b/gi, responseProjectName)
           : data.reply;
       const responseText = typeof responseContent === 'string' ? responseContent : '';
-      const containsNumericGuidance = /\b(?:markup|margin|projected profit|estimated cost|target bid|price range|forecast)\b/i.test(responseText);
+      const isWeatherReply = /\b(?:current weather|weather for|conditions:|precipitation|feels like)\b/i.test(responseText);
+      const containsNumericGuidance =
+        !isWeatherReply &&
+        /\b(?:markup|margin|projected profit|estimated cost|target bid|price range)\b/i.test(responseText);
       const numericGuidanceDisclaimer =
         '[DISCLAIMER]Numbers are illustrative planning guidance based on the project data and assumptions provided—not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms before relying on or sending them.[/DISCLAIMER]';
       const finalResponseContent =
@@ -4867,7 +4895,12 @@ const AIAssistantModal: React.FC<Props> = ({
   ) => (
     <>
       <Text style={[styles.messageMetricLabel, light({ color: ThemeColors.text })]}>{label}: </Text>
-      {renderInlineMarkdown(value, `${keyPrefix}-value`, [valueStyle, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])}
+      {renderInlineMarkdown(value, `${keyPrefix}-value`, [
+        valueStyle,
+        light({ color: ThemeColors.sub }),
+        darkModeChatMutedWhite,
+        isCentralCommandReadOnly ? { color: centralLiveNumberColor(label, value) } : null,
+      ])}
     </>
   );
 
@@ -4994,7 +5027,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
       const bulletMatch = cleanedLine.match(/^(?:[-*•])\s+(.+)$/);
       if (bulletMatch) {
-        const metric = splitMetricText(bulletMatch[1]);
+        const plainBullet = bulletMatch[1].replace(/\*\*/g, "");
+        const metric = splitMetricText(plainBullet);
         elements.push(
           <View
             key={`bullet-${index}`}
@@ -5004,10 +5038,28 @@ const AIAssistantModal: React.FC<Props> = ({
               metric && isCentralCommandReadOnly && styles.centralMessageMetricRow,
             ]}
           >
-            <Text style={[styles.messageBullet, light({ color: "#16a34a" })]}>•</Text>
+            <Text
+              style={[
+                styles.messageBullet,
+                isCentralCommandReadOnly && { color: CENTRAL_SLATE },
+                light({ color: "#16a34a" }),
+              ]}
+            >
+              •
+            </Text>
             <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, [styles.messageMetricValue, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])
+                ? renderMetricInline(
+                    metric.label,
+                    metric.value,
+                    `bullet-${index}`,
+                    [
+                      styles.messageMetricValue,
+                      isCentralCommandReadOnly && { color: centralLiveNumberColor(metric.label, metric.value) },
+                      light({ color: ThemeColors.sub }),
+                      darkModeChatMutedWhite,
+                    ],
+                  )
                 : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, [styles.messageListItem, light({ color: ThemeColors.text })])}
             </Text>
           </View>
@@ -5030,7 +5082,17 @@ const AIAssistantModal: React.FC<Props> = ({
             <Text style={[styles.messageNumberIndex, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>{numberMatch[1]}.</Text>
             <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `number-${index}`, [styles.messageMetricValue, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])
+                ? renderMetricInline(
+                    metric.label,
+                    metric.value,
+                    `number-${index}`,
+                    [
+                      styles.messageMetricValue,
+                      isCentralCommandReadOnly && { color: centralLiveNumberColor(metric.label, metric.value) },
+                      light({ color: ThemeColors.sub }),
+                      darkModeChatMutedWhite,
+                    ],
+                  )
                 : renderInlineMarkdown(numberMatch[2], `number-${index}`, [styles.messageListItem, light({ color: ThemeColors.text })])}
             </Text>
           </View>
@@ -5132,12 +5194,15 @@ const AIAssistantModal: React.FC<Props> = ({
             <LinearGradient
               colors={
                 isCentralCommandReadOnly
-                  ? ["rgba(148, 163, 184, 0.2)", "rgba(148, 163, 184, 0.2)"]
+                  ? [CENTRAL_CARD, CENTRAL_CARD]
                   : BRAND_FRAME_GRADIENT_COLORS
               }
               start={BRAND_FRAME_GRADIENT_START}
               end={BRAND_FRAME_GRADIENT_END}
-              style={styles.assistantBubbleBorder}
+              style={[
+                styles.assistantBubbleBorder,
+                isCentralCommandReadOnly && styles.centralAssistantBubbleBorder,
+              ]}
             >
               <View
                 style={[
@@ -5148,8 +5213,16 @@ const AIAssistantModal: React.FC<Props> = ({
                 ]}
               >
                 <View style={styles.assistantLabelRow}>
-                  <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                  <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>
+                  {isCentralCommandReadOnly ? null : (
+                    <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
+                  )}
+                  <Text
+                    style={[
+                      styles.assistantLabelText,
+                      isCentralCommandReadOnly && styles.centralAssistantLabel,
+                      light({ color: "#16a34a" }),
+                    ]}
+                  >
                     {isCentralCommandReadOnly ? "Central Command" : "AI Assistant"}
                   </Text>
                 </View>
@@ -5276,12 +5349,15 @@ const AIAssistantModal: React.FC<Props> = ({
           <LinearGradient
             colors={
               isCentralCommandReadOnly
-                ? ["rgba(148, 163, 184, 0.2)", "rgba(148, 163, 184, 0.2)"]
+                ? [CENTRAL_CARD, CENTRAL_CARD]
                 : BRAND_FRAME_GRADIENT_COLORS
             }
             start={BRAND_FRAME_GRADIENT_START}
             end={BRAND_FRAME_GRADIENT_END}
-            style={styles.assistantBubbleBorder}
+            style={[
+              styles.assistantBubbleBorder,
+              isCentralCommandReadOnly && styles.centralAssistantBubbleBorder,
+            ]}
           >
             <View
               style={[
@@ -5293,8 +5369,16 @@ const AIAssistantModal: React.FC<Props> = ({
               ]}
             >
               <View style={styles.assistantLabelRow}>
-                <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>
+                {isCentralCommandReadOnly ? null : (
+                  <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
+                )}
+                <Text
+                  style={[
+                    styles.assistantLabelText,
+                    isCentralCommandReadOnly && styles.centralAssistantLabel,
+                    light({ color: "#16a34a" }),
+                  ]}
+                >
                   {isCentralCommandReadOnly ? "Central Command" : "AI Assistant"}
                 </Text>
               </View>
@@ -5375,6 +5459,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 light({ backgroundColor: ThemeColors.bg }),
               ]}
             >
+              {isCentralCommandReadOnly ? null : (
               <View style={styles.backButtonWrapper}>
                 <LinearGradient
                   colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -5395,18 +5480,34 @@ const AIAssistantModal: React.FC<Props> = ({
                   </GradientRingBackInner>
                 </LinearGradient>
               </View>
-              <View style={styles.headerContent}>
-                    <View style={styles.headerTitleRow}>
-                      <View style={styles.headerTitleCenter}>
-                        <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
-                        <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
+              )}
+              <View style={[styles.headerContent, isCentralCommandReadOnly && styles.centralHeaderContent]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
+                    <View style={[styles.headerTitleRow, isCentralCommandReadOnly && styles.centralHeaderTitleRow]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
+                      <View style={[styles.headerTitleCenter, isCentralCommandReadOnly && styles.centralHeaderTitleCenter]} pointerEvents={isCentralCommandReadOnly ? "none" : "auto"}>
+                        {isCentralCommandReadOnly ? null : (
+                          <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
+                        )}
+                        <Text style={[styles.headerTitle, isCentralCommandReadOnly && styles.centralHeaderTitle, light({ color: ThemeColors.text })]}>
                           {isCentralCommandReadOnly ? 'Central Command' : 'AI Assistant'}
                         </Text>
                       </View>
+                      {isCentralCommandReadOnly ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            handleBackNavigation();
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityLabel="Back"
+                          style={[styles.centralBackButton, light({ backgroundColor: ThemeColors.surface2 })]}
+                        >
+                          <MaterialIcons name="chevron-left" size={22} color={darkMode ? "#e2e8f0" : "#000000"} />
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                     {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
                       <View style={styles.headerContextStack}>
-                        <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub })]}>
+                        <Text style={[styles.headerSubtitle, isCentralCommandReadOnly && styles.centralHeaderSubtitle, light({ color: ThemeColors.sub })]}>
                           {isCentralCommandReadOnly
                             ? 'All projects · Read-only'
                             : isGlobalAssistantContext
@@ -5434,7 +5535,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       </View>
                     )}
                 </View>
-                <View style={styles.headerSpacer} />
+                {isCentralCommandReadOnly ? null : <View style={styles.headerSpacer} />}
             </View>
 
             {/* Messages - Everything scrolls together */}
@@ -5516,17 +5617,16 @@ const AIAssistantModal: React.FC<Props> = ({
                   {isGlobalAssistantContext && displayBrief && messages.length === 0 && (
                     <>
                       <View
-                        style={[styles.todayBriefCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
+                        style={[
+                          styles.todayBriefCard,
+                          styles.centralTodayBriefCard,
+                          light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }),
+                        ]}
                         accessibilityLabel="Today Brief"
                         accessibilityRole="summary"
                       >
-                        <LinearGradient
-                          colors={["rgba(0, 166, 255, 0.14)", "rgba(45, 255, 196, 0.06)"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.todayBriefGradient}
-                        >
-                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub })]}>
+                        <View style={styles.centralTodayBriefBody}>
+                          <Text style={[styles.todayBriefCardTitle, styles.centralBriefKicker, light({ color: ThemeColors.sub })]}>
                             Today’s Brief
                           </Text>
                           <Text style={[styles.todayBriefGreeting, light({ color: ThemeColors.text })]}>
@@ -5541,7 +5641,12 @@ const AIAssistantModal: React.FC<Props> = ({
                             <View style={styles.todayBriefInsights}>
                               {displayBrief.insights.map((insight, i) => (
                                 <View key={i} style={styles.todayBriefInsightRow}>
-                                  <View style={styles.todayBriefInsightDot} />
+                                  <View
+                                    style={[
+                                      styles.todayBriefInsightDot,
+                                      { backgroundColor: centralBriefInsightColor(insight) },
+                                    ]}
+                                  />
                                   <Text style={[styles.todayBriefInsightItem, light({ color: ThemeColors.text })]}>
                                     {insight}
                                   </Text>
@@ -5558,7 +5663,7 @@ const AIAssistantModal: React.FC<Props> = ({
                               <View
                                 style={[
                                   styles.todayBriefStatusDot,
-                                  centralCommandStatus.attention && styles.todayBriefStatusDotAttention,
+                                  { backgroundColor: centralCommandStatus.attention ? CENTRAL_GOLD : CENTRAL_MINT },
                                 ]}
                               />
                               <Text style={[styles.todayBriefStatusText, light({ color: ThemeColors.sub })]}>
@@ -5566,7 +5671,7 @@ const AIAssistantModal: React.FC<Props> = ({
                               </Text>
                             </View>
                           )}
-                        </LinearGradient>
+                        </View>
                       </View>
 
                       {/* Biggest Risk card — only shown when an active-project issue needs attention */}
@@ -5608,6 +5713,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             style={[
                               styles.todayBriefSectionLabel,
                               styles.commandCenterSectionRail,
+                              styles.centralBriefKicker,
                               { marginBottom: 10, marginHorizontal: 0 },
                               light({ color: ThemeColors.sub }),
                             ]}
@@ -5637,7 +5743,7 @@ const AIAssistantModal: React.FC<Props> = ({
                                   ]}
                                 >
                                   <View style={styles.commandPromptIcon}>
-                                    <MaterialIcons name={prompt.icon} size={18} color="#38BDF8" />
+                                    <MaterialIcons name={prompt.icon} size={18} color={CENTRAL_MINT} />
                                   </View>
                                   <Text style={[styles.commandPromptText, light({ color: ThemeColors.text })]}>
                                     {prompt.label}
@@ -6515,28 +6621,38 @@ const AIAssistantModal: React.FC<Props> = ({
                 )}
               </View>
               <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
+                {isCentralCommandReadOnly ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.centralSendButton,
+                      centralComposerActive ? styles.centralSendActive : styles.centralSendIdle,
+                      !centralComposerActive && light({ backgroundColor: ThemeColors.surface2 }),
+                    ]}
+                    onPress={() => sendMessage()}
+                    disabled={!input.trim() || loading || !isContextReady}
+                    activeOpacity={0.7}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color={centralComposerActive ? "#050B13" : "#94A3B8"} />
+                    ) : (
+                      <Ionicons
+                        name="send"
+                        size={20}
+                        color={centralComposerActive ? "#050B13" : darkMode ? "#94A3B8" : "#000000"}
+                      />
+                    )}
+                  </TouchableOpacity>
+                ) : (
                 <LinearGradient
-                  colors={
-                    isCentralCommandReadOnly
-                      ? centralComposerActive
-                        ? [Colors.green, Colors.green]
-                        : ["rgba(148, 163, 184, 0.22)", "rgba(148, 163, 184, 0.22)"]
-                      : BRAND_FRAME_GRADIENT_COLORS
-                  }
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={BRAND_FRAME_GRADIENT_START}
                   end={BRAND_FRAME_GRADIENT_END}
-                  style={[
-                    styles.sendButtonBorder,
-                    isCentralCommandReadOnly && styles.centralSendButtonBorder,
-                  ]}
+                  style={styles.sendButtonBorder}
                 >
                   <TouchableOpacity
                     style={[
                       styles.sendButtonInner,
                       light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
-                      isCentralCommandReadOnly && styles.centralSendButtonInner,
-                      isCentralCommandReadOnly &&
-                        (centralComposerActive ? styles.centralSendActive : styles.centralSendIdle),
                     ]}
                     onPress={() => sendMessage()}
                     disabled={!input.trim() || loading || !isContextReady}
@@ -6548,11 +6664,12 @@ const AIAssistantModal: React.FC<Props> = ({
                       <Ionicons
                         name="send"
                         size={20}
-                        color={centralComposerActive ? "#071018" : darkMode ? "#94A3B8" : "#000000"}
+                        color={darkMode ? "#FFFFFF" : "#000000"}
                       />
                     )}
                   </TouchableOpacity>
                 </LinearGradient>
+                )}
               </Animated.View>
               </View>
             </View>
@@ -6626,6 +6743,43 @@ const styles = StyleSheet.create({
     // Match the back-button slot (44px button + 12px right spacing) so the
     // title/subtitle remain centered in the full header, not shifted right.
     width: 56,
+  },
+  centralHeaderContent: {
+    width: "100%",
+  },
+  centralHeaderTitleRow: {
+    position: "relative",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  centralHeaderTitleCenter: {
+    flexDirection: "row",
+  },
+  centralHeaderTitle: {
+    marginLeft: 0,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: "center",
+  },
+  centralHeaderSubtitle: {
+    color: CENTRAL_SLATE,
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 4,
+    letterSpacing: 0.12,
+    lineHeight: 20,
+  },
+  centralBackButton: {
+    position: "absolute",
+    left: 0,
+    zIndex: 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   headerTitleRow: {
     flexDirection: "row",
@@ -6715,9 +6869,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   centralUserBubble: {
-    backgroundColor: "#0D1E27",
-    borderColor: "rgba(0, 166, 255, 0.26)",
-    borderWidth: 1,
+    backgroundColor: "#3A3A3C",
+    borderWidth: 0,
   },
   /** ~90% of chat column — small side margins like Project AI (not edge-to-edge, not a skinny column) */
   assistantBubbleWrapper: {
@@ -6735,6 +6888,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderBottomLeftRadius: 6,
   },
+  centralAssistantBubbleBorder: {
+    padding: 0,
+    backgroundColor: CENTRAL_CARD,
+  },
   assistantBubble: {
     width: "100%",
     backgroundColor: "#040608",
@@ -6744,8 +6901,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   centralAssistantBubble: {
-    backgroundColor: "#171B20",
-    borderColor: "rgba(148, 163, 184, 0.18)",
+    backgroundColor: CENTRAL_CARD,
+    borderColor: CENTRAL_CARD_BORDER,
+    borderWidth: 1,
   },
   assistantLabelRow: {
     flexDirection: "row",
@@ -6759,6 +6917,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
+  },
+  centralAssistantLabel: {
+    color: CENTRAL_MINT,
+    marginLeft: 0,
   },
   messageText: {
     color: Colors.text,
@@ -7044,7 +7206,7 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: 24,
     borderWidth: 1,
-    backgroundColor: "#171B20",
+    backgroundColor: CENTRAL_CARD,
     overflow: "hidden",
   },
   inputInnerWrapper: {
@@ -7070,7 +7232,7 @@ const styles = StyleSheet.create({
     }),
   },
   centralInputInner: {
-    backgroundColor: "#171B20",
+    backgroundColor: CENTRAL_CARD,
     flex: 0,
     flexGrow: 0,
   },
@@ -7182,14 +7344,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  centralSendButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
   centralSendButtonInner: {
     borderRadius: 25,
   },
   centralSendActive: {
-    backgroundColor: Colors.green,
+    backgroundColor: CENTRAL_MINT,
   },
   centralSendIdle: {
-    backgroundColor: "#171B20",
+    backgroundColor: "#3A3A3C",
   },
   sendButtonDisabled: {
     opacity: 0.4,
@@ -7256,6 +7426,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 20,
     elevation: 7,
+  },
+  centralTodayBriefCard: {
+    backgroundColor: CENTRAL_CARD,
+    borderColor: CENTRAL_CARD_BORDER,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  centralTodayBriefBody: {
+    padding: 22,
+  },
+  centralBriefKicker: {
+    color: "#8eecc9",
   },
   estimateCopilotOuter: {
     alignSelf: "stretch",
@@ -7429,8 +7612,8 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.16)",
-    backgroundColor: "rgba(255, 255, 255, 0.045)",
+    borderColor: CENTRAL_CARD_BORDER,
+    backgroundColor: CENTRAL_CARD,
     justifyContent: "space-between",
   },
   commandPromptIcon: {
@@ -7439,7 +7622,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0, 166, 255, 0.12)",
+    backgroundColor: "rgba(45, 204, 154, 0.16)",
     marginBottom: 8,
   },
   commandPromptText: {

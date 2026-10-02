@@ -17,16 +17,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { getColors } from '@/theme/getColors';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import { TAX_CATEGORIES, type TaxCategory } from '@/src/lib/taxCenter';
 import { formatUsPhoneDashes } from '@/src/lib/phoneFormat';
@@ -59,8 +55,7 @@ export default function TaxVendorDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isNew = id === 'new';
-  const { darkMode, theme: themeContext } = useTheme();
-  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const { darkMode } = useTheme();
   const { vendors, hydrated, addVendor, updateVendor, removeVendor } = useVendorDirectory();
 
   let clerkUser: { primaryEmailAddress?: { emailAddress?: string }; emailAddresses?: { emailAddress?: string }[] } | null = null;
@@ -100,7 +95,9 @@ export default function TaxVendorDetailScreen() {
       setAddress(existing.address || '');
       setCity(existing.city || '');
       setVendorState(existing.state || '');
-      setNotes(existing.notes || '');
+      setNotes(
+        String(existing.notes || '').trim() === 'Created from Tax Center vendor review' ? '' : existing.notes || ''
+      );
       setDefaultCategory((existing.defaultCategory as TaxCategory) || '');
       setDefaultPaymentMethod(existing.defaultPaymentMethod || '');
       setW9Status(existing.w9Status);
@@ -220,7 +217,7 @@ export default function TaxVendorDetailScreen() {
       defaultPaymentMethod: defaultPaymentMethod.trim() || undefined,
       requires1099Review: flag1099Review,
     });
-    Alert.alert('Saved', 'Vendor profile updated.');
+    router.back();
   };
 
   const w9RequestEligibleForStatusBump =
@@ -351,22 +348,24 @@ export default function TaxVendorDetailScreen() {
 
   const renderCategoryPills = () => (
     <>
-      <Text style={styles.label}>Default accounting category (optional)</Text>
-      <Text style={styles.fieldHint}>Maps this vendor to a BPS expense bucket for exports.</Text>
-      <View style={styles.pills}>
+      <Text style={styles.label}>Category</Text>
+      <View style={styles.categoryGrid}>
         <Pressable
           onPress={() => setDefaultCategory('')}
-          style={[styles.pill, defaultCategory === '' && styles.pillOn]}
+          style={[styles.categoryPill, defaultCategory === '' && styles.pillOn]}
         >
-          <Text style={[styles.pillText, defaultCategory === '' && styles.pillTextOn]}>None</Text>
+          <Text style={[styles.categoryPillText, defaultCategory === '' && styles.pillTextOn]}>None</Text>
         </Pressable>
         {TAX_CATEGORIES.map((c) => (
           <Pressable
             key={c}
             onPress={() => setDefaultCategory(c)}
-            style={[styles.pill, defaultCategory === c && styles.pillOn]}
+            style={[styles.categoryPill, defaultCategory === c && styles.pillOn]}
           >
-            <Text style={[styles.pillText, defaultCategory === c && styles.pillTextOn]} numberOfLines={2}>
+            <Text
+              style={[styles.categoryPillText, defaultCategory === c && styles.pillTextOn]}
+              numberOfLines={1}
+            >
               {c}
             </Text>
           </Pressable>
@@ -378,17 +377,14 @@ export default function TaxVendorDetailScreen() {
   const renderPotential1099Section = () => (
     <>
       <Text style={styles.section}>Potential 1099 review</Text>
-      <Text style={styles.overrideHint}>
-        Use this only when your CPA or bookkeeper wants this vendor reviewed for year-end reporting. Informational
-        only. Not tax advice.
-      </Text>
       <View style={styles.switchRow}>
         <Text style={styles.switchLabel}>Flag for Potential 1099 Review</Text>
         <Switch
           value={flag1099Review}
           onValueChange={applyFlagChange}
-          trackColor={{ false: '#334155', true: 'rgba(45,255,196,0.45)' }}
-          thumbColor={flag1099Review ? '#2DFFC4' : '#94a3b8'}
+          trackColor={{ false: '#3A3A3C', true: '#2dcc9a' }}
+          thumbColor="#f4f4f5"
+          ios_backgroundColor="#3A3A3C"
         />
       </View>
     </>
@@ -468,26 +464,20 @@ export default function TaxVendorDetailScreen() {
           ]}
         >
           <View style={styles.headerRow}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
+            <View style={styles.backButtonWrapper} pointerEvents="box-none">
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.back();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Back"
+                style={styles.backButton}
               >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  style={[styles.backButtonInner, { backgroundColor: darkMode ? Colors.card : Colors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-                </GradientRingBackInner>
-              </LinearGradient>
+                <MaterialIcons name="chevron-left" size={22} color={darkMode ? '#e2e8f0' : '#0f172a'} />
+              </Pressable>
             </View>
-            <View style={styles.headerTitleCluster}>
+            <View style={styles.headerTitleCluster} pointerEvents="none">
               <Text style={styles.kicker}>Vendor directory</Text>
               <Text style={styles.screenTitle}>{screenTitle}</Text>
               {isNew ? (
@@ -511,28 +501,17 @@ export default function TaxVendorDetailScreen() {
           ) : null}
 
           <Text style={styles.label}>Vendor type</Text>
-          <Text style={styles.vendorTypeNote}>
-            Choose the type that best describes this company or person. This affects W-9 tracking, Potential 1099 Review
-            flags, and export grouping.
-          </Text>
-          <View style={styles.pills}>
+          <View style={styles.categoryGrid}>
             {VENDOR_TYPES.map((t) => (
               <Pressable
                 key={t}
                 onPress={() => setVendorTypeAndDefaults(t)}
-                style={[styles.pill, vendorType === t && styles.pillOn]}
+                style={[styles.categoryPill, vendorType === t && styles.pillOn]}
               >
-                <Text style={[styles.pillText, vendorType === t && styles.pillTextOn]}>{t}</Text>
+                <Text style={[styles.categoryPillText, vendorType === t && styles.pillTextOn]}>{t}</Text>
               </Pressable>
             ))}
           </View>
-
-          {simpleSupplierProfile ? (
-            <Text style={styles.supplierBlurb}>
-              Suppliers are usually tracked for expense categorization and reporting. W-9 tracking is typically used for
-              subcontractors, consultants, or vendors your CPA wants reviewed.
-            </Text>
-          ) : null}
 
           {renderCategoryPills()}
 
@@ -545,12 +524,7 @@ export default function TaxVendorDetailScreen() {
 
           {simpleSupplierProfile ? (
             <>
-              <Text style={styles.inlineFlagHint}>Optional — only if your CPA asked you to review this supplier.</Text>
-              <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>Flag for Potential 1099 Review</Text>
-                <Switch value={flag1099Review} onValueChange={applyFlagChange} trackColor={{ false: '#334155', true: 'rgba(45,255,196,0.45)' }} thumbColor={flag1099Review ? '#2DFFC4' : '#94a3b8'} />
-              </View>
-              <Field label="Notes" value={notes} onChangeText={setNotes} multiline />
+              <Field label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Optional" />
               <Pressable
                 style={styles.expandContactBtn}
                 onPress={() => {
@@ -561,7 +535,7 @@ export default function TaxVendorDetailScreen() {
                 <MaterialIcons
                   name={contactExpanded ? 'expand-less' : 'expand-more'}
                   size={22}
-                  color="#2DFFC4"
+                  color="#2dcc9a"
                 />
                 <Text style={styles.expandContactText}>Add contact details</Text>
               </Pressable>
@@ -592,7 +566,7 @@ export default function TaxVendorDetailScreen() {
               />
               <Field label="Phone" value={phone} onChangeText={onPhoneChange} keyboardType="phone-pad" />
               {addressFields}
-              <Field label="Notes" value={notes} onChangeText={setNotes} multiline />
+              <Field label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Optional" />
               {renderW9Section()}
             </>
           )}
@@ -669,7 +643,7 @@ function ActionButton({
 }) {
   return (
     <Pressable style={styles.actionBtn} onPress={onPress}>
-      <MaterialIcons name={icon} size={20} color="#2DFFC4" />
+      <MaterialIcons name={icon} size={20} color="#2dcc9a" />
       <Text style={styles.actionLabel}>{label}</Text>
     </Pressable>
   );
@@ -681,7 +655,7 @@ const styles = StyleSheet.create({
   pageShell: {
     flex: 1,
     width: '100%',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     minHeight: 0,
   },
   pageShellWeb: {
@@ -693,52 +667,72 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    minHeight: 56,
+    justifyContent: 'center',
     marginTop: 4,
     marginBottom: 14,
-    gap: 10,
   },
-  backButtonWrapper: {},
-  backButtonBorder: { width: 42, height: 42, borderRadius: 20, padding: 1, overflow: 'hidden' },
-  backButtonInner: { width: 40, height: 40, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  headerTitleCluster: { flex: 1, minWidth: 0 },
+  backButtonWrapper: {
+    position: 'absolute',
+    left: 4,
+    zIndex: 2,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitleCluster: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 48,
+  },
   kicker: {
-    color: '#2DFFC4',
+    color: '#8eecc9',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   screenTitle: {
     color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '900',
-    marginTop: 2,
-    letterSpacing: -0.3,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 4,
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: 'center',
   },
   titleHelper: {
-    color: 'rgba(203, 213, 225, 0.88)',
+    color: '#94a3b8',
     fontSize: 14,
-    lineHeight: 21,
-    marginTop: 8,
+    lineHeight: 20,
+    marginTop: 4,
     fontWeight: '500',
+    letterSpacing: 0.12,
+    textAlign: 'center',
   },
   formGradientRing: {
     marginBottom: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   formFrameInner: {
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 20,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   scroll: { paddingBottom: 48 },
-  label: { color: 'rgba(148, 163, 184, 0.95)', fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  label: { color: '#94a3b8', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
     color: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -783,11 +777,16 @@ const styles = StyleSheet.create({
   expandContactBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
-    marginBottom: 8,
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+    marginBottom: 14,
   },
-  expandContactText: { color: '#2DFFC4', fontSize: 14, fontWeight: '800' },
+  expandContactText: { color: '#2dcc9a', fontSize: 15, fontWeight: '600' },
   cityStateRow: { flexDirection: 'row', alignItems: 'flex-start' },
   cityStateCol: { flex: 1, minWidth: 0 },
   cityStateColGap: { marginRight: 10 },
@@ -824,7 +823,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   w9IrsLinkText: {
-    color: '#5eead4',
+    color: '#2dcc9a',
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
@@ -838,17 +837,45 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 8,
+    marginBottom: 16,
+  },
+  categoryPill: {
+    width: '48.5%',
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  categoryPillText: {
+    color: '#e2e8f0',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    textTransform: 'capitalize',
+  },
   pill: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#3A3A3C',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.35)',
   },
-  pillOn: { borderColor: '#2DFFC4', backgroundColor: 'rgba(45, 255, 196, 0.12)' },
-  pillText: { color: 'rgba(203,213,225,0.9)', fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
-  pillTextOn: { color: '#FFFFFF' },
+  pillOn: {
+    borderColor: 'rgba(45, 204, 154, 0.55)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+  },
+  pillText: { color: '#e2e8f0', fontSize: 14, fontWeight: '600', textTransform: 'capitalize' },
+  pillTextOn: { color: '#8eecc9' },
   actions: { gap: 10, marginBottom: 8 },
   actionBtn: {
     flexDirection: 'row',
@@ -862,14 +889,22 @@ const styles = StyleSheet.create({
   },
   actionLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   saveBtn: {
-    backgroundColor: 'rgba(45, 255, 196, 0.2)',
+    backgroundColor: '#2dcc9a',
     borderRadius: 14,
+    minHeight: 48,
     paddingVertical: 14,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 255, 196, 0.35)',
+    justifyContent: 'center',
   },
-  saveText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  delBtn: { marginTop: 20, alignItems: 'center', padding: 12 },
-  delText: { color: '#FCA5A5', fontSize: 14, fontWeight: '700' },
+  saveText: { color: '#050B13', fontSize: 15, fontWeight: '700' },
+  delBtn: {
+    marginTop: 8,
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  delText: { color: '#f87171', fontSize: 15, fontWeight: '600' },
 });

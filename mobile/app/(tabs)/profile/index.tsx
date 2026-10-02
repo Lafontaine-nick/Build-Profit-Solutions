@@ -98,6 +98,10 @@ import ContractorPricingMemorySettings from '@/components/estimate/ContractorPri
  * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
  * `loadProfile` and overwriting `bps.contractorProfile` with demo data.
  */
+const PROFILE_MINT = '#2dcc9a';
+const PROFILE_MINT_TEXT = '#8eecc9';
+const PROFILE_SLATE = '#94a3b8';
+
 const DEFAULT_CONTRACTOR_USER = {
   id: 'local',
   name: '',
@@ -256,9 +260,9 @@ const getSegmentStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     backgroundColor: 'transparent',
   },
   segmentTabActive: {
-    backgroundColor: darkMode ? 'rgba(67, 206, 162, 0.14)' : 'rgba(67, 206, 162, 0.12)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(67, 206, 162, 0.35)' : 'rgba(67, 206, 162, 0.4)',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   segmentTabInner: {
     flexDirection: 'row',
@@ -271,7 +275,7 @@ const getSegmentStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: Colors.sub,
   },
   segmentLabelActive: {
-    color: Colors.primary,
+    color: PROFILE_MINT_TEXT,
   },
 });
 
@@ -285,7 +289,7 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
     onPress();
   };
 
-  const iconColor = isActive ? Colors.primary : Colors.sub;
+  const iconColor = isActive ? PROFILE_MINT_TEXT : Colors.sub;
   const labelStyle = isActive
     ? [styles.segmentLabel, styles.segmentLabelActive]
     : styles.segmentLabel;
@@ -1742,7 +1746,7 @@ export default function ProfileScreen() {
             <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
               Complete your profile
             </Text>
-            <Text style={[styles.sectionTitle, { color: theme.accent, marginBottom: 0, fontSize: 14 }]}>
+            <Text style={[styles.sectionTitle, { color: PROFILE_MINT, marginBottom: 0, fontSize: 14 }]}>
               {profileCompletion}% complete
             </Text>
           </View>
@@ -1752,7 +1756,7 @@ export default function ProfileScreen() {
                 styles.progressFill,
                 {
                   width: `${profileCompletion}%`,
-                  backgroundColor: theme.accent,
+                  backgroundColor: PROFILE_MINT,
                 },
               ]}
             />
@@ -1768,10 +1772,10 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
             style={styles.profileCompletionCta}
           >
-            <Text style={[styles.profileCompletionCtaText, { color: theme.accent }]}>
+            <Text style={[styles.profileCompletionCtaText, { color: PROFILE_MINT }]}>
               Continue profile
             </Text>
-            <MaterialIcons name='arrow-forward' size={16} color={theme.accent} />
+            <MaterialIcons name='arrow-forward' size={16} color={PROFILE_MINT} />
           </TouchableOpacity>
         </View>
       )}
@@ -1788,7 +1792,7 @@ export default function ProfileScreen() {
           style={styles.editIconButton}
           onPress={openEditProfileModal}
         >
-          <MaterialIcons name='edit' size={18} color={theme.accent} />
+          <MaterialIcons name='edit' size={18} color={PROFILE_SLATE} />
         </TouchableOpacity>
 
         <View style={styles.profileHeaderContent}>
@@ -1850,7 +1854,7 @@ export default function ProfileScreen() {
             <View style={styles.trustMicroRow}>
               {trustBadges.map((badge) => (
                 <View key={badge.label} style={styles.trustBadge}>
-                  <MaterialIcons name={badge.icon} size={14} color='#22c55e' />
+                  <MaterialIcons name={badge.icon} size={14} color={PROFILE_MINT} />
                   <Text style={styles.trustBadgeText}>{badge.label}</Text>
                 </View>
               ))}
@@ -1865,10 +1869,10 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
             style={styles.previewProfileLink}
           >
-            <Text style={[styles.previewProfileLinkText, { color: theme.accent }]}>
+            <Text style={[styles.previewProfileLinkText, { color: PROFILE_SLATE }]}>
               Preview customer view
             </Text>
-            <MaterialIcons name='arrow-forward' size={14} color={theme.accent} />
+            <MaterialIcons name='arrow-forward' size={14} color={PROFILE_SLATE} />
           </TouchableOpacity>
         </View>
         </View>
@@ -1884,7 +1888,7 @@ export default function ProfileScreen() {
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name='business' size={22} color={theme.accent} />
+            <MaterialIcons name='business' size={22} color={PROFILE_MINT} />
             <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
               Company Bio
             </Text>
@@ -1896,7 +1900,7 @@ export default function ProfileScreen() {
             <MaterialIcons
               name={isEditingBio ? 'check' : 'edit'}
               size={16}
-              color={theme.accent}
+              color={isEditingBio ? PROFILE_MINT : PROFILE_SLATE}
             />
           </TouchableOpacity>
         </View>
@@ -1959,8 +1963,8 @@ export default function ProfileScreen() {
               </Text>
               <TouchableOpacity
                 style={[styles.addBioButtonCompact, {
-                  backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                  backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
                 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1968,8 +1972,8 @@ export default function ProfileScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name='add' size={18} color={theme.accent} />
-                <Text style={[styles.addBioButtonTextCompact, { color: theme.text }]}>
+                <MaterialIcons name='add' size={18} color={PROFILE_MINT} />
+                <Text style={[styles.addBioButtonTextCompact, { color: PROFILE_MINT }]}>
                   Add company bio
                 </Text>
               </TouchableOpacity>
@@ -1990,7 +1994,7 @@ export default function ProfileScreen() {
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name='photo-library' size={22} color={theme.accent} />
+            <MaterialIcons name='photo-library' size={22} color={PROFILE_MINT} />
             <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
               Project Portfolio
             </Text>
@@ -2002,7 +2006,7 @@ export default function ProfileScreen() {
             <MaterialIcons
               name={isEditingPortfolio ? 'check' : 'edit'}
               size={16}
-              color={theme.accent}
+              color={isEditingPortfolio ? PROFILE_MINT : PROFILE_SLATE}
             />
           </TouchableOpacity>
         </View>
@@ -2011,13 +2015,13 @@ export default function ProfileScreen() {
           <TouchableOpacity
             onPress={handleAddPortfolioImage}
             style={[styles.addPortfolioButtonCompact, {
-              backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+              backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+              borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
               marginBottom: 12,
             }]}
           >
-            <MaterialIcons name='add-photo-alternate' size={18} color={theme.accent} />
-            <Text style={[styles.addPortfolioButtonTextCompact, { color: theme.text }]}>
+            <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
+            <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
               Add portfolio photo
             </Text>
           </TouchableOpacity>
@@ -2118,8 +2122,8 @@ export default function ProfileScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.addPortfolioButtonCompact, {
-                backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
               }]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2128,8 +2132,8 @@ export default function ProfileScreen() {
               }}
               activeOpacity={0.7}
             >
-              <MaterialIcons name='add-photo-alternate' size={18} color={theme.accent} />
-              <Text style={[styles.addPortfolioButtonTextCompact, { color: theme.text }]}>
+              <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
+              <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
                 Add first project
               </Text>
             </TouchableOpacity>
@@ -2145,7 +2149,7 @@ export default function ProfileScreen() {
         ]}
       >
         <View style={styles.sectionHeader}>
-          <MaterialIcons name='contact-mail' size={22} color={theme.accent} />
+          <MaterialIcons name='contact-mail' size={22} color={PROFILE_MINT} />
           <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
             Contact Information
           </Text>
@@ -2201,7 +2205,7 @@ export default function ProfileScreen() {
         ]}
       >
         <View style={styles.sectionHeader}>
-          <MaterialIcons name='verified' size={22} color={theme.accent} />
+          <MaterialIcons name='verified' size={22} color={PROFILE_MINT} />
           <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
             Licenses & Insurance
           </Text>
@@ -2217,11 +2221,11 @@ export default function ProfileScreen() {
               onPress={() => setIsEditingLicenses(!isEditingLicenses)}
               style={{ padding: 4 }}
             >
-              <MaterialIcons
-                name={isEditingLicenses ? 'check' : 'edit'}
-                size={16}
-                color={theme.accent}
-              />
+            <MaterialIcons
+              name={isEditingLicenses ? 'check' : 'edit'}
+              size={16}
+              color={isEditingLicenses ? PROFILE_MINT : PROFILE_SLATE}
+            />
             </TouchableOpacity>
           </View>
           
@@ -2241,7 +2245,7 @@ export default function ProfileScreen() {
                 style={{ marginLeft: 'auto' }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>+ Add license</Text>
+                <Text style={{ color: PROFILE_MINT, fontSize: 13, fontWeight: '600' }}>+ Add license</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -2258,8 +2262,8 @@ export default function ProfileScreen() {
                     }
                   ]}
                 >
-                  <View style={[styles.certificationIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.15)' }]}>
-                    <MaterialIcons name='verified' size={18} color='#4CAF50' />
+                  <View style={[styles.certificationIconContainer, { backgroundColor: 'rgba(45, 204, 154, 0.16)' }]}>
+                    <MaterialIcons name='verified' size={18} color={PROFILE_MINT} />
                   </View>
                   {isEditingLicenses ? (
                     <TextInput
@@ -2346,8 +2350,8 @@ export default function ProfileScreen() {
                     disabled={!newLicenseText.trim()}
                     style={[styles.addLicenseSubmit, {
                       backgroundColor: newLicenseText.trim()
-                        ? theme.accent
-                        : (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                        ? PROFILE_MINT
+                        : (darkMode ? '#3A3A3C' : 'rgba(0,0,0,0.04)'),
                       borderColor: theme.border,
                     }]}
                     activeOpacity={0.7}
@@ -2400,21 +2404,21 @@ export default function ProfileScreen() {
                 }}
                 activeOpacity={0.7}
                 style={[styles.insuranceItem, {
-                  backgroundColor: covered 
-                    ? (darkMode ? 'rgba(76, 175, 80, 0.1)' : 'rgba(76, 175, 80, 0.08)')
-                    : (darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
-                  borderColor: covered 
-                    ? 'rgba(76, 175, 80, 0.2)' 
-                    : (darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
+                  backgroundColor: covered
+                    ? 'rgba(45, 204, 154, 0.16)'
+                    : (darkMode ? '#3A3A3C' : 'rgba(0, 0, 0, 0.03)'),
+                  borderColor: covered
+                    ? 'rgba(45, 204, 154, 0.55)'
+                    : 'rgba(148, 163, 184, 0.35)',
                 }]}
               >
                 <View style={[styles.insuranceIconContainer, { 
-                  backgroundColor: covered ? 'rgba(76, 175, 80, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+                  backgroundColor: covered ? 'rgba(45, 204, 154, 0.16)' : 'rgba(156, 163, 175, 0.15)',
                 }]}>
                   <MaterialIcons
                     name={covered ? 'check-circle' : 'radio-button-unchecked'}
                     size={18}
-                    color={covered ? '#4CAF50' : theme.subtext}
+                    color={covered ? PROFILE_MINT : PROFILE_SLATE}
                   />
                 </View>
                 <Text style={[styles.insuranceText, { 
@@ -2458,8 +2462,8 @@ export default function ProfileScreen() {
           activeOpacity={0.6}
         >
           <View style={styles.settingLeft}>
-            <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-              <MaterialIcons name={icon as any} size={20} color={theme.accent} />
+            <View style={[styles.settingIconContainer, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+              <MaterialIcons name={icon as any} size={20} color={PROFILE_MINT} />
             </View>
             {subtext ? (
               <View
@@ -2548,8 +2552,8 @@ export default function ProfileScreen() {
             {filterSettings('Push Notifications') && (
               <View style={styles.settingItem}>
                 <View style={styles.settingLeft}>
-                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='notifications' size={20} color={theme.accent} />
+                  <View style={[styles.settingIconContainer, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+                    <MaterialIcons name='notifications' size={20} color={PROFILE_MINT} />
                   </View>
                   <View style={{ flex: 1, minWidth: 0, maxWidth: Platform.OS !== 'web' ? '62%' : undefined }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Push Notifications</Text>
@@ -2675,9 +2679,9 @@ export default function ProfileScreen() {
                         }
                       }
                     }}
-                    trackColor={{ false: theme.border, true: theme.accent }}
+                    trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: PROFILE_MINT }}
                     thumbColor='#fff'
-                    ios_backgroundColor={theme.border}
+                    ios_backgroundColor={darkMode ? '#3A3A3C' : '#cbd5e1'}
                   />
                 </View>
               </View>
@@ -2813,8 +2817,8 @@ export default function ProfileScreen() {
               activeOpacity={0.6}
             >
               <View style={styles.settingLeft}>
-                <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                  <MaterialIcons name='info-outline' size={20} color={theme.accent} />
+                <View style={[styles.settingIconContainer, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+                  <MaterialIcons name='info-outline' size={20} color={PROFILE_MINT} />
                 </View>
                 <View style={{ flex: 1, maxWidth: '70%' }}>
                   <Text style={[styles.settingText, { color: theme.text }]}>About</Text>
@@ -2830,17 +2834,12 @@ export default function ProfileScreen() {
 
         {/* iOS-style Action Buttons */}
         <View style={styles.settingsGroupContainer}>
-          <View style={styles.dangerZoneSpacer} />
           <TouchableOpacity
             style={[
               styles.iosButton,
-              styles.logoutButton,
               {
-                backgroundColor: darkMode ? '#2a2a2a' : '#f5f5f5',
-                shadowOpacity: darkMode ? 0.3 : 0.1,
-                borderColor: darkMode
-                  ? 'rgba(255, 255, 255, 0.1)'
-                  : 'rgba(0, 0, 0, 0.1)',
+                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+                borderColor: 'rgba(148, 163, 184, 0.35)',
               },
             ]}
             onPress={() => {
@@ -2849,18 +2848,7 @@ export default function ProfileScreen() {
             }}
             activeOpacity={0.7}
           >
-            <MaterialIcons
-              name='logout'
-              size={20}
-              color={darkMode ? '#fff' : '#007AFF'}
-              style={styles.buttonIcon}
-            />
-            <Text
-              style={[
-                styles.iosButtonText,
-                { color: darkMode ? '#fff' : '#007AFF' },
-              ]}
-            >
+            <Text style={[styles.iosButtonText, { color: darkMode ? '#e2e8f0' : '#0f172a' }]}>
               Sign Out
             </Text>
           </TouchableOpacity>
@@ -2870,11 +2858,8 @@ export default function ProfileScreen() {
               styles.iosButton,
               styles.deleteButton,
               {
-                backgroundColor: darkMode ? '#2a1a1a' : '#fff',
-                shadowOpacity: darkMode ? 0.3 : 0.1,
-                borderColor: darkMode
-                  ? 'rgba(255, 59, 48, 0.3)'
-                  : 'rgba(255, 59, 48, 0.2)',
+                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+                borderColor: 'rgba(148, 163, 184, 0.35)',
               },
             ]}
             onPress={() => {
@@ -2883,12 +2868,6 @@ export default function ProfileScreen() {
             }}
             activeOpacity={0.7}
           >
-            <MaterialIcons
-              name='delete-forever'
-              size={20}
-              color='#FF3B30'
-              style={styles.buttonIcon}
-            />
             <Text style={[styles.iosButtonText, styles.deleteButtonText]}>
               Delete Account
             </Text>
@@ -3041,7 +3020,7 @@ export default function ProfileScreen() {
                   <View style={[styles.trustMicroRow, { marginTop: 0, marginBottom: 12 }]}>
                     {trustBadges.map((badge) => (
                       <View key={badge.label} style={styles.trustBadge}>
-                        <MaterialIcons name={badge.icon} size={14} color='#22c55e' />
+                        <MaterialIcons name={badge.icon} size={14} color={PROFILE_MINT} />
                         <Text style={styles.trustBadgeText}>{badge.label}</Text>
                       </View>
                     ))}
@@ -3143,7 +3122,7 @@ export default function ProfileScreen() {
                       resizeMode="contain"
                     />
                     <View style={styles.editModalLogoBadge}>
-                      <MaterialIcons name='photo-camera' size={14} color='#fff' />
+                      <MaterialIcons name='photo-camera' size={14} color='#050B13' />
                     </View>
                   </View>
                   <Text style={[styles.editModalLogoTitle, { color: theme.text }]}>
@@ -3296,7 +3275,7 @@ export default function ProfileScreen() {
 
               <View style={[styles.editModalFooter, { borderTopColor: theme.border }]}>
                 <TouchableOpacity
-                  style={[styles.editModalSaveButton, { backgroundColor: theme.accent }]}
+                  style={[styles.editModalSaveButton, { backgroundColor: PROFILE_MINT }]}
                   onPress={handleSaveProfile}
                   activeOpacity={0.85}
                 >
@@ -3333,7 +3312,7 @@ export default function ProfileScreen() {
                   styles.modalContentPassword,
                   Platform.OS === 'web' ? styles.modalContentWebEditProfile : null,
                   {
-                    backgroundColor: theme.card,
+                    backgroundColor: darkMode ? '#202022' : theme.card,
                     borderColor: theme.border,
                   },
                 ]}
@@ -3358,7 +3337,10 @@ export default function ProfileScreen() {
                     Enter your current password, then choose a new one.
                   </Text>
 
-                  <View style={[styles.editModalGroupedCard, { backgroundColor: theme.cardInset, borderColor: theme.border }]}>
+                  <View style={[styles.editModalGroupedCard, {
+                    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                    borderColor: 'rgba(148,163,184,0.12)',
+                  }]}>
                     <View style={styles.passwordModalFieldRow}>
                       <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                         Current password
@@ -3434,7 +3416,7 @@ export default function ProfileScreen() {
                           styles.passwordValidationHint,
                           {
                             color: passwordMeetsLength
-                              ? theme.success
+                              ? PROFILE_MINT
                               : theme.subtext,
                             opacity: passwordMeetsLength ? 1 : darkMode ? 0.75 : 0.85,
                           },
@@ -3492,7 +3474,7 @@ export default function ProfileScreen() {
                         <Text
                           style={[
                             styles.passwordValidationHint,
-                            { color: passwordsMatch ? theme.success : theme.error },
+                            { color: passwordsMatch ? PROFILE_MINT : theme.error },
                           ]}
                         >
                           {passwordsMatch ? '✓ Passwords match' : 'Passwords do not match'}
@@ -3502,32 +3484,36 @@ export default function ProfileScreen() {
                   </View>
                 </ScrollView>
 
-                <View style={[styles.passwordModalFooter, { borderTopColor: theme.border }]}>
+                <View style={styles.passwordModalFooter}>
                   <TouchableOpacity
                     style={[
-                      styles.editModalSaveButton,
-                      { backgroundColor: theme.accent },
-                      (!passwordFormValid || passwordLoading) && { opacity: 0.45 },
+                      styles.passwordPrimaryButton,
+                      { backgroundColor: passwordFormValid && !passwordLoading ? PROFILE_MINT : '#3A3A3C' },
                     ]}
                     onPress={handleUpdatePassword}
                     disabled={!passwordFormValid || passwordLoading}
                     activeOpacity={0.85}
                   >
                     {passwordLoading ? (
-                      <ActivityIndicator color={Colors.onPrimary} />
+                      <ActivityIndicator color="#ffffff" />
                     ) : (
-                      <Text style={[styles.editModalSaveButtonText, { color: Colors.onPrimary }]}>
+                      <Text style={[styles.passwordPrimaryButtonText, { color: '#ffffff' }]}>
                         Update Password
                       </Text>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.passwordModalCancelLink}
+                    style={[
+                      styles.passwordSecondaryButton,
+                      { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' },
+                    ]}
                     onPress={closePasswordModal}
                     disabled={passwordLoading}
                     activeOpacity={0.7}
                   >
-                    <Text style={[styles.passwordModalCancelLinkText, { color: theme.subtext }]}>Cancel</Text>
+                    <Text style={[styles.passwordSecondaryButtonText, { color: darkMode ? '#e2e8f0' : '#0f172a' }]}>
+                      Cancel
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
@@ -3580,7 +3566,7 @@ export default function ProfileScreen() {
                       },
                     })
                   }
-                  trackColor={{ false: theme.border, true: theme.accent }}
+                  trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: PROFILE_MINT }}
                   thumbColor='#fff'
                 />
               </View>
@@ -3600,7 +3586,7 @@ export default function ProfileScreen() {
                       preferences: { ...user.preferences, smsAlerts: value },
                     })
                   }
-                  trackColor={{ false: theme.border, true: theme.accent }}
+                  trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: PROFILE_MINT }}
                   thumbColor='#fff'
                 />
               </View>
@@ -3627,7 +3613,7 @@ export default function ProfileScreen() {
                       },
                     })
                   }
-                  trackColor={{ false: theme.border, true: theme.accent }}
+                  trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: PROFILE_MINT }}
                   thumbColor='#fff'
                 />
               </View>
@@ -4107,19 +4093,14 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     height: 88,
     borderRadius: 44,
     padding: 4,
-    backgroundColor: 'rgba(0, 122, 112, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: 'transparent',
   },
   profileImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    borderWidth: 2,
-    borderColor: '#43cea2',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
     /** User-uploaded photos: light backing if the image has transparency. */
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
@@ -4131,7 +4112,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    backgroundColor: '#43cea2',
+    backgroundColor: PROFILE_MINT,
     borderRadius: 16,
     width: 32,
     height: 32,
@@ -4185,11 +4166,13 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   trustBadgeText: {
     fontSize: 11,
-    color: '#22c55e',
+    color: PROFILE_MINT_TEXT,
     fontWeight: '500',
   },
   ratingText: {
@@ -4830,36 +4813,28 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
     paddingHorizontal: 20,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    minHeight: 50,
+    borderRadius: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    minHeight: 48,
+    width: '100%',
   },
   logoutButton: {
-    // iOS-style secondary button
   },
   deleteButton: {
-    // iOS-style destructive button
-    marginTop: 12,
+    marginTop: 0,
+    marginBottom: 0,
   },
   buttonIcon: {
     marginRight: 8,
   },
   iosButtonText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
-    letterSpacing: -0.4,
   },
   deleteButtonText: {
-    color: '#FF3B30',
+    color: '#f87171',
   },
   settingsFooter: {
     alignItems: 'center',
@@ -4897,10 +4872,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   progressFill: {
     height: '100%',
     borderRadius: 999,
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
   },
   profileCompletionHint: {
     fontSize: 13,
@@ -5355,18 +5326,33 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   passwordModalFooter: {
     paddingHorizontal: 18,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 12,
+    gap: 8,
   },
-  passwordModalCancelLink: {
+  passwordPrimaryButton: {
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 14,
     alignItems: 'center',
-    paddingVertical: 4,
+    justifyContent: 'center',
   },
-  passwordModalCancelLinkText: {
+  passwordPrimaryButtonText: {
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  passwordSecondaryButton: {
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+  },
+  passwordSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   cancelButton: {
     backgroundColor: 'transparent',

@@ -14,16 +14,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import TaxCategoryBreakdown from '@/src/components/tax/TaxCategoryBreakdown';
-import ProjectTaxSummaryList from '@/src/components/tax/ProjectTaxSummaryList';
 import SubcontractorTaxReport from '@/src/components/tax/SubcontractorTaxReport';
 import TaxSummaryCard from '@/src/components/tax/TaxSummaryCard';
 import TaxCenterSummaryDetailModal, {
@@ -46,7 +42,6 @@ import {
   getTaxCenterDataInputs,
   getTaxCenterYearBucketAnomalies,
   getTaxYearOptions,
-  getTaxYearRange,
   getYearCollectedPayments,
   getYearExpenses,
   groupExpensesByTaxCategory,
@@ -67,16 +62,11 @@ import {
 } from '@/src/lib/accountantWorkbookExport';
 import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
-import Tax1099ReviewDashboard from '@/src/components/tax/Tax1099ReviewDashboard';
 import { buildTaxSummaryExportPayload, type TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import { getContractorCompanyNameAsync, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 import { decodeBase64ToUint8Array, triggerBrowserFileDownload } from '@/utils/triggerBrowserFileDownload';
 import { probePdfBackendReadiness } from '@/lib/pdf/renderHtmlPdfViaBackend';
 import {
-  ESTIMATE_FLOW_APPLY_GREEN_BG,
-  ESTIMATE_FLOW_APPLY_GREEN_BORDER,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
 } from '@/utils/estimateFlowCardStyle';
@@ -93,6 +83,11 @@ const percent = (value: number | null): string => {
   if (value == null || !Number.isFinite(value)) return 'N/A';
   return `${Math.round(value * 100)}%`;
 };
+
+function previewFigureColor(value: number, tone: 'live' | 'warn'): string {
+  if (!Number.isFinite(value) || value === 0) return '#94a3b8';
+  return tone === 'warn' ? '#FBBF24' : '#2dcc9a';
+}
 
 function exportDialogTitle(kind: 'pdf' | 'receipt'): string {
   if (kind === 'pdf') return 'CPA Summary PDF';
@@ -268,7 +263,7 @@ export default function TaxCenterScreen() {
       };
     }, [])
   );
-  const { vendors, quickBooksCategoryMap, addVendor } = useVendorDirectory();
+  const { vendors, quickBooksCategoryMap } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(
     () => getTaxYearOptions(currentProjects, currentYear),
@@ -279,12 +274,10 @@ export default function TaxCenterScreen() {
     'pdf' | 'receipts' | 'workbook' | 'cpa1099' | null
   >(null);
   const [taxBreakdownExpanded, setTaxBreakdownExpanded] = useState(false);
-  const [vendorReviewExpanded, setVendorReviewExpanded] = useState(false);
   const [detailKind, setDetailKind] = useState<TaxCenterDetailKind | null>(null);
   /** Hosted Puppeteer only; spreadsheet exports ignore this. */
   const [pdfEngineReady, setPdfEngineReady] = useState<'unknown' | 'ready' | 'not_ready'>('unknown');
 
-  const yearRange = useMemo(() => getTaxYearRange(selectedYear), [selectedYear]);
   const summary = useMemo(
     () => computeTaxCenterSummary(currentProjects, [], [], [], selectedYear, vendors),
     [currentProjects, selectedYear, vendors]
@@ -584,40 +577,30 @@ export default function TaxCenterScreen() {
           >
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Back"
+              style={[
+                styles.backButtonInner,
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+              ]}
             >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                style={[
-                  styles.backButtonInner,
-                  { backgroundColor: darkMode ? Colors.card : Colors.bg },
-                ]}
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={24}
-                  color={darkMode ? '#FFFFFF' : '#000000'}
-                />
-              </GradientRingBackInner>
-            </LinearGradient>
+              <MaterialIcons
+                name="chevron-left"
+                size={22}
+                color={darkMode ? '#e2e8f0' : '#000000'}
+              />
+            </Pressable>
           </View>
           <View style={styles.headerCopy}>
             <Text style={styles.kicker}>TAX-READY REPORT</Text>
             <Text style={styles.title}>Tax Center</Text>
             <Text style={[styles.headerSubtitle, styles.headerCenteredText]}>
               CPA-ready summaries, receipt backup, and vendor review from your project data.
-            </Text>
-            <Text style={[styles.headerHelper, styles.headerCenteredText]}>
-              Prepare clean year-end reports from your project income, expenses, receipts, vendors, and project
-              summaries.
             </Text>
           </View>
         </View>
@@ -631,7 +614,7 @@ export default function TaxCenterScreen() {
               <MaterialIcons
                 name={readiness.allReady ? 'check-circle' : 'warning-amber'}
                 size={28}
-                color={readiness.allReady ? '#4ADE80' : '#FBBF24'}
+                color={readiness.allReady ? '#2dcc9a' : '#FBBF24'}
               />
               <View style={styles.readinessStatusText}>
                 <Text style={styles.readinessHeadline}>
@@ -655,7 +638,7 @@ export default function TaxCenterScreen() {
                       : 'radio-button-unchecked';
                 const iconColor =
                   tone === 'done'
-                    ? '#4ADE80'
+                    ? '#2dcc9a'
                     : tone === 'attention'
                       ? '#FBBF24'
                       : 'rgba(148, 163, 184, 0.65)';
@@ -687,7 +670,7 @@ export default function TaxCenterScreen() {
               <Text style={styles.missingDataLabel}>Missing receipts</Text>
               <View style={styles.missingDataRight}>
                 {readiness.missingReceipts === 0 ? (
-                  <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                  <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                 ) : (
                   <Text style={styles.missingDataCount}>{readiness.missingReceipts}</Text>
                 )}
@@ -704,7 +687,7 @@ export default function TaxCenterScreen() {
                 <Text style={styles.missingDataLabel}>Unmapped categories</Text>
                 <View style={styles.missingDataRight}>
                   {readiness.unmappedCategories === 0 ? (
-                    <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                    <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                   ) : (
                     <Text style={styles.missingDataCount}>{readiness.unmappedCategories}</Text>
                   )}
@@ -721,7 +704,7 @@ export default function TaxCenterScreen() {
               <Text style={styles.missingDataLabel}>Vendors missing W-9 status</Text>
               <View style={styles.missingDataRight}>
                 {readiness.missingW9 === 0 ? (
-                  <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                  <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                 ) : (
                   <Text style={styles.missingDataCount}>{readiness.missingW9}</Text>
                 )}
@@ -737,7 +720,7 @@ export default function TaxCenterScreen() {
               <Text style={styles.missingDataLabel}>Vendors missing payment method</Text>
               <View style={styles.missingDataRight}>
                 {readiness.missingPaymentMethod === 0 ? (
-                  <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                  <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                 ) : (
                   <Text style={styles.missingDataCount}>{readiness.missingPaymentMethod}</Text>
                 )}
@@ -747,7 +730,7 @@ export default function TaxCenterScreen() {
               <Text style={styles.missingDataLabel}>Potential 1099 review</Text>
               <View style={styles.missingDataRight}>
                 {readiness.potential1099Review === 0 ? (
-                  <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                  <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                 ) : (
                   <Text style={styles.missingDataCount}>{readiness.potential1099Review}</Text>
                 )}
@@ -756,31 +739,7 @@ export default function TaxCenterScreen() {
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.frameIntroInner}>
-            <View style={styles.heroIcon}>
-              <MaterialIcons name="request-quote" size={26} color={ESTIMATE_FLOW_CHIP_GREEN} />
-            </View>
-            <Text style={styles.heroTitle}>Project-first job costing with tax-ready exports</Text>
-            <Text style={styles.heroText}>
-              Track project income, expenses, receipts, and vendors. Export CPA-ready PDFs, the accountant workbook,
-              vendor and receipt spreadsheets — then review totals with your CPA or enter them into tax software.
-            </Text>
-            <Text style={styles.rangeText}>
-              {yearRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
-              {yearRange.end.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </Text>
-
-            <Text style={styles.taxCenterDisclaimer}>
-              Tax Center uses only current active projects and activity dated within the selected tax year. Deleted,
-              completed, and submitted projects are excluded from these totals.
-              Pending receivables and committed costs are shown for review but may not be counted as taxable income or
-              deductible expenses until collected or paid, depending on your accounting method.
-            </Text>
-
-            <View style={styles.sectionHeader}>
+            <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
               <Text style={styles.sectionTitle}>Tax year</Text>
               <Text style={styles.sectionHint}>Defaulted to current year · Jan 1 – Dec 31</Text>
             </View>
@@ -864,7 +823,7 @@ export default function TaxCenterScreen() {
                 label="Net Income"
                 value={money(summary.netProfit)}
                 icon="trending-up"
-                accent={summary.netProfit >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : '#FCA5A5'}
+                accent={summary.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
                 helper="Revenue collected minus expenses paid for the selected tax year."
                 onPress={() => {
                   Haptics.selectionAsync();
@@ -922,14 +881,32 @@ export default function TaxCenterScreen() {
                 <View style={styles.collapseHeaderMain}>
                   <Text style={styles.collapseCardTitle}>Tax Breakdown</Text>
                   <Text style={styles.collapseCardSub}>
-                    Expense categories, project summaries, and subcontractor payment review.
+                    Expense categories and subcontractor payments. Project summaries open on their own page.
                   </Text>
                   {!taxBreakdownExpanded ? (
                     <View style={styles.collapsePreview}>
-                      <Text style={styles.collapsePreviewLine}>Expense categories: {categoryRows.length}</Text>
-                      <Text style={styles.collapsePreviewLine}>Projects: {projectSummaries.length}</Text>
                       <Text style={styles.collapsePreviewLine}>
-                        Subcontractor payments: {money(subcontractorPaymentsTotal)}
+                        Expense categories:{' '}
+                        <Text style={[styles.collapsePreviewValue, { color: previewFigureColor(categoryRows.length, 'live') }]}>
+                          {categoryRows.length}
+                        </Text>
+                      </Text>
+                      <Text style={styles.collapsePreviewLine}>
+                        Projects:{' '}
+                        <Text style={[styles.collapsePreviewValue, { color: previewFigureColor(projectSummaries.length, 'live') }]}>
+                          {projectSummaries.length}
+                        </Text>
+                      </Text>
+                      <Text style={styles.collapsePreviewLine}>
+                        Subcontractor payments:{' '}
+                        <Text
+                          style={[
+                            styles.collapsePreviewValue,
+                            { color: previewFigureColor(subcontractorPaymentsTotal, 'live') },
+                          ]}
+                        >
+                          {money(subcontractorPaymentsTotal)}
+                        </Text>
                       </Text>
                       <Text style={styles.collapseCta}>View Tax Breakdown</Text>
                     </View>
@@ -938,7 +915,7 @@ export default function TaxCenterScreen() {
                 <MaterialIcons
                   name={taxBreakdownExpanded ? 'expand-less' : 'expand-more'}
                   size={28}
-                  color={ESTIMATE_FLOW_CHIP_GREEN}
+                  color="#94a3b8"
                   style={styles.collapseChevron}
                 />
               </View>
@@ -947,92 +924,66 @@ export default function TaxCenterScreen() {
             {taxBreakdownExpanded ? (
               <View style={styles.collapseExpandedStack}>
                 <TaxCategoryBreakdown rows={categoryRows} formatMoney={money} />
-                <ProjectTaxSummaryList projects={projectSummaries} formatMoney={money} formatPercent={percent} />
+                <Pressable
+                  style={styles.projectSummaryLink}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push({ pathname: '/tax-project-summaries', params: { year: String(selectedYear) } });
+                  }}
+                >
+                  <View style={styles.projectSummaryIcon}>
+                    <MaterialIcons name="account-balance" size={20} color="#2dcc9a" />
+                  </View>
+                  <View style={styles.projectSummaryCopy}>
+                    <Text style={styles.projectSummaryTitle}>Project summaries</Text>
+                    <Text style={styles.projectSummarySub}>
+                      {projectSummaries.length} project{projectSummaries.length === 1 ? '' : 's'} in {selectedYear}
+                    </Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                </Pressable>
                 <SubcontractorTaxReport vendors={subcontractors} formatMoney={money} />
               </View>
             ) : null}
           </TaxGradientFrame>
 
-          <TaxGradientFrame innerStyle={styles.collapseFrameInner}>
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setVendorReviewExpanded((e) => !e);
-              }}
-            >
-              <View style={styles.collapseHeader}>
-                <View style={styles.collapseHeaderMain}>
-                  <Text style={styles.collapseCardTitle}>Vendor & 1099 Review</Text>
-                  <Text style={styles.collapseCardSub}>
-                    Review vendors, W-9 tracking, payment methods, and potential year-end filing flags.
-                  </Text>
-                  {!vendorReviewExpanded ? (
-                    <View style={styles.collapsePreview}>
-                      <Text style={styles.collapsePreviewLine}>
-                        Potential 1099 review: {review1099.potential1099VendorCount}
-                      </Text>
-                      <Text style={styles.collapsePreviewLine}>Missing W-9s: {review1099.missingW9Count}</Text>
-                      <Text style={styles.collapsePreviewLine}>
-                        Missing payment method: {review1099.paymentsMissingMethodCount}
-                      </Text>
-                      <Text style={styles.collapseCta}>Review Vendors</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <MaterialIcons
-                  name={vendorReviewExpanded ? 'expand-less' : 'expand-more'}
-                  size={28}
-                  color={ESTIMATE_FLOW_CHIP_GREEN}
-                  style={styles.collapseChevron}
-                />
-              </View>
-            </Pressable>
-
-            {vendorReviewExpanded ? (
-              <>
-                <View style={styles.vendorExplainerCard}>
-                  <Text style={styles.vendorExplainerTitle}>How vendor review works</Text>
-                  <Text style={styles.vendorExplainerBody}>
-                    BPS detects vendors from your paid expenses and purchase orders. Save vendors you want to track,
-                    then confirm whether they are suppliers, subcontractors, consultants, or other vendors. W-9
-                    tracking is mainly for subcontractors, consultants, and vendors your CPA wants reviewed.
-                  </Text>
-                  <Text style={styles.vendorExplainerFooter}>
-                    Informational only. Not tax advice. Review with your CPA or tax professional.
-                  </Text>
-                </View>
-                <Tax1099ReviewDashboard
-                  omitSectionTitle
-                  review={review1099}
-                  onPressVendor={(row) => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (row.vendorId) router.push(`/tax-vendor/${row.vendorId}`);
-                  }}
-                  onSaveVendor={(row) => {
-                    if (!row.saveDraft) return;
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    const v = addVendor({
-                      businessName: row.saveDraft.businessName,
-                      vendorType: row.saveDraft.vendorType,
-                      defaultCategory: row.saveDraft.defaultCategory,
-                      defaultPaymentMethod: row.saveDraft.defaultPaymentMethod,
-                      w9Status: row.saveDraft.w9Status,
-                      notes: row.saveDraft.notes,
-                      requires1099Review: false,
-                    });
-                    router.push(`/tax-vendor/${v.id}`);
-                  }}
-                  onEditVendorProfile={(row) => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (row.vendorId) router.push(`/tax-vendor/${row.vendorId}`);
-                  }}
-                />
-              </>
-            ) : null}
-          </TaxGradientFrame>
-
           <TaxGradientFrame innerStyle={styles.framePanelInner}>
-            <Text style={styles.exportTitle}>Vendor & Accounting Prep</Text>
+            <Text style={styles.exportTitle}>Vendors</Text>
+            <View style={styles.collapsePreview}>
+              <Text style={styles.collapsePreviewLine}>
+                Potential 1099 review:{' '}
+                <Text
+                  style={[
+                    styles.collapsePreviewValue,
+                    { color: previewFigureColor(review1099.potential1099VendorCount, 'warn') },
+                  ]}
+                >
+                  {review1099.potential1099VendorCount}
+                </Text>
+              </Text>
+              <Text style={styles.collapsePreviewLine}>
+                Missing W-9s:{' '}
+                <Text
+                  style={[
+                    styles.collapsePreviewValue,
+                    { color: previewFigureColor(review1099.missingW9Count, 'warn') },
+                  ]}
+                >
+                  {review1099.missingW9Count}
+                </Text>
+              </Text>
+              <Text style={styles.collapsePreviewLine}>
+                Missing payment method:{' '}
+                <Text
+                  style={[
+                    styles.collapsePreviewValue,
+                    { color: previewFigureColor(review1099.paymentsMissingMethodCount, 'warn') },
+                  ]}
+                >
+                  {review1099.paymentsMissingMethodCount}
+                </Text>
+              </Text>
+            </View>
             <ExportButton
               icon="business"
               title="Vendors & W-9 Tracking"
@@ -1043,7 +994,7 @@ export default function TaxCenterScreen() {
               }}
               showTopDivider={false}
             />
-            <View style={[styles.exportButton, styles.exportButtonNoTopRule]}>
+            <View style={styles.exportButton}>
               <View style={[styles.exportIcon, styles.exportIconMuted]}>
                 <MaterialIcons name="sync-alt" size={19} color="rgba(148, 163, 184, 0.75)" />
               </View>
@@ -1059,10 +1010,6 @@ export default function TaxCenterScreen() {
                 </Text>
               </View>
             </View>
-            <Text style={styles.qbPrepNote}>
-              QuickBooks integration is coming later. For now, use CPA-ready exports, the accountant workbook, receipt
-              backup, vendor review, and year-end summaries from your project data.
-            </Text>
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.framePanelInner}>
@@ -1088,7 +1035,7 @@ export default function TaxCenterScreen() {
               </View>
               <View style={styles.recommendedRow}>
                 <View style={styles.recommendedIconWrap}>
-                  <MaterialIcons name="grid-on" size={22} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <MaterialIcons name="grid-on" size={22} color="#2dcc9a" />
                 </View>
                 <View style={styles.recommendedTextCol}>
                   <Text style={styles.recommendedTitle}>Export Accountant Workbook</Text>
@@ -1103,7 +1050,7 @@ export default function TaxCenterScreen() {
                       : 'Includes summary, projects, expenses, revenue, vendors, 1099 review, receipts, and export notes.'}
                   </Text>
                 </View>
-                <MaterialIcons name="chevron-right" size={22} color="rgba(15, 23, 42, 0.55)" />
+                <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
               </View>
             </Pressable>
 
@@ -1154,20 +1101,13 @@ export default function TaxCenterScreen() {
 
           <TaxGradientFrame innerStyle={[styles.aiInsightDisclaimerInner, styles.aiFrameInnerNoClip]}>
             <Text style={[styles.exportTitle, styles.exportTitleInInsightFrame]}>AI Tax Insight</Text>
-            {aiInsightLines.map((line, idx) => (
-              <Text key={idx} style={styles.aiLine}>
-                • {line}
-              </Text>
+            {aiInsightLines.map((line) => (
+              <InsightLine key={line} line={line} />
             ))}
-            <Text style={styles.aiInsightLegal}>
-              Rules-based insight. Not tax advice. Review with your CPA or tax professional.
-            </Text>
             <View style={styles.disclaimer}>
               <MaterialIcons name="info-outline" size={18} color="#FBBF24" />
               <Text style={styles.disclaimerText}>
-                Tax Center reports are for bookkeeping and tax-preparation support only. They are not tax advice, do
-                not replace a CPA or tax professional, and are not official tax filings or official 1099 forms. Verify
-                all amounts, categories, receipts, vendors, and tax treatment before filing.
+                Not tax advice. Confirm these figures with your CPA before filing.
               </Text>
             </View>
           </TaxGradientFrame>
@@ -1199,6 +1139,24 @@ export default function TaxCenterScreen() {
   );
 }
 
+function InsightLine({ line }: { line: string }) {
+  const parts = line.split(/(\$[\d,]+(?:\.\d{2})?)/g);
+  return (
+    <Text style={styles.aiLine}>
+      •{' '}
+      {parts.map((part, index) =>
+        part.startsWith('$') ? (
+          <Text key={index} style={styles.aiAmount}>
+            {part}
+          </Text>
+        ) : (
+          <Text key={index}>{part}</Text>
+        )
+      )}
+    </Text>
+  );
+}
+
 function ExportButton({
   icon,
   title,
@@ -1223,7 +1181,7 @@ function ExportButton({
       disabled={disabled}
     >
       <View style={styles.exportIcon}>
-        <MaterialIcons name={icon} size={19} color={ESTIMATE_FLOW_CHIP_GREEN} />
+        <MaterialIcons name={icon} size={19} color="#2dcc9a" />
       </View>
       <Text style={styles.exportButtonText}>{title}</Text>
       <MaterialIcons name="chevron-right" size={20} color="rgba(148, 163, 184, 0.75)" />
@@ -1288,13 +1246,16 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   collapsePreviewLine: {
-    color: 'rgba(203, 213, 225, 0.88)',
+    color: '#94a3b8',
     fontSize: 12,
     lineHeight: 20,
     marginTop: 6,
   },
+  collapsePreviewValue: {
+    fontWeight: '800',
+  },
   collapseCta: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#2dcc9a',
     fontSize: 13,
     fontWeight: '800',
     marginTop: 12,
@@ -1305,31 +1266,40 @@ const styles = StyleSheet.create({
   collapseExpandedStack: {
     marginTop: 12,
   },
-  vendorExplainerCard: {
-    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  projectSummaryLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#3A3A3C',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.12)',
-    padding: 14,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     marginBottom: 16,
   },
-  vendorExplainerTitle: {
-    color: '#FFFFFF',
+  projectSummaryIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  projectSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  projectSummaryTitle: {
+    color: '#2dcc9a',
     fontSize: 15,
-    fontWeight: '900',
-    marginBottom: 8,
+    fontWeight: '700',
   },
-  vendorExplainerBody: {
-    color: 'rgba(203, 213, 225, 0.92)',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  vendorExplainerFooter: {
-    color: 'rgba(148, 163, 184, 0.95)',
-    fontSize: 11,
-    lineHeight: 16,
-    fontStyle: 'italic',
+  projectSummarySub: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 2,
   },
   framePanelInner: {
     paddingHorizontal: 4,
@@ -1384,7 +1354,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   kicker: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#8eecc9',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -1402,40 +1372,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 48,
   },
-  heroIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.12)',
-    marginBottom: 14,
-  },
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  heroText: {
-    color: 'rgba(203, 213, 225, 0.88)',
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 8,
-  },
-  rangeText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
-    fontSize: 13,
-    fontWeight: '800',
-    marginTop: 14,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 20,
     marginBottom: 10,
+  },
+  sectionHeaderFirst: {
+    marginTop: 4,
   },
   sectionTitle: {
     color: '#FFFFFF',
@@ -1460,8 +1405,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148, 163, 184, 0.12)',
   },
   yearPillActive: {
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   yearText: {
     color: 'rgba(148, 163, 184, 0.95)',
@@ -1469,14 +1414,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   yearTextActive: {
-    color: '#FFFFFF',
-  },
-  taxCenterDisclaimer: {
-    color: 'rgba(148, 163, 184, 0.95)',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 12,
-    marginBottom: 4,
+    color: '#8eecc9',
   },
   basisRow: {
     flexDirection: 'row',
@@ -1493,15 +1431,15 @@ const styles = StyleSheet.create({
     backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   },
   basisPillActive: {
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   basisPillDisabled: {
     backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
     opacity: 0.55,
   },
   basisPillTextActive: {
-    color: '#FFFFFF',
+    color: '#8eecc9',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -1545,7 +1483,7 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   exportBusyText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#2dcc9a',
     fontSize: 12,
     marginTop: -6,
     marginBottom: 8,
@@ -1644,6 +1582,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingBottom: 4,
   },
+  aiAmount: {
+    color: '#2dcc9a',
+    fontWeight: '800',
+  },
   aiInsightLegal: {
     color: 'rgba(148, 163, 184, 0.95)',
     fontSize: 11,
@@ -1659,24 +1601,18 @@ const styles = StyleSheet.create({
     gap: 10,
     borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 16,
-    marginTop: 16,
-    marginBottom: 8,
+    paddingVertical: 12,
+    marginTop: 14,
+    marginBottom: 4,
     backgroundColor: 'rgba(251, 191, 36, 0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(251, 191, 36, 0.20)',
+    borderColor: 'rgba(251, 191, 36, 0.45)',
   },
   headerSubtitle: {
     color: 'rgba(203, 213, 225, 0.92)',
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '600',
-    marginTop: 8,
-  },
-  headerHelper: {
-    color: 'rgba(148, 163, 184, 0.95)',
-    fontSize: 13,
-    lineHeight: 20,
     marginTop: 8,
   },
   readinessFrameInner: {
@@ -1796,18 +1732,18 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   recommendedBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
     marginBottom: 10,
   },
   recommendedBadgeText: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#8eecc9',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.6,
@@ -1823,9 +1759,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
     borderWidth: 1,
-    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   recommendedTextCol: {
     flex: 1,
@@ -1866,9 +1802,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   disclaimerText: {
-    color: '#FDE68A',
-    fontSize: 12,
-    lineHeight: 20,
+    color: '#FBBF24',
+    fontSize: 13,
+    lineHeight: 18,
     flex: 1,
     flexShrink: 1,
     paddingBottom: 6,

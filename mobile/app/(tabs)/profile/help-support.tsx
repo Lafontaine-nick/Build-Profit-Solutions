@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -19,7 +18,6 @@ import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import {
@@ -32,22 +30,29 @@ interface SettingsRowProps {
   icon?: string;
   label: string;
   onPress: () => void;
+  last?: boolean;
 }
 
-const SettingsRow = ({ iconName, icon, label, onPress }: SettingsRowProps) => {
+const SettingsRow = ({ iconName, icon, label, onPress, last }: SettingsRowProps) => {
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   
   return (
     <TouchableOpacity
-      style={[styles.row, { borderBottomColor: Colors.line }]}
+      style={[
+        styles.row,
+        {
+          borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line,
+          borderBottomWidth: last ? 0 : 1,
+        },
+      ]}
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
       }}
       activeOpacity={0.7}
     >
-      <View style={[styles.iconContainer, { backgroundColor: Colors.iconBg || 'rgba(67, 206, 162, 0.15)' }]}>
+      <View style={[styles.iconContainer, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
         {iconName ? (
           <MaterialIcons 
             name={iconName} 
@@ -80,19 +85,9 @@ export default function HelpSupportScreen() {
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
   // Navigation handlers - create placeholder screens or handle inline
-  const handleFAQ = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/profile/faq');
-  };
-
   const handleContactSupport = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push('/profile/contact-support');
-  };
-
-  const handleReportIssue = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/profile/report-issue');
   };
 
   const handleGettingStarted = () => {
@@ -116,17 +111,80 @@ export default function HelpSupportScreen() {
   };
 
 
-  const handleBillingQuestions = () => {
-    // Navigate to payment/billing section
-    router.push('/payment');
-  };
-
   const handleRefundPolicy = () => {
     // Navigate to legal hub or refund policy
     router.push('/legal-hub?tab=refund');
   };
 
   // Use same theme system as payment page
+  const sectionCardStyle = [
+    styles.sectionCard,
+    {
+      backgroundColor: darkMode ? '#1C1D20' : Colors.surface2,
+      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+    },
+  ];
+
+  const helpSections = (
+    <>
+      <View style={sectionCardStyle}>
+        <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]}>
+          <MaterialIcons name='menu-book' size={22} color={Colors.primary} />
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>
+            Tutorials & Guides
+          </Text>
+        </View>
+        <SettingsRow iconName='play-circle-outline' label='Getting Started' onPress={handleGettingStarted} />
+        <SettingsRow iconName='calculate' label='How to Create an Estimate' onPress={handleCreateEstimate} />
+        <SettingsRow
+          iconName='folder'
+          label='Project Management'
+          onPress={handleProjectManagement}
+          last={!isLeadsNetworkingReleased()}
+        />
+        {isLeadsNetworkingReleased() ? (
+          <SettingsRow iconName='people' label='Lead Management' onPress={handleLeadManagement} last />
+        ) : null}
+      </View>
+
+      <View style={sectionCardStyle}>
+        <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]}>
+          <MaterialIcons name='help-outline' size={22} color={Colors.primary} />
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Quick Help</Text>
+        </View>
+        <SettingsRow iconName='support-agent' label='Contact Support' onPress={handleContactSupport} last />
+      </View>
+
+      <View style={sectionCardStyle}>
+        <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]}>
+          <MaterialIcons name='payment' size={22} color={Colors.primary} />
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>Billing Support</Text>
+        </View>
+        <SettingsRow iconName='receipt' label='Refund Policy' onPress={handleRefundPolicy} last />
+      </View>
+
+      <View style={sectionCardStyle}>
+        <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]}>
+          <MaterialIcons name='check-circle' size={22} color={Colors.primary} />
+          <Text style={[styles.sectionTitle, { color: Colors.text }]}>System Status</Text>
+        </View>
+        <View style={styles.statusRow}>
+          <View style={[styles.iconContainer, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+            <View style={[styles.statusDot, { marginRight: 0 }]} />
+          </View>
+          <View style={styles.statusTextContainer}>
+            <Text style={[styles.statusTitle, { color: darkMode ? '#FFFFFF' : '#000000' }]}>
+              All Systems Operational
+            </Text>
+            <Text style={[styles.statusSubtitle, { color: Colors.sub }]}>
+              Servers and AI services are running normally.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </>
+  );
+
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
     card: Colors.surface2,
@@ -151,28 +209,32 @@ export default function HelpSupportScreen() {
               webHelpHeaderMargins={webHelpHeaderMargins}
             />
           ) : (
-            <View style={[styles.headerRow, webHelpHeaderMargins]}>
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.back();
-                    }}
-                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </GradientRingBackInner>
-                </LinearGradient>
-              </View>
-              <View style={styles.titleContainer}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Help & Support</Text>
+            <View style={styles.headerRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.back();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Back"
+                style={[
+                  styles.backButton,
+                  { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+                ]}
+              >
+                <MaterialIcons
+                  name="chevron-left"
+                  size={22}
+                  color={darkMode ? '#e2e8f0' : '#000000'}
+                />
+              </TouchableOpacity>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
+                  Help & Support
+                </Text>
+                <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                  Guides and billing
+                </Text>
               </View>
             </View>
           )}
@@ -188,6 +250,7 @@ export default function HelpSupportScreen() {
             showsVerticalScrollIndicator={true}
           >
             <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
+            {Platform.OS === 'web' ? (
             <LinearGradient
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
@@ -205,112 +268,13 @@ export default function HelpSupportScreen() {
                 ]}
               >
                 <View style={styles.content}>
-                  {/* Tutorials & Guides */}
-                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
-                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
-                  <MaterialIcons name='menu-book' size={22} color={Colors.primary} />
-                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                    Tutorials & Guides
-                  </Text>
-                </View>
-
-                <SettingsRow
-                  iconName='play-circle-outline'
-                  label='Getting Started'
-                  onPress={handleGettingStarted}
-                />
-                <SettingsRow
-                  iconName='calculate'
-                  label='How to Create an Estimate'
-                  onPress={handleCreateEstimate}
-                />
-                <SettingsRow
-                  iconName='folder'
-                  label='Project Management'
-                  onPress={handleProjectManagement}
-                />
-                {isLeadsNetworkingReleased() ? (
-                <SettingsRow
-                  iconName='people'
-                  label='Lead Management'
-                  onPress={handleLeadManagement}
-                />
-                ) : null}
-              </View>
-
-              {/* Quick Help */}
-              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
-                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
-                  <MaterialIcons name='help-outline' size={22} color={Colors.primary} />
-                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                    Quick Help
-                  </Text>
-                </View>
-
-                <SettingsRow
-                  iconName='help-outline'
-                  label='FAQ'
-                  onPress={handleFAQ}
-                />
-                <SettingsRow
-                  iconName='support-agent'
-                  label='Contact Support'
-                  onPress={handleContactSupport}
-                />
-                <SettingsRow
-                  iconName='report-problem'
-                  label='Report an Issue'
-                  onPress={handleReportIssue}
-                />
-              </View>
-
-              {/* Billing Support */}
-              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
-                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
-                  <MaterialIcons name='payment' size={22} color={Colors.primary} />
-                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                    Billing Support
-                  </Text>
-                </View>
-
-                <SettingsRow
-                  iconName='payment'
-                  label='Billing Questions'
-                  onPress={handleBillingQuestions}
-                />
-                <SettingsRow
-                  iconName='receipt'
-                  label='Refund Policy'
-                  onPress={handleRefundPolicy}
-                />
-              </View>
-
-              {/* System Status */}
-              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
-                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
-                  <MaterialIcons name='check-circle' size={22} color={Colors.primary} />
-                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                    System Status
-                  </Text>
-                </View>
-
-                <View style={styles.statusRow}>
-                  <View style={styles.iconContainer}>
-                    <View style={styles.statusDot} />
-                  </View>
-                  <View style={styles.statusTextContainer}>
-                    <Text style={[styles.statusTitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>
-                      All Systems Operational
-                    </Text>
-                    <Text style={[styles.statusSubtitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>
-                      Our servers and AI services are running normally.
-                    </Text>
-                  </View>
-                </View>
-              </View>
+                  {helpSections}
                 </View>
               </View>
             </LinearGradient>
+            ) : (
+              <View style={styles.content}>{helpSections}</View>
+            )}
             </WebPageShell>
           </ScrollView>
         </SafeAreaView>
@@ -331,12 +295,13 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   sectionCard: {
-    borderRadius: 20,
-    marginBottom: 20,
-    borderWidth: 0,
+    borderRadius: 16,
+    marginBottom: 16,
+    borderWidth: 1,
     overflow: 'hidden',
   },
   sectionHeader: {
@@ -358,38 +323,38 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 12,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
-  },
-  backButtonWrapper: {
-    zIndex: 1,
-  },
-  titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+    minHeight: 64,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 20,
+    marginTop: 8,
+    marginBottom: 4,
+    marginHorizontal: 8,
+  },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
   },
   screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -403,7 +368,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,

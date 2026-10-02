@@ -10,13 +10,11 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import {
@@ -31,39 +29,32 @@ interface TutorialStepProps {
   icon: string;
   theme: any;
   isLast?: boolean;
+  darkMode: boolean;
 }
 
 const TutorialStep = ({
   number,
   title,
   description,
-  icon,
   theme,
   isLast,
+  darkMode,
 }: TutorialStepProps) => (
-  <View style={styles.stepContainer}>
-    <View style={styles.stepRow}>
-      <View style={styles.stepLeft}>
-        <View style={[styles.stepNumber, { backgroundColor: theme.iconBg }]}>
-          <Text style={[styles.stepNumberText, { color: theme.accent }]}>
-            {number}
-          </Text>
-        </View>
-        {!isLast && (
-          <View style={[styles.stepConnector, { backgroundColor: theme.border }]} />
-        )}
-      </View>
-      <View style={[styles.stepCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <View style={styles.stepContent}>
-          <View style={styles.stepHeader}>
-            <MaterialIcons name={icon as any} size={24} color={theme.accent} />
-            <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
-          </View>
-          <Text style={[styles.stepDescription, { color: theme.subtext }]}>
-            {description}
-          </Text>
-        </View>
-      </View>
+  <View
+    style={[
+      styles.stepRow,
+      {
+        borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : theme.border,
+        borderBottomWidth: isLast ? 0 : 1,
+      },
+    ]}
+  >
+    <View style={[styles.stepNumber, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+      <Text style={[styles.stepNumberText, { color: theme.accent }]}>{number}</Text>
+    </View>
+    <View style={styles.stepCopy}>
+      <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
+      <Text style={[styles.stepDescription, { color: theme.subtext }]}>{description}</Text>
     </View>
   </View>
 );
@@ -77,86 +68,117 @@ export default function EstimateTutorialScreen() {
 
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
+    card: darkMode ? '#1C1D20' : Colors.surface2,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
     border: Colors.line,
     iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-  }), [Colors]);
+  }), [Colors, darkMode]);
 
-  const steps = [
+  const groups = [
     {
-      number: 1,
-      title: 'Start a New Estimate',
-      description:
-        'Tap the "+ New" button to create a new estimate. Give it a descriptive title that helps you identify the project later.',
-      icon: 'add-circle-outline',
+      title: 'Build with AI',
+      icon: 'auto-awesome' as const,
+      steps: [
+        {
+          title: 'Open Build with AI',
+          description: 'On the bid, tap Build with AI.',
+        },
+        {
+          title: 'Add the job',
+          description: 'Paste notes, add site photos, or import plans.',
+        },
+        {
+          title: 'Confirm scope',
+          description: 'Check quantities and prices, then apply them to the bid.',
+        },
+        {
+          title: 'Send it',
+          description: 'Review the total, then send the bid to Projects.',
+        },
+      ],
     },
     {
-      number: 2,
-      title: 'Enter Customer Information',
-      description:
-        'Fill in your customer\'s name, email, phone, and address. This information will be included in the final proposal.',
-      icon: 'person',
-    },
-    {
-      number: 3,
-      title: 'Set Project Details',
-      description:
-        'Select the project type (Kitchen, Bathroom, etc.), enter the square footage, location, and desired timeline.',
-      icon: 'folder',
-    },
-    {
-      number: 4,
-      title: 'Add Materials & Supplies',
-      description:
-        'Search for materials using Material Search. Add line items with quantities and the system will calculate costs with live pricing.',
-      icon: 'inventory',
-    },
-    {
-      number: 5,
-      title: 'Add Labor & Subcontractors',
-      description:
-        'Add labor line items or search for subcontractors in your area. The system uses regional wage data for accurate labor costs.',
-      icon: 'people',
-    },
-    {
-      number: 6,
-      title: 'Direct costs, overhead & markup',
-      description:
-        'Enter equipment rental, plans, permits, and other direct costs; then overhead (insurance, equipment maintenance, facilities, other); then your markup percentage.',
-      icon: 'trending-up',
-    },
-    {
-      number: 7,
-      title: 'Review Project Analysis',
-      description:
-        'Use the Project Analysis tool to see profitability metrics, margin breakdown, and what-if scenarios before finalizing.',
-      icon: 'analytics',
-    },
-    {
-      number: 8,
-      title: 'Set Payment Schedule',
-      description:
-        'Define payment terms, milestones, and work schedule. This helps ensure timely payments throughout the project.',
-      icon: 'payment',
-    },
-    {
-      number: 9,
-      title: 'Add Legal & Compliance',
-      description:
-        'Include licensing information, insurance details, and safety compliance requirements in your proposal.',
-      icon: 'gavel',
-    },
-    {
-      number: 10,
-      title: 'Generate & Export Proposal',
-      description:
-        'Review your final bid, check the health score, and export as a professional PDF proposal to send to your customer.',
-      icon: 'description',
+      title: 'Manual build',
+      icon: 'playlist-add' as const,
+      steps: [
+        {
+          title: 'Add line items',
+          description: 'On the bid, tap Add line items.',
+        },
+        {
+          title: 'Enter the work',
+          description: 'Add materials and labor yourself, with your own quantities.',
+        },
+        {
+          title: 'Set the price',
+          description: 'Add markup and check the bid total.',
+        },
+        {
+          title: 'Send it',
+          description: 'Review the total, then send the bid to Projects.',
+        },
+      ],
     },
   ];
+
+  const tipLines = [
+    'On Build with AI, check quantities on Confirm Scope before you apply a price.',
+    'Rates you approve can be saved and suggested on the next bid.',
+    'Either path ends on the bid summary. Send to Projects when the total looks right.',
+  ];
+
+  const pageBody = (
+    <>
+      {groups.map((group) => (
+        <View
+          key={group.title}
+          style={[styles.card, { backgroundColor: theme.card, borderColor: darkMode ? 'rgba(255,255,255,0.08)' : theme.border }]}
+        >
+          <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.1)' : theme.border }]}>
+            <MaterialIcons name={group.icon} size={22} color={theme.accent} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{group.title}</Text>
+          </View>
+          {group.steps.map((step, index) => (
+            <TutorialStep
+              key={`${group.title}-${index}`}
+              number={index + 1}
+              title={step.title}
+              description={step.description}
+              icon="circle"
+              theme={theme}
+              darkMode={darkMode}
+              isLast={index === group.steps.length - 1}
+            />
+          ))}
+        </View>
+      ))}
+      <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: darkMode ? 'rgba(255,255,255,0.08)' : theme.border }]}>
+        <View style={[styles.stepNumber, { backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0' }]}>
+          <MaterialIcons name="lightbulb-outline" size={20} color={theme.accent} />
+        </View>
+        <View style={styles.tipsContent}>
+          <Text style={[styles.tipsTitle, { color: theme.text }]}>Pro Tips</Text>
+          {tipLines.map((line) => (
+            <Text key={line} style={[styles.tipsText, { color: theme.subtext }]}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      </View>
+      <TouchableOpacity
+        style={[styles.ctaButton, { backgroundColor: theme.accent }]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          router.push('/(tabs)/estimate-generator');
+        }}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.ctaButtonText}>Open Estimate</Text>
+      </TouchableOpacity>
+    </>
+  );
 
   return (
     <>
@@ -172,37 +194,33 @@ export default function EstimateTutorialScreen() {
               webHelpHeaderMargins={webHelpHeaderMargins}
             />
           ) : (
-            <View style={[styles.headerRow, webHelpHeaderMargins]}>
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.back();
-                    }}
-                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+            <View style={styles.headerRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.back();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Back"
+                style={[
+                  styles.backButton,
+                  { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+                ]}
+              >
+                <MaterialIcons
+                  name="chevron-left"
+                  size={22}
+                  color={darkMode ? '#e2e8f0' : '#000000'}
+                />
+              </TouchableOpacity>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
+                  How to Create an Estimate
+                </Text>
+                <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                  Build with AI or add line items
+                </Text>
               </View>
-              <View style={styles.titleContainer}>
-                <View style={styles.titleWrapper}>
-                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                    How to Create an
-                  </Text>
-                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                    Estimate
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.backButtonWrapper} />
             </View>
           )}
 
@@ -217,86 +235,20 @@ export default function EstimateTutorialScreen() {
             showsVerticalScrollIndicator={true}
           >
             <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
-            <LinearGradient
-              colors={["#2DFFC4", "#00A6FF"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.chromeFrame}
-            >
-              <View
-                style={[
-                  styles.contentCard,
-                  {
-                    backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                    borderColor: Colors.line,
-                    borderWidth: 1,
-                  },
-                ]}
+            {Platform.OS === 'web' ? (
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.chromeFrame}
               >
-                <View style={styles.scrollContent}>
-                  {/* Welcome Section */}
-                  <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
-                      <MaterialIcons name='calculate' size={32} color={theme.accent} />
-                    </View>
-                    <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                      Create Professional Estimates
-                    </Text>
-                    <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-                      Follow these steps to create accurate, professional project estimates
-                      with live material pricing and AI-powered insights.
-                    </Text>
-                  </View>
-
-                  {/* Tutorial Steps */}
-                  <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                      Step-by-Step Guide
-                    </Text>
-                    {steps.map((step, index) => (
-                      <TutorialStep
-                        key={step.number}
-                        number={step.number}
-                        title={step.title}
-                        description={step.description}
-                        icon={step.icon}
-                        theme={theme}
-                        isLast={index === steps.length - 1}
-                      />
-                    ))}
-                  </View>
-
-                  {/* Quick Tips */}
-                  <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <MaterialIcons name='lightbulb-outline' size={24} color={theme.accent} />
-                    <View style={styles.tipsContent}>
-                      <Text style={[styles.tipsTitle, { color: theme.text }]}>
-                        Pro Tips
-                      </Text>
-                      <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Use Material Search for accurate material pricing{'\n'}
-                        • Save estimates frequently to avoid losing work{'\n'}
-                        • Review the Project Analysis before finalizing{'\n'}
-                        • Export as PDF for professional proposals
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* CTA Button */}
-                  <TouchableOpacity
-                    style={styles.ctaButton}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      router.push('/(tabs)/estimate-generator');
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
-                    <Text style={styles.ctaButtonText}>Start Creating an Estimate</Text>
-                  </TouchableOpacity>
+                <View style={[styles.contentCard, { backgroundColor: darkMode ? Colors.cardDark : Colors.bg }]}>
+                  <View style={styles.scrollContent}>{pageBody}</View>
                 </View>
-              </View>
-            </LinearGradient>
+              </LinearGradient>
+            ) : (
+              <View style={styles.scrollContent}>{pageBody}</View>
+            )}
             </WebPageShell>
           </ScrollView>
         </SafeAreaView>
@@ -313,13 +265,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 40,
-    marginBottom: 12,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    marginHorizontal: 8,
+  },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   chromeFrame: {
     borderRadius: 24,
@@ -327,35 +290,20 @@ const styles = StyleSheet.create({
     marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
     marginBottom: 16,
   },
-  backButtonWrapper: {
-    width: 42,
-    zIndex: 1,
-    alignItems: 'center',
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
-  },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  titleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleWrapper: {
     alignItems: 'center',
   },
   screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
     textAlign: 'center',
   },
   contentCard: {
@@ -363,131 +311,89 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
-  welcomeCard: {
-    borderRadius: 12,
-    padding: 24,
-    marginBottom: 24,
-    alignItems: 'center',
+  card: {
+    borderRadius: 16,
     borderWidth: 1,
-  },
-  welcomeIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
     marginBottom: 16,
   },
-  welcomeTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  welcomeText: {
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: 'center',
-  },
-  section: {
-    marginBottom: 24,
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
+    borderBottomWidth: 1,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  stepContainer: {
-    marginBottom: 8,
+    fontSize: 16,
+    fontWeight: '700',
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-  },
-  stepLeft: {
-    alignItems: 'center',
-    marginRight: 12,
-    width: 40,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
   },
   stepNumber: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stepNumberText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '700',
   },
-  stepConnector: {
-    width: 2,
+  stepCopy: {
     flex: 1,
-    minHeight: 40,
-    marginTop: 4,
-  },
-  stepCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-  },
-  stepContent: {
-    flex: 1,
-  },
-  stepHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
   },
   stepTitle: {
     fontSize: 16,
     fontWeight: '600',
-    flex: 1,
   },
   stepDescription: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   tipsCard: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
-    gap: 16,
+    gap: 12,
     alignItems: 'flex-start',
   },
   tipsContent: {
     flex: 1,
   },
   tipsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
   },
   tipsText: {
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 20,
+    marginTop: 8,
   },
   ctaButton: {
-    flexDirection: 'row',
+    minHeight: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 56,
-    borderRadius: 12,
-    gap: 12,
-    marginTop: 8,
-    backgroundColor: '#43cea2',
+    marginBottom: 8,
   },
   ctaButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
+    color: '#04120C',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

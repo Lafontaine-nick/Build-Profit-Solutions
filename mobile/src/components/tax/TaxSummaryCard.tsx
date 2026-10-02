@@ -2,9 +2,6 @@ import React, { useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import {
-  ESTIMATE_FLOW_APPLY_GREEN_BORDER,
-  ESTIMATE_FLOW_CHIP_GREEN,
-  ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
 } from '@/utils/estimateFlowCardStyle';
@@ -25,6 +22,15 @@ function splitUsdValue(value: string): { dollars: string; cents: string } | null
   return { dollars: m[1], cents: m[2] };
 }
 
+function taxFigureColor(value: string): string {
+  const numeric = value.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  if (!numeric) return '#FFFFFF';
+  const amount = Number(numeric[0]);
+  if (!Number.isFinite(amount) || amount === 0) return '#94a3b8';
+  if (amount < 0) return '#f87171';
+  return '#2dcc9a';
+}
+
 function fontSizeForCardValue(value: string): number {
   const len = String(value || '').length;
   if (len <= 9) return 20;
@@ -37,12 +43,13 @@ function fontSizeForCardValue(value: string): number {
 function TaxSummaryCardValue({ value }: { value: string }) {
   const currency = useMemo(() => splitUsdValue(value), [value]);
   const fontSize = useMemo(() => fontSizeForCardValue(value), [value]);
+  const color = taxFigureColor(value);
 
   if (!currency) {
     return (
       <View style={styles.valueClip}>
         <Text
-          style={[styles.value, { fontSize }]}
+          style={[styles.value, { fontSize, color }]}
           numberOfLines={1}
           adjustsFontSizeToFit={Platform.OS === 'ios'}
           minimumFontScale={0.45}
@@ -58,7 +65,7 @@ function TaxSummaryCardValue({ value }: { value: string }) {
   return (
     <View style={styles.valueRow}>
       <Text
-        style={[styles.valueDollars, { fontSize }]}
+        style={[styles.valueDollars, { fontSize, color }]}
         numberOfLines={1}
         adjustsFontSizeToFit={Platform.OS === 'ios'}
         minimumFontScale={0.45}
@@ -67,14 +74,14 @@ function TaxSummaryCardValue({ value }: { value: string }) {
       >
         {currency.dollars}
       </Text>
-      <Text style={[styles.valueCents, { fontSize: Math.max(11, Math.round(fontSize * 0.72)) }]}>
+      <Text style={[styles.valueCents, { fontSize: Math.max(11, Math.round(fontSize * 0.72)), color }]}>
         {currency.cents}
       </Text>
     </View>
   );
 }
 
-export default function TaxSummaryCard({ label, value, icon, accent = ESTIMATE_FLOW_CHIP_GREEN, helper, onPress }: Props) {
+export default function TaxSummaryCard({ label, value, icon, accent = '#2dcc9a', helper, onPress }: Props) {
   const inner = (
     <>
       <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
@@ -163,7 +170,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   helper: {
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: '#94a3b8',
     fontSize: 11,
     marginTop: 6,
   },

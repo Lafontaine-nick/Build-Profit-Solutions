@@ -97,6 +97,21 @@ describe('projectContextResolver conversation routing', () => {
     expect(result.analysisType).toBe('quick');
   });
 
+  test('does not ask for a project when the question is only about the weather', () => {
+    expect(detectProjectIntent("What's the weather today?").needsProject).toBe(false);
+    expect(detectProjectIntent('What is the weather like where I live').needsProject).toBe(false);
+    const result = resolveProjectContext(
+      "What's the weather today?",
+      { currentScreen: 'AI Assistant Tab' },
+      [
+        { id: 'p1', title: 'Smith Kitchen Remodel', status: 'in_progress', isActive: true },
+        { id: 'p2', title: 'Untitled Bid', status: 'active', isActive: true },
+      ]
+    );
+    expect(result.needsClarification).toBe(false);
+    expect(result.projectId).toBeNull();
+  });
+
   test('asks which project when a current-project question has multiple active projects', () => {
     const result = resolveProjectContext(
       'How much of my cost budget have I already spent?',

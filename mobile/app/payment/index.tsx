@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -23,7 +22,6 @@ import { stripeService, resolveLiveStripePriceId } from '@/services/stripeServic
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-react';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import {
   priceIdToPlanId,
   resolveBestPlanIdFromSubscriptions,
@@ -32,6 +30,41 @@ import { useAppleBilling } from '@/hooks/useAppleBilling';
 import { FOUNDING_PROFESSIONAL_FEATURES } from '@/constants/billingCatalog';
 
 const CACHED_PLAN_KEY = 'bps.cachedPlanId';
+
+function BillingPageFrame({
+  framed,
+  cardColor,
+  borderColor,
+  children,
+}: {
+  framed: boolean;
+  cardColor: string;
+  borderColor: string;
+  children: React.ReactNode;
+}) {
+  if (!framed) return <>{children}</>;
+  return (
+    <LinearGradient
+      colors={['#2DFFC4', '#00A6FF']}
+      start={{ x: 0.05, y: 0.15 }}
+      end={{ x: 0.95, y: 0.85 }}
+      style={styles.gradientFrameOuter}
+    >
+      <View
+        style={[
+          styles.contentCard,
+          {
+            backgroundColor: cardColor,
+            borderColor,
+            borderWidth: 1,
+          },
+        ]}
+      >
+        {children}
+      </View>
+    </LinearGradient>
+  );
+}
 
 export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();
@@ -58,8 +91,8 @@ export default function PaymentScreen() {
       setSubscriptionStatus(null);
     }
     setLoading(appleBilling.loading);
-    setError(appleBilling.error);
-  }, [appleBilling.entitled, appleBilling.error, appleBilling.loading]);
+    setError(null);
+  }, [appleBilling.entitled, appleBilling.loading]);
 
   useEffect(() => {
     stripeService.fetchSubscriptionPlans().then(setPlanCatalog).catch(() => {});
@@ -124,6 +157,8 @@ export default function PaymentScreen() {
     error: '#F87171',
     iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
   }), [Colors]);
+
+  const isIosBilling = Platform.OS === 'ios';
 
   const handleSubscriptionPlans = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -391,29 +426,33 @@ export default function PaymentScreen() {
       <View style={[styles.pageShell, Platform.OS === 'web' && styles.pageShellWeb]}>
         {/* Header with Back Button and Title — same column as body (web) */}
         <View style={styles.headerRow}>
-        <View style={styles.backButtonWrapper}>
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.backButtonBorder}
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.back();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Back"
+            style={[
+              styles.backButton,
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+            ]}
           >
-            <GradientRingBackInner
-              darkMode={darkMode}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
-              }}
-              style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-            >
-              <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-            </GradientRingBackInner>
-          </LinearGradient>
+            <MaterialIcons
+              name="chevron-left"
+              size={22}
+              color={darkMode ? '#e2e8f0' : '#000000'}
+            />
+          </TouchableOpacity>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
+              Payment & Billing
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+              App Store subscription
+            </Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Payment & Billing</Text>
-        </View>
-      </View>
 
       <ScrollView
         style={styles.scrollView}
@@ -423,22 +462,11 @@ export default function PaymentScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <LinearGradient
-          colors={["#2DFFC4", "#00A6FF"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.gradientFrameOuter}
+        <BillingPageFrame
+          framed={!isIosBilling}
+          cardColor={darkMode ? Colors.cardDark : Colors.bg}
+          borderColor={Colors.line}
         >
-          <View
-            style={[
-              styles.contentCard,
-              {
-                backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                borderColor: Colors.line,
-                borderWidth: 1,
-              },
-            ]}
-          >
             <View style={styles.content}>
         {/* Current Plan Card */}
         <View style={[styles.currentPlanCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -449,7 +477,7 @@ export default function PaymentScreen() {
                 Loading plan...
               </Text>
             </View>
-          ) : error && !currentPlan ? (
+          ) : error && !currentPlan && !isIosBilling ? (
             <View style={styles.loadingContainer}>
               <MaterialIcons name='error-outline' size={24} color={theme.error} />
               <Text style={[styles.loadingText, { color: theme.error, marginLeft: 8 }]}>
@@ -498,17 +526,40 @@ export default function PaymentScreen() {
                 </View>
               </View>
               <View style={styles.currentPlanDetails}>
-                <Text style={[styles.planDetailText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                  {Platform.OS === 'ios'
+                <Text style={[styles.planDetailText, styles.planEmptyText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
+                  {isIosBilling
                     ? 'Subscribe to Founding Professional through the App Store to unlock the full platform.'
                     : 'Subscribe to a plan to unlock premium features'}
                 </Text>
               </View>
+              {isIosBilling ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.planActionButton, { backgroundColor: theme.accent }]}
+                    onPress={handleSubscriptionPlans}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.planActionText}>View Plans</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.restoreLink}
+                    onPress={() => {
+                      void appleBilling.restore();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.restoreLinkText, { color: theme.accent }]}>
+                      Restore Purchases
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
             </>
           )}
         </View>
 
-        {/* Subscription Section */}
+        {/* Subscription rows stay available once a plan is active. */}
+        {currentPlan || !isIosBilling ? (
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={[styles.sectionHeader, { borderBottomColor: theme.divider }]}>
             <MaterialIcons name='star' size={22} color={theme.accent} />
@@ -577,8 +628,10 @@ export default function PaymentScreen() {
             />
           </TouchableOpacity>
         </View>
+        ) : null}
 
-        {/* Billing History Section */}
+        {/* App Store receipts live in Apple subscription settings. */}
+        {isIosBilling ? null : (
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={[styles.sectionHeader, { borderBottomColor: theme.divider }]}>
             <MaterialIcons name='receipt-long' size={22} color={theme.accent} />
@@ -617,8 +670,10 @@ export default function PaymentScreen() {
             />
           </TouchableOpacity>
         </View>
+        )}
 
-        {/* Payment Methods Section */}
+        {/* Card management is Stripe billing, not App Store subscriptions. */}
+        {isIosBilling ? null : (
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={[styles.sectionHeader, { borderBottomColor: theme.divider }]}>
             <MaterialIcons name='payment' size={22} color={theme.accent} />
@@ -657,9 +712,9 @@ export default function PaymentScreen() {
             />
           </TouchableOpacity>
         </View>
+        )}
             </View>
-          </View>
-        </LinearGradient>
+        </BillingPageFrame>
       </ScrollView>
       </View>
     </LinearGradient>
@@ -694,27 +749,38 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerRow: {
-    flexDirection: 'row',
+    position: 'relative',
+    width: '100%',
+    minHeight: 64,
     alignItems: 'center',
-    marginTop: 60,
+    justifyContent: 'center',
+    marginTop: 52,
     marginBottom: 12,
   },
-  backButtonWrapper: {
-    marginRight: 12,
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
   },
   screenTitle: {
-    fontSize: 32,
-    fontWeight: "800",
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -723,8 +789,9 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   content: {
-    padding: 16,
+    paddingTop: 4,
     paddingBottom: 40,
+    paddingHorizontal: 0,
   },
   // Current Plan Card
   currentPlanCard: {
@@ -771,6 +838,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#CFE6FF',
     marginLeft: 10,
+  },
+  planEmptyText: {
+    marginLeft: 0,
+    lineHeight: 18,
+  },
+  planActionButton: {
+    marginTop: 20,
+    borderRadius: 14,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planActionText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#04120C',
+  },
+  restoreLink: {
+    marginTop: 14,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoreLinkText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   loadingContainer: {
     flexDirection: 'row',

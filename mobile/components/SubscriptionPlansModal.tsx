@@ -26,7 +26,6 @@ import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 import WebPageShell, {
   getWebPageShellMaxWidth,
@@ -37,11 +36,7 @@ import {
   isTeamWorkspaceReleased,
 } from '@/constants/releaseFlags';
 import IosFoundingSubscriptionPanel from '@/components/IosFoundingSubscriptionPanel';
-import {
-  getAppleBillingSetupBlocker,
-  getAppleSubscriptionSetupMessage,
-  isAppleBillingAvailable,
-} from '@/services/appleBillingService';
+import { isAppleBillingAvailable } from '@/services/appleBillingService';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 import { FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
 
@@ -93,10 +88,6 @@ export default function SubscriptionPlansModal({
   const { user: clerkUser } = useUser();
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
-  const iosBillingSetupBlocker = useMemo(
-    () => (Platform.OS === 'ios' ? getAppleBillingSetupBlocker() : null),
-    [],
-  );
   const foundingPlanBase = useMemo(
     () => ({
       id: 'founding',
@@ -808,10 +799,55 @@ export default function SubscriptionPlansModal({
   };
 
   const subtitleCopy = useIosBilling
-    ? 'Subscribe through the App Store. Founding access stays active while your subscription remains continuously active.'
+    ? 'Founding Professional on the App Store.'
     : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
-  const billingChromeTree = (
+  const plansBody = (
+    <>
+      {useIosBilling ? (
+        <IosFoundingSubscriptionPanel
+          colors={{
+            text: theme.text,
+            subtext: theme.subtext,
+            card: theme.card,
+            border: theme.border,
+            accent: theme.accent,
+            success: theme.success,
+          }}
+          darkMode={darkMode}
+          isActive={hasFoundingFull}
+          onEntitlementRefreshed={() => {
+            void refreshEntitlement();
+          }}
+        />
+      ) : (
+        plans.map(renderPlan)
+      )}
+
+      {useIosBilling ? null : (
+        <View
+          style={[
+            styles.footer,
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <Text style={[styles.footerText, { color: theme.text }]}>
+            Start with a 7-day free trial
+          </Text>
+          <Text style={[styles.footerMuted, { color: theme.subtext }]}>
+            Cancel anytime · No setup fees
+          </Text>
+        </View>
+      )}
+    </>
+  );
+
+  const billingChromeTree = useIosBilling ? (
+    plansBody
+  ) : (
     <LinearGradient
       colors={['#2DFFC4', '#00A6FF']}
       start={{ x: 0.05, y: 0.15 }}
@@ -827,56 +863,7 @@ export default function SubscriptionPlansModal({
           },
         ]}
       >
-        {useIosBilling ? (
-          <IosFoundingSubscriptionPanel
-            colors={{
-              text: theme.text,
-              subtext: theme.subtext,
-              card: theme.card,
-              border: theme.border,
-              accent: theme.accent,
-              success: theme.success,
-            }}
-            darkMode={darkMode}
-            isActive={hasFoundingFull}
-            onEntitlementRefreshed={() => {
-              void refreshEntitlement();
-            }}
-          />
-        ) : (
-          plans.map(renderPlan)
-        )}
-
-        {Platform.OS === 'ios' && iosBillingSetupBlocker ? (
-          <View
-            style={[
-              styles.setupNotice,
-              {
-                backgroundColor: darkMode ? 'rgba(250, 204, 21, 0.1)' : 'rgba(234, 179, 8, 0.12)',
-                borderColor: darkMode ? 'rgba(250, 204, 21, 0.35)' : 'rgba(202, 138, 4, 0.35)',
-              },
-            ]}
-          >
-            <Text style={[styles.setupNoticeText, { color: theme.text }]}>
-              {iosBillingSetupBlocker || getAppleSubscriptionSetupMessage()}
-            </Text>
-          </View>
-        ) : null}
-
-        <View
-          style={[
-            styles.footer,
-            {
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-            },
-          ]}
-        >
-          <Text style={[styles.footerText, { color: theme.text }]}>
-        {useIosBilling ? 'Prices shown by Apple' : 'Start with a 7-day free trial'}
-      </Text>
-          <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
-        </View>
+        {plansBody}
       </View>
     </LinearGradient>
   );
@@ -891,34 +878,32 @@ export default function SubscriptionPlansModal({
             {
               // Web: safe-area insets are usually 0 in Safari/Chrome — add space below the tab bar.
               paddingTop:
-                Platform.OS === 'web'
-                  ? Math.max(insets.top, 12) + 36
-                  : Math.max(insets.top, 8) + 4,
+                Platform.OS === 'web' ? Math.max(insets.top, 12) + 36 : 0,
+              marginTop: Platform.OS === 'ios' ? 52 : 0,
             },
           ]}
         >
-          <View style={styles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  handleClose();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </GradientRingBackInner>
-            </LinearGradient>
-          </View>
-          <View style={styles.headerTitleBlock}>
+          <TouchableOpacity
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+              handleClose();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Back"
+            style={[
+              styles.backButton,
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+            ]}
+          >
+            <MaterialIcons
+              name="chevron-left"
+              size={22}
+              color={darkMode ? '#e2e8f0' : '#000000'}
+            />
+          </TouchableOpacity>
+          <View style={styles.headerCopy}>
             <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
             <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
           </View>
@@ -983,42 +968,40 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingBottom: 8,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
-    gap: 12,
+    position: 'relative',
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 8 }),
   },
-  headerTitleBlock: {
-    flex: 1,
-    paddingTop: 2,
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 48,
   },
   headerSubtitle: {
     fontSize: 14,
     lineHeight: 20,
     marginTop: 6,
-    letterSpacing: 0.15,
-    opacity: 0.92,
-  },
-  backButtonWrapper: {
-    marginTop: 2,
-  },
-  backButtonBorder: {
-    borderRadius: 20,
-    padding: 1,
-    overflow: 'hidden',
+    textAlign: 'center',
   },
   screenTitle: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '800',
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 2,
   },
   header: {
     flexDirection: 'row',

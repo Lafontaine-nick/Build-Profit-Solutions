@@ -91,6 +91,14 @@ export function isWriteOrMutationRequest(query: string): boolean {
   return /\b(?:bought|purchased|spent)\b/i.test(text) && /\d/.test(text) && mutationObject.test(text);
 }
 
+export function isStandaloneWeatherQuery(query: string): boolean {
+  const text = String(query || '');
+  const weatherTerm = /\b(weather|rain(?:ing)?|temperature|storm|snow|sunny|outdoor conditions)\b/i;
+  const weatherForecast =
+    /\bforecast\b[\s\S]{0,30}\b(weather|rain|temperature|wind|storm|snow|outdoor)\b|\b(weather|rain|temperature|wind|storm|snow|outdoor)\b[\s\S]{0,30}\bforecast\b/i;
+  return weatherTerm.test(text) || weatherForecast.test(text);
+}
+
 export function isGeneralKnowledgeQuery(query: string): boolean {
   const q = String(query || '').toLowerCase().trim();
   if (!q || isExplicitExpenseLogQuery(q) || isWriteOrMutationRequest(q)) return false;
@@ -113,7 +121,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(lowerQuery)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
-  if (isGeneralKnowledgeQuery(query) || isConversationCancelQuery(query)) {
+  if (isGeneralKnowledgeQuery(query) || isConversationCancelQuery(query) || isStandaloneWeatherQuery(query)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
   const isExpenseFlow = isExplicitExpenseLogQuery(lowerQuery);
@@ -150,7 +158,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   // CRITICAL: Team management, health check, forecast, etc. - map to correct intent, not generic analysis
   const isTeamManagementRequest = /\b(team\s+management|help.*team|team\s+help)\b/i.test(lowerQuery);
   const isHealthCheckRequest =
-    /\b(health\s+check|project\s+health|check\s+(project|budget)|budget\s+check|budget\s+status|budget\s+variance|variance\s+(?:against|from|to)\s+(?:the\s+)?budget|remaining\s+(?:cost|budget)|(?:cost|budget)[\s\S]{0,25}(?:remaining|left)|standalone\s+margin|current\s+margin|best[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|(?:good|better)\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|which\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|how\s+is\s+the\s+weather|what\s+is\s+the\s+weather|weather\s+(?:today|this\s+week)|how\s+much[\s\S]{0,40}\b(?:cost\s+)?budget[\s\S]{0,20}\b(?:already\s+)?spent|how\s+much[\s\S]{0,40}\bspent[\s\S]{0,20}\b(?:cost\s+)?budget|what\s+(?:portion|percentage|percent)\s+of[\s\S]{0,30}\bbudget[\s\S]{0,20}\b(?:spent|used)|stay\s+on\s+budget|keep\s+(?:the\s+)?(?:job|project)\s+on\s+budget|(?:am|are)\s+i\s+(?:over|on)\s+budget|current\s+(?:job|project)\s+(?:risk|risks)|current\s+risk(?:s)?[\s\S]{0,40}(?:job|project)|risk(?:s)?\s+(?:on|for)\s+(?:this|my|the|current)\s+(?:job|project))\b/i.test(
+    /\b(health\s+check|project\s+health|check\s+(project|budget)|budget\s+check|budget\s+status|budget\s+variance|variance\s+(?:against|from|to)\s+(?:the\s+)?budget|remaining\s+(?:cost|budget)|(?:cost|budget)[\s\S]{0,25}(?:remaining|left)|standalone\s+margin|current\s+margin|best[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|(?:good|better)\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|which\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|how\s+much[\s\S]{0,40}\b(?:cost\s+)?budget[\s\S]{0,20}\b(?:already\s+)?spent|how\s+much[\s\S]{0,40}\bspent[\s\S]{0,20}\b(?:cost\s+)?budget|what\s+(?:portion|percentage|percent)\s+of[\s\S]{0,30}\bbudget[\s\S]{0,20}\b(?:spent|used)|stay\s+on\s+budget|keep\s+(?:the\s+)?(?:job|project)\s+on\s+budget|(?:am|are)\s+i\s+(?:over|on)\s+budget|current\s+(?:job|project)\s+(?:risk|risks)|current\s+risk(?:s)?[\s\S]{0,40}(?:job|project)|risk(?:s)?\s+(?:on|for)\s+(?:this|my|the|current)\s+(?:job|project))\b/i.test(
       lowerQuery
     ) || lowerQuery === 'margin';
   const isForecastRequest = /\b(forecast|what\s+if|scenario\s+analysis)\b/i.test(lowerQuery);
@@ -275,12 +283,18 @@ export function resolveProjectContext(
       reason: 'Portfolio/compare scope (over budget) — backend will list which projects are over budget and by how much',
     };
   }
-  // Upcoming payments/deadlines/calendar across active jobs — backend aggregates; do NOT ask "which project?"
   if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(userQuery)) {
     return {
       projectId: null,
       needsClarification: false,
       reason: 'Portfolio schedule (calendar + timeline) — all active projects',
+    };
+  }
+  if (isStandaloneWeatherQuery(userQuery)) {
+    return {
+      projectId: null,
+      needsClarification: false,
+      reason: 'Weather question — ask for a city or ZIP, not a project',
     };
   }
 

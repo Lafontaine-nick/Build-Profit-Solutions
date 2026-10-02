@@ -124,6 +124,9 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
         value={Boolean(settings[key])}
         disabled={saving}
         onValueChange={(v) => void patch(key, v)}
+        trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: '#2dcc9a' }}
+        thumbColor="#f4f4f5"
+        ios_backgroundColor={darkMode ? '#3A3A3C' : '#cbd5e1'}
       />
     </View>
   );

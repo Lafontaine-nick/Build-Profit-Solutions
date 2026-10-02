@@ -68,28 +68,46 @@ export default function SavedBidTemplatesBrowserModal({ visible, onClose }: Prop
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={[styles.shell, { backgroundColor: Colors.bg, paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: Colors.text }]}>Saved bid templates</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={12}>
-            <MaterialIcons name="close" size={24} color={Colors.text} />
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Close saved bid templates"
+            style={[
+              styles.backButton,
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+            ]}
+          >
+            <MaterialIcons name="chevron-left" size={22} color={darkMode ? '#e2e8f0' : '#000000'} />
           </TouchableOpacity>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.title, { color: darkMode ? '#f9fafb' : Colors.text }]}>Saved bid templates</Text>
+            <Text style={[styles.subtitle, { color: Colors.sub }]}>Snapshots from finished bids</Text>
+          </View>
         </View>
-        <Text style={{ color: Colors.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 12 }}>
-          Full material and labor snapshots saved from bids. Confirm Scope can suggest rates from these
-          templates when no library match exists.
-        </Text>
 
         {loading ? (
           <ActivityIndicator style={{ marginTop: 24 }} color={Colors.sub} />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
+          <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}>
             {templates.length === 0 ? (
-              <Text style={{ color: Colors.sub, fontSize: 14 }}>
-                No saved bid templates yet. Save a template from the estimate generator when finishing a
-                bid.
-              </Text>
+              <View
+                style={[
+                  styles.emptyCard,
+                  {
+                    backgroundColor: Colors.surface2,
+                    borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                  },
+                ]}
+              >
+                <Text style={[styles.emptyBody, { color: Colors.sub }]}>
+                  Material and labor saved from a finished bid. Confirm Scope can suggest these when no
+                  library rate matches.
+                </Text>
+                <Text style={[styles.emptyTitle, { color: Colors.text }]}>No saved templates yet.</Text>
+              </View>
             ) : (
               templates.map((template) => (
                 <View
@@ -98,7 +116,7 @@ export default function SavedBidTemplatesBrowserModal({ visible, onClose }: Prop
                     styles.card,
                     {
                       borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                      backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
+                      backgroundColor: Colors.surface2,
                     },
                   ]}
                 >
@@ -111,7 +129,7 @@ export default function SavedBidTemplatesBrowserModal({ visible, onClose }: Prop
                         {formatTemplateCategory(template.category || template.trade)}
                       </Text>
                     ) : null}
-                    <Text style={{ color: '#60a5fa', fontSize: 13, marginTop: 6, fontWeight: '600' }}>
+                    <Text style={{ color: Colors.primary, fontSize: 15, marginTop: 6, fontWeight: '700' }}>
                       {formatTemplateMoney(template.estimatedBidTotal)} estimated
                     </Text>
                     <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
@@ -138,19 +156,48 @@ export default function SavedBidTemplatesBrowserModal({ visible, onClose }: Prop
 
 const styles = StyleSheet.create({
   shell: { flex: 1 },
-  header: {
-    flexDirection: 'row',
+  headerRow: {
+    position: 'relative',
+    minHeight: 64,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+    marginHorizontal: 8,
   },
-  title: { fontSize: 18, fontWeight: '800' },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
+  subtitle: { fontSize: 14, lineHeight: 18, marginTop: 4, textAlign: 'center' },
+  scrollContent: {
+    paddingHorizontal: 8,
+    paddingBottom: 40,
+  },
+  emptyCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+  },
+  emptyBody: { fontSize: 14, lineHeight: 20 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', marginTop: 14 },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 12,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
     marginBottom: 8,
     gap: 12,

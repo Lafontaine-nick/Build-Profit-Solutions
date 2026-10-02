@@ -343,7 +343,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   ];
   const hasLineItemAppendix =
     (sanitizedDoc.scope.materialLineItems?.length || 0) > 0 ||
-    (sanitizedDoc.scope.laborLineItems?.length || 0) > 0;
+    (sanitizedDoc.scope.laborLineItems?.length || 0) > 0 ||
+    (sanitizedDoc.allowances?.length || 0) > 0;
   const groupedMaterials = (sanitizedDoc.scope.materialLineItems || []).reduce(
     (acc: Record<string, typeof sanitizedDoc.scope.materialLineItems>, item) => {
       const key = item.section || item.category || "Materials";
@@ -364,6 +365,42 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   );
   const hasMaterialGroups = Object.keys(groupedMaterials).length > 0;
   const hasLaborGroups = Object.keys(groupedLabor).length > 0;
+  const allowanceItems = sanitizedDoc.allowances || [];
+  const renderAllowanceHtml =
+    allowanceItems.length > 0
+      ? `<div class="appendix-block">
+          <h3 class="appendix-head">Allowances</h3>
+          <table class="appendix-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th class="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allowanceItems
+                .map(
+                  item => `
+                    <tr>
+                      <td>${esc(item.name || item.description || "Allowance")}${
+                        item.description && item.description !== item.name
+                          ? ` — ${esc(item.description)}`
+                          : ""
+                      }</td>
+                      <td class="num">${money(item.amount || 0)}</td>
+                    </tr>`,
+                )
+                .join("")}
+              <tr class="subtotal-row">
+                <td>Allowance subtotal</td>
+                <td class="num">${money(
+                  allowanceItems.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+                )}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>`
+      : "";
 
   const paymentTotalPct = sanitizedDoc.milestones.reduce((sum, milestone) => {
     const pct =
@@ -655,6 +692,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           ${renderLaborGroupsHtml}`
               : ""
           }
+          ${renderAllowanceHtml}
         </div>`
           : `<p class="subtle-p">No line-item breakdown was attached; reconciliation below follows the contract summary only.</p>`
         : "";

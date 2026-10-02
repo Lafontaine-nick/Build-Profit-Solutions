@@ -11,17 +11,12 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import WebPageShell from '@/components/layout/WebPageShell';
-import {
-  PROFILE_HELP_CHROME_H_MARGIN,
-  useWebProfileHelpHeaderMargins,
-} from '@/lib/useWebProfileHelpHeaderMargins';
+import { PROFILE_HELP_CHROME_H_MARGIN } from '@/lib/useWebProfileHelpHeaderMargins';
 
 type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 
@@ -36,7 +31,6 @@ type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 export default function LegalHubScreen() {
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
-  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('terms');
   const [scrollToSection, setScrollToSection] = useState<string | null>(null);
@@ -44,13 +38,13 @@ export default function LegalHubScreen() {
 
   const theme = useMemo(() => ({
     background: Colors.bg,
-    card: Colors.surface2,
+    card: darkMode ? '#1C1D20' : Colors.surface2,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
     border: Colors.line,
     iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-  }), [Colors]);
+  }), [Colors, darkMode]);
 
   // Check for tab parameter on mount and when params change
   useEffect(() => {
@@ -93,34 +87,35 @@ export default function LegalHubScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
-        <View style={[styles.headerRow, webHelpHeaderMargins]}>
-          <View style={styles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  router.back();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-              </GradientRingBackInner>
-            </LinearGradient>
-          </View>
-          <View style={styles.titleContainer}>
-            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+              router.back();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Back"
+            style={[
+              styles.backButton,
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+            ]}
+          >
+            <MaterialIcons
+              name="chevron-left"
+              size={22}
+              color={darkMode ? '#e2e8f0' : '#000000'}
+            />
+          </TouchableOpacity>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
               Legal & Disclosures
             </Text>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+              Terms, privacy, and policies
+            </Text>
           </View>
-          <View style={styles.backButtonWrapper} />
         </View>
 
         {Platform.OS === 'web' ? (
@@ -137,13 +132,13 @@ export default function LegalHubScreen() {
                 <TouchableOpacity
                   style={[
                     styles.tab,
-                    { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
+                    { backgroundColor: activeTab === 'terms' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                   ]}
                   onPress={() => handleTabChange('terms')}
                 >
                   <Text
                     numberOfLines={1}
-                    style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
+                    style={[styles.tabText, { color: activeTab === 'terms' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
                     Terms
                   </Text>
@@ -151,13 +146,13 @@ export default function LegalHubScreen() {
                 <TouchableOpacity
                   style={[
                     styles.tab,
-                    { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
+                    { backgroundColor: activeTab === 'privacy' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                   ]}
                   onPress={() => handleTabChange('privacy')}
                 >
                   <Text
                     numberOfLines={1}
-                    style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
+                    style={[styles.tabText, { color: activeTab === 'privacy' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
                     Privacy
                   </Text>
@@ -165,13 +160,13 @@ export default function LegalHubScreen() {
                 <TouchableOpacity
                   style={[
                     styles.tab,
-                    { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
+                    { backgroundColor: activeTab === 'refund' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                   ]}
                   onPress={() => handleTabChange('refund')}
                 >
                   <Text
                     numberOfLines={1}
-                    style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
+                    style={[styles.tabText, { color: activeTab === 'refund' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
                     Refund Policy
                   </Text>
@@ -179,13 +174,13 @@ export default function LegalHubScreen() {
                 <TouchableOpacity
                   style={[
                     styles.tab,
-                    { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
+                    { backgroundColor: activeTab === 'tax' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                   ]}
                   onPress={() => handleTabChange('tax')}
                 >
                   <Text
                     numberOfLines={1}
-                    style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
+                    style={[styles.tabText, { color: activeTab === 'tax' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
                     Tax Disclosure
                   </Text>
@@ -193,13 +188,13 @@ export default function LegalHubScreen() {
                 <TouchableOpacity
                   style={[
                     styles.tab,
-                    { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
+                    { backgroundColor: activeTab === 'attrib' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                   ]}
                   onPress={() => handleTabChange('attrib')}
                 >
                   <Text
                     numberOfLines={1}
-                    style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
+                    style={[styles.tabText, { color: activeTab === 'attrib' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
                     Attributions
                   </Text>
@@ -257,13 +252,13 @@ export default function LegalHubScreen() {
               <TouchableOpacity
                 style={[
                   styles.tab,
-                  { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
+                  { backgroundColor: activeTab === 'terms' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                 ]}
                 onPress={() => handleTabChange('terms')}
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
+                  style={[styles.tabText, { color: activeTab === 'terms' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
                   Terms
                 </Text>
@@ -271,13 +266,13 @@ export default function LegalHubScreen() {
               <TouchableOpacity
                 style={[
                   styles.tab,
-                  { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
+                  { backgroundColor: activeTab === 'privacy' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                 ]}
                 onPress={() => handleTabChange('privacy')}
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
+                  style={[styles.tabText, { color: activeTab === 'privacy' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
                   Privacy
                 </Text>
@@ -285,13 +280,13 @@ export default function LegalHubScreen() {
               <TouchableOpacity
                 style={[
                   styles.tab,
-                  { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
+                  { backgroundColor: activeTab === 'refund' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                 ]}
                 onPress={() => handleTabChange('refund')}
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
+                  style={[styles.tabText, { color: activeTab === 'refund' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
                   Refund Policy
                 </Text>
@@ -299,13 +294,13 @@ export default function LegalHubScreen() {
               <TouchableOpacity
                 style={[
                   styles.tab,
-                  { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
+                  { backgroundColor: activeTab === 'tax' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                 ]}
                 onPress={() => handleTabChange('tax')}
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
+                  style={[styles.tabText, { color: activeTab === 'tax' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
                   Tax Disclosure
                 </Text>
@@ -313,46 +308,37 @@ export default function LegalHubScreen() {
               <TouchableOpacity
                 style={[
                   styles.tab,
-                  { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
+                  { backgroundColor: activeTab === 'attrib' ? theme.accent : (darkMode ? '#3A3A3C' : '#e2e8f0'), borderColor: 'transparent' }
                 ]}
                 onPress={() => handleTabChange('attrib')}
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
+                  style={[styles.tabText, { color: activeTab === 'attrib' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
                   Attributions
                 </Text>
               </TouchableOpacity>
             </ScrollView>
 
-            <LinearGradient
-              colors={["#2DFFC4", "#00A6FF"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.chromeFrame}
+            <ScrollView
+              ref={scrollViewRef}
+              style={styles.scrollView}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={styles.scrollContent}
             >
-              <View style={[styles.contentCard, { backgroundColor: theme.background }]}>
-                <ScrollView
-                  ref={scrollViewRef}
-                  style={styles.scrollView}
-                  showsVerticalScrollIndicator={true}
-                  contentContainerStyle={styles.scrollContent}
-                >
-                  {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
-                  {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
-                  {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
-                  {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
-                  {activeTab === 'attrib' && (
-                    <AttributionsContent
-                      onNavigate={navigateToSection}
-                      onOpenLink={openExternalLink}
-                      theme={theme}
-                    />
-                  )}
-                </ScrollView>
-              </View>
-            </LinearGradient>
+              {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
+              {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
+              {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
+              {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
+              {activeTab === 'attrib' && (
+                <AttributionsContent
+                  onNavigate={navigateToSection}
+                  onOpenLink={openExternalLink}
+                  theme={theme}
+                />
+              )}
+            </ScrollView>
           </>
         )}
       </SafeAreaView>
@@ -1161,9 +1147,17 @@ function AttributionsContent({
 
 function SectionHeader({ title, subtitle, theme }: { title: string; subtitle?: string; theme: any }) {
   return (
-    <View style={[styles.sectionHeader, { borderBottomColor: theme.border }]}>
+    <View
+      style={[
+        styles.sectionHeader,
+        {
+          backgroundColor: theme.card,
+          borderColor: theme.border,
+        },
+      ]}
+    >
       <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
-      {subtitle && <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>{subtitle}</Text>}
+      {subtitle ? <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>{subtitle}</Text> : null}
     </View>
   );
 }
@@ -1251,43 +1245,39 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 12,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
-  },
-  backButtonWrapper: {
-    width: 42,
-    zIndex: 1,
+    minHeight: 64,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+    marginHorizontal: 8,
   },
-  backButtonBorder: {
-    width: 42,
-    height: 42,
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     width: 40,
     height: 40,
-    borderRadius: 19,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  titleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: 6,
   },
   screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
     textAlign: 'center',
   },
   tabsRow: {
@@ -1298,8 +1288,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 16,
-    paddingRight: 20,
+    paddingHorizontal: 8,
+    paddingRight: 16,
   },
   tabsRowContentWeb: {
     flexDirection: 'row',
@@ -1345,27 +1335,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
+    paddingHorizontal: 8,
+    paddingBottom: 24,
   },
   sectionHeader: {
-    marginBottom: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
   },
   sectionSubtitle: {
     fontSize: 13,
-    opacity: 0.85,
-    lineHeight: 20,
+    lineHeight: 18,
+    marginTop: 4,
   },
   sectionCard: {
     borderRadius: 16,
-    marginBottom: 20,
+    marginBottom: 16,
     borderWidth: 1,
     overflow: 'hidden',
   },

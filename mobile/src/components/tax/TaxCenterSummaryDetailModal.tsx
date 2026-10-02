@@ -1,5 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
+  Animated,
+  Easing,
   Modal,
   Platform,
   Pressable,
@@ -9,12 +11,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -136,6 +132,17 @@ function w9StatusShort(linked: Vendor | undefined): { text: string; warn: boolea
   return { text: String(s || 'Not added'), warn: true };
 }
 
+function moneyColor(amount: number): string {
+  if (!Number.isFinite(amount) || amount === 0) return '#94a3b8';
+  if (amount < 0) return '#f87171';
+  return '#2dcc9a';
+}
+
+function formattedFigureColor(value: string): string {
+  const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+  return moneyColor(n);
+}
+
 function percentFromSummaryMargin(netMargin: number | null | undefined, grossIncomeCollected: number): string {
   if (grossIncomeCollected > 0 && netMargin != null && Number.isFinite(netMargin)) {
     return `${Math.round(netMargin * 100)}%`;
@@ -147,34 +154,31 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
   const meta = darkMode ? 'rgba(148, 163, 184, 0.95)' : Colors.sub;
   const meta2 = darkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(51, 65, 85, 0.88)';
   const metaSoft = darkMode ? 'rgba(226, 232, 240, 0.88)' : 'rgba(15, 23, 42, 0.78)';
-  const chipBg = darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface;
-  const chipBorder = darkMode ? 'rgba(255,255,255,0.12)' : Colors.line;
-  const rowCardBg = darkMode ? 'rgba(255,255,255,0.06)' : Colors.surface2;
-  const rowCardBorder = darkMode ? 'rgba(255,255,255,0.08)' : Colors.line;
-  const formulaBg = darkMode ? 'rgba(45,255,196,0.10)' : 'rgba(34, 197, 94, 0.12)';
-  const formulaBorder = darkMode ? 'rgba(45,255,196,0.28)' : 'rgba(34, 197, 94, 0.32)';
+  const chipBg = darkMode ? '#3A3A3C' : Colors.surface;
+  const chipBorder = darkMode ? 'rgba(148, 163, 184, 0.35)' : Colors.line;
+  const rowCardBg = darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2;
+  const rowCardBorder = darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line;
+  const formulaBg = darkMode ? 'rgba(45, 204, 154, 0.16)' : 'rgba(45, 204, 154, 0.12)';
+  const formulaBorder = darkMode ? 'rgba(45, 204, 154, 0.55)' : 'rgba(45, 204, 154, 0.4)';
 
   return StyleSheet.create({
     backdrop: {
       flex: 1,
-      backgroundColor: Colors.overlay,
-      justifyContent: 'flex-end',
-      alignItems: 'stretch',
+      backgroundColor: 'transparent',
     },
     sheetRing: {
       flex: 1,
       minHeight: 0,
-      borderRadius: 21,
-      padding: 1,
+      borderRadius: 20,
       zIndex: 1,
-      elevation: 12,
+      backgroundColor: darkMode ? '#202022' : Colors.card,
+      borderWidth: 1,
+      borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+      overflow: 'hidden',
     },
     sheetInner: {
       flex: 1,
       minHeight: 0,
-      backgroundColor: Colors.card,
-      borderRadius: 20,
-      overflow: 'hidden',
       paddingBottom: 10,
     },
     sheetHeader: {
@@ -240,6 +244,12 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
     chipTextWarn: {
       color: '#FBBF24',
     },
+    chipTextLive: {
+      color: '#2dcc9a',
+    },
+    chipTextZero: {
+      color: '#94a3b8',
+    },
     scroll: { flex: 1, minHeight: 0 },
     scrollContent: { paddingHorizontal: 12, paddingBottom: 28 },
     rowCard: {
@@ -278,7 +288,7 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
       borderColor: formulaBorder,
     },
     formulaLine: { color: Colors.text, fontSize: 14, fontWeight: '600', marginBottom: 8 },
-    formulaValues: { color: Colors.text, fontSize: 16, fontWeight: '800', marginBottom: 10 },
+    formulaValues: { color: '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 10 },
     formulaFoot: { color: meta, fontSize: 12, lineHeight: 18 },
     footerNote: {
       marginTop: 18,
@@ -294,10 +304,27 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
 
 type TaxDetailStyleSheet = ReturnType<typeof createStyles>;
 
-function Chip({ label, warn, styles: s }: { label: string; warn?: boolean; styles: TaxDetailStyleSheet }) {
+function Chip({
+  label,
+  warn,
+  figure,
+  styles: s,
+}: {
+  label: string;
+  warn?: boolean;
+  figure?: boolean;
+  styles: TaxDetailStyleSheet;
+}) {
+  const figureStyle = figure
+    ? formattedFigureColor(label) === '#2dcc9a'
+      ? s.chipTextLive
+      : formattedFigureColor(label) === '#f87171'
+        ? { color: '#f87171' as const }
+        : s.chipTextZero
+    : null;
   return (
     <View style={[s.chip, warn ? s.chipWarn : null]}>
-      <Text style={[s.chipText, warn ? s.chipTextWarn : null]} numberOfLines={2}>
+      <Text style={[s.chipText, warn ? s.chipTextWarn : figureStyle]} numberOfLines={2}>
         {label}
       </Text>
     </View>
@@ -326,6 +353,7 @@ export default function TaxCenterSummaryDetailModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => createStyles(Colors, darkMode), [Colors, darkMode]);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   /** Height between top and bottom safe areas — `windowHeight` alone ignores the status bar / home indicator. */
@@ -337,10 +365,21 @@ export default function TaxCenterSummaryDetailModal({
   const backdropBottomPad = Math.max(insets.bottom, 20) + 32;
   const backdropHorizontalPad = Math.max(Math.max(insets.left, insets.right), Platform.OS === 'web' ? 12 : 6);
   /**
-   * Fixed cap inside the padded backdrop — keeps the outer LinearGradient from growing past the
-   * visible area (which was clipping the bottom border). Slightly conservative % of safe height.
+   * Fixed cap inside the padded backdrop so the sheet stays inside the visible area.
+   * Slightly conservative % of safe height.
    */
   const sheetMaxHeightPx = Math.max(280, Math.floor(safeViewportHeight * 0.82 - 8));
+
+  useEffect(() => {
+    if (!visible) return;
+    backdropOpacity.setValue(0);
+    Animated.timing(backdropOpacity, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [backdropOpacity, visible]);
 
   const missingReceiptsExpenseCount = useMemo(
     () => expenseRows.filter((e) => !String(e.receiptUri ?? '').trim()).length,
@@ -355,7 +394,7 @@ export default function TaxCenterSummaryDetailModal({
         return (
           <>
             <Chip styles={styles} label={`${revenuePayments.length} payment row${revenuePayments.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} />
+            <Chip styles={styles} label={total} figure />
             <Chip styles={styles} label={yearChip} />
             <Chip styles={styles} label="Cash basis" />
           </>
@@ -364,7 +403,7 @@ export default function TaxCenterSummaryDetailModal({
         return (
           <>
             <Chip styles={styles} label={`${arRows.length} unpaid row${arRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} />
+            <Chip styles={styles} label={total} figure />
             <Chip styles={styles} label="Informational only" />
             <Chip styles={styles} label={yearChip} />
           </>
@@ -374,7 +413,7 @@ export default function TaxCenterSummaryDetailModal({
         return (
           <>
             <Chip styles={styles} label={`${expenseRows.length} expense row${expenseRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} />
+            <Chip styles={styles} label={total} figure />
             {miss > 0 ? (
               <Chip styles={styles} label={`Missing receipts: ${miss}`} warn />
             ) : (
@@ -388,7 +427,7 @@ export default function TaxCenterSummaryDetailModal({
         return (
           <>
             <Chip styles={styles} label={`${committedRows.length} committed row${committedRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} />
+            <Chip styles={styles} label={total} figure />
             <Chip styles={styles} label="Informational only" />
             <Chip styles={styles} label={yearChip} />
           </>
@@ -400,8 +439,12 @@ export default function TaxCenterSummaryDetailModal({
               styles={styles}
               label={`${subcontractorExpenseRows.length} payment${subcontractorExpenseRows.length === 1 ? '' : 's'}`}
             />
-            <Chip styles={styles} label={`Total paid ${total}`} />
-            <Chip styles={styles} label={`Potential 1099 review: ${review1099.potential1099VendorCount}`} />
+            <Chip styles={styles} label={`Total paid ${total}`} figure />
+            <Chip
+              styles={styles}
+              label={`Potential 1099 review: ${review1099.potential1099VendorCount}`}
+              warn={review1099.potential1099VendorCount > 0}
+            />
             <Chip styles={styles} label={yearChip} />
           </>
         );
@@ -409,7 +452,7 @@ export default function TaxCenterSummaryDetailModal({
         const miss = missingReceiptsExpenseCount;
         return (
           <>
-            <Chip styles={styles} label={`Receipt count: ${summary.receiptCount}`} />
+            <Chip styles={styles} label={`Receipt count: ${summary.receiptCount}`} figure />
             {miss > 0 ? <Chip styles={styles} label={`Missing receipts: ${miss}`} warn /> : <Chip styles={styles} label="Missing receipts: 0" />}
             <Chip styles={styles} label={yearChip} />
           </>
@@ -439,8 +482,13 @@ export default function TaxCenterSummaryDetailModal({
         <View style={styles.formulaBox}>
           <Text style={styles.formulaLine}>Revenue Collected - Expenses Paid = Net Income</Text>
           <Text style={styles.formulaValues}>
-            {formatMoney(summary.grossIncomeCollected)} - {formatMoney(summary.totalExpenses)} ={' '}
-            {formatMoney(summary.netProfit)}
+            <Text style={{ color: moneyColor(summary.grossIncomeCollected) }}>
+              {formatMoney(summary.grossIncomeCollected)}
+            </Text>
+            {' - '}
+            <Text style={{ color: moneyColor(summary.totalExpenses) }}>{formatMoney(summary.totalExpenses)}</Text>
+            {' = '}
+            <Text style={{ color: moneyColor(summary.netProfit) }}>{formatMoney(summary.netProfit)}</Text>
           </Text>
           <Text style={styles.formulaFoot}>
             Uses the same portfolio totals shown on Tax Center for {selectedYear}. Outstanding receivables and
@@ -454,8 +502,15 @@ export default function TaxCenterSummaryDetailModal({
         <View style={styles.formulaBox}>
           <Text style={styles.formulaLine}>Net Income / Revenue Collected = Net Margin</Text>
           <Text style={styles.formulaValues}>
-            {formatMoney(summary.netProfit)} / {formatMoney(summary.grossIncomeCollected)} ={' '}
-            {percentFromSummaryMargin(summary.netMargin, summary.grossIncomeCollected)}
+            <Text style={{ color: moneyColor(summary.netProfit) }}>{formatMoney(summary.netProfit)}</Text>
+            {' / '}
+            <Text style={{ color: moneyColor(summary.grossIncomeCollected) }}>
+              {formatMoney(summary.grossIncomeCollected)}
+            </Text>
+            {' = '}
+            <Text style={{ color: moneyColor(summary.netMargin == null ? 0 : summary.netMargin) }}>
+              {percentFromSummaryMargin(summary.netMargin, summary.grossIncomeCollected)}
+            </Text>
           </Text>
           <Text style={styles.formulaFoot}>Uses the same portfolio totals shown on Tax Center for {selectedYear}.</Text>
         </View>
@@ -493,7 +548,7 @@ export default function TaxCenterSummaryDetailModal({
                   <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                     {proj}
                   </Text>
-                  <Text style={styles.rowPrimaryRight}>{formatMoney(amt)}</Text>
+                  <Text style={[styles.rowPrimaryRight, { color: moneyColor(amt) }]}>{formatMoney(amt)}</Text>
                 </View>
               <Text style={styles.rowMeta}>
                 <Text style={dateFmt.warn ? styles.metaWarn : undefined}>{dateFmt.text}</Text>
@@ -524,7 +579,7 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                   {primary}
                 </Text>
-                <Text style={styles.rowPrimaryRight}>{formatMoney(r.amount)}</Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(r.amount) }]}>{formatMoney(r.amount)}</Text>
               </View>
               <Text style={styles.rowMeta}>
                 <Text style={due.warn ? styles.metaWarn : undefined}>{due.text}</Text>
@@ -561,7 +616,7 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                   {primary}
                 </Text>
-                <Text style={styles.rowPrimaryRight}>{formatMoney(amt)}</Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(amt) }]}>{formatMoney(amt)}</Text>
               </View>
               <Text style={styles.rowMeta}>
                 <Text style={paidFmt.warn ? styles.metaWarn : undefined}>{paidFmt.text}</Text>
@@ -595,7 +650,7 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                   {primary}
                 </Text>
-                <Text style={styles.rowPrimaryRight}>{formatMoney(r.amount)}</Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(r.amount) }]}>{formatMoney(r.amount)}</Text>
               </View>
               <Text style={styles.rowMeta}>
                 <Text style={committed.warn ? styles.metaWarn : undefined}>{committed.text}</Text>
@@ -636,7 +691,7 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                   {vendor}
                 </Text>
-                <Text style={styles.rowPrimaryRight}>{formatMoney(amt)}</Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(amt) }]}>{formatMoney(amt)}</Text>
               </View>
               <Text style={styles.rowMeta}>
                 <Text style={paidFmt.warn ? styles.metaWarn : undefined}>{paidFmt.text}</Text>
@@ -671,7 +726,7 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
                   {vendor}
                 </Text>
-                <Text style={styles.rowPrimaryRight}>{formatMoney(r.amount)}</Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(r.amount) }]}>{formatMoney(r.amount)}</Text>
               </View>
               <Text style={styles.rowMeta}>
                 <Text style={expDate.warn ? styles.metaWarn : undefined}>{expDate.text}</Text>
@@ -713,17 +768,21 @@ export default function TaxCenterSummaryDetailModal({
   ]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View
-        style={[
-          styles.backdrop,
-          {
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { backgroundColor: Colors.overlay, opacity: backdropOpacity }]}
+        />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close detail" />
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'flex-end',
             paddingBottom: backdropBottomPad,
             paddingHorizontal: backdropHorizontalPad,
-          },
-        ]}
-      >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close detail" />
+          }}
+        >
         <View
           style={{
             alignSelf: 'stretch',
@@ -732,12 +791,7 @@ export default function TaxCenterSummaryDetailModal({
             marginBottom: 8,
           }}
         >
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
-            style={styles.sheetRing}
-          >
+          <View style={styles.sheetRing}>
           <View style={styles.sheetInner}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title}</Text>
@@ -745,7 +799,9 @@ export default function TaxCenterSummaryDetailModal({
               <MaterialIcons name="close" size={26} color={Colors.text} />
             </Pressable>
           </View>
-          {summaryCardValue ? <Text style={styles.cardTotal}>{summaryCardValue}</Text> : null}
+          {summaryCardValue ? (
+            <Text style={[styles.cardTotal, { color: formattedFigureColor(summaryCardValue) }]}>{summaryCardValue}</Text>
+          ) : null}
           <Text style={styles.sheetSub}>{sheetContextLine(kind, selectedYear)}</Text>
           <Text style={styles.tableHint}>{detailDescription(kind)}</Text>
           {chips ? <View style={styles.chipRow}>{chips}</View> : null}
@@ -758,7 +814,8 @@ export default function TaxCenterSummaryDetailModal({
             <Text style={styles.footerNote}>{FOOTER_NOTE}</Text>
           </ScrollView>
           </View>
-          </LinearGradient>
+          </View>
+        </View>
         </View>
       </View>
     </Modal>

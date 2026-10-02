@@ -11,11 +11,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
 import {
   deletePricingRate,
   fetchPricingLibrary,
@@ -109,6 +106,24 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
     if (visible) void load();
   }, [visible, load]);
 
+  const confirmReset = () => {
+    Alert.alert(
+      'Reset all saved pricing?',
+      'This removes saved bid templates on this device and all library rates. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            await clearAllSavedPricingData();
+            await load();
+          },
+        },
+      ]
+    );
+  };
+
   const handleDelete = (id: string, name: string) => {
     Alert.alert('Delete rate?', `Remove "${name}" from your pricing library?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -130,42 +145,46 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={[styles.shell, { backgroundColor: Colors.bg, paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
-            style={styles.backButtonBorder}
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Close pricing library"
+            style={[
+              styles.backButton,
+              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+            ]}
           >
-            <GradientRingBackInner
-              darkMode={darkMode}
-              onPress={onClose}
-              style={[styles.backButtonInner, { backgroundColor: Colors.bg }]}
-              accessibilityLabel="Close pricing library"
-            >
-              <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-            </GradientRingBackInner>
-          </LinearGradient>
-          <View style={styles.headerText}>
-            <Text style={[styles.title, { color: Colors.text }]}>Pricing library</Text>
-            <Text style={[styles.subtitle, { color: Colors.sub }]}>Your saved contractor rates</Text>
+            <MaterialIcons name="chevron-left" size={22} color={darkMode ? '#e2e8f0' : '#000000'} />
+          </TouchableOpacity>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.title, { color: darkMode ? '#f9fafb' : Colors.text }]}>Pricing library</Text>
+            <Text style={[styles.subtitle, { color: Colors.sub }]}>Saved contractor rates</Text>
           </View>
         </View>
-        <Text style={{ color: Colors.sub, fontSize: 13, paddingHorizontal: 20, marginBottom: 12, lineHeight: 18 }}>
-          Rates you entered manually on past bids — per-unit (e.g. waterproofing $/sqft) or flat allowances
-          (permits, plans, fees). Auto-calculated splits are not saved. Suggestions always require your
-          approval.
-        </Text>
 
         {loading ? (
           <ActivityIndicator style={{ marginTop: 24 }} color={Colors.sub} />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
+          <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}>
             {sections.length === 0 ? (
-              <Text style={{ color: Colors.sub, fontSize: 14 }}>
-                No manually entered rates yet. Type prices on Confirm Scope or in manual pricing, then apply
-                the bid.
-              </Text>
+              <View
+                style={[
+                  styles.emptyCard,
+                  {
+                    backgroundColor: Colors.surface2,
+                    borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                  },
+                ]}
+              >
+                <Text style={[styles.emptyBody, { color: Colors.sub }]}>
+                  Rates you type on Confirm Scope or in manual pricing. Auto-calculated splits are not saved.
+                </Text>
+                <Text style={[styles.emptyTitle, { color: Colors.text }]}>No saved rates yet.</Text>
+                <TouchableOpacity style={styles.resetLink} onPress={confirmReset} activeOpacity={0.7}>
+                  <Text style={styles.resetLinkText}>Reset all saved pricing</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               sections.map((section) => (
                 <View key={section.trade} style={{ marginBottom: 20 }}>
@@ -183,7 +202,7 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
                         styles.card,
                         {
                           borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                          backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                          backgroundColor: Colors.surface2,
                         },
                       ]}
                     >
@@ -239,30 +258,11 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
                 </View>
               ))
             )}
-            <TouchableOpacity
-              style={{ marginTop: 16 }}
-              onPress={() => {
-                Alert.alert(
-                  'Reset all saved pricing?',
-                  'This removes saved bid templates on this device and all library rates. This cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Reset',
-                      style: 'destructive',
-                      onPress: async () => {
-                        await clearAllSavedPricingData();
-                        await load();
-                      },
-                    },
-                  ]
-                );
-              }}
-            >
-              <Text style={{ color: '#f87171', fontWeight: '700', textAlign: 'center' }}>
-                Reset all saved pricing
-              </Text>
-            </TouchableOpacity>
+            {sections.length > 0 ? (
+              <TouchableOpacity style={styles.resetLink} onPress={confirmReset} activeOpacity={0.7}>
+                <Text style={styles.resetLinkText}>Reset all saved pricing</Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         )}
       </View>
@@ -272,43 +272,56 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
 
 const styles = StyleSheet.create({
   shell: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 14,
-    gap: 14,
+  headerRow: {
     position: 'relative',
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+    marginHorizontal: 8,
   },
-  backButtonBorder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    padding: 1,
-    overflow: 'hidden',
-  },
-  backButtonInner: {
+  headerCopy: {
     width: '100%',
-    height: '100%',
-    borderRadius: 21,
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
+  subtitle: { fontSize: 14, lineHeight: 18, marginTop: 4, textAlign: 'center' },
+  scrollContent: {
+    paddingHorizontal: 8,
+    paddingBottom: 40,
+  },
+  emptyCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+  },
+  emptyBody: { fontSize: 14, lineHeight: 20 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', marginTop: 14 },
+  resetLink: {
+    marginTop: 16,
+    minHeight: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerText: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, fontWeight: '500', marginTop: 3 },
+  resetLinkText: { color: '#f87171', fontWeight: '700', fontSize: 15, textAlign: 'center' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     position: 'relative',
     padding: 15,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     marginBottom: 8,
     gap: 12,

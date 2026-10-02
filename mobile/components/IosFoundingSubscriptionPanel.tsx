@@ -38,6 +38,17 @@ type Props = {
   onEntitlementRefreshed?: () => void;
 };
 
+function offeringsUnavailableMessage(message: string): string | null {
+  if (
+    /configuration|offerings empty|could not be fetched|app store connect|storekit|problem with your configuration/i.test(
+      message,
+    )
+  ) {
+    return 'Prices show on a device or TestFlight build.';
+  }
+  return null;
+}
+
 const FEATURES = [
   'Unlimited projects',
   'Build with AI & AI Assistant',
@@ -61,30 +72,37 @@ export default function IosFoundingSubscriptionPanel({
   const [busyPackageId, setBusyPackageId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [priceNotice, setPriceNotice] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
 
   const loadOfferings = useCallback(async () => {
     if (!isAppleBillingAvailable()) {
-      setError('In-app purchases are not configured for this build.');
+      setPriceNotice('In-app purchases are not configured for this build.');
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
+    setPriceNotice(null);
     try {
       const { offering, packages: nextPackages } = await getFoundingOffering();
       const available = offering?.availablePackages || [];
       setPackages(nextPackages);
       setRcPackages(available);
       if (nextPackages.length === 0) {
-        setError(
-          'Subscription pricing is temporarily unavailable. Check your connection and try again.',
+        setPriceNotice(
+          'Prices show on a device or TestFlight build.',
         );
       }
       setOffline(false);
     } catch (e: any) {
       const message = String(e?.message || e || 'Could not load subscription options');
-      setError(message);
+      const unavailable = offeringsUnavailableMessage(message);
+      if (unavailable) {
+        setPriceNotice(unavailable);
+      } else {
+        setError('Subscription pricing is temporarily unavailable. Check your connection and try again.');
+      }
       setOffline(/network|offline|internet/i.test(message));
     } finally {
       setLoading(false);
@@ -171,12 +189,11 @@ export default function IosFoundingSubscriptionPanel({
       <Text style={[styles.title, { color: colors.text }]}>{FOUNDING_PLAN_DISPLAY_NAME}</Text>
       <Text style={[styles.body, { color: colors.subtext }]}>
         Full access to estimating, AI, job costing, supplier lookup, and tax organization. One user.
-        Founding access remains active while your subscription stays continuously active.
       </Text>
 
       {FEATURES.map((feature) => (
         <View key={feature} style={styles.featureRow}>
-          <MaterialIcons name="check" size={18} color={colors.success} />
+          <MaterialIcons name="check" size={18} color={colors.accent} />
           <Text style={[styles.featureText, { color: colors.text }]}>{feature}</Text>
         </View>
       ))}
@@ -186,6 +203,10 @@ export default function IosFoundingSubscriptionPanel({
           <ActivityIndicator color={colors.accent} />
           <Text style={[styles.helper, { color: colors.subtext }]}>Loading App Store pricing…</Text>
         </View>
+      ) : null}
+
+      {priceNotice ? (
+        <Text style={[styles.helper, { color: colors.subtext }]}>{priceNotice}</Text>
       ) : null}
 
       {error ? (
@@ -216,7 +237,7 @@ export default function IosFoundingSubscriptionPanel({
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.packageButtonText}>
+                  <Text style={[styles.packageButtonText, { color: '#04120C' }]}>
                     {isActive
                       ? 'Current plan'
                       : `Subscribe ${meta?.billingPeriodLabel || ''} — ${pkg.product.priceString}`}
@@ -232,21 +253,16 @@ export default function IosFoundingSubscriptionPanel({
         <Text style={[styles.helper, { color: colors.subtext }]}>{annualSavingsCopy}</Text>
       ) : null}
 
-      <Text style={[styles.legal, { color: colors.subtext }]}>
-        Payment is charged to your Apple ID. Subscriptions auto-renew until cancelled in Apple
-        subscription settings. Introductory trial eligibility and length are determined by Apple.
-      </Text>
-
       <View style={styles.actionsRow}>
         <TouchableOpacity
-          style={[styles.secondaryButton, { borderColor: colors.border }]}
+          style={styles.restoreLink}
           onPress={() => void handleRestore()}
           disabled={restoring || Boolean(busyPackageId)}
         >
           {restoring ? (
-            <ActivityIndicator color={colors.text} />
+            <ActivityIndicator color={colors.accent} />
           ) : (
-            <Text style={[styles.secondaryButtonText, { color: colors.text }]}>
+            <Text style={[styles.restoreLinkText, { color: colors.accent }]}>
               Restore Purchases
             </Text>
           )}
@@ -269,6 +285,11 @@ export default function IosFoundingSubscriptionPanel({
           </TouchableOpacity>
         ) : null}
       </View>
+
+      <Text style={[styles.legal, { color: colors.subtext }]}>
+        Payment is charged to your Apple ID. Subscriptions auto-renew until cancelled in Apple
+        subscription settings.
+      </Text>
     </View>
   );
 }
@@ -330,10 +351,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   packageButtonText: {
-    color: '#fff',
+    color: '#04120C',
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  restoreLink: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  restoreLinkText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   legal: {
     fontSize: 12,

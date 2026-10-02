@@ -37,7 +37,6 @@ import {
   electricalConflictNeedsChooser,
   conflictResolutionProvenanceEntry,
   filterLowConfidenceForReview,
-  filterUnreadableForReview,
   isWholeProjectPlanReviewNoise,
   formatPlanTakeoffQuantity,
   lowConfidenceConfirmationProvenance,
@@ -95,9 +94,6 @@ import {
   planReviewCheckboxBlockedMessage,
   resolvePlanAreaReconciliation,
   roomSourceLabel,
-  scopeTakeoffStatusLines,
-  planRoomSizeLabel,
-  WHOLE_PROJECT_ROOM_LIST_HINT,
   wholeProjectGarageRoomNote,
   wholeProjectReviewOmitsMeasurement,
   wholeProjectReviewOmitsRoom,
@@ -161,14 +157,12 @@ import {
   windowsDoorsReviewSelectionAppearance,
   windowsDoorsReviewShowsSelection,
   augmentWindowsDoorsScopeDetections,
-  windowsDoorsMeasurementKeyForScopeItem,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import { hydrateGarageDoorsPlanReviewMeasurements,
   GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   augmentGarageDoorsScopeDetections,
-  garageDoorsMeasurementKeysForScopeItem,
   garageDoorsTakeoffQuickMeasurementSources,
   seedGarageDoorsReviewMeasurements,
 } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
@@ -589,14 +583,27 @@ export default function PlanTakeoffReviewModal({
         : [],
     [effectiveMode, takeoff]
   );
+  const allowanceReviewRecords = useMemo(
+    () =>
+      planScopeRecords.filter(record => {
+        if (record.id.startsWith('room-')) return false;
+        return (
+          record.findings.length > 0 &&
+          record.findings.every(finding => finding.status === 'planning_allowance')
+        );
+      }),
+    [planScopeRecords]
+  );
+  const allowanceReviewCount = allowanceReviewRecords.reduce(
+    (sum, record) => sum + record.findings.length,
+    0
+  );
   const tradeReview = effectiveMode === 'selected_trade';
 
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
   const [roomRows, setRoomRows] = useState<PlanReviewRoomRow[]>([]);
   const [scopeChecked, setScopeChecked] = useState<Record<string, boolean>>({});
-  const [planReadOpen, setPlanReadOpen] = useState(false);
   const [allowancesOpen, setAllowancesOpen] = useState(false);
-  const [spacesOpen, setSpacesOpen] = useState(false);
   const [conflictChoices, setConflictChoices] = useState<
     Record<string, PlanConflictChoice | undefined>
   >({});
@@ -1661,19 +1668,6 @@ export default function PlanTakeoffReviewModal({
       effectiveTradeKey !== 'painting' || !paintingBidReviewKey(key)
     );
   });
-  const reviewUnreadable = filterUnreadableForReview(
-    unreadable,
-    conflictFieldSet
-  ).filter(field => {
-    const key = String(field.field || '');
-    if (
-      effectiveTradeKey === 'stucco' &&
-      (key === 'stuccoStories' || key === 'stuccoWallHeightFt')
-    ) {
-      return false;
-    }
-    return effectiveTradeKey !== 'painting' || !paintingBidReviewKey(key);
-  });
   const hvacReadingOverrides =
     effectiveTradeKey === 'hvac'
       ? {
@@ -1701,9 +1695,6 @@ export default function PlanTakeoffReviewModal({
     }) &&
     !hasDocumentedHvacVentilationCount(takeoff?.measurements || {});
   const hasMeasurements = rows.length > 0;
-  const hasRooms = roomRows.length > 0;
-  const hasReadingIssues =
-    reviewLowConfidence.length > 0 || reviewUnreadable.length > 0;
   const plumbingMissingItems =
     effectiveTradeKey === 'plumbing'
       ? unreadable
@@ -1734,22 +1725,6 @@ export default function PlanTakeoffReviewModal({
       getPlanTradeConfiguration(effectiveTradeKey)?.label ||
       'Trade'
     : null;
-  const hasStuccoWallQuantity =
-    Number(takeoff.measurements?.stuccoGrossWallSqft) > 0;
-  const hasRoofQuantity =
-    Number(takeoff.measurements?.roofSquares) > 0 ||
-    Number(
-      (
-        takeoff.itemQuantities as
-          | Record<string, { quantity?: number }>
-          | undefined
-      )?.roofing?.quantity
-    ) > 0;
-  const hasPlanFloorAreas =
-    (takeoff.rooms || []).some(r => Number(r.areaSqft) > 0) ||
-    Number(takeoff.measurements?.kitchenFloorSqft) > 0 ||
-    Number(takeoff.measurements?.bathroomFloorSqft) > 0 ||
-    Number(takeoff.measurements?.flooringSqft) > 0;
   const plumbingInventory = Object.entries(
     takeoff.fixtureInventory || {}
   ).filter(([, value]) => Number(value) > 0);
@@ -1776,9 +1751,6 @@ export default function PlanTakeoffReviewModal({
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  const setRoomRow = (id: string, patch: Partial<PlanReviewRoomRow>) => {
-    setRoomRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
-  };
 
   const handleApply = () => {
     const pendingManual = pendingManualConflictFields(
@@ -2637,49 +2609,50 @@ export default function PlanTakeoffReviewModal({
                 />
               </View>
             ) : null}
+            {effectiveTradeKey === 'hvac' && !hasMeasurements ? (
+              <PlanTakeoffLowConfidenceChooser
+                lowConfidence={hvacReviewReadings.filter(
+                  reading => Number(reading.value) > 0
+                )}
+                unreadable={[]}
+                accepted={lowConfidenceAccepted}
+                onToggleAccept={(field, _value) => {
+                  setLowConfidenceAccepted(prev => {
+                    const next = { ...prev };
+                    if (next[field]) delete next[field];
+                    else next[field] = true;
+                    return next;
+                  });
+                }}
+                onEditValue={(field, value) => {
+                  setRow(field, {
+                    value,
+                    include: true,
+                    pricingEligible: true,
+                    provenance: resolvePlanMeasurementProvenance({
+                      key: field,
+                      userConfirmed: true,
+                    }),
+                  });
+                  if (Number(value) > 0) {
+                    setLowConfidenceAccepted(prev => ({
+                      ...prev,
+                      [field]: true,
+                    }));
+                  }
+                }}
+                darkMode={darkMode}
+                captionColor={Colors.sub}
+              />
+            ) : null}
             {effectiveTradeKey === 'hvac' ? (
-              <>
-                <PlanTakeoffLowConfidenceChooser
-                  lowConfidence={hvacReviewReadings.filter(
-                    reading => Number(reading.value) > 0
-                  )}
-                  unreadable={[]}
-                  accepted={lowConfidenceAccepted}
-                  onToggleAccept={(field, _value) => {
-                    setLowConfidenceAccepted(prev => {
-                      const next = { ...prev };
-                      if (next[field]) delete next[field];
-                      else next[field] = true;
-                      return next;
-                    });
-                  }}
-                  onEditValue={(field, value) => {
-                    setRow(field, {
-                      value,
-                      include: true,
-                      pricingEligible: true,
-                      provenance: resolvePlanMeasurementProvenance({
-                        key: field,
-                        userConfirmed: true,
-                      }),
-                    });
-                    if (Number(value) > 0) {
-                      setLowConfidenceAccepted(prev => ({
-                        ...prev,
-                        [field]: true,
-                      }));
-                    }
-                  }}
-                  darkMode={darkMode}
-                  captionColor={Colors.sub}
-                />
-                <PlanTakeoffHvacOptionalAddOns
-                  showVentilationNotIncluded={showHvacVentilationNotIncluded}
-                  darkMode={darkMode}
-                  captionColor={Colors.sub}
-                />
-              </>
-            ) : hasMeasurements && effectiveTradeKey !== 'hvac' ? (
+              <PlanTakeoffHvacOptionalAddOns
+                showVentilationNotIncluded={showHvacVentilationNotIncluded}
+                darkMode={darkMode}
+                captionColor={Colors.sub}
+              />
+            ) : null}
+            {hasMeasurements ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Takeoff
@@ -3252,26 +3225,6 @@ export default function PlanTakeoffReviewModal({
               </View>
             )}
 
-            {hasReadingIssues &&
-            effectiveTradeKey !== 'hvac' &&
-            effectiveTradeKey !== 'electrical' ? (
-              <PlanTakeoffLowConfidenceChooser
-                lowConfidence={reviewLowConfidence}
-                unreadable={reviewUnreadable}
-                accepted={lowConfidenceAccepted}
-                onToggleAccept={(field, _value) => {
-                  setLowConfidenceAccepted(prev => {
-                    const next = { ...prev };
-                    if (next[field]) delete next[field];
-                    else next[field] = true;
-                    return next;
-                  });
-                }}
-                darkMode={darkMode}
-                captionColor={Colors.sub}
-              />
-            ) : null}
-
             {effectiveTradeKey !== 'electrical' &&
             (electricalDetectedLines.length || electricalStatusLines.length) ? (
               <View style={styles.section}>
@@ -3317,475 +3270,57 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : null}
 
-            {planScopeRecords.length || hasRooms ? (
+            {allowanceReviewRecords.length ? (
               <View style={styles.section}>
-                {(() => {
-                  const sheetRecords = planScopeRecords.filter(
-                    record => !record.id.startsWith('room-')
-                  );
-                  const allowanceRecords = sheetRecords.filter(
-                    record =>
-                      record.findings.length > 0 &&
-                      record.findings.every(
-                        finding => finding.status === 'planning_allowance'
-                      )
-                  );
-                  const detailRecords = sheetRecords.filter(
-                    record => !allowanceRecords.includes(record)
-                  );
-                  const allowanceCount = allowanceRecords.reduce(
-                    (sum, record) => sum + record.findings.length,
-                    0
-                  );
-                  const sheetSummary = detailRecords.some(record =>
-                    /cover|electrical/i.test(record.title)
-                  )
-                    ? 'Cover sheet and electrical counts are in the measurements above.'
-                    : 'These counts are already in the measurements above.';
-                  const referenceRows = [
-                    detailRecords.length
-                      ? {
-                          key: 'sheets',
-                          title: 'What the sheets showed',
-                          open: planReadOpen,
-                          onPress: () => setPlanReadOpen(open => !open),
-                        }
-                      : null,
-                    allowanceCount > 0
-                      ? {
-                          key: 'allowances',
-                          title: `${allowanceCount} trade${allowanceCount === 1 ? '' : 's'} stay planning allowances`,
-                          open: allowancesOpen,
-                          onPress: () => setAllowancesOpen(open => !open),
-                        }
-                      : null,
-                    hasRooms
-                      ? {
-                          key: 'spaces',
-                          title: semanticsOn
-                            ? `${roomRows.length} space${roomRows.length === 1 ? '' : 's'}`
-                            : `${roomRows.length} room${roomRows.length === 1 ? '' : 's'}`,
-                          open: spacesOpen,
-                          onPress: () => setSpacesOpen(open => !open),
-                        }
-                      : null,
-                  ].filter(
-                    (row): row is NonNullable<typeof row> => row != null
-                  );
-                  return (
-                    <>
-                      <DisclosureList
-                        darkMode={darkMode}
-                        rows={referenceRows.map(row => ({
-                          ...row,
-                          detail:
-                            row.key === 'sheets' ? (
-                              <>
-                                <Text
-                                  style={[
-                                    styles.roomHint,
-                                    { color: Colors.sub, marginBottom: 12 },
-                                  ]}
-                                >
-                                  {sheetSummary}
-                                </Text>
-                                {detailRecords.map((record, recordIndex) => (
-                                <ReviewPanel
-                                  key={record.id}
-                                  darkMode={darkMode}
-                                  style={{
-                                    marginBottom:
-                                      recordIndex === detailRecords.length - 1
-                                        ? 0
-                                        : 12,
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.itemTitle,
-                                      { color: Colors.text },
-                                    ]}
-                                  >
-                                    {record.title}
-                                  </Text>
-                                  {record.findings.map(item => {
-                                    const qty =
-                                      item.quantity != null && item.unit
-                                        ? `${item.quantity.toLocaleString()} ${item.unit}`
-                                        : null;
-                                    const status =
-                                      item.status === 'counted_from_drawings'
-                                        ? 'Counted from the drawings — confirm'
-                                        : item.status === 'planning_allowance'
-                                          ? 'Planning allowance'
-                                          : 'Read from the plan';
-                                    const statusColor =
-                                      item.status === 'read_from_plan'
-                                        ? '#2dcc9a'
-                                        : '#fbbf24';
-                                    return (
-                                      <View
-                                        key={item.id}
-                                        style={{ marginTop: 10 }}
-                                      >
-                                        <View
-                                          style={{
-                                            flexDirection: 'row',
-                                            justifyContent: 'space-between',
-                                            gap: 10,
-                                          }}
-                                        >
-                                          <Text
-                                            style={{
-                                              color: Colors.text,
-                                              fontSize: 14,
-                                              fontWeight: '600',
-                                              flex: 1,
-                                            }}
-                                          >
-                                            {item.label}
-                                          </Text>
-                                          {qty ? (
-                                            <Text
-                                              style={{
-                                                color: Colors.text,
-                                                fontSize: 14,
-                                                fontWeight: '700',
-                                              }}
-                                            >
-                                              {qty}
-                                            </Text>
-                                          ) : null}
-                                        </View>
-                                        <Text
-                                          style={{
-                                            color: statusColor,
-                                            fontSize: 12,
-                                            fontWeight: '700',
-                                            marginTop: 2,
-                                          }}
-                                        >
-                                          {status}
-                                        </Text>
-                                      </View>
-                                    );
-                                  })}
-                                </ReviewPanel>
-                                ))}
-                              </>
-                            ) : row.key === 'allowances' ? (
-                              <>
-                                {allowanceRecords.map((record, recordIndex) => (
-                                <ReviewPanel
-                                  key={record.id}
-                                  darkMode={darkMode}
-                                  style={{
-                                    marginBottom:
-                                      recordIndex === allowanceRecords.length - 1
-                                        ? 0
-                                        : 12,
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.itemTitle,
-                                      { color: Colors.text },
-                                    ]}
-                                  >
-                                    {record.title}
-                                  </Text>
-                                  {record.findings.map(item => (
-                                    <Text
-                                      key={item.id}
-                                      style={{
-                                        color: '#fbbf24',
-                                        fontSize: 13,
-                                        fontWeight: '600',
-                                        marginTop: 8,
-                                      }}
-                                    >
-                                      {item.label}
-                                    </Text>
-                                  ))}
-                                </ReviewPanel>
-                                ))}
-                              </>
-                            ) : null,
-                        }))}
-                      />
-                    </>
-                  );
-                })()}
-              </View>
-            ) : null}
-
-            {hasRooms && spacesOpen ? (
-              <View style={styles.section}>
-                {spacesOpen ? (
-                  <>
-                <Text style={[styles.roomHint, { color: Colors.sub }]}>
-                  {semanticsOn
-                    ? WHOLE_PROJECT_ROOM_LIST_HINT
-                    : 'Per-room SF for finishes that differ by space (tile, carpet, etc.)'}
-                </Text>
-                {roomRows.map(room => (
-                  <ReviewPanel key={room.id} darkMode={darkMode}>
-                    <View style={styles.quantityHeader}>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text
-                          style={[styles.itemTitle, { color: Colors.text }]}
-                          numberOfLines={1}
-                        >
-                          {room.name}
-                        </Text>
-                        {room.lengthFt != null && room.widthFt != null ? (
-                          <Text
-                            style={[styles.evidenceText, { color: Colors.sub }]}
-                          >
-                            {planRoomSizeLabel(room.lengthFt, room.widthFt)}
-                          </Text>
-                        ) : null}
-                        {room.sourceLabel ? (
-                          <Text
-                            style={[styles.evidenceText, { color: Colors.sub }]}
-                            numberOfLines={2}
-                          >
-                            {room.sourceLabel}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                    <View
-                      style={[
-                        styles.valueShell,
-                        {
-                          borderColor: darkMode
-                            ? PANEL_BORDER_DARK
-                            : PANEL_BORDER_LIGHT,
-                          backgroundColor: darkMode
-                            ? PANEL_INPUT_BG_DARK
-                            : PANEL_INPUT_BG_LIGHT,
-                        },
-                      ]}
-                    >
-                      <TextInput
-                        value={room.areaSqft}
-                        onChangeText={t =>
-                          setRoomRow(room.id, {
-                            areaSqft: t,
-                            provenance: resolvePlanMeasurementProvenance({
-                              key: `room:${room.name}`,
-                              hasReliableDimensions: true,
-                            }),
-                          })
-                        }
-                        {...aiScopeConfirmNumericKeyboardProps}
-                        keyboardType='decimal-pad'
-                        placeholder='—'
-                        placeholderTextColor={Colors.sub}
-                        style={[styles.valueInput, { color: Colors.text }]}
-                      />
-                      <Text style={[styles.unitText, { color: Colors.sub }]}>
-                        sqft
-                      </Text>
-                    </View>
-                  </ReviewPanel>
-                ))}
-                  </>
-                ) : null}
-              </View>
-            ) : null}
-
-            {scopeDetections.length ? (
-              <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
-                  Scope
-                </Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  Suggested scope
-                </Text>
-                {scopeDetections.map(d => {
-                  const openingKeys =
-                    effectiveTradeKey === 'windows_doors'
-                      ? (() => {
-                          const key = windowsDoorsMeasurementKeyForScopeItem(
-                            d.itemId
-                          );
-                          return key ? [key] : [];
-                        })()
-                      : effectiveTradeKey === 'garage_doors'
-                        ? garageDoorsMeasurementKeysForScopeItem(d.itemId)
-                        : [];
-                  const isOpeningCountTrade =
-                    effectiveTradeKey === 'windows_doors' ||
-                    effectiveTradeKey === 'garage_doors';
-                  const openingConflict =
-                    isOpeningCountTrade &&
-                    openingKeys.some(key => conflictFieldSet.has(key));
-                  const statusLines = scopeTakeoffStatusLines({
-                    itemId: d.itemId,
-                    evidence: d.evidence,
-                    hasRoofQuantity,
-                    hasStuccoWallQuantity,
-                    assumptions: takeoff.assumptions,
-                    hasPlanFloorAreas,
-                    hasInsulationPrimaryTakeoff:
-                      effectiveTradeKey === 'insulation' &&
-                      rows.some(
-                        row =>
-                          row.key === 'exteriorWallInsulationSqft' &&
-                          Number(row.value) > 0
-                      ) &&
-                      rows.some(
-                        row =>
-                          row.key === 'atticInsulationSqft' &&
-                          Number(row.value) > 0
-                      ),
-                    insulationPrimaryConfirmed:
-                      effectiveTradeKey === 'insulation' &&
-                      rows.some(
-                        row =>
-                          row.key === 'exteriorWallInsulationSqft' &&
-                          Number(row.value) > 0 &&
-                          row.pricingEligible &&
-                          row.include
-                      ) &&
-                      rows.some(
-                        row =>
-                          row.key === 'atticInsulationSqft' &&
-                          Number(row.value) > 0 &&
-                          row.pricingEligible &&
-                          row.include
-                      ),
-                    hasDrywallPrimaryTakeoff:
-                      effectiveTradeKey === 'drywall' &&
-                      rows.some(
-                        row =>
-                          row.key === 'drywallSqft' && Number(row.value) > 0
-                      ),
-                    drywallPrimaryConfirmed:
-                      effectiveTradeKey === 'drywall' &&
-                      rows.some(
-                        row =>
-                          row.key === 'drywallSqft' &&
-                          Number(row.value) > 0 &&
-                          row.pricingEligible &&
-                          row.include
-                      ),
-                    hasOpeningCount:
-                      isOpeningCountTrade &&
-                      openingKeys.length > 0 &&
-                      openingKeys.some(key =>
-                        rows.some(
-                          row =>
-                            row.key === key &&
-                            Number(row.value) > 0 &&
-                            row.include
-                        )
-                      ),
-                    openingConflict,
-                    openingDetectedCount: (() => {
-                      if (
-                        !isOpeningCountTrade ||
-                        !openingKeys.length ||
-                        openingConflict
-                      ) {
-                        return null;
-                      }
-                      const includedTotal = openingKeys.reduce((sum, key) => {
-                        const included = rows.find(
-                          row =>
-                            row.key === key &&
-                            Number(row.value) > 0 &&
-                            row.include
-                        );
-                        return included
-                          ? sum + Math.round(Number(included.value))
-                          : sum;
-                      }, 0);
-                      if (includedTotal > 0) return includedTotal;
-                      const measuredTotal = openingKeys.reduce((sum, key) => {
-                        const measured = Number(takeoff.measurements?.[key]);
-                        return Number.isFinite(measured) && measured > 0
-                          ? sum + Math.round(measured)
-                          : sum;
-                      }, 0);
-                      return measuredTotal > 0 ? measuredTotal : null;
-                    })(),
-                  });
-                  const scopeNeedLine = [...statusLines]
-                    .reverse()
-                    .find(line =>
-                      /\bneeds\b|still required|ready for review|takeoff confirmed/i.test(
-                        line
-                      )
-                    );
-                  const scopeNeedsAttention = Boolean(
-                    scopeNeedLine &&
-                      /\bneeds\b|still required|ready for review/i.test(
-                        scopeNeedLine
-                      ) &&
-                      !/confirmed/i.test(scopeNeedLine)
-                  );
-                  return (
-                    <TouchableOpacity
-                      key={d.itemId}
-                      onPress={() =>
-                        setScopeChecked(prev => ({
-                          ...prev,
-                          [d.itemId]: !prev[d.itemId],
-                        }))
-                      }
-                      activeOpacity={0.7}
-                    >
-                      <ReviewPanel darkMode={darkMode}>
-                        <View style={styles.quantityHeader}>
-                          <Ionicons
-                            name={
-                              scopeChecked[d.itemId]
-                                ? 'checkbox'
-                                : 'square-outline'
-                            }
-                            size={22}
-                            color={
-                              scopeChecked[d.itemId]
-                                ? scopeNeedsAttention
-                                  ? '#fbbf24'
-                                  : '#2dcc9a'
-                                : Colors.sub
-                            }
-                            style={styles.checkbox}
-                          />
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text
-                              style={[styles.itemTitle, { color: Colors.text }]}
-                              numberOfLines={2}
+                <DisclosureList
+                  darkMode={darkMode}
+                  rows={[
+                    {
+                      key: 'allowances',
+                      title: `${allowanceReviewCount} trade${allowanceReviewCount === 1 ? '' : 's'} stay planning allowances`,
+                      open: allowancesOpen,
+                      onPress: () => setAllowancesOpen(open => !open),
+                      detail: (
+                        <>
+                          {allowanceReviewRecords.map((record, recordIndex) => (
+                            <ReviewPanel
+                              key={record.id}
+                              darkMode={darkMode}
+                              style={{
+                                marginBottom:
+                                  recordIndex === allowanceReviewRecords.length - 1
+                                    ? 0
+                                    : 12,
+                              }}
                             >
-                              {d.label || d.itemId}
-                            </Text>
-                            {scopeNeedLine ? (
+                              <Text
+                                style={[styles.itemTitle, { color: Colors.text }]}
+                              >
+                                {record.title}
+                              </Text>
+                              {record.findings.map(item => (
                                 <Text
+                                  key={item.id}
                                   style={{
-                                    color: scopeNeedsAttention
-                                      ? '#fbbf24'
-                                      : '#2dcc9a',
-                                    fontSize: 12,
-                                    fontWeight: '700',
-                                    marginTop: 4,
+                                    color: '#fbbf24',
+                                    fontSize: 13,
+                                    fontWeight: '600',
+                                    marginTop: 8,
                                   }}
-                                  numberOfLines={2}
                                 >
-                                  {scopeNeedLine}
+                                  {item.label}
                                 </Text>
-                              ) : null}
-                          </View>
-                        </View>
-                      </ReviewPanel>
-                    </TouchableOpacity>
-                  );
-                })}
+                              ))}
+                            </ReviewPanel>
+                          ))}
+                        </>
+                      ),
+                    },
+                  ]}
+                />
               </View>
             ) : null}
+
           </ScrollView>
 
           {!keyboardVisible ? (

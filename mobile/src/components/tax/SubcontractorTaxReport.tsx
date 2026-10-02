@@ -45,7 +45,7 @@ export default function SubcontractorTaxReport({ vendors, formatMoney }: Props) 
               ) : null}
               {vendor.potential1099Review ? (
                 <View style={[styles.flag, styles.reviewFlag]}>
-                  <MaterialIcons name="fact-check" size={14} color="#2DFFC4" />
+                  <MaterialIcons name="fact-check" size={14} color="#2dcc9a" />
                   <Text style={[styles.flagText, styles.reviewText]}>Potential 1099 review</Text>
                 </View>
               ) : null}
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   amount: {
-    color: '#2DFFC4',
+    color: '#2dcc9a',
     fontSize: 15,
     fontWeight: '900',
   },
