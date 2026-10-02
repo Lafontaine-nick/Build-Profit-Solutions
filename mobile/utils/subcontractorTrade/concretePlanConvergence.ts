@@ -77,20 +77,37 @@ function positiveNumber(value: unknown): number | null {
 }
 
 /**
- * House + garage slab area prices as one foundation package at $8/SF.
- * Footings and rebar stay visible and are included in that rate.
- * Flatwork stays on its own card. No slab area means footing and rebar price on their own.
+ * House and garage slabs price at $8/SF.
+ * Footings ($350/CY) and rebar ($1.75/SF) price on their own cards once a
+ * quantity is entered. With a slab on the bid and no separate quantity, those
+ * lines stay at $0 so an empty card is not billed again.
+ * Flatwork stays on its own card.
  */
 export function concreteFoundationPackageDollars(
   itemId: string,
-  measurements: { houseSlabSqft?: unknown; garageSlabSqft?: unknown } | null | undefined,
+  measurements:
+    | {
+        houseSlabSqft?: unknown;
+        garageSlabSqft?: unknown;
+        concreteCy?: unknown;
+        concreteReinforcementSqft?: unknown;
+      }
+    | null
+    | undefined,
   templateKey?: string | null
 ): { material: number; labor: number; allowance: number } | 'included' | null {
   if (String(templateKey || '').toLowerCase() !== 'concrete') return null;
   const house = positiveNumber(measurements?.houseSlabSqft) ?? 0;
   const garage = positiveNumber(measurements?.garageSlabSqft) ?? 0;
   if (!(house > 0 || garage > 0)) return null;
-  if (itemId === 'pour_foundation' || itemId === 'reinforcement') return 'included';
+  if (itemId === 'pour_foundation') {
+    return positiveNumber(measurements?.concreteCy) ? null : 'included';
+  }
+  if (itemId === 'reinforcement') {
+    return positiveNumber(measurements?.concreteReinforcementSqft)
+      ? null
+      : 'included';
+  }
   const area = itemId === 'house_slab' ? house : itemId === 'garage_slab' ? garage : 0;
   if (!(area > 0)) return null;
   const half = Math.round(area * 4 * 100) / 100;

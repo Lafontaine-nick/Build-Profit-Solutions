@@ -38,6 +38,7 @@ import {
 } from '@/utils/scopeItemQuantities';
 import {
   APPLIED_PRICING_MATERIAL_LABOR_SCOPE_KEYS,
+  APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS,
   appliedPricingBucketForScope,
   inferNationalMaterialLaborSplit,
 } from '@/utils/appliedPricingBreakdownBuckets';
@@ -934,6 +935,25 @@ export function sumStep3ReviewBudgetTotals(
 /** Build cost / SF on Confirm Scope — whole-home builds only, not room/trade remodels. */
 export function shouldShowAppliedBuildCostPerSf(templateKey?: string | null): boolean {
   return isWholeHomeQuickMeasurementTemplate(templateKey);
+}
+
+export function isHardCostExcludedScopeItem(itemId: string | null | undefined): boolean {
+  const id = String(itemId || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  return APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS.has(id);
+}
+
+/** Applied dollars that are fees or overhead, not construction hard cost. */
+export function sumHardCostExcludedAppliedDollars(
+  lines: Pick<ConfirmScopeAppliedPricingLine, 'itemId' | 'total'>[]
+): number {
+  const total = lines.reduce(
+    (sum, line) => sum + (isHardCostExcludedScopeItem(line.itemId) ? Number(line.total) || 0 : 0),
+    0
+  );
+  return Math.round(total * 100) / 100;
 }
 
 /** Whole-dollar $/living SF — matches benchmark engine + BenchmarkReasonablenessCard. */

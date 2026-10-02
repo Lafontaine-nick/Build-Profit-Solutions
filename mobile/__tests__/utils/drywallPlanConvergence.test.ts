@@ -1,6 +1,7 @@
 import {
   buildDrywallStructuredMeasurements,
   copyDrywallQuantityFields,
+  drywallReviewSurfaces,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
   hydrateDrywallComponentMeasurementsFromPlanContext,
@@ -172,6 +173,18 @@ describe('drywall plan convergence', () => {
     expect(Number(hydrated.drywallWallSqft)).toBeCloseTo(9150, 0);
     expect(hydrated.drywallSqft).toBe(14728);
     expect(Number(hydrated.fireRatedDrywallSqft)).toBeCloseTo(1917.9, 0);
+  });
+
+  test('reviews drywall as house interior and garage surfaces', () => {
+    expect(
+      drywallReviewSurfaces({
+        drywallWallSqft: 6428,
+        drywallCeilingSqft: 2571,
+        garageWallDrywallSqft: 1647.1,
+        garageCeilingDrywallSqft: 1427,
+        fireRatedDrywallSqft: 3074,
+      })
+    ).toEqual({ houseInteriorSqft: 8999, garageSqft: 3074 });
   });
 
   test('prices garage once and uses the cover garage when the room read is short', () => {
@@ -447,19 +460,19 @@ describe('drywall plan convergence', () => {
       itemQuantities: {},
     } as any;
     const resolved = resolveChecklistItemQuantity('drywall', measurements, {
-      templateKey: 'drywall',
+      templateKey: 'ground_up',
     });
     const mixed = resolveScopeItemSuggestedPricing(
       'drywall',
       measurements,
-      'drywall',
+      'ground_up',
       resolved,
       { checklistItems: [{ id: 'drywall', state: 'included' }] }
     );
     const standardOnly = resolveScopeItemSuggestedPricing(
       'drywall',
       { ...measurements, fireRatedDrywallSqft: 0, garageWallDrywallSqft: 0, garageCeilingDrywallSqft: 0 },
-      'drywall',
+      'ground_up',
       { ...resolved, quantity: 12810 },
       { checklistItems: [{ id: 'drywall', state: 'included' }] }
     );
@@ -489,12 +502,12 @@ describe('drywall plan convergence', () => {
       itemQuantities: {},
     } as any;
     const resolved = resolveChecklistItemQuantity('drywall', measurements, {
-      templateKey: 'drywall',
+      templateKey: 'ground_up',
     });
     const pricing = resolveScopeItemSuggestedPricing(
       'drywall',
       measurements,
-      'drywall',
+      'ground_up',
       resolved,
       { checklistItems: [{ id: 'drywall', state: 'included' }] }
     );
@@ -540,31 +553,40 @@ describe('drywall plan convergence', () => {
         },
       },
     } as any;
-    const resolved = resolveChecklistItemQuantity('drywall', measurements, {
-      templateKey: 'drywall',
-    });
-    const pricing = resolveScopeItemSuggestedPricing(
-      'drywall',
-      measurements,
-      'drywall',
-      resolved,
+    const checklistItems = [
+      { id: 'hang', state: 'included' },
+      { id: 'finish_tape', state: 'included' },
+      { id: 'texture', state: 'included', choiceId: 'orange_peel' },
+    ];
+    const libraryRates = [
       {
-        checklistItems: [{ id: 'drywall', state: 'included' }],
-        libraryRates: [
-          {
-            scopeItemName: 'Drywall board and accessories',
-            category: 'material',
-            unitType: 'sqft',
-            unitRate: 2.92,
-          },
-          {
-            scopeItemName: 'Drywall hang and finish labor',
-            category: 'labor',
-            unitType: 'sqft',
-            unitRate: 8.67,
-          },
-        ],
-      }
+        scopeItemName: 'Drywall board and accessories',
+        category: 'material',
+        unitType: 'sqft',
+        unitRate: 2.92,
+      },
+      {
+        scopeItemName: 'Drywall hang and finish labor',
+        category: 'labor',
+        unitType: 'sqft',
+        unitRate: 8.67,
+      },
+    ];
+    const priced = ['hang', 'finish_tape', 'texture'].map(itemId => {
+      const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+        templateKey: 'drywall',
+      });
+      return resolveScopeItemSuggestedPricing(
+        itemId,
+        measurements,
+        'drywall',
+        resolved,
+        { checklistItems, libraryRates }
+      );
+    });
+    const crewTotal = priced.reduce(
+      (sum, pricing) => sum + (pricing.fill?.total ?? 0),
+      0
     );
     const benchmark = drywallGypsumBarometerPackageDollars(measurements, {
       packageSqft: 12073,
@@ -572,9 +594,13 @@ describe('drywall plan convergence', () => {
     });
     expect(benchmark?.total).toBeGreaterThan(19000);
     expect(benchmark?.total).toBeLessThan(23000);
-    expect(pricing.fill?.total).toBe(benchmark?.total);
-    expect(pricing.fill?.rateSourceLabel).toMatch(/Plan 49 gypsum board benchmark/i);
-    expect(pricing.fill?.materialSource).toBe('local_benchmark');
+    expect(crewTotal).toBeGreaterThan(19000);
+    expect(crewTotal).toBeLessThan(23000);
+    expect(crewTotal).toBeLessThan(12073 * (2.92 + 8.67));
+    expect(priced[0].fill?.rateSourceLabel).toMatch(
+      /production planning rate|gypsum board benchmark/i
+    );
+    expect(priced[0].fill?.materialSource).not.toBe('library');
   });
 
   test('applies modest sheet-length material savings without labor changes', () => {
@@ -648,12 +674,12 @@ describe('drywall plan convergence', () => {
       itemQuantities: {},
     } as any;
     const resolved = resolveChecklistItemQuantity('drywall', measurements, {
-      templateKey: 'drywall',
+      templateKey: 'ground_up',
     });
     const pricing = resolveScopeItemSuggestedPricing(
       'drywall',
       measurements,
-      'drywall',
+      'ground_up',
       resolved,
       { checklistItems: [{ id: 'drywall', state: 'included' }] }
     );
@@ -688,12 +714,12 @@ describe('drywall plan convergence', () => {
         drywallFinishLevel: finishLevel,
       } as any;
       const resolved = resolveChecklistItemQuantity('drywall', measurements, {
-        templateKey: 'drywall',
+        templateKey: 'ground_up',
       });
       const pricing = resolveScopeItemSuggestedPricing(
         'drywall',
         measurements,
-        'drywall',
+        'ground_up',
         resolved,
         { checklistItems }
       );

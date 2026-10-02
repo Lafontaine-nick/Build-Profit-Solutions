@@ -252,7 +252,7 @@ describe('electrical Phase 2J trim-out package pricing', () => {
     ).toBe('auto_planning');
   });
 
-  it('suppresses ground-up electrical_trim living-SF package when detailed 2C counts exist', () => {
+  it('keeps the ground-up electrical fixtures allowance when device counts exist', () => {
     const pricing = resolveScopeItemSuggestedPricing(
       'electrical_trim',
       inputWith({
@@ -267,8 +267,9 @@ describe('electrical Phase 2J trim-out package pricing', () => {
           standardReceptacleCount: 12,
         }),
         { templateKey: 'ground_up' }
-      )
+      ),
+      { state: 'UT' }
     );
-    expect(pricing.fill).toBeNull();
+    expect(pricing.fill?.total).toBe(2740);
   });
 });

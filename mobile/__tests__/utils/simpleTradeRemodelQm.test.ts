@@ -13,6 +13,7 @@ import {
   HVAC_EQUIPMENT_OPTION_IDS,
   HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT,
   HVAC_SYSTEMS_OPTION_ID,
+  isHvacQmScopeItemActive,
   hvacPlanInstallIncludesDistribution,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipReviewState,
@@ -819,6 +820,51 @@ describe('simple trade QM panels', () => {
     expect(seeded.hvacThermostatCount).toBe(1);
     expect(seeded.hvacSupplyRegisterCount).toBe(1);
     expect(seeded.hvacReturnGrilleCount).toBe(1);
+  });
+
+  it('keeps HVAC controls and project add-ons off Confirm Scope until Quick Measurements selects them', () => {
+    const idle = {
+      tradeScopeSelections: {
+        hvac: [HVAC_SYSTEMS_OPTION_ID, HVAC_CAPACITY_OPTION_ID],
+      },
+      hvacSystemCount: 1,
+      hvacSystemTons: 4,
+    };
+    expect(isHvacQmScopeItemActive('ventilation', idle)).toBe(false);
+    expect(isHvacQmScopeItemActive('permits', idle)).toBe(false);
+    expect(isHvacQmScopeItemActive('cleanup', idle)).toBe(false);
+    expect(isHvacQmScopeItemActive('hvac', idle)).toBe(true);
+    expect(isHvacQmScopeItemActive('thermostat', idle)).toBe(true);
+
+    const panel = simpleTradePanelFor('hvac');
+    const synced = panel.syncScopeItems(
+      [
+        { id: 'hvac', state: 'included' as const },
+        { id: 'ventilation', state: 'unsure' as const },
+        { id: 'permits', state: 'unsure' as const },
+        { id: 'cleanup', state: 'unsure' as const },
+      ],
+      idle
+    );
+    expect(synced.find(item => item.id === 'ventilation')?.state).toBe(
+      'excluded'
+    );
+    expect(synced.find(item => item.id === 'permits')?.state).toBe('excluded');
+    expect(synced.find(item => item.id === 'cleanup')?.state).toBe('excluded');
+    expect(synced.find(item => item.id === 'hvac')?.state).toBe('included');
+
+    expect(
+      isHvacQmScopeItemActive('ventilation', {
+        tradeScopeSelections: { hvac: ['ventilation'] },
+        hvacVentilationCount: 1,
+      })
+    ).toBe(true);
+    expect(isHvacQmScopeItemActive('permits', { hvacPermitCount: 1 })).toBe(
+      true
+    );
+    expect(isHvacQmScopeItemActive('cleanup', { hvacCleanupCount: 1 })).toBe(
+      true
+    );
   });
 
   it('does not seed whole-house ventilation without a documented count', () => {

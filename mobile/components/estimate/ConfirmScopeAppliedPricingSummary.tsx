@@ -60,9 +60,18 @@ export default function ConfirmScopeAppliedPricingSummary({
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Allowances {formatPlanningMoney(breakdown.allowance)}
+              Soft costs {formatPlanningMoney(breakdown.allowance)}
             </Text>
           </View>
+          {showBuildCost ? (
+            <Text
+              style={[styles.perSqft, { color: '#2dcc9a' }]}
+              accessibilityRole="text"
+            >
+              {formatBuildCostPerLivingSf(buildCostPerLivingSf)}
+              <Text style={styles.perSqftUnit}>/{buildCostUnitSuffix} hard cost</Text>
+            </Text>
+          ) : null}
         </>
       ) : null}
 
@@ -81,24 +90,6 @@ export default function ConfirmScopeAppliedPricingSummary({
         </Pressable>
       ) : null}
 
-      {showApplied && showBuildCost ? (
-        <View
-          style={[
-            styles.divider,
-            { backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line },
-          ]}
-        />
-      ) : null}
-
-      {showBuildCost ? (
-        <>
-          <Text style={[styles.label, { color: text }]}>Build cost / SF</Text>
-          <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
-            {formatBuildCostPerLivingSf(buildCostPerLivingSf)}
-            <Text style={[styles.primaryUnit, { color: muted }]}>/{buildCostUnitSuffix}</Text>
-          </Text>
-        </>
-      ) : null}
     </View>
   );
 }
@@ -122,11 +113,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     marginTop: 8,
   },
-  primaryUnit: {
-    fontSize: 14,
-    fontWeight: '500',
-    letterSpacing: 0,
-  },
   breakdownRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -143,6 +129,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  perSqft: {
+    marginTop: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  perSqftUnit: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0,
+  },
   scopeConfirmLink: {
     marginTop: 12,
     alignSelf: 'flex-start',
@@ -154,10 +151,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     textDecorationLine: 'underline',
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginTop: 14,
-    marginBottom: 12,
   },
 });

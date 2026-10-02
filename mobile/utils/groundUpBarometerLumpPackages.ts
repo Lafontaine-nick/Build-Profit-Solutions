@@ -114,6 +114,58 @@ const INSULATION_MATERIAL_SHARE = 0.42; // national 1.25 / 3
 const DRYWALL_MATERIAL_SHARE = 0.41; // SHV production gypsum-board mat share
 const EXTERIOR_PAINT_MATERIAL_SHARE = 0.29; // national 0.9 / 3.15
 const FLOORING_MATERIAL_SHARE = 4 / 9; // national flooring mat / (mat+labor)
+const ROOFING_MATERIAL_SHARE = 0.45;
+const SHOWER_TILE_MATERIAL_SHARE = 0.42;
+const SHOWER_DOOR_MATERIAL_SHARE = 0.72;
+const APPLIANCE_MATERIAL_SHARE = 0.9;
+
+/** Roofing installed lump. Sheet line 7300 on Lots 39/41/49/58. */
+export const ROOFING_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 16000,
+  lot39: 18500,
+  lot41: 14500,
+  lot49: 17500,
+  lot58: 21500,
+};
+export const ROOFING_DETACHED_MEDIAN_TOTAL = 18000;
+export const ROOFING_ALL_PROJECT_RANGE = { low: 14500, high: 21500 } as const;
+export const ROOFING_NATIONAL_REFERENCE_TOTAL = 14500;
+
+/** Bath surrounds: shower walls and pan. Sheet line 9550. Not the house floor allowance. */
+export const SHOWER_TILE_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 10000,
+  lot39: 15500,
+  lot41: 9800,
+  lot49: 11500,
+  lot58: 12000,
+};
+export const SHOWER_TILE_DETACHED_MEDIAN_TOTAL = 11750;
+export const SHOWER_TILE_ALL_PROJECT_RANGE = { low: 9800, high: 15500 } as const;
+export const SHOWER_TILE_NATIONAL_REFERENCE_TOTAL = 9800;
+
+/** Mirrors and glass shower enclosures. Sheet line 9600. Not patio sliders. */
+export const SHOWER_DOOR_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 5000,
+  lot39: 7500,
+  lot41: 4500,
+  lot49: 6500,
+  lot58: 6000,
+};
+export const SHOWER_DOOR_DETACHED_MEDIAN_TOTAL = 6250;
+export const SHOWER_DOOR_ALL_PROJECT_RANGE = { low: 4500, high: 7500 } as const;
+export const SHOWER_DOOR_NATIONAL_REFERENCE_TOTAL = 4500;
+
+/** Appliance package. Sheet line 11000. */
+export const APPLIANCES_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 9000,
+  lot39: 12500,
+  lot41: 9500,
+  lot49: 10500,
+  lot58: 12500,
+};
+export const APPLIANCES_DETACHED_MEDIAN_TOTAL = 11500;
+export const APPLIANCES_ALL_PROJECT_RANGE = { low: 9500, high: 12500 } as const;
+export const APPLIANCES_NATIONAL_REFERENCE_TOTAL = 9500;
 
 function resolveProjectLump(params: {
   livingSf?: number | null;
@@ -245,6 +297,74 @@ export function resolveExteriorPaintLumpSuggestedFill(params: {
     comparisonRange: { ...EXTERIOR_PAINT_ALL_PROJECT_RANGE },
     projectId: matchSouthernUtahProjectByLivingSf(params.livingSf)?.id ?? null,
   };
+}
+
+export function resolveRoofingLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): GroundUpBarometerLumpFill {
+  return resolveProjectLump({
+    ...params,
+    byProject: ROOFING_INSTALLED_BY_PROJECT,
+    median: ROOFING_DETACHED_MEDIAN_TOTAL,
+    nationalBase: ROOFING_NATIONAL_REFERENCE_TOTAL,
+    range: ROOFING_ALL_PROJECT_RANGE,
+    scopeNoun: 'roofing',
+    materialShare: ROOFING_MATERIAL_SHARE,
+  });
+}
+
+export function resolveShowerTileLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): GroundUpBarometerLumpFill {
+  const fill = resolveProjectLump({
+    ...params,
+    byProject: SHOWER_TILE_INSTALLED_BY_PROJECT,
+    median: SHOWER_TILE_DETACHED_MEDIAN_TOTAL,
+    nationalBase: SHOWER_TILE_NATIONAL_REFERENCE_TOTAL,
+    range: SHOWER_TILE_ALL_PROJECT_RANGE,
+    scopeNoun: 'shower tile',
+    materialShare: SHOWER_TILE_MATERIAL_SHARE,
+  });
+  return {
+    ...fill,
+    helper: `${fill.helper} Shower walls and shower floor. House flooring stays on the flooring allowance.`,
+  };
+}
+
+export function resolveShowerDoorLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): GroundUpBarometerLumpFill {
+  const fill = resolveProjectLump({
+    ...params,
+    byProject: SHOWER_DOOR_INSTALLED_BY_PROJECT,
+    median: SHOWER_DOOR_DETACHED_MEDIAN_TOTAL,
+    nationalBase: SHOWER_DOOR_NATIONAL_REFERENCE_TOTAL,
+    range: SHOWER_DOOR_ALL_PROJECT_RANGE,
+    scopeNoun: 'shower doors',
+    materialShare: SHOWER_DOOR_MATERIAL_SHARE,
+  });
+  return {
+    ...fill,
+    helper: `${fill.helper} Glass shower enclosures. Patio sliders stay on the sliding-door line.`,
+  };
+}
+
+export function resolveAppliancesLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): GroundUpBarometerLumpFill {
+  return resolveProjectLump({
+    ...params,
+    byProject: APPLIANCES_INSTALLED_BY_PROJECT,
+    median: APPLIANCES_DETACHED_MEDIAN_TOTAL,
+    nationalBase: APPLIANCES_NATIONAL_REFERENCE_TOTAL,
+    range: APPLIANCES_ALL_PROJECT_RANGE,
+    scopeNoun: 'appliances',
+    materialShare: APPLIANCE_MATERIAL_SHARE,
+  });
 }
 
 export function resolveFlooringLumpSuggestedFill(params: {

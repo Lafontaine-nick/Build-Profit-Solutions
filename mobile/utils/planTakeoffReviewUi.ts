@@ -1,4 +1,5 @@
 import { WHOLE_PROJECT_DRAWING_COUNT_KEYS } from '@/utils/planScopeRecords';
+import { drywallReviewSurfaces } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   resolvePlanMeasurementProvenance,
   type PlanMeasurementProvenance,
@@ -2273,8 +2274,11 @@ export function applyPlanTakeoffButtonLabel(input: {
     input.semanticsEnabled != null
       ? input.semanticsEnabled
       : measurementSemanticsV1Enabled();
+  if (includedMeasurementCount > 0 && semantics) {
+    return 'Apply plan takeoff';
+  }
   if (includedMeasurementCount > 0 && checkedScopeCount > 0) {
-    return semantics ? 'Apply plan takeoff' : 'Apply to bid';
+    return 'Apply to bid';
   }
   if (includedMeasurementCount > 0) {
     return `Apply ${includedMeasurementCount} measurement${includedMeasurementCount === 1 ? '' : 's'}`;
@@ -2629,10 +2633,11 @@ export function wholeProjectDrawingCountApply(
     const quantity = Number(row.value);
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     values[row.key] = String(quantity);
-    sources[row.key] =
-      row.include && row.pricingEligible
-        ? 'contractor_confirmed_from_plan_review'
-        : 'needs_confirmation';
+    // A checked row is confirmed, including counts the sheet reader marked
+    // needs-review. Unchecked rows stay on Confirm Scope as a count to verify.
+    sources[row.key] = row.include
+      ? 'contractor_confirmed_from_plan_review'
+      : 'needs_confirmation';
   }
   return { values, sources };
 }
@@ -2723,6 +2728,22 @@ export function confirmedPlanTakeoffLines(input: {
       if (/elevation/i.test(key) && /width/i.test(key)) continue;
     }
     numeric.set(key, value);
+  }
+
+  if (tradeKey === 'drywall' && !wholeProject) {
+    const surfaces = drywallReviewSurfaces(measurements);
+    const lines: string[] = [];
+    if (surfaces.houseInteriorSqft > 0) {
+      lines.push(
+        `House interior · ${planTakeoffQuantityText('drywallSqft', surfaces.houseInteriorSqft)}`
+      );
+    }
+    if (surfaces.garageSqft > 0) {
+      lines.push(
+        `Garage · ${planTakeoffQuantityText('garageSqft', surfaces.garageSqft)}`
+      );
+    }
+    return lines;
   }
 
   if (tradeKey === 'framing' && !wholeProject && !numeric.has('framedAreaSqft')) {

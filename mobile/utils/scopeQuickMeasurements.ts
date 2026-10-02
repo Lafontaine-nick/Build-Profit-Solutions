@@ -2561,16 +2561,6 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
     /\b(?:\d+|one|two|three|four|five|multiple)\s+bathrooms?\b/i.test(notes);
   const isMultiRoomRemodel =
     (hasKitchenScope && hasBathroomScope) || hasMultipleBathrooms;
-  if (
-    isMultiRoomRemodel &&
-    (resolved === 'kitchen' ||
-      resolved === 'bathroom' ||
-      resolved === 'room_remodel')
-  ) {
-    return 'room_remodel';
-  }
-  if (resolved === 'ground_up' || resolved === 'addition') return resolved;
-
   const rooms = Number(params.planRoomCount) || 0;
   const living = Number(params.livingSf);
   const garage = Number(params.garageSf);
@@ -2581,13 +2571,23 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       living >= 800 &&
       Number.isFinite(garage) &&
       garage > 0);
-
+  // A house plan mentions kitchens and bathrooms. A general-contractor
+  // export with whole-home area stays ground-up.
   if (
     String(params.planImportMode || '') === 'whole_project' &&
     looksWholeHome
   ) {
     return 'ground_up';
   }
+  if (
+    isMultiRoomRemodel &&
+    (resolved === 'kitchen' ||
+      resolved === 'bathroom' ||
+      resolved === 'room_remodel')
+  ) {
+    return 'room_remodel';
+  }
+  if (resolved === 'ground_up' || resolved === 'addition') return resolved;
 
   if (looksWholeHome && !params.templateKey) {
     return 'ground_up';

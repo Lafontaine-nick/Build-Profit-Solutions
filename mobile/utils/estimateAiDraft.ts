@@ -583,6 +583,12 @@ export type ScopeMeasurements = {
   drywallVaultedSlopedSqft?: number | null;
   drywallHighCeilingSqft?: number | null;
   drywallFinishLevel?: string | null;
+  /** Plan-export finish crew. Off until tape or texture is selected. */
+  drywallFinishIncluded?: boolean | null;
+  /** Quick Measurements: tape and mud. */
+  drywallTapeIncluded?: boolean | null;
+  /** Quick Measurements: drywall texture. */
+  drywallTextureIncluded?: boolean | null;
   drywallSheetLength?: string | null;
   drywallStandardBoardType?: string | null;
   garageWallDrywallSqft?: number | null;

@@ -13,6 +13,8 @@ import {
   filterUnmentionedMixedExteriorConcreteItems,
   syncInteriorPaintScopeItems,
   syncWindowInstallScopeFromNotes,
+  ensureWholeProjectGroundUpScopeItems,
+  isWholeProjectPlanExport,
   WET_AREA_DERIVED_ITEM_IDS,
   type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
@@ -536,8 +538,29 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     projectType: draft.projectType,
     notes: draft.originalNotes,
   });
+  const wholeProjectPlan = isWholeProjectPlanExport({
+    planImportMode: measurements.planImportMode as string | null | undefined,
+    planImportTradeKey: measurements.planImportTradeKey as
+      | string
+      | null
+      | undefined,
+    planImportFingerprint: measurements.planImportFingerprint as
+      | string
+      | null
+      | undefined,
+    planScopeRecords: measurements.planScopeRecords as unknown[] | null | undefined,
+    notes: draft.originalNotes,
+    originalNotes: draft.originalNotes,
+    hasPlanBuildingAreas: Boolean(
+      (measurements.planFacts as { buildingAreas?: unknown } | undefined)
+        ?.buildingAreas
+    ),
+  });
+  const displayBase = wholeProjectPlan
+    ? ensureWholeProjectGroundUpScopeItems(base, draft.originalNotes)
+    : base;
   return buildConfirmScopeDisplayItems(
-    base,
+    displayBase,
     measurements,
     templateKey,
     draft.originalNotes

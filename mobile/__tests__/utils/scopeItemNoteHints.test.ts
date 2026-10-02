@@ -637,12 +637,32 @@ describe('ground-up owner-handled scope exclusions', () => {
         garageSqft: 1427,
         templateKey: 'electrical',
       })
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'drywall',
+        singleTradePlan: true,
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        templateKey: 'drywall',
+      })
+    ).toBe(false);
     expect(
       shouldSeedWholeProjectShellChecklist({
         planImportMode: 'selected_trade',
         planImportTradeKey: 'electrical',
         floorAreaSqft: 120,
+      })
+    ).toBe(false);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'windows_doors',
+        singleTradePlan: true,
+        templateKey: 'windows_doors',
+        floorAreaSqft: 2571,
+        garageDoorCount: 2,
       })
     ).toBe(false);
     expect(
@@ -670,6 +690,13 @@ describe('ground-up owner-handled scope exclusions', () => {
         templateKey: 'bathroom',
       })
     ).toBe(false);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        floorAreaSqft: 2571,
+        windowCount: 31,
+        templateKey: 'bathroom',
+      })
+    ).toBe(true);
     expect(
       isWholeProjectPlanExport({
         planImportMode: 'whole_project',

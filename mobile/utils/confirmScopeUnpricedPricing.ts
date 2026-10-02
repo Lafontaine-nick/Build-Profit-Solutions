@@ -14,7 +14,10 @@ import {
   confirmScopeDisplayItemsFromDraft,
   scopeReviewDisplayLabel,
 } from '@/utils/scopePackagesForReview';
-import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
+import {
+  isWholeProjectPlanExport,
+  type ScopeChecklistItem,
+} from '@/utils/estimateScopeChecklistUi';
 import type {
   PricingProposal,
   PricingScopeItemProposal,
@@ -246,6 +249,46 @@ export function applyConfirmScopeUnpricedPricingProposal(
       },
     },
     pendingPricingProposal: proposal,
+  };
+}
+
+/**
+ * Ground-up GC plan exports use the Confirm Scope planning rates as their
+ * initial bid budget. Keep selected-trade exports and remodels on the
+ * explicit pricing-approval path.
+ */
+export function applyWholeProjectPlanPricing(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
+  const measurements = initialScopeMeasurementInputExtended(draft);
+  if (
+    !isWholeProjectPlanExport({
+      planImportMode: measurements.planImportMode,
+      planImportTradeKey: measurements.planImportTradeKey,
+      planImportFingerprint: measurements.planImportFingerprint,
+      planScopeRecords: measurements.planScopeRecords,
+      notes: draft.originalNotes,
+      originalNotes: draft.originalNotes,
+      hasPlanBuildingAreas: Boolean(measurements.planFacts?.buildingAreas),
+    })
+  ) {
+    return draft;
+  }
+
+  const proposal = buildConfirmScopeUnpricedPricingProposal(draft);
+  const includedIds = new Set(
+    (proposal.scopeItems || []).map(item => item.scopeItemId)
+  );
+  if (proposal.empty || includedIds.size === 0) return draft;
+
+  const applied = applyConfirmScopeUnpricedPricingProposal(
+    draft,
+    proposal,
+    includedIds
+  );
+  return {
+    ...applied,
+    pendingPricingProposal: undefined,
   };
 }
 

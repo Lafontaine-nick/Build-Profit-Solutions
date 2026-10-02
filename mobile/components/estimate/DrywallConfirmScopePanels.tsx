@@ -12,18 +12,14 @@ import * as Haptics from 'expo-haptics';
 import {
   DRYWALL_TEXTURE_CHOICE_OPTIONS,
   drywallFinishOptionLabel,
-  hasPlanDrywallPackageTakeoff,
   shouldPinDrywallFinishCardAfterQuickMeasurements,
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
 import {
   DRYWALL_BOARD_BUCKET_DEFINITIONS,
-  DRYWALL_SHEET_LENGTH_CHOICE_OPTIONS,
-  isDrywallCompletePackageScope,
+  drywallReviewSurfaces,
   resolveDrywallBoardBucketPackageTotal,
-  resolveDrywallBoardBucketSqft,
   resolveDrywallBoardMix,
-  resolveDrywallSheetLengthChoiceId,
   type DrywallBoardBucketDefinition,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
@@ -57,19 +53,6 @@ function formatBucketDisplay(value: number): string {
 function parseBucketInput(raw: string): number {
   const parsed = Number(String(raw || '').replace(/,/g, '').trim());
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-export function shouldShowPinnedDrywallAssemblyOptions(
-  templateKey: string | null | undefined,
-  measurements: Record<string, unknown>
-): boolean {
-  return (
-    isDrywallCompletePackageScope({
-      templateKey,
-      planImportMode: measurements.planImportMode as string | null,
-      planImportTradeKey: measurements.planImportTradeKey as string | null,
-    }) && hasPlanDrywallPackageTakeoff(measurements)
-  );
 }
 
 export function resolvePinnedDrywallFinishItem(
@@ -293,16 +276,13 @@ function BoardBucketQuantityRow({
 
 export function DrywallBoardQuantitySection({
   measurements,
-  onBucketChange,
+  onSurfaceChange,
   Colors,
   darkMode,
   cardStyles,
 }: {
   measurements: Record<string, unknown>;
-  onBucketChange: (
-    measurementKey: DrywallBoardBucketDefinition['measurementKey'],
-    sqft: number
-  ) => void;
+  onSurfaceChange: (surface: 'house' | 'garage', sqft: number) => void;
   Colors: Colors;
   darkMode: boolean;
   cardStyles: CardStyles;
@@ -311,36 +291,42 @@ export function DrywallBoardQuantitySection({
   const packageTotal = resolveDrywallBoardBucketPackageTotal(measurements, {
     planFacts,
   });
-  const visibleBuckets = DRYWALL_BOARD_BUCKET_DEFINITIONS.filter(bucket => {
-    if (bucket.id === 'moisture_resistant') {
-      const sqft = resolveDrywallBoardBucketSqft(measurements, bucket.id, {
-        planFacts,
-      });
-      return sqft > 0;
-    }
-    return true;
-  });
+  const surfaces = drywallReviewSurfaces(measurements);
+  const rows: Array<{
+    id: 'house' | 'garage';
+    bucket: DrywallBoardBucketDefinition;
+    value: number;
+  }> = [
+    {
+      id: 'house',
+      value: surfaces.houseInteriorSqft,
+      bucket: {
+        ...DRYWALL_BOARD_BUCKET_DEFINITIONS[0],
+        title: 'House interior',
+        helperText: 'Walls and ceilings. 1/2" on the walls, 5/8" on the ceilings.',
+        confirmation: 'optional',
+      },
+    },
+    {
+      id: 'garage',
+      value: surfaces.garageSqft,
+      bucket: {
+        ...DRYWALL_BOARD_BUCKET_DEFINITIONS[2],
+        title: 'Garage',
+        helperText: 'Garage walls and ceiling, hung as 5/8" Type X.',
+        confirmation: 'optional',
+      },
+    },
+  ];
 
   return (
     <View style={{ marginTop: 12 }}>
-      <Text
-        style={{
-          color: captionColor(darkMode, Colors),
-          fontSize: 11,
-          marginBottom: 8,
-          lineHeight: 15,
-        }}
-      >
-        Drywall board quantities
-      </Text>
-      {visibleBuckets.map(bucket => (
+      {rows.map(row => (
         <BoardBucketQuantityRow
-          key={bucket.id}
-          bucket={bucket}
-          value={resolveDrywallBoardBucketSqft(measurements, bucket.id, {
-            planFacts,
-          })}
-          onCommit={sqft => onBucketChange(bucket.measurementKey, sqft)}
+          key={row.id}
+          bucket={row.bucket}
+          value={row.value}
+          onCommit={sqft => onSurfaceChange(row.id, sqft)}
           Colors={Colors}
           darkMode={darkMode}
           cardStyles={cardStyles}
@@ -355,7 +341,7 @@ export function DrywallBoardQuantitySection({
             lineHeight: 15,
           }}
         >
-          {`Board buckets total ${Math.round(packageTotal).toLocaleString()} SF`}
+          {`Drywall package ${Math.round(packageTotal).toLocaleString()} SF`}
         </Text>
       ) : null}
     </View>
@@ -376,27 +362,183 @@ function pinnedDrywallScopeCardStyle(
   ];
 }
 
-export function PinnedDrywallAssemblyOptionsCard({
-  measurements,
-  onSheetLengthChange,
-  onBoardBucketChange,
+function YesNoRow({
+  label,
+  included,
+  onChange,
+  Colors,
+  darkMode,
+}: {
+  label: string;
+  included: boolean;
+  onChange: (included: boolean) => void;
+  Colors: Colors;
+  darkMode: boolean;
+}) {
+  return (
+    <View style={{ marginTop: 14 }}>
+      <Text
+        style={{
+          color: darkMode ? '#F5F7FA' : Colors.text,
+          fontSize: 13,
+          fontWeight: '700',
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {(
+          [
+            { label: 'Yes', value: true },
+            { label: 'No', value: false },
+          ] as const
+        ).map(choice => {
+          const active = included === choice.value;
+          const yes = choice.value;
+          return (
+            <TouchableOpacity
+              key={choice.label}
+              activeOpacity={0.88}
+              onPress={() => {
+                hapticTap();
+                onChange(choice.value);
+              }}
+              style={{
+                flex: 1,
+                minHeight: 40,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: active
+                  ? yes
+                    ? 'rgba(45, 204, 154, 0.16)'
+                    : darkMode
+                      ? 'rgba(255,255,255,0.08)'
+                      : 'rgba(15,23,42,0.06)'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.03)'
+                    : 'rgba(0,0,0,0.02)',
+                borderWidth: 1,
+                borderColor: active
+                  ? yes
+                    ? 'rgba(45, 204, 154, 0.55)'
+                    : darkMode
+                      ? 'rgba(255,255,255,0.28)'
+                      : 'rgba(15,23,42,0.28)'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.1)'
+                    : Colors.line,
+              }}
+            >
+              <Text
+                style={{
+                  color: active
+                    ? yes
+                      ? '#8eecc9'
+                      : darkMode
+                        ? '#F5F7FA'
+                        : Colors.text
+                    : darkMode
+                      ? '#94a3b8'
+                      : Colors.sub,
+                  fontSize: 14,
+                  fontWeight: active ? '700' : '600',
+                }}
+              >
+                {choice.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+export function DrywallFinishQuickMeasurementToggles({
+  tapeIncluded,
+  textureIncluded,
+  onTapeChange,
+  onTextureChange,
+  Colors,
+  darkMode,
+}: {
+  tapeIncluded: boolean;
+  textureIncluded: boolean;
+  onTapeChange: (included: boolean) => void;
+  onTextureChange: (included: boolean) => void;
+  Colors: Colors;
+  darkMode: boolean;
+}) {
+  return (
+    <View style={{ marginTop: 4, marginBottom: 6 }}>
+      <YesNoRow
+        label="Tape and mud"
+        included={tapeIncluded}
+        onChange={onTapeChange}
+        Colors={Colors}
+        darkMode={darkMode}
+      />
+      <YesNoRow
+        label="Drywall texture"
+        included={textureIncluded}
+        onChange={onTextureChange}
+        Colors={Colors}
+        darkMode={darkMode}
+      />
+    </View>
+  );
+}
+
+function FinishPriceLine({
+  label,
+  priceLabel,
+}: {
+  label: string;
+  priceLabel: string;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 12,
+        gap: 12,
+      }}
+    >
+      <Text style={{ color: '#cbd5e1', fontSize: 14, fontWeight: '700', flex: 1 }}>
+        {label}
+      </Text>
+      <Text style={{ color: '#2dcc9a', fontSize: 22, fontWeight: '800' }}>
+        {priceLabel}
+      </Text>
+    </View>
+  );
+}
+
+export function DrywallFinishCrewCard({
+  tapeIncluded,
+  textureIncluded,
+  tapePriceLabel,
+  texturePriceLabel,
+  finishChoiceId,
+  onFinishChange,
   Colors,
   darkMode,
   cardStyles,
 }: {
-  measurements: Record<string, unknown>;
-  onSheetLengthChange: (sheetLength: string) => void;
-  onBoardBucketChange: (
-    measurementKey: DrywallBoardBucketDefinition['measurementKey'],
-    sqft: number
-  ) => void;
+  tapeIncluded: boolean;
+  textureIncluded: boolean;
+  tapePriceLabel: string | null;
+  texturePriceLabel: string | null;
+  finishChoiceId: string;
+  onFinishChange: (choiceId: string) => void;
   Colors: Colors;
   darkMode: boolean;
   cardStyles: CardStyles;
 }) {
-  const sheetLength = resolveDrywallSheetLengthChoiceId(measurements, {
-    completePackage: true,
-  });
   return (
     <View style={pinnedDrywallScopeCardStyle(Colors, darkMode, cardStyles.card)}>
       <Text
@@ -406,55 +548,35 @@ export function PinnedDrywallAssemblyOptionsCard({
           fontWeight: '800',
         }}
       >
-        Drywall board & sheet
+        Drywall finish
       </Text>
-      <Text
-        style={{
-          color: captionColor(darkMode, Colors),
-          fontSize: 11,
-          marginTop: 3,
-          lineHeight: 15,
-        }}
-      >
-        Confirm board SF by thickness and type. Sheet length adjusts board
-        material only; labor follows finish and site access.
-      </Text>
-      <DrywallBoardQuantitySection
-        measurements={measurements}
-        onBucketChange={onBoardBucketChange}
-        Colors={Colors}
-        darkMode={darkMode}
-        cardStyles={cardStyles}
-      />
-      <View style={{ marginTop: 12 }}>
+      {!tapeIncluded && !textureIncluded ? (
         <Text
           style={{
             color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            marginBottom: 8,
+            fontSize: 12,
+            lineHeight: 16,
+            marginTop: 6,
           }}
         >
-          Sheet length
+          Choose tape and mud or texture in Quick measurements to price this card.
         </Text>
-        <View style={cardStyles.choiceWrap}>
-          {DRYWALL_SHEET_LENGTH_CHOICE_OPTIONS.filter(opt => opt.id !== 'unsure').map(
-            opt => (
-              <ChoiceChip
-                key={opt.id}
-                label={opt.label}
-                active={sheetLength === opt.id}
-                onPress={() => {
-                  hapticTap();
-                  onSheetLengthChange(opt.id);
-                }}
-                Colors={Colors}
-                darkMode={darkMode}
-                choiceChipWide={cardStyles.choiceChipWide}
-              />
-            )
-          )}
-        </View>
-      </View>
+      ) : null}
+      {tapeIncluded && tapePriceLabel ? (
+        <FinishPriceLine label="Tape and mud" priceLabel={tapePriceLabel} />
+      ) : null}
+      {textureIncluded && texturePriceLabel ? (
+        <FinishPriceLine label="Texture" priceLabel={texturePriceLabel} />
+      ) : null}
+      {textureIncluded ? (
+        <DrywallFinishTextureSection
+          selectedChoiceId={finishChoiceId}
+          onSelect={onFinishChange}
+          Colors={Colors}
+          darkMode={darkMode}
+          cardStyles={cardStyles}
+        />
+      ) : null}
     </View>
   );
 }
@@ -481,6 +603,15 @@ export function DrywallTextureSelectedLabel({
   );
 }
 
+const TEXTURE_FINISH_SHORT_LABEL: Record<string, string> = {
+  orange_peel: 'Orange peel',
+  knockdown: 'Knockdown',
+  skip_trowel: 'Skip trowel',
+  smooth_level_4: 'Level 4',
+  smooth_level_5: 'Level 5',
+  custom_specialty: 'Custom',
+};
+
 export function DrywallFinishTextureSection({
   selectedChoiceId,
   onSelect,
@@ -495,18 +626,25 @@ export function DrywallFinishTextureSection({
   cardStyles: Pick<CardStyles, 'choiceWrap' | 'choiceChipWide'>;
 }) {
   const displayedChoiceId = selectedChoiceId || 'orange_peel';
+  const selectedNote = drywallFinishOptionLabel(displayedChoiceId);
   return (
-    <View style={{ marginTop: 12 }}>
-      <DrywallTextureSelectedLabel
-        choiceId={displayedChoiceId}
-        darkMode={darkMode}
-      />
-      <View style={[cardStyles.choiceWrap, { marginTop: 8 }]}>
+    <View style={{ marginTop: 14 }}>
+      <Text
+        style={{
+          color: captionColor(darkMode, Colors),
+          fontSize: 11,
+          fontWeight: '700',
+          marginBottom: 8,
+        }}
+      >
+        Texture finish
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {DRYWALL_TEXTURE_CHOICE_OPTIONS.filter(opt => opt.id !== 'unsure').map(
           opt => (
             <ChoiceChip
               key={opt.id}
-              label={opt.label}
+              label={TEXTURE_FINISH_SHORT_LABEL[opt.id] || opt.label}
               active={displayedChoiceId === opt.id}
               onPress={() => {
                 hapticTap();
@@ -514,11 +652,31 @@ export function DrywallFinishTextureSection({
               }}
               Colors={Colors}
               darkMode={darkMode}
-              choiceChipWide={cardStyles.choiceChipWide}
+              choiceChipWide={{
+                width: '48%',
+                minWidth: '48%',
+                flexGrow: 0,
+                paddingVertical: 10,
+                paddingHorizontal: 8,
+                borderRadius: 12,
+                borderWidth: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             />
           )
         )}
       </View>
+      <Text
+        style={{
+          color: captionColor(darkMode, Colors),
+          fontSize: 11,
+          lineHeight: 15,
+          marginTop: 8,
+        }}
+      >
+        {selectedNote}
+      </Text>
     </View>
   );
 }

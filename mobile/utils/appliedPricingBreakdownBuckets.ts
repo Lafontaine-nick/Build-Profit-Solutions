@@ -1,5 +1,5 @@
 /**
- * Confirm Scope "Applied pricing" summary buckets (Material · Labor · Allowances).
+ * Confirm Scope selected-pricing buckets (Material · Labor · Soft costs).
  * Explicit per scope — not inferred from lumpSumOnly alone.
  */
 
@@ -13,12 +13,12 @@ import {
 
 export type AppliedPricingBucket = 'allowance' | 'material_labor' | 'labor_only';
 
-/** Job-level fees & reserves — Allowances column. */
+/** Fees and overhead — Soft costs column. Appliance hookup is labor, not a fee. */
 export const APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS = new Set([
-  'contingency',
-  'appliances',
   'plans_engineering',
   'permits',
+  'utility_taps',
+  'contingency',
   'mobilization',
   'emergency_fee',
   'final_inspections',

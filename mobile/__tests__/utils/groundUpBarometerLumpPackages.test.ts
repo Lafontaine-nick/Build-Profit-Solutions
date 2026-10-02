@@ -1,11 +1,15 @@
 import {
   capTakeoffTotalAtBarometerLump,
   flooringUsesBarometerLumpPackage,
+  resolveAppliancesLumpSuggestedFill,
   resolveElectricalRoughLumpSuggestedFill,
   resolveExteriorPaintLumpSuggestedFill,
   resolveFlooringLumpSuggestedFill,
   resolveInsulationLumpSuggestedFill,
   resolvePlumbingRoughLumpSuggestedFill,
+  resolveRoofingLumpSuggestedFill,
+  resolveShowerDoorLumpSuggestedFill,
+  resolveShowerTileLumpSuggestedFill,
   resolveStuccoLumpSuggestedFill,
   resolveStuccoSuggestedTotal,
 } from '@/utils/groundUpBarometerLumpPackages';
@@ -38,6 +42,22 @@ describe('groundUpBarometerLumpPackages', () => {
     expect(plumbing.total).toBeLessThan(26000);
     expect(electrical.total).toBeGreaterThan(23000);
     expect(electrical.total).toBeLessThan(27000);
+  });
+
+  it('prices Lot 49 roofing, showers, shower doors, and appliances near the sheet', () => {
+    const roofing = resolveRoofingLumpSuggestedFill({ livingSf: 2571, state: 'UT' });
+    const showers = resolveShowerTileLumpSuggestedFill({ livingSf: 2571, state: 'UT' });
+    const doors = resolveShowerDoorLumpSuggestedFill({ livingSf: 2571, state: 'UT' });
+    const appliances = resolveAppliancesLumpSuggestedFill({ livingSf: 2571, state: 'UT' });
+    expect(roofing.projectId).toBe('lot49');
+    expect(roofing.total).toBeGreaterThan(15000);
+    expect(roofing.total).toBeLessThan(20000);
+    expect(showers.total).toBeGreaterThan(10000);
+    expect(showers.total).toBeLessThan(14000);
+    expect(doors.total).toBeGreaterThan(5000);
+    expect(doors.total).toBeLessThan(8000);
+    expect(appliances.total).toBeGreaterThan(9000);
+    expect(appliances.total).toBeLessThan(13000);
   });
 
   it('prices Lot 58 insulation and exterior paint in planning bands', () => {

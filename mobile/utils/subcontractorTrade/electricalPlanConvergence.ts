@@ -1168,6 +1168,16 @@ export function syncElectricalScopeItems<
       : {};
   const needsPlanConfirmation = (key: string) => {
     if (quantityOverrides[key]) return false;
+    const source = String(quantitySources[key] || '');
+    // Apply on the plan review is the contractor's confirmation. A leftover
+    // needs-review flag must not keep the count off the price card.
+    if (
+      source === 'contractor_confirmed_from_plan_review' ||
+      source === 'user_entered' ||
+      source === 'manual_override'
+    ) {
+      return false;
+    }
     const entry = quantityProvenance[key];
     if (
       entry?.evidenceKind === 'instance_tags' &&

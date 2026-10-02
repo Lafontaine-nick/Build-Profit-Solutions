@@ -441,7 +441,7 @@ describe('electrical canonical architecture', () => {
     expect(pricing.fill?.total).toBeGreaterThan(16000);
   });
 
-  it('does not stack electrical_rough package work onto detailed takeoff', () => {
+  it('keeps the ground-up electrical rough allowance when device counts exist', () => {
     const detailed = {
       recessedLightCount: 18,
       standardReceptacleCount: 12,
@@ -470,7 +470,7 @@ describe('electrical canonical architecture', () => {
         { templateKey: 'ground_up' }
       )
     );
-    expect(pricing.fill).toBeNull();
+    expect(pricing.fill?.total).toBeGreaterThan(16000);
   });
 
   it('does not invent circuit counts from devices or appliance hookups', () => {

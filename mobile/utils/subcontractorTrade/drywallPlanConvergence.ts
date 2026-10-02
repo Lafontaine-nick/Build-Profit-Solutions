@@ -135,14 +135,33 @@ export const COMPLETE_DRYWALL_ASSEMBLY_HELPER =
 export const DRYWALL_REMODEL_HANG_PACKAGE_SHARE = 0.45;
 export const DRYWALL_REMODEL_FINISH_PACKAGE_SHARE = 0.55;
 
-/** True for ground-up and single-trade plan export — one priced complete package. */
+/**
+ * Plan-export crew shares. Hangers, mud, and texture are different crews.
+ * Shares and material splits each sum to 1.0.
+ */
+export const DRYWALL_PLAN_EXPORT_CREW_SPLITS = {
+  hang: { totalShare: 0.45, materialShare: 0.92 },
+  finish_tape: { totalShare: 0.35, materialShare: 0.05 },
+  texture: { totalShare: 0.2, materialShare: 0.03 },
+} as const;
+
+/** Ground-up GC bids stay one complete package. Plan-export drywall is split by crew. */
 export function isDrywallCompletePackageScope(params: {
   templateKey?: string | null;
   planImportMode?: string | null;
   planImportTradeKey?: string | null;
 }): boolean {
   const template = String(params.templateKey || '').toLowerCase();
-  if (template === 'ground_up') return true;
+  return template === 'ground_up';
+}
+
+/** Selected-trade drywall plan export: install, mud, and texture are separate prices. */
+export function isDrywallPlanExportCrewSplit(params: {
+  templateKey?: string | null;
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+}): boolean {
+  if (isDrywallCompletePackageScope(params)) return false;
   return (
     params.planImportMode === 'selected_trade' &&
     params.planImportTradeKey === 'drywall'
@@ -754,6 +773,50 @@ export function resolveRemodelDrywallAssemblyBaseline(
   };
 }
 
+const DRYWALL_CREW_SPLIT_LABELS = {
+  hang: 'drywall install / hanger crew',
+  finish_tape: 'mud and tape / mud crew',
+  texture: 'texture / texture crew',
+} as const;
+
+/** Split the production package across hanger, mud, and texture crews. */
+export function resolveDrywallCrewSplitBaseline(
+  itemId: 'hang' | 'finish_tape' | 'texture',
+  options?: { livingSf?: number | null; packageSurfaceSqft?: number | null }
+): { material: number; labor: number; sourceLabel: string } {
+  const baseline = resolveDrywallProductionAssemblyBaseline({
+    livingSf: options?.livingSf,
+    packageSurfaceSqft: options?.packageSurfaceSqft,
+  });
+  const packageTotal = baseline.material + baseline.labor;
+  const ids = ['hang', 'finish_tape', 'texture'] as const;
+  const pieces = ids.map(id => {
+    const spec = DRYWALL_PLAN_EXPORT_CREW_SPLITS[id];
+    const material = roundRate(baseline.material * spec.materialShare);
+    const labor = roundRate(
+      Math.max(0, packageTotal * spec.totalShare - material)
+    );
+    return { id, material, labor };
+  });
+  const materialGap = roundRate(
+    baseline.material - pieces.reduce((sum, piece) => sum + piece.material, 0)
+  );
+  const laborGap = roundRate(
+    baseline.labor - pieces.reduce((sum, piece) => sum + piece.labor, 0)
+  );
+  const texture = pieces.find(piece => piece.id === 'texture');
+  if (texture) {
+    texture.material = roundRate(texture.material + materialGap);
+    texture.labor = roundRate(Math.max(0, texture.labor + laborGap));
+  }
+  const piece = pieces.find(row => row.id === itemId) ?? pieces[0];
+  return {
+    material: piece.material,
+    labor: piece.labor,
+    sourceLabel: `${baseline.sourceLabel} · ${DRYWALL_CREW_SPLIT_LABELS[itemId]}`,
+  };
+}
+
 const PROTECTED_QUANTITY_SOURCES = new Set([
   'user_entered',
   'manual_override',
@@ -921,6 +984,32 @@ export function drywallGarageSurfaceFromComponents(
   const ceilings = positiveNumber(input.garageCeilingDrywallSqft);
   if (walls == null && ceilings == null) return null;
   return rounded((walls ?? 0) + (ceilings ?? 0));
+}
+
+/**
+ * The two drywall surfaces a subcontractor reviews.
+ * House interior is conditioned walls plus ceilings.
+ * Garage is garage walls plus the garage ceiling. Fire-rated board is that
+ * garage surface, not a third quantity.
+ */
+export function drywallReviewSurfaces(input: Record<string, unknown>): {
+  houseInteriorSqft: number;
+  garageSqft: number;
+} {
+  const houseWalls = positiveNumber(input.drywallWallSqft) ?? 0;
+  const houseCeilings = positiveNumber(input.drywallCeilingSqft) ?? 0;
+  const garageWalls = positiveNumber(input.garageWallDrywallSqft) ?? 0;
+  const garageCeiling = positiveNumber(input.garageCeilingDrywallSqft) ?? 0;
+  let garage = rounded(garageWalls + garageCeiling);
+  if (!(garage > 0)) {
+    garage = rounded(positiveNumber(input.fireRatedDrywallSqft) ?? 0);
+  }
+  let house = rounded(houseWalls + houseCeilings);
+  if (!(house > 0)) {
+    const packageTotal = positiveNumber(input.drywallSqft) ?? 0;
+    house = rounded(Math.max(0, packageTotal - garage));
+  }
+  return { houseInteriorSqft: house, garageSqft: garage };
 }
 
 /** Complete subcontractor package — house + garage surfaces. */
@@ -1625,14 +1714,16 @@ export function drywallGypsumBarometerPackageDollars(
   total: number;
   sourceLabel: string;
 } | null {
+  const packageScope = {
+    templateKey: options?.templateKey,
+    planImportMode:
+      (measurements.planImportMode as string | null | undefined) ?? null,
+    planImportTradeKey:
+      (measurements.planImportTradeKey as string | null | undefined) ?? null,
+  };
   if (
-    !isDrywallCompletePackageScope({
-      templateKey: options?.templateKey,
-      planImportMode:
-        (measurements.planImportMode as string | null | undefined) ?? null,
-      planImportTradeKey:
-        (measurements.planImportTradeKey as string | null | undefined) ?? null,
-    })
+    !isDrywallCompletePackageScope(packageScope) &&
+    !isDrywallPlanExportCrewSplit(packageScope)
   ) {
     return null;
   }

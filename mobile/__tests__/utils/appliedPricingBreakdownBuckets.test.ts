@@ -10,6 +10,8 @@ describe('appliedPricingBreakdownBuckets', () => {
     expect(appliedPricingBucketForScope('contingency')).toBe('allowance');
     expect(appliedPricingBucketForScope('plans_engineering')).toBe('allowance');
     expect(appliedPricingBucketForScope('permits')).toBe('allowance');
+    expect(appliedPricingBucketForScope('utility_taps')).toBe('allowance');
+    expect(appliedPricingBucketForScope('appliances')).toBe('material_labor');
     expect(appliedPricingBucketForScope('cleanup')).toBe('material_labor');
     expect(appliedPricingBucketForScope('plumbing_trim')).toBe('material_labor');
     expect(appliedPricingBucketForScope('electrical_trim')).toBe('material_labor');

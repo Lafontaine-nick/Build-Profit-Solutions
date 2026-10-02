@@ -311,6 +311,20 @@ describe('concrete QM remodel', () => {
     expect(
       concreteFoundationPackageDollars(
         'pour_foundation',
+        { houseSlabSqft: '2571', concreteCy: '35' },
+        'concrete'
+      )
+    ).toBeNull();
+    expect(
+      concreteFoundationPackageDollars(
+        'reinforcement',
+        { houseSlabSqft: '2571', concreteReinforcementSqft: '1000' },
+        'concrete'
+      )
+    ).toBeNull();
+    expect(
+      concreteFoundationPackageDollars(
+        'pour_foundation',
         { concreteCy: '35' },
         'concrete'
       )
@@ -354,10 +368,12 @@ describe('concrete QM remodel', () => {
         },
       } as never,
     });
-    expect(breakdown.total).toBe(2571 * 8 + 1427 * 8 + 11720);
+    expect(breakdown.total).toBe(
+      2571 * 8 + 1427 * 8 + 11720 + 12250 + 3998 + 2998.5
+    );
   });
 
-  it('does not offer a separate price for footing or rebar inside the foundation package', () => {
+  it('prices entered footing and rebar quantities beside the slab package', () => {
     const measurements = {
       houseSlabSqft: '2571',
       garageSlabSqft: '1427',
@@ -373,7 +389,7 @@ describe('concrete QM remodel', () => {
         noteBacked: true,
         measurements,
       })
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldOfferConcreteConfirmScopePrice({
         itemId: 'reinforcement',
@@ -381,6 +397,18 @@ describe('concrete QM remodel', () => {
         state: 'included',
         noteBacked: true,
         measurements,
+      })
+    ).toBe(true);
+    expect(
+      shouldOfferConcreteConfirmScopePrice({
+        itemId: 'pour_foundation',
+        templateKey: 'concrete',
+        state: 'included',
+        noteBacked: true,
+        measurements: {
+          houseSlabSqft: '2571',
+          garageSlabSqft: '1427',
+        },
       })
     ).toBe(false);
     expect(

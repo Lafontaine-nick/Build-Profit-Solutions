@@ -71,7 +71,7 @@ export default function BenchmarkReasonablenessCard({
   ];
 
   const resolvedPerLivingSf = showBuildCostPerSf
-    ? value?.currentPerLivingSf ?? buildCostPerLivingSf ?? null
+    ? buildCostPerLivingSf ?? value?.currentPerLivingSf ?? null
     : null;
   const showCompare =
     showBuildCostPerSf && value != null && value.blendedPlanningPerLivingSf > 0;

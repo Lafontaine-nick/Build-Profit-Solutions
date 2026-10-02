@@ -117,6 +117,7 @@ export const WHOLE_PROJECT_DRAWING_COUNT_KEYS = new Set([
   'exteriorDoorCount',
   'slidingDoorCount',
   'interiorDoorCount',
+  'recessedLightCount',
   'singlePoleSwitchCount',
   'threeWaySwitchCount',
   'ceilingFanCount',
@@ -191,6 +192,115 @@ function openingLabel(category: string | null | undefined): string {
     default:
       return 'Opening';
   }
+}
+
+const PLAN_SCOPE_MEASUREMENT_KEYS = new Set(
+  READ_MEASUREMENTS.map(row => row.key)
+);
+
+/** Scope found listed these because the sheets did not print a quantity. */
+export function planScopeRecordsHaveGroundUpAllowances(
+  records: Array<{ id?: string; findings?: Array<{ id?: string; status?: string }> }> | null | undefined
+): boolean {
+  return (records || []).some(record => {
+    if (record.id === 'allowances' && (record.findings || []).length > 0) {
+      return true;
+    }
+    return (record.findings || []).some(
+      finding =>
+        finding.status === 'planning_allowance' ||
+        String(finding.id || '').startsWith('allowance-')
+    );
+  });
+}
+
+/**
+ * Cover-sheet and drawing counts stored on the Scope found record.
+ * Fills only blank measurement fields, and marks those counts confirmed so
+ * Confirm Scope can price the same rows Scope found already listed.
+ */
+export function withPlanScopeRecordMeasurements<
+  T extends {
+    quickMeasurementSources?: Record<string, string> | null;
+    measurementProvenance?: Record<string, unknown> | null;
+  },
+>(measurements: T, records: PlanScopeRecord[] | null | undefined): T {
+  const next = { ...measurements } as T & Record<string, unknown>;
+  const sources = { ...(measurements.quickMeasurementSources || {}) };
+  const provenance = {
+    ...((measurements.measurementProvenance || {}) as Record<string, unknown>),
+  };
+  let changed = false;
+  for (const record of records || []) {
+    for (const finding of record.findings || []) {
+      if (!PLAN_SCOPE_MEASUREMENT_KEYS.has(finding.id)) continue;
+      if (finding.quantity == null || !(finding.quantity > 0)) continue;
+      const current = Number(String(next[finding.id] ?? '').replace(/,/g, ''));
+      if (!(current > 0)) {
+        next[finding.id] = finding.quantity;
+        changed = true;
+      }
+      const source = String(sources[finding.id] || '');
+      const isDrawingCount =
+        WHOLE_PROJECT_DRAWING_COUNT_KEYS.has(finding.id) ||
+        finding.status === 'counted_from_drawings';
+      if (isDrawingCount && source !== 'contractor_confirmed_from_plan_review') {
+        // Scope found records are created before the contractor reviews the
+        // drawing-count checklist. Keep these values visible, but do not let
+        // rehydration turn an unchecked count into bid-eligible pricing.
+        if (source !== 'needs_confirmation') {
+          sources[finding.id] = 'needs_confirmation';
+          changed = true;
+        }
+        const entry = provenance[finding.id];
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          (entry as { pricingEligible?: boolean; status?: string })
+            .pricingEligible !== false ||
+          String((entry as { status?: string }).status || '').toLowerCase() !==
+            'needs_review'
+        ) {
+          provenance[finding.id] = {
+            ...(entry && typeof entry === 'object'
+              ? (entry as Record<string, unknown>)
+              : {}),
+            pricingEligible: false,
+            status: 'needs_review',
+          };
+          changed = true;
+        }
+        continue;
+      }
+      if (
+        !source ||
+        source === 'needs_confirmation' ||
+        source === 'needs_review' ||
+        source === 'detected_from_plan' ||
+        source === 'plan_detected'
+      ) {
+        sources[finding.id] = 'contractor_confirmed_from_plan_review';
+        changed = true;
+      }
+      const entry = provenance[finding.id];
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        (entry as { pricingEligible?: boolean }).pricingEligible === false
+      ) {
+        provenance[finding.id] = {
+          ...(entry as Record<string, unknown>),
+          pricingEligible: true,
+          status: 'plan_verified',
+        };
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return measurements;
+  next.quickMeasurementSources = sources;
+  next.measurementProvenance = provenance;
+  return next as T;
 }
 
 /** Scope found lines. Room cards stay as one spaces count so they do not replace the cover sheet. */

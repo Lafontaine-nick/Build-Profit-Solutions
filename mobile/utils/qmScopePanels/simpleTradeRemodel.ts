@@ -341,6 +341,97 @@ function clearUnquantifiedNoteEquipmentDefaults(
 /** Optional HVAC scope — excluded from base package unless explicitly included. */
 export const HVAC_OPTIONAL_ADDON_OPTION_IDS = ['ventilation'] as const;
 
+/**
+ * Confirm Scope pricing rows that appear only after Quick Measurements
+ * selects them. An idle Yes / No / Not sure card is not a selection.
+ */
+export const HVAC_QM_GATED_SCOPE_ITEM_IDS = [
+  'ventilation',
+  'permits',
+  'cleanup',
+  'service_call',
+  'refrigerant',
+  'equipment_replace',
+  ...HVAC_EQUIPMENT_OPTION_IDS,
+] as const;
+
+export function isHvacQmGatedScopeItem(itemId: string): boolean {
+  return (HVAC_QM_GATED_SCOPE_ITEM_IDS as readonly string[]).includes(itemId);
+}
+
+function positiveHvacScopeCount(value: unknown): boolean {
+  const number = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(number) && number > 0;
+}
+
+function hvacItemQuantitySelected(
+  measurements: Record<string, unknown>,
+  itemId: string
+): boolean {
+  const quantities = measurements.itemQuantities;
+  if (!quantities || typeof quantities !== 'object') return false;
+  const entry = (quantities as Record<string, { quantity?: unknown }>)[itemId];
+  return positiveHvacScopeCount(entry?.quantity);
+}
+
+/**
+ * True when this Confirm Scope row belongs on an HVAC bid.
+ * Gated rows stay off the screen until Quick Measurements selects them.
+ */
+export function isHvacQmScopeItemActive(
+  itemId: string,
+  measurements: Record<string, unknown>
+): boolean {
+  if (!isHvacQmGatedScopeItem(itemId)) return true;
+  const selections = resolveHvacTradeScopeSelections(measurements);
+  if (itemId === 'ventilation') {
+    return (
+      selections.includes('ventilation') ||
+      positiveHvacScopeCount(measurements.hvacVentilationCount) ||
+      hvacItemQuantitySelected(measurements, 'ventilation')
+    );
+  }
+  if (itemId === 'permits') {
+    return (
+      positiveHvacScopeCount(measurements.hvacPermitCount) ||
+      hvacItemQuantitySelected(measurements, 'permits')
+    );
+  }
+  if (itemId === 'cleanup') {
+    return (
+      positiveHvacScopeCount(measurements.hvacCleanupCount) ||
+      hvacItemQuantitySelected(measurements, 'cleanup')
+    );
+  }
+  if (itemId === 'service_call') {
+    return (
+      positiveHvacScopeCount(measurements.hvacServiceCallCount) ||
+      hvacItemQuantitySelected(measurements, 'service_call')
+    );
+  }
+  if (itemId === 'refrigerant') {
+    return (
+      positiveHvacScopeCount(measurements.hvacRefrigerantCount) ||
+      hvacItemQuantitySelected(measurements, 'refrigerant')
+    );
+  }
+  if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(itemId)) {
+    return selections.includes(itemId);
+  }
+  if (itemId === 'equipment_replace') {
+    const typeSelected = selections.some(id =>
+      (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+    );
+    if (typeSelected) return false;
+    return (
+      selections.includes('equipment_replace') ||
+      positiveHvacScopeCount(measurements.hvacEquipmentReplacementCount) ||
+      hvacItemQuantitySelected(measurements, 'equipment_replace')
+    );
+  }
+  return true;
+}
+
 /** Shown under the idle whole-house ventilation chip in Confirm Scope. */
 export const HVAC_VENTILATION_IDLE_HINT =
   '1 each = one ERV, HRV, or whole-house fresh-air unit — not bath exhaust fans.';
@@ -1772,6 +1863,17 @@ function syncSimpleTrade(
     spec.scopeKey === 'hvac' &&
     selectedScope(measurements, 'hvac').includes('mini_split');
   let next = items.map(item => {
+    if (spec.scopeKey === 'hvac' && isHvacQmGatedScopeItem(item.id)) {
+      const active = isHvacQmScopeItemActive(item.id, measurements);
+      if (active) {
+        return item.state === 'included' && item.noteBacked
+          ? item
+          : { ...item, state: 'included' as const, noteBacked: true };
+      }
+      return item.state === 'excluded' && !item.noteBacked
+        ? item
+        : { ...item, state: 'excluded' as const, noteBacked: false };
+    }
     if (spec.scopeKey === 'hvac' && item.id === 'hvac' && miniSplitSelected) {
       return item.state === 'excluded'
         ? item

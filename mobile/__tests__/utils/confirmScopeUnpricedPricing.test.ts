@@ -3,6 +3,7 @@ import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummar
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import {
   applyConfirmScopeUnpricedPricingProposal,
+  applyWholeProjectPlanPricing,
   buildConfirmScopeUnpricedPricingProposal,
   draftEligibleForConfirmScopeUnpricedPricing,
   listConfirmScopeUnpricedPricingRows,
@@ -56,6 +57,38 @@ function bathroomUnpricedDraft(): EstimateAiDraft {
           laborSource: 'national_average',
         }),
       },
+    },
+  } as unknown as EstimateAiDraft;
+}
+
+function wholeProjectPlanDraft(
+  planImportMode: 'whole_project' | 'selected_trade' = 'whole_project'
+): EstimateAiDraft {
+  const items = [
+    ['framing', 'Framing'],
+    ['drywall', 'Drywall'],
+    ['hvac', 'HVAC'],
+    ['interior_paint', 'Interior painting'],
+    ['exterior_paint', 'Exterior painting'],
+    ['plumbing_rough', 'Plumbing rough-in'],
+  ].map(([id, label]) => ({
+    id,
+    label,
+    state: 'included' as const,
+    inputType: 'yes_no' as const,
+  }));
+  return {
+    scopeAssumptionsConfirmed: true,
+    scopeChecklist: { templateKey: 'ground_up' },
+    projectType: 'ground_up',
+    originalNotes: 'Ground-up new construction from imported architectural plans.',
+    confirmedAssumptions: items,
+    scopeMeasurements: {
+      planImportMode,
+      planImportTradeKey: planImportMode === 'selected_trade' ? 'electrical' : null,
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+      itemQuantities: {},
     },
   } as unknown as EstimateAiDraft;
 }
@@ -118,5 +151,34 @@ describe('confirmScopeUnpricedPricing', () => {
     expect(proposal.confirmScopeOnly).toBe(true);
     expect(proposal.scopeItems?.some((item) => item.scopeItemId === 'toilet')).toBe(true);
     expect(proposal.scopeItems?.some((item) => item.scopeItemId === 'floor_tile')).toBe(false);
+  });
+
+  it('auto-applies planning prices for whole-project ground-up plan exports', () => {
+    const draft = wholeProjectPlanDraft();
+    const next = applyWholeProjectPlanPricing(draft);
+    const measurements = next.scopeMeasurements || {};
+
+    for (const itemId of [
+      'framing',
+      'drywall',
+      'hvac',
+      'interior_paint',
+      'exterior_paint',
+      'plumbing_rough',
+    ]) {
+      expect(
+        hasAcceptedScopePricing(
+          itemId,
+          measurements.itemQuantities || {},
+          measurements.pricingAcceptance
+        )
+      ).toBe(true);
+    }
+    expect(next.pendingPricingProposal).toBeUndefined();
+  });
+
+  it('does not auto-apply whole-project planning prices to selected-trade exports', () => {
+    const draft = wholeProjectPlanDraft('selected_trade');
+    expect(applyWholeProjectPlanPricing(draft)).toBe(draft);
   });
 });

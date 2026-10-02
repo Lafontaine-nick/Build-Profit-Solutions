@@ -43,6 +43,7 @@ import {
   COMPLETE_DRYWALL_ASSEMBLY_HELPER,
   COMPLETE_DRYWALL_ASSEMBLY_LABEL,
   isDrywallCompletePackageScope,
+  isDrywallPlanExportCrewSplit,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   OPENING_TRIM_FINISH_SCOPE_HELPER,
@@ -61,6 +62,7 @@ import {
   BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS,
 } from '@/utils/scopeItemVisualTier';
 import { notesAreImportedPlanSummary } from '@/utils/concretePlanningMeasurements';
+import { planScopeRecordsHaveGroundUpAllowances } from '@/utils/planScopeRecords';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
 import { resolveBathroomVanityCountertopMaterialType } from '@/utils/bathroomVanityCountertopPricing';
@@ -578,6 +580,11 @@ export function finalizeDrywallScopeChecklistLayout(
   const laidOut = applyDrywallScopeCardLayout(items, templateKey, inferenceCtx);
   const planImport = resolveDrywallLayoutContext(inferenceCtx);
   if (
+    isDrywallPlanExportCrewSplit({
+      templateKey,
+      planImportMode: planImport.planImportMode,
+      planImportTradeKey: planImport.planImportTradeKey,
+    }) ||
     isDrywallCompletePackageScope({
       templateKey,
       planImportMode: planImport.planImportMode,
@@ -674,7 +681,6 @@ const GROUND_UP_NOTES_PATTERN =
 /** Shell + interior trades that default to Yes on new-build ground-up notes. */
 const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'foundation',
-  'concrete',
   'excavation',
   'utility_taps',
   'landscaping',
@@ -684,6 +690,7 @@ const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'exterior_doors',
   'sliding_doors',
   'garage_doors',
+  'pour_flatwork',
   'insulation',
   'drywall',
   'interior_paint',
@@ -698,6 +705,9 @@ const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'flooring',
   'cabinets',
   'countertops',
+  'appliances',
+  'shower_tile',
+  'glass_door',
   'interior_trim',
   'stucco',
   'exterior_finishes',
@@ -1355,6 +1365,14 @@ export function shouldEmbedDrywallFinishTexturePicker(
     return false;
   }
   if (itemId === 'finish_tape') {
+    if (
+      isDrywallPlanExportCrewSplit({
+        templateKey,
+        ...planImport,
+      })
+    ) {
+      return false;
+    }
     return (
       String(templateKey || '').toLowerCase() === 'drywall' &&
       !isDrywallCompletePackageScope({
@@ -1434,7 +1452,29 @@ export function hasPlanDrywallPackageTakeoff(
   );
 }
 
-/** Plan export / ground-up = one complete package; notes remodel = hang + finish cards. */
+/** Tape and texture are separate Quick Measurement yes/no choices. */
+export function drywallFinishCrewSelection(
+  measurements?: Record<string, unknown> | null
+): { tape: boolean; texture: boolean } {
+  const record = measurements || {};
+  const tapeExplicit =
+    record.drywallTapeIncluded === true || record.drywallTapeIncluded === false;
+  const textureExplicit =
+    record.drywallTextureIncluded === true ||
+    record.drywallTextureIncluded === false;
+  // Older drafts stored one shared finish switch. Once either crew has its
+  // own Yes/No, that choice wins and must not turn the other crew on.
+  if (tapeExplicit || textureExplicit) {
+    return {
+      tape: record.drywallTapeIncluded === true,
+      texture: record.drywallTextureIncluded === true,
+    };
+  }
+  const legacyBoth = record.drywallFinishIncluded === true;
+  return { tape: legacyBoth, texture: legacyBoth };
+}
+
+/** Plan export = install, mud, and texture crews; ground-up = one package; remodel = hang + finish. */
 export function applyDrywallScopeCardLayout(
   items: ScopeChecklistItem[],
   templateKey?: string | null,
@@ -1447,6 +1487,97 @@ export function applyDrywallScopeCardLayout(
     planImportMode: planImport.planImportMode,
     planImportTradeKey: planImport.planImportTradeKey,
   });
+  const crewSplit = isDrywallPlanExportCrewSplit({
+    templateKey,
+    planImportMode: planImport.planImportMode,
+    planImportTradeKey: planImport.planImportTradeKey,
+  });
+
+  if (crewSplit) {
+    const planTakeoff = hasPlanDrywallPackageTakeoff(
+      measurements as Record<string, unknown> | undefined
+    );
+    const defaultIncluded = planTakeoff;
+    let next = items.filter(item => item.id !== 'drywall');
+    const ensureCrewCard = (
+      id: 'hang' | 'finish_tape',
+      label: string,
+      helperText: string
+    ) => {
+      const existing = next.find(item => item.id === id);
+      if (existing) {
+        next = next.map(item =>
+          item.id === id
+            ? {
+                ...item,
+                label,
+                helperText,
+                category: 'Drywall',
+                state:
+                  item.state === 'unsure' && defaultIncluded
+                    ? ('included' as const)
+                    : item.state,
+              }
+            : item
+        );
+        return;
+      }
+      next = [
+        ...next,
+        {
+          id,
+          label,
+          helperText,
+          category: 'Drywall',
+          state: (defaultIncluded ? 'included' : 'unsure') as const,
+        },
+      ];
+    };
+    const crewSelection = drywallFinishCrewSelection(
+      measurements as Record<string, unknown> | undefined
+    );
+    ensureCrewCard(
+      'hang',
+      'Drywall install',
+      'Board, fasteners, and hanging. Hanger crew only.'
+    );
+    ensureCrewCard(
+      'finish_tape',
+      'Tape and mud',
+      'Tape, mud, and sanding. Turn on in Quick measurements.'
+    );
+    next = next.map(item =>
+      item.id === 'finish_tape'
+        ? {
+            ...item,
+            state: (crewSelection.tape ? 'included' : 'excluded') as
+              | 'included'
+              | 'excluded',
+          }
+        : item
+    );
+    next = ensureStandaloneDrywallTextureCard(
+      next,
+      measurements as Record<string, unknown> | undefined
+    ).map(item =>
+      item.id === 'texture'
+        ? {
+            ...item,
+            label: 'Texture',
+            helperText: 'Texture crew. Turn on in Quick measurements.',
+            state: (crewSelection.texture ? 'included' : 'excluded') as
+              | 'included'
+              | 'excluded',
+          }
+        : item
+    );
+    const crewOrder = ['hang', 'finish_tape', 'texture'];
+    const crewCards = crewOrder.flatMap(id =>
+      next.filter(item => item.id === id)
+    );
+    const rest = next.filter(item => !crewOrder.includes(item.id));
+    return [...crewCards, ...rest];
+  }
 
   if (completePackage) {
     let next = items.filter(item => !['hang', 'finish_tape'].includes(item.id));
@@ -1652,6 +1783,30 @@ const WHOLE_PROJECT_PLAN_SCOPE_CARDS: Array<{
     afterId: 'framing',
   },
   {
+    id: 'hvac',
+    label: 'HVAC',
+    helperText:
+      'Planning material and labor for the complete HVAC system until equipment and system count are confirmed.',
+    category: 'mep',
+    afterId: 'roofing',
+  },
+  {
+    id: 'electrical_rough',
+    label: 'Electrical rough-in',
+    helperText:
+      'Planning allowance for electrical rough-in until circuits, boxes, and device counts are confirmed.',
+    category: 'mep',
+    afterId: 'hvac',
+  },
+  {
+    id: 'electrical_trim',
+    label: 'Electrical trim-out',
+    helperText:
+      'Planning allowance for devices, fixtures, and electrical trim-out until the final schedule is confirmed.',
+    category: 'mep',
+    afterId: 'electrical_rough',
+  },
+  {
     id: 'insulation',
     label: 'Insulation',
     helperText:
@@ -1675,11 +1830,27 @@ const WHOLE_PROJECT_PLAN_SCOPE_CARDS: Array<{
     afterId: 'drywall',
   },
   {
+    id: 'interior_paint',
+    label: 'Interior painting',
+    helperText:
+      'Planning allowance for interior primer and paint until the paintable area is confirmed.',
+    category: 'finishes',
+    afterId: 'flooring',
+  },
+  {
+    id: 'exterior_paint',
+    label: 'Exterior painting',
+    helperText:
+      'Planning allowance for exterior primer and paint until the exterior surface area is confirmed.',
+    category: 'finishes',
+    afterId: 'interior_paint',
+  },
+  {
     id: 'plumbing_rough',
     label: 'Plumbing rough-in',
     helperText: 'Rough-in allowance until fixture points are counted.',
     category: 'mep',
-    afterId: 'hvac',
+    afterId: 'electrical_trim',
   },
   {
     id: 'plumbing_trim',
@@ -1763,7 +1934,12 @@ export function isWholeProjectPlanExport(input: {
   hasPlanBuildingAreas?: boolean | null;
 }): boolean {
   if (String(input.planImportMode || '') === 'whole_project') return true;
+  // A named subcontractor export stays on that trade. Living area, a garage,
+  // and unprinted allowances on the same plan do not turn it into a GC bid.
   if (String(input.planImportTradeKey || '').trim()) return false;
+  if (planScopeRecordsHaveGroundUpAllowances(input.planScopeRecords as never)) {
+    return true;
+  }
   if (String(input.planImportFingerprint || '').trim()) return true;
   if (
     Array.isArray(input.planScopeRecords) &&
@@ -1803,12 +1979,23 @@ export function shouldSeedWholeProjectShellChecklist(input: {
   floorAreaSqft?: number | null;
   windowCount?: number | null;
   garageSqft?: number | null;
+  garageDoorCount?: number | null;
   singleTradePlan?: boolean;
 }): boolean {
   const living = Number(input.floorAreaSqft);
   const garageSqft = Number(input.garageSqft);
-  // A plan with living area and a garage is a whole house, even when the
-  // draft was classified as a room remodel or a single trade.
+  const windowCount = Number(input.windowCount);
+  const garageDoorCount = Number(input.garageDoorCount);
+  if (String(input.planImportMode || '') === 'whole_project') return true;
+  if (
+    input.singleTradePlan ||
+    (String(input.planImportMode || '') === 'selected_trade' &&
+      String(input.planImportTradeKey || '').trim())
+  ) {
+    return false;
+  }
+  // A plan with living area and a garage is a whole house when no single
+  // trade was selected, even if the draft was classified as a room remodel.
   if (
     Number.isFinite(living) &&
     living >= 800 &&
@@ -1817,10 +2004,61 @@ export function shouldSeedWholeProjectShellChecklist(input: {
   ) {
     return true;
   }
+  // General-contractor export keeps framing, drywall, and MEP on Confirm
+  // Scope even when the draft was classified as a room remodel.
+  if (String(input.planImportMode || '') === 'whole_project') return true;
+  // Scope found already listed excavation, foundation, drywall, and the
+  // other unprinted trades. Those records are the whole-project shell.
+  if (planScopeRecordsHaveGroundUpAllowances(input.planScopeRecords as never)) {
+    return true;
+  }
+  // Lot-scale living area plus garage doors is a whole house. Garage square
+  // footage is often absent; the door count is what Confirm Scope already shows.
+  if (
+    Number.isFinite(living) &&
+    living >= 800 &&
+    Number.isFinite(garageDoorCount) &&
+    garageDoorCount >= 1
+  ) {
+    return true;
+  }
+  if (
+    Number.isFinite(living) &&
+    living >= 800 &&
+    Number.isFinite(windowCount) &&
+    windowCount >= 6
+  ) {
+    return true;
+  }
+  if (input.singleTradePlan) return false;
+  if (
+    String(input.planImportMode || '') === 'selected_trade' &&
+    String(input.planImportTradeKey || '').trim()
+  ) {
+    return false;
+  }
+  // A counted house plan (living area plus a window schedule) is not a
+  // bathroom remodel that only mentions a house size.
+  if (
+    Number.isFinite(living) &&
+    living >= 800 &&
+    Number.isFinite(windowCount) &&
+    windowCount >= 6
+  ) {
+    return true;
+  }
+  if (
+    Number.isFinite(living) &&
+    living >= 800 &&
+    ((Array.isArray(input.planScopeRecords) &&
+      input.planScopeRecords.length > 0) ||
+      Boolean(String(input.planImportFingerprint || '').trim()) ||
+      Boolean(input.hasPlanBuildingAreas))
+  ) {
+    return true;
+  }
   const template = String(input.templateKey || '').toLowerCase();
   if (ROOM_REMODEL_SHELL_TEMPLATES.has(template)) return false;
-  if (input.singleTradePlan) return false;
-  if (String(input.planImportMode || '') === 'selected_trade') return false;
   if (
     isWholeProjectPlanExport({
       planImportMode: input.planImportMode,
@@ -1846,7 +2084,6 @@ export function shouldSeedWholeProjectShellChecklist(input: {
   ) {
     return true;
   }
-  const windowCount = Number(input.windowCount);
   const planScale =
     Boolean(input.hasPlanBuildingAreas) ||
     Boolean(String(input.planImportFingerprint || '').trim()) ||
@@ -1863,6 +2100,52 @@ export function shouldSeedWholeProjectShellChecklist(input: {
     ) &&
     /\b(?:kitchen|bathroom)\s+(?:remodel|renovation)\b/i.test(notes);
   return !wholeHomeRemodel;
+}
+
+/**
+ * A general-contractor plan export that only kept the opening cards (windows,
+ * garage doors, interior doors) still needs the rest of the ground-up shell.
+ * A selected single trade does not.
+ */
+export function checklistHasWholeHouseOpeningPackage(
+  items: Array<{ id?: string | null; state?: string | null }> | null | undefined,
+  options?: { singleTradePlan?: boolean }
+): boolean {
+  if (options?.singleTradePlan) return false;
+  const active = new Set(
+    (items || [])
+      .filter(item => String(item?.state || '') !== 'excluded')
+      .map(item => String(item?.id || ''))
+  );
+  const hasWindows = [...active].some(
+    id =>
+      id === 'windows' ||
+      id === 'window' ||
+      id === 'window_install' ||
+      id.startsWith('window_')
+  );
+  const hasInteriorDoors = [...active].some(
+    id =>
+      id === 'doors' ||
+      id === 'interior_doors' ||
+      id === 'interior_door' ||
+      id === 'interior_door_install' ||
+      id.startsWith('interior_door')
+  );
+  const hasGarageOrStructure = [...active].some(
+    id =>
+      id === 'garage_doors' ||
+      id.startsWith('garage_door') ||
+      id === 'pour_flatwork' ||
+      id === 'flatwork' ||
+      id === 'foundation' ||
+      id === 'concrete' ||
+      id === 'excavation'
+  );
+  // Plan cards are not always named garage_doors / pour_flatwork. A window
+  // schedule plus interior doors plus foundation or flatwork is the same
+  // general-contractor plan, and Confirm Scope still needs the other trades.
+  return hasWindows && hasInteriorDoors && hasGarageOrStructure;
 }
 
 function positivePlanArea(value: unknown): number | null {
@@ -2416,6 +2699,13 @@ function migrateGroundUpTakeoffScopeItems(
     'cabinets'
   );
   ensure(
+    'appliances',
+    'Appliances',
+    'Kitchen appliance allowance until a package is selected.',
+    'finishes',
+    'countertops'
+  );
+  ensure(
     'floor_tile',
     'Bath floor tile',
     'Bathroom floor tile labor and materials.',
@@ -2424,8 +2714,8 @@ function migrateGroundUpTakeoffScopeItems(
   );
   ensure(
     'shower_tile',
-    'Shower wall tile',
-    'Shower wall tile labor and materials.',
+    'Shower tile',
+    'Shower walls and shower floor. House flooring stays on the flooring allowance.',
     'finishes',
     'floor_tile'
   );
@@ -2439,7 +2729,7 @@ function migrateGroundUpTakeoffScopeItems(
   ensure(
     'glass_door',
     'Shower doors',
-    'Glass shower door / enclosure — material and install.',
+    'Glass shower enclosures. Patio sliders stay on the sliding-door line.',
     'finishes',
     'shower_floor_tile'
   );
@@ -2820,9 +3110,7 @@ export function applyGroundUpStageHostDemotions(
     'cabinets',
     'countertops',
     'tile_flooring',
-    'floor_tile',
     'shower_tile',
-    'shower_floor_tile',
     'glass_door',
     'insulation',
   ];
@@ -2863,6 +3151,14 @@ export function applyGroundUpStageHostDemotions(
     );
 
   return items.map(i => {
+    if (i.id === 'concrete') {
+      return {
+        ...i,
+        state: 'excluded' as const,
+        helperText:
+          'House and garage slabs stay on Foundation. Driveway, walks, and patio stay on Exterior concrete flatwork.',
+      };
+    }
     if (i.id === 'sitework') {
       return {
         ...i,
@@ -3983,6 +4279,10 @@ export function filterRoomRemodelNoteScopeItems(
   notes?: string | null
 ): ScopeChecklistItem[] {
   if (notesAreImportedPlanSummary(notes)) return items;
+  // A whole-house opening package is a general-contractor plan. Do not drop
+  // framing, drywall, HVAC, or paint because the plan notes also mention
+  // kitchens and bathrooms.
+  if (checklistHasWholeHouseOpeningPackage(items)) return items;
   const text = String(notes || '').replace(
     /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
     ' '
@@ -6577,7 +6877,14 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   drywall: [
     {
       title: 'Drywall',
-      itemIds: ['demo_removal', 'drywall', 'texture', 'patch_repair'],
+      itemIds: [
+        'demo_removal',
+        'hang',
+        'finish_tape',
+        'drywall',
+        'texture',
+        'patch_repair',
+      ],
     },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
@@ -6705,7 +7012,7 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
   {
     title: 'Site & structure',
     test: id =>
-      /^(sitework|excavation|utility_taps|landscaping|foundation|pour_flatwork|concrete|framing|grading|backfill|demo|demolition|floor_demo|cabinet_demo)$/.test(
+      /^(sitework|excavation|utility_taps|landscaping|foundation|pour_flatwork|flatwork|concrete|framing|grading|backfill|demo|demolition|floor_demo|cabinet_demo)$/.test(
         id
       ) || /^(wall_framing|roof_tie_in)$/.test(id),
   },
@@ -6726,9 +7033,13 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
   {
     title: 'Interior finishes',
     test: id =>
-      /drywall|floor|tile|cabinet|counter|paint|trim|door|appliance|vanity|backsplash|glass_door|texture|hang|finish_tape|interior_finishes/.test(
+      /drywall|floor|tile|cabinet|counter|paint|trim|door|appliance|vanity|backsplash|glass_door|hang|interior_finishes/.test(
         id
       ) || id === 'prep',
+  },
+  {
+    title: 'Drywall finish',
+    test: id => id === 'finish_tape' || id === 'texture',
   },
   {
     title: 'Closeout',
@@ -6738,25 +7049,40 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
 
 /** Collapse a whole-home contractor checklist into priced summary groups. */
 export function bucketWholeProjectScopeGroups(
-  groups: Array<{ title: string; items: ScopeChecklistItem[] }>
+  groups: Array<{ title: string; items: ScopeChecklistItem[] }>,
+  options?: { seedGroundUpShell?: boolean }
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  const flat: ScopeChecklistItem[] = [];
+  const seenIds = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      flat.push(item);
+    }
+  }
+  // Confirm Scope can reach this summary with only the counted openings.
+  // A house that already has windows, garage doors, and interior doors is
+  // the general-contractor plan. Put the rest of the trades on the cards.
+  const source =
+    options?.seedGroundUpShell || checklistHasWholeHouseOpeningPackage(flat)
+      ? ensureWholeProjectGroundUpScopeItems(flat)
+      : flat;
   const buckets = WHOLE_PROJECT_PRICE_GROUPS.map(group => ({
     title: group.title,
     items: [] as ScopeChecklistItem[],
   }));
   const other: ScopeChecklistItem[] = [];
   const seen = new Set<string>();
-  for (const group of groups) {
-    for (const item of group.items) {
-      if (seen.has(item.id)) continue;
-      seen.add(item.id);
+  for (const item of source) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
       const bucket = WHOLE_PROJECT_PRICE_GROUPS.find(entry =>
         entry.test(item.id)
       );
       const target = buckets.find(entry => entry.title === bucket?.title);
       if (target) target.items.push(item);
       else other.push(item);
-    }
   }
   if (other.length === 1) {
     buckets.push({

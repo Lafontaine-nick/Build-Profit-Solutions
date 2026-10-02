@@ -14,6 +14,7 @@ import {
   scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
+  sumHardCostExcludedAppliedDollars,
 } from '@/utils/benchmarkReasonablenessContext';
 import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummaryUi';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
@@ -439,6 +440,37 @@ describe('benchmarkReasonablenessContext', () => {
     );
   });
 
+  it('prices a drywall plan export as one crew-split package', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'hang', label: 'Drywall install', inputType: 'yes_no', state: 'included' },
+      { id: 'finish_tape', label: 'Mud and tape', inputType: 'yes_no', state: 'included' },
+      { id: 'texture', label: 'Texture', inputType: 'yes_no', state: 'included' },
+    ];
+    const measurements = {
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+      drywallWallSqft: 6428,
+      drywallCeilingSqft: 2571,
+      garageWallDrywallSqft: 1647.1,
+      garageCeilingDrywallSqft: 1427,
+      fireRatedDrywallSqft: 3074,
+      drywallSqft: 12073,
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'drywall',
+      itemQuantities: {},
+    };
+    const crewTotal = wholeProjectGroupDisplayTotal({
+      items,
+      measurements: measurements as never,
+      templateKey: 'drywall',
+    });
+    const doubledNationalPackage = Math.round(12073 * 2.1 * 2);
+
+    expect(crewTotal).toBeGreaterThan(15000);
+    expect(crewTotal).toBeLessThan(30000);
+    expect(doubledNationalPackage - crewTotal).toBeGreaterThan(20000);
+  });
+
   it('sumStep3ReviewBudgetTotals includes Ask AI packages not on Confirm Scope checklist', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
@@ -717,6 +749,19 @@ describe('benchmarkReasonablenessContext', () => {
     expect(computeAppliedBuildCostPerLivingSf(100000, 0)).toBeNull();
     expect(formatBuildCostPerLivingSf(176)).toBe('$176');
     expect(formatBuildCostPerLivingSf(null)).toBe('—');
+  });
+
+  it('drops plans, permits, and utility taps from hard cost per living SF', () => {
+    const lines = [
+      { itemId: 'plans_engineering', total: 3000 },
+      { itemId: 'permits', total: 32000 },
+      { itemId: 'utility_taps', total: 7750 },
+      { itemId: 'framing', total: 65887 },
+    ];
+    expect(sumHardCostExcludedAppliedDollars(lines)).toBe(42750);
+    expect(
+      computeAppliedBuildCostPerLivingSf(443356 - 42750, 2571)
+    ).toBe(156);
   });
 
   it('shouldShowAppliedBuildCostPerSf is true for whole-home builds only', () => {

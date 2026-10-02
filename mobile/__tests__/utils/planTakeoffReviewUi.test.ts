@@ -402,6 +402,25 @@ describe('plan takeoff review UI polish', () => {
     ).toBeNull();
   });
 
+  it('lists a drywall plan export as house interior and garage', () => {
+    expect(
+      confirmedPlanTakeoffLines({
+        wholeProject: false,
+        measurements: {
+          planImportTradeKey: 'drywall',
+          floorAreaSqft: 2571,
+          garageSqft: 1427,
+          drywallSqft: 12073,
+          drywallWallSqft: 6428,
+          drywallCeilingSqft: 2571,
+          garageWallDrywallSqft: 1647.1,
+          garageCeilingDrywallSqft: 1427,
+          fireRatedDrywallSqft: 3074,
+        },
+      })
+    ).toEqual(['House interior · 8,999 SF', 'Garage · 3,074 SF']);
+  });
+
   it('uses contractor-friendly drywall takeoff labels', () => {
     expect(measurementDisplayLabel('garageWallDrywallSqft').label).toBe(
       'Garage walls'
@@ -611,6 +630,13 @@ describe('plan takeoff review UI polish', () => {
       applyPlanTakeoffButtonLabel({
         includedMeasurementCount: 5,
         checkedScopeCount: 13,
+        semanticsEnabled: true,
+      })
+    ).toBe('Apply plan takeoff');
+    expect(
+      applyPlanTakeoffButtonLabel({
+        includedMeasurementCount: 14,
+        checkedScopeCount: 0,
         semanticsEnabled: true,
       })
     ).toBe('Apply plan takeoff');

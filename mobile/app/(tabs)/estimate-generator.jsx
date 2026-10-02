@@ -75,7 +75,10 @@ import {
   countSavedPricingScopeItems,
   draftHasApplyablePricing,
 } from '../../utils/estimateAiDraftPricing';
-import { applyConfirmScopeUnpricedPricingProposal } from '../../utils/confirmScopeUnpricedPricing';
+import {
+  applyConfirmScopeUnpricedPricingProposal,
+  applyWholeProjectPlanPricing,
+} from '../../utils/confirmScopeUnpricedPricing';
 import { fetchPricingLibraryRatesForScopeContext } from '../../utils/scopePricingLibraryContext';
 import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { draftNeedsScopeConfirmation } from '../../utils/estimateInitialRevealUi';
@@ -6042,8 +6045,7 @@ export default function EstimateGeneratorScreen() {
       // Confirm Scope must not depend on the notes-generated draft preserving
       // plan measurements or selected-trade metadata.
       if (
-        (effectivePlanImport?.estimatingMode === 'selected_trade' ||
-          Boolean(effectivePlanImport?.selectedTrade)) &&
+        effectivePlanImport?.estimatingMode === 'selected_trade' &&
         effectivePlanImport?.selectedTrade &&
         Object.keys(effectivePlanImport.measurements || {}).length
       ) {
@@ -6234,9 +6236,11 @@ export default function EstimateGeneratorScreen() {
       }
 
       try {
-        // Skip the intermediate saved/rough pricing modals — Step 3 already handles
-        // unpriced scopes. Confirm Scope Apply still prices items the user accepted.
-        await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
+        // Whole-project GC plan exports use the same planning prices shown on
+        // Confirm Scope so every included trade reaches the contractor bid.
+        // Selected-trade and remodel flows retain the explicit pricing path.
+        const exportReadyDraft = applyWholeProjectPlanPricing(enriched);
+        await advanceComplexDraftAfterScope(exportReadyDraft, { skipPricing: true });
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope failed', e);
         openAiDraftReviewDirect();
@@ -11099,19 +11103,36 @@ export default function EstimateGeneratorScreen() {
       ? scopeDescription.split('\n').filter(line => line.trim())
       : [];
 
-    // Build detailed line items from materials cart
-    const materialLineItems = materialsCart && materialsCart.length > 0
-      ? materialsCart.map(item => ({
-          description: item.name || item.description || 'Material',
-          unit: item.unit || 'ea',
-          quantity: item.qty || item.quantity || 1,
-          unitPrice: resolveMaterialCartUnitPrice(item),
-          mode: item.mode === 'sqft' || item.unit === 'sq ft' ? 'sqft' : 'flat',
-          materials: item.total || 0,
-          labor: 0,
-          category: 'Materials',
-          section: item.section || 'General Materials'
-        }))
+    // Saved bid material lines are authoritative for export. The separate
+    // cart can be stale or empty after restoring an AI-applied estimate.
+    const savedMaterialLines = Array.isArray(bidData.materialLineItems)
+      ? bidData.materialLineItems
+      : [];
+    const materialSource =
+      savedMaterialLines.length > 0
+        ? savedMaterialLines
+        : (materialsCart || []);
+    const materialLineItems = materialSource.length > 0
+      ? materialSource.map(item => {
+          const quantity = Number(item.qty || item.quantity || 1) || 1;
+          const total =
+            Number(item.total ?? item.totalCost ?? item.cost ?? 0) ||
+            quantity * (Number(item.unitPrice) || 0);
+          const unitPrice =
+            Number(item.unitPrice) ||
+            (quantity > 0 ? total / quantity : total);
+          return {
+            description: item.name || item.description || 'Material',
+            unit: item.unit || 'ea',
+            quantity,
+            unitPrice,
+            mode: item.mode === 'sqft' || item.unit === 'sq ft' ? 'sqft' : 'flat',
+            materials: total,
+            labor: 0,
+            category: item.category || 'Materials',
+            section: item.section || item.category || 'General Materials',
+          };
+        })
       : ((calcData?.materials || 0) > 0 ? [{
           description: 'Materials & Supplies',
           unit: 'total',
@@ -11121,10 +11142,29 @@ export default function EstimateGeneratorScreen() {
           category: 'Materials'
         }] : []);
 
+    const allowanceLineItems = Array.isArray(bidData.allowanceLineItems)
+      ? bidData.allowanceLineItems
+          .map(item => ({
+            name: item.name || item.description || 'Allowance',
+            amount: Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0,
+            description: item.description || undefined,
+          }))
+          .filter(item => item.amount > 0)
+      : [];
+
+    const exportedMaterialsTotal = materialLineItems.reduce(
+      (sum, item) => sum + (Number(item.materials) || 0),
+      0
+    );
+    const exportedLaborTotal = (bidData.laborLineItems || []).reduce(
+      (sum, item) =>
+        sum + (Number(item.total ?? item.totalCost ?? item.labor) || 0),
+      0
+    );
     const financials = getEstimateStep5Financials(
       bidData,
-      calcData?.materials || 0,
-      calcData?.labor || 0
+      exportedMaterialsTotal || Number(calcData?.materials) || 0,
+      exportedLaborTotal || Number(calcData?.labor) || 0
     );
     const projectCosts = financials.projectCosts;
     const companyOverheadOnly = financials.companyOverheadTotal;
@@ -11218,7 +11258,7 @@ export default function EstimateGeneratorScreen() {
           };
         }),
       },
-      allowances: [],
+      allowances: allowanceLineItems,
       milestones: bidData.paymentSchedule === 'milestone-based' && bidData.paymentMilestones
         ? bidData.paymentMilestones.map(m => ({
             id: m.id,
@@ -23020,7 +23060,10 @@ export default function EstimateGeneratorScreen() {
         visible={showAiScopeAssumptionsModal}
         embedded
         prepareWhileHidden={prepareAiScopeWhileHidden}
-        draft={aiScopeAssumptionsDraft}
+        // Same draft Scope found uses. The raw draft can drop the plan record
+        // that lists the ground-up allowances, and Confirm Scope then prices
+        // only the opening cards.
+        draft={aiDraftSyncedForReview || aiScopeAssumptionsDraft}
         notesFallback={aiDraftNotes}
         applying={aiScopeAssumptionsApplying}
         fromAssistant={aiDraftFromAssistant}
