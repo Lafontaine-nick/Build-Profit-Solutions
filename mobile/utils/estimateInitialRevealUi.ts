@@ -11,7 +11,10 @@ import {
   getScopePackages,
   isComplexEstimateTier,
 } from '@/utils/estimateAiDraft';
-import type { EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
+import type {
+  EstimateDraftScopePackage,
+  ScopeChecklistItem,
+} from '@/utils/estimateAiDraft';
 import {
   summarizePlumbingNoteBullets,
   parsePlumbingMeasurementsFromNotes,
@@ -26,7 +29,15 @@ import {
   plumbingNoteScopeItemIds,
   standalonePlumbingProjectTitle,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
+import {
+  resolveAppliedScopeMoneyTotal,
+  sumStep3ReviewBudgetTotals,
+  wholeProjectGroupDisplayTotal,
+} from '@/utils/benchmarkReasonablenessContext';
+import {
+  hasAcceptedScopePricing,
+  type ScopePricingAcceptanceMetadata,
+} from '@/utils/acceptedPricingSummaryUi';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import { planScopeRecordSummaryLines } from '@/utils/planScopeRecords';
 import { notesRequireInteriorPaintMeasurements } from '@/utils/scopeQuickMeasurements';
@@ -53,8 +64,17 @@ import { filterRoomRemodelNoteScopeItems } from '@/utils/estimateScopeChecklistU
 import {
   initialScopeMeasurementInputExtended,
   checklistItemInScope,
+  type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
-import { hasDetailedElectricalQuantities } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  ELECTRICAL_CARDS,
+  ELECTRICAL_CARD_GROUPS,
+  hasDetailedElectricalQuantities,
+  syncElectricalScopeItems,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { unresolvedElectricalConflictFields } from '@/utils/electricalQuickMeasurementUi';
+import type { ElectricalCardDefinition } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import type { ScopeItemQuantityValue } from '@/utils/scopeItemQuantities';
 import { parseInsulationAssembliesFromNotes } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import { confirmedPlanTakeoffLines } from '@/utils/planTakeoffReviewUi';
@@ -290,10 +310,20 @@ export function getInitialRevealConfirmItems(
       !/spaces detected on the plan/i.test(line) &&
       !/unclassified lighting fixtures/i.test(line)
   );
-  if (planPriceLines.length > 0) {
-    return splitInitialRevealConfirmItems(
-      planPriceLines.map(line => `Pricing for ${line}`)
+  // After Confirm scope, the applied cards are the scope. Leftover symbol
+  // counts (GFCI, switches, ceiling fans) stay off this list.
+  if (planTakeoffLinesOwnRevealScope(draft)) {
+    const unpricedPlanPriceLines = planPriceLines.filter(
+      line => appliedElectricalPlanLineAmount(draft, line) == null
     );
+    if (unpricedPlanPriceLines.length > 0) {
+      return splitInitialRevealConfirmItems(
+        unpricedPlanPriceLines.map(line => `Pricing for ${line}`)
+      );
+    }
+    if (planPriceLines.length > 0) {
+      return splitInitialRevealConfirmItems([]);
+    }
   }
   const plumbingPlanCounts = plumbingPlanCountAttention(draft);
   if (plumbingPlanCounts.length > 0) {
@@ -371,13 +401,50 @@ export function getInitialRevealConfirmItems(
     ...prioritized,
     ...plumbingMissingQuantityAttentionItems(draft),
   ].filter((item, index, all) => all.indexOf(item) === index);
-  return splitInitialRevealConfirmItems(withPlumbingAttention);
+  return splitInitialRevealConfirmItems(
+    dropPricedElectricalAttention(draft, withPlumbingAttention)
+  );
 }
 
 export function countInitialRevealAttentionItems(
   draft: EstimateAiDraft
 ): number {
   return getInitialRevealConfirmItems(draft).pricingScope.length;
+}
+
+function electricalCardForPlanLine(line: string) {
+  const label = String(line || '')
+    .split(' · ')[0]
+    ?.trim()
+    .toLowerCase();
+  if (!label) return null;
+  return (
+    ELECTRICAL_CARDS.find(
+      card => card.label.trim().toLowerCase() === label
+    ) || null
+  );
+}
+
+/** Applied Confirm Scope dollars for a plan-takeoff line, when that card is already priced. */
+function appliedElectricalPlanLineAmount(
+  draft: EstimateAiDraft,
+  line: string
+): number | null {
+  const card = electricalCardForPlanLine(line);
+  if (!card) return null;
+  const measurements = (draft.scopeMeasurements || {}) as {
+    itemQuantities?: Record<string, ScopeItemQuantityValue>;
+    pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+  };
+  const quantities = measurements.itemQuantities || {};
+  const acceptance = measurements.pricingAcceptance || {};
+  if (!hasAcceptedScopePricing(card.itemId, quantities, acceptance)) return null;
+  const amount = resolveAppliedScopeMoneyTotal(
+    card.itemId,
+    quantities,
+    acceptance[card.itemId]
+  );
+  return amount > 0 ? amount : null;
 }
 
 function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
@@ -934,6 +1001,226 @@ function revealChecklistItemVisible(
   return true;
 }
 
+/** Plan takeoff lines are the scope list only before Confirm scope. */
+function planTakeoffLinesOwnRevealScope(draft: EstimateAiDraft): boolean {
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) {
+    return false;
+  }
+  return confirmedPlanLinesForDraft(draft).length > 0;
+}
+
+function electricalConfirmScopeIsSource(draft: EstimateAiDraft): boolean {
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return false;
+  }
+  const template = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  const trade = String(
+    (draft.scopeMeasurements as { planImportTradeKey?: string } | null)
+      ?.planImportTradeKey || ''
+  ).toLowerCase();
+  return template === 'electrical' || trade === 'electrical';
+}
+
+function electricalMeasurementNeedsConfirmation(
+  measurements: Record<string, unknown>,
+  key: string
+): boolean {
+  const overrides = measurements.quickMeasurementUserOverrides;
+  if (
+    overrides &&
+    typeof overrides === 'object' &&
+    !Array.isArray(overrides) &&
+    (overrides as Record<string, unknown>)[key]
+  ) {
+    return false;
+  }
+  const sources = measurements.quickMeasurementSources;
+  if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
+    return false;
+  }
+  return (sources as Record<string, unknown>)[key] === 'needs_confirmation';
+}
+
+function electricalCardCount(
+  card: ElectricalCardDefinition,
+  measurements: Record<string, unknown>
+): number | null {
+  const itemQuantities =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<string, { quantity?: unknown }>)
+      : {};
+  const scalar = Number(
+    String(measurements[card.measurementKey] ?? '').replace(/,/g, '')
+  );
+  const itemQuantity = Number(
+    String(itemQuantities[card.itemId]?.quantity ?? '').replace(/,/g, '')
+  );
+  const value = scalar > 0 ? scalar : itemQuantity;
+  return value > 0 && card.unit !== 'amp' ? value : null;
+}
+
+function formatElectricalCardQuantity(
+  card: ElectricalCardDefinition,
+  measurements: Record<string, unknown>
+): string | null {
+  const value = electricalCardCount(card, measurements);
+  if (value == null) return null;
+  const formatted = value.toLocaleString();
+  return card.unit === 'lf' ? `${formatted} LF` : `${formatted} each`;
+}
+
+function formatElectricalGroupQuantity(
+  cards: ElectricalCardDefinition[],
+  measurements: Record<string, unknown>
+): string | null {
+  if (cards.length === 1) {
+    return formatElectricalCardQuantity(cards[0], measurements);
+  }
+  const units = new Set(cards.map(card => card.unit));
+  if (units.size === 1 && !units.has('amp')) {
+    const total = cards.reduce(
+      (sum, card) => sum + (electricalCardCount(card, measurements) || 0),
+      0
+    );
+    if (total > 0) {
+      const unit = units.has('lf') ? 'LF' : 'each';
+      return `${total.toLocaleString()} ${unit}`;
+    }
+  }
+  return null;
+}
+
+function electricalCardMoney(
+  draft: EstimateAiDraft,
+  card: ElectricalCardDefinition,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey: string,
+  notes: string
+): number {
+  const quantities = measurements.itemQuantities || {};
+  const acceptance = measurements.pricingAcceptance || {};
+  if (hasAcceptedScopePricing(card.itemId, quantities, acceptance)) {
+    const applied = resolveAppliedScopeMoneyTotal(
+      card.itemId,
+      quantities,
+      acceptance[card.itemId]
+    );
+    if (applied > 0) return applied;
+  }
+  const packaged = getScopePackages(draft).find(
+    row => String(row.checklistItemId || '').trim() === card.itemId
+  );
+  const packagedAmount = packaged
+    ? scopePackagePricedAmount(packaged, draft)
+    : 0;
+  if (packagedAmount > 0) return packagedAmount;
+  const suggested = wholeProjectGroupDisplayTotal({
+    items: [
+      {
+        id: card.itemId,
+        label: card.label,
+        state: 'included',
+        inputType: 'yes_no',
+      } as ScopeChecklistItem,
+    ],
+    measurements,
+    templateKey,
+    notes,
+  });
+  return suggested > 0 ? suggested : 0;
+}
+
+/** Confirm-scope card groups and dollars for Initial estimate and Step 3. */
+export function getElectricalConfirmScopeCardRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  return appliedElectricalConfirmScopePreview(draft);
+}
+
+function appliedElectricalConfirmScopePreview(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (!electricalConfirmScopeIsSource(draft)) return null;
+  const notes = String(draft.originalNotes || '');
+  // Confirm scope prices the saved measurements. The normalized reveal input
+  // drops electrical device counts, which made these rows disagree with the cards.
+  const measurements = {
+    ...(draft.scopeMeasurements || {}),
+  } as ScopeMeasurementsInputExtended;
+  const templateKey = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || 'electrical'
+  );
+  const measurementRecord = measurements as Record<string, unknown>;
+  const synced = syncElectricalScopeItems(draft.scopeChecklist?.items || [], {
+    templateKey,
+    projectType: draft.projectType,
+    notes,
+    electricalScope: measurements.electricalScope,
+    quantities: measurements,
+  });
+  const includedIds = new Set(
+    synced.filter(item => item.state === 'included').map(item => item.id)
+  );
+  const unresolved = unresolvedElectricalConflictFields(
+    measurements.measurementConflicts || []
+  );
+  const selected = ELECTRICAL_CARDS.filter(card => {
+    if (!includedIds.has(card.itemId)) return false;
+    if (
+      electricalMeasurementNeedsConfirmation(
+        measurementRecord,
+        card.measurementKey
+      )
+    ) {
+      return false;
+    }
+    if (unresolved.has(card.measurementKey)) return false;
+    return true;
+  });
+  if (!selected.length) return null;
+  const rows = ELECTRICAL_CARD_GROUPS.flatMap(group => {
+    const cards = selected.filter(card => card.groupId === group.id);
+    if (!cards.length) return [];
+    const amount = cards.reduce(
+      (total, card) =>
+        total +
+        electricalCardMoney(draft, card, measurements, templateKey, notes),
+      0
+    );
+    if (!(amount > 0)) return [];
+    const quantity = formatElectricalGroupQuantity(cards, measurementRecord);
+    return [
+      {
+        name: group.title,
+        amount: Math.round(amount * 100) / 100,
+        ...(quantity ? { quantity } : {}),
+      },
+    ];
+  });
+  return rows.length ? rows : null;
+}
+
+function dropPricedElectricalAttention(
+  draft: EstimateAiDraft,
+  items: string[]
+): string[] {
+  const rows = appliedElectricalConfirmScopePreview(draft);
+  if (!rows?.length) return items;
+  const pricedLabels = ELECTRICAL_CARDS.filter(card =>
+    rows.some(row => row.name === card.groupTitle && row.amount > 0)
+  ).map(card => card.label.trim().toLowerCase());
+  if (!pricedLabels.length) return items;
+  return items.filter(item => {
+    const plain = item.toLowerCase();
+    if (!/price needed|pricing for/.test(plain)) return true;
+    return !pricedLabels.some(label => plain.includes(label));
+  });
+}
+
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft).length;
@@ -944,8 +1231,12 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (flooringPlanExport(draft)) {
     return flooringPlanScopeRows(draft).length;
   }
+  const appliedElectrical = appliedElectricalConfirmScopePreview(draft);
+  if (appliedElectrical) return appliedElectrical.length;
   const planLines = confirmedPlanLinesForDraft(draft);
-  if (planLines.length > 0) return planLines.length;
+  if (planTakeoffLinesOwnRevealScope(draft) && planLines.length > 0) {
+    return planLines.length;
+  }
   const checklistCount = getInitialRevealScopeRows(draft).length;
   if (checklistCount > 0) return checklistCount;
   const packageCount = getScopePackages(draft).length;
@@ -2241,9 +2532,14 @@ export function getInitialRevealChecklistScopePreview(
   if (flooringPlanExport(draft)) {
     return flooringPlanScopeRows(draft);
   }
+  const appliedElectrical = appliedElectricalConfirmScopePreview(draft);
+  if (appliedElectrical) return appliedElectrical;
   const planLines = confirmedPlanLinesForDraft(draft);
-  if (planLines.length > 0) {
-    return planLines.map(name => ({ name, amount: 0 }));
+  if (planTakeoffLinesOwnRevealScope(draft) && planLines.length > 0) {
+    return planLines.map(name => ({
+      name,
+      amount: appliedElectricalPlanLineAmount(draft, name) ?? 0,
+    }));
   }
   const showAmounts = initialRevealPricingVisible(draft);
   const scopeRows = getInitialRevealScopeRows(draft);
@@ -2378,6 +2674,14 @@ export function getScopeTotalCoverageLine(
   draft: EstimateAiDraft,
   options?: { missingPriceCount?: number; scopeItemCount?: number }
 ): string | null {
+  const electricalRows = appliedElectricalConfirmScopePreview(draft);
+  if (
+    electricalRows &&
+    electricalRows.length > 0 &&
+    electricalRows.every(row => row.amount > 0)
+  ) {
+    return null;
+  }
   const pkgs = getScopePackagesForReview(draft);
   const scopeItemCount = options?.scopeItemCount ?? pkgs.length;
   const useIndicative =
@@ -2946,15 +3250,23 @@ export function getInitialRevealTotals(
     initialRevealPricingVisible(draft) && roofingRevealHasPlanningInputs(draft)
       ? sumIndicativeScopePackageTotals(draft)
       : 0;
+  const electricalCardRows = appliedElectricalConfirmScopePreview(draft);
+  const electricalCardTotal = electricalCardRows
+    ? Math.round(
+        electricalCardRows.reduce((sum, row) => sum + row.amount, 0) * 100
+      ) / 100
+    : 0;
 
   const calculatedTotal =
     appliedScopeBreakdown && appliedScopeBreakdown.total > 0
       ? appliedScopeBreakdown.total
       : liveScopeTotal > 0
         ? liveScopeTotal
-        : indicativeScopeTotal > 0
-          ? indicativeScopeTotal
-          : (draft.calculatedLineItemTotal ??
+        : electricalCardTotal > 0
+          ? electricalCardTotal
+          : indicativeScopeTotal > 0
+            ? indicativeScopeTotal
+            : (draft.calculatedLineItemTotal ??
             draft.calculatedTotal ??
             draft.totalValidation?.calculatedLineItemsTotal ??
             (pendingTotal > 0 ? pendingTotal : null));

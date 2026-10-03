@@ -402,7 +402,7 @@ function DisclosureList({
       <Ionicons
         name={row.open ? 'chevron-up' : 'chevron-down'}
         size={16}
-        color='#94a3b8'
+        color={darkMode ? '#d7e1f0' : '#64748b'}
       />
     </TouchableOpacity>
   );
@@ -3096,7 +3096,7 @@ export default function PlanTakeoffReviewModal({
                                 : undefined
                             }
                             placeholderTextColor={
-                              darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
+                              darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'
                             }
                             keyboardType='decimal-pad'
                             style={[styles.valueInput, { color: Colors.text }]}

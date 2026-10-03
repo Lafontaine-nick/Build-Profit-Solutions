@@ -89,7 +89,7 @@ import {
 } from '@/utils/approvedCostBuckets';
 import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
 import {
-  getAllowanceLineItemsTotal,
+  getBidSoftCostTotal,
   isAllowancesCategoryName,
 } from '@/utils/estimateAllowances';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
@@ -1195,8 +1195,8 @@ function ProjectDetailContent() {
           aiSuggested: false,
         });
       }
-      const allowBudget = getBucketBudget('allowance');
-      const allowSpent = getBucketSpend('allowance');
+      const allowBudget = getBucketBudget('allowance', 'soft cost');
+      const allowSpent = getBucketSpend('allowance', 'soft cost');
       const allowExpCtx = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
         if (isAllowancesCategoryName(e?.category)) return sum + (Number(e?.amount) || 0);
         return sum;
@@ -1205,13 +1205,31 @@ function ProjectDetailContent() {
         const unitCost = Math.max(allowBudget, allowSpent, allowExpCtx);
         targetLines.push({
           id: 'allowances',
-          category: 'Allowances',
-          description: 'Soft-cost allowances',
+          category: 'Soft costs',
+          description: 'Permits, cleanup, and other job soft costs',
           qty: 1,
           unit: 'lump sum',
           unitCost,
           markupPct: 0,
           spent: allowSpent,
+          aiSuggested: false,
+        });
+      }
+      const contingencyBudget = getBucketBudget('contingency');
+      const contingencySpent = getBucketSpend('contingency');
+      const hasContingency = targetLines.some((l) =>
+        String(l?.category || '').toLowerCase().includes('contingency')
+      );
+      if (!hasContingency && (contingencyBudget > 0 || contingencySpent > 0)) {
+        targetLines.push({
+          id: 'contingency',
+          category: 'Contingency',
+          description: 'Bid buffer. Not a soft cost.',
+          qty: 1,
+          unit: 'lump sum',
+          unitCost: Math.max(contingencyBudget, contingencySpent),
+          markupPct: 0,
+          spent: contingencySpent,
           aiSuggested: false,
         });
       }
@@ -1403,9 +1421,9 @@ function ProjectDetailContent() {
     }
 
     // Allowances card — soft costs from bid.allowanceLineItems (under Labor)
-    const allowancesBucketBudget = getBucketBudget('allowance');
-    const allowancesSpent = getBucketSpend('allowance');
-    const allowancesFromEstimate = getAllowanceLineItemsTotal(estimate.allowanceLineItems);
+    const allowancesBucketBudget = getBucketBudget('allowance', 'soft cost');
+    const allowancesSpent = getBucketSpend('allowance', 'soft cost');
+    const allowancesFromEstimate = getBidSoftCostTotal(estimate);
     const allowancesExpensesFromContext = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
       if (isAllowancesCategoryName(e?.category)) return sum + (Number(e?.amount) || 0);
       return sum;
@@ -1420,13 +1438,36 @@ function ProjectDetailContent() {
     if (allowancesBudget > 0 || allowancesSpent > 0 || allowancesExpensesFromContext > 0) {
       lines.push({
         id: 'allowances',
-        category: 'Allowances',
-        description: 'Soft-cost allowances',
+        category: 'Soft costs',
+        description: 'Permits, cleanup, and other job soft costs',
         qty: 1,
         unit: 'lump sum',
         unitCost: Math.max(allowancesBudget, allowancesExpensesFromContext),
         markupPct: 0,
         spent: allowancesSpent,
+        aiSuggested: false,
+      });
+    }
+
+    const contingencyFromEstimate = Number(estimate.contingencyAllowance) || 0;
+    const contingencyBucketBudget = getBucketBudget('contingency');
+    const contingencySpent = getBucketSpend('contingency');
+    const contingencyBudget =
+      contingencyFromEstimate > 0
+        ? contingencyFromEstimate
+        : contingencyBucketBudget > 0
+          ? contingencyBucketBudget
+          : 0;
+    if (contingencyBudget > 0 || contingencySpent > 0) {
+      lines.push({
+        id: 'contingency',
+        category: 'Contingency',
+        description: 'Bid buffer. Not a soft cost.',
+        qty: 1,
+        unit: 'lump sum',
+        unitCost: Math.max(contingencyBudget, contingencySpent),
+        markupPct: 0,
+        spent: contingencySpent,
         aiSuggested: false,
       });
     }
@@ -1640,6 +1681,9 @@ function ProjectDetailContent() {
           n.includes('equip') ||
           n.includes('labor') ||
           n.includes('allowance') ||
+          n.includes('soft cost') ||
+          n.includes('soft-cost') ||
+          n.includes('contingency') ||
           n.includes('overhead') ||
           n.includes('permit')
         ) {
@@ -1699,6 +1743,7 @@ function ProjectDetailContent() {
       contractCollectedPct,
       elapsedTimePct,
       isCompleted: isProjectCompleted,
+      allocatedCompanyOverhead: financials.allocatedCompanyOverhead,
     });
 
     const getDaysLeft = () => {
@@ -1968,7 +2013,7 @@ function ProjectDetailContent() {
                       <View style={styles.overviewCardHeaderRow}>
                         <View style={styles.overviewCardHeaderTitleCluster}>
                           <View style={styles.iconBadge}>
-                            <Feather name="bar-chart-2" size={16} color="#94a3b8" />
+                            <Feather name="bar-chart-2" size={16} color={darkMode ? '#d7e1f0' : '#64748b'} />
                           </View>
                           <View style={styles.overviewCardHeaderTitleWrap}>
                             <Text
@@ -2734,7 +2779,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
   },
   overviewHeroCard: {
     paddingVertical: 18,
@@ -3311,7 +3356,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   statusChipCompactDot: {
     fontSize: 12,
-    color: darkMode ? 'rgba(255,255,255,0.45)' : '#94a3b8',
+    color: darkMode ? 'rgba(255,255,255,0.45)' : '#d7e1f0',
     fontWeight: '400',
   },
   statusChip: {

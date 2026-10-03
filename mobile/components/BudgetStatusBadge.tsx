@@ -27,7 +27,7 @@ const VARIANT_STYLES: Record<
   neutral: {
     bg: 'rgba(148, 163, 184, 0.12)',
     border: 'rgba(148, 163, 184, 0.22)',
-    color: '#94a3b8',
+    color: '#d7e1f0',
     defaultLabel: 'No spend yet',
   },
 };

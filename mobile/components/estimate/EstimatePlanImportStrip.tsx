@@ -1979,7 +1979,7 @@ export default function EstimatePlanImportStrip({
     >
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
         {importing ? (
-          <ActivityIndicator size='small' color='#94a3b8' style={{ marginTop: 2 }} />
+          <ActivityIndicator size='small' color={darkMode ? '#d7e1f0' : '#64748b'} style={{ marginTop: 2 }} />
         ) : (
           <View
             style={[

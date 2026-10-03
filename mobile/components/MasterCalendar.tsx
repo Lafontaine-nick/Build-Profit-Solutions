@@ -56,7 +56,7 @@ export default function MasterCalendar() {
         surface: '#0f172a',
         surface2: '#1e293b',
         text: '#f1f5f9',
-        subtext: '#94a3b8',
+        subtext: '#d7e1f0',
         border: '#334155',
         green: '#22c55e',
         blue: '#22d3ee',

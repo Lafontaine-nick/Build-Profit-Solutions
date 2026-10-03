@@ -303,7 +303,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSubtitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     marginTop: 4,
     fontWeight: '500',

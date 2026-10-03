@@ -133,7 +133,7 @@ function w9StatusShort(linked: Vendor | undefined): { text: string; warn: boolea
 }
 
 function moneyColor(amount: number): string {
-  if (!Number.isFinite(amount) || amount === 0) return '#94a3b8';
+  if (!Number.isFinite(amount) || amount === 0) return '#d7e1f0';
   if (amount < 0) return '#f87171';
   return '#2dcc9a';
 }
@@ -248,7 +248,7 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
       color: '#2dcc9a',
     },
     chipTextZero: {
-      color: '#94a3b8',
+      color: '#d7e1f0',
     },
     scroll: { flex: 1, minHeight: 0 },
     scrollContent: { paddingHorizontal: 12, paddingBottom: 28 },
@@ -288,7 +288,7 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
       borderColor: formulaBorder,
     },
     formulaLine: { color: Colors.text, fontSize: 14, fontWeight: '600', marginBottom: 8 },
-    formulaValues: { color: '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 10 },
+    formulaValues: { color: '#d7e1f0', fontSize: 16, fontWeight: '800', marginBottom: 10 },
     formulaFoot: { color: meta, fontSize: 12, lineHeight: 18 },
     footerNote: {
       marginTop: 18,

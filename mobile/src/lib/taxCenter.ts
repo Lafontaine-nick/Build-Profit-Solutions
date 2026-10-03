@@ -24,6 +24,8 @@ export type TaxCategory =
   | 'Subcontractors'
   | 'Equipment Rental'
   | 'Permits / Plans'
+  | 'Lender fees'
+  | 'Interest'
   | 'Insurance'
   | 'Vehicle / Mileage'
   | 'Software / Tools'
@@ -36,6 +38,8 @@ export const TAX_CATEGORIES: TaxCategory[] = [
   'Subcontractors',
   'Equipment Rental',
   'Permits / Plans',
+  'Lender fees',
+  'Interest',
   'Insurance',
   'Vehicle / Mileage',
   'Software / Tools',
@@ -517,7 +521,9 @@ export function inferVendorTypeFromTaxCategory(category: TaxCategory, expense?: 
     category === 'Materials' ||
     category === 'Equipment Rental' ||
     category === 'Software / Tools' ||
-    category === 'Insurance'
+    category === 'Insurance' ||
+    category === 'Lender fees' ||
+    category === 'Interest'
   ) {
     return 'supplier';
   }
@@ -545,6 +551,9 @@ export function mapExpenseToTaxCategory(expense: Partial<TaxExpense> | string | 
       : `${expense?.category || ''} ${expense?.vendor || ''} ${expense?.notes || ''}`;
   const text = raw.toLowerCase();
 
+  // Loan principal is not an expense. Only lender charges and interest paid.
+  if (/lender fee|origination|loan points|financing fee/.test(text)) return 'Lender fees';
+  if (/\binterest\b/.test(text)) return 'Interest';
   if (/sub|1099|contractor|crew|trade partner/.test(text)) return 'Subcontractors';
   if (/labor|payroll|wage|hour|employee/.test(text)) return 'Labor';
   if (/material|lumber|concrete|drywall|paint|tile|roof|supply|hardware|homedepot|home depot|lowe/.test(text)) return 'Materials';

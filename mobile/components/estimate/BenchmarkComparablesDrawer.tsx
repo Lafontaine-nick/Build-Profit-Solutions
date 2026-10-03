@@ -54,7 +54,7 @@ function ComparableRow({
   scopeName?: string | null;
 }) {
   const text = darkMode ? '#f8fafc' : '#0f172a';
-  const sub = darkMode ? '#94a3b8' : '#64748b';
+  const sub = darkMode ? '#d7e1f0' : '#64748b';
   const label = project.scopeName || scopeName || 'Source budget line';
   const perSf =
     project.scopeCostPerLivingSf != null
@@ -121,7 +121,7 @@ export default function BenchmarkComparablesDrawer({
 }: Props) {
   const bg = darkMode ? '#111827' : '#ffffff';
   const text = darkMode ? '#f8fafc' : '#0f172a';
-  const sub = darkMode ? '#94a3b8' : '#64748b';
+  const sub = darkMode ? '#d7e1f0' : '#64748b';
   const [twinExpanded, setTwinExpanded] = useState(false);
   const semantics = measurementSemanticsV1Enabled();
 

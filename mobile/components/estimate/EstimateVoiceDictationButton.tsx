@@ -152,7 +152,7 @@ export default function EstimateVoiceDictationButton({
           : estimateStep1ActionButtonStyle(Colors, darkMode);
       return (
         <View style={[shellStyle, style]}>
-          <ActivityIndicator size="small" color="#94a3b8" />
+          <ActivityIndicator size="small" color={darkMode ? '#d7e1f0' : '#64748b'} />
           <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600' }}>Transcribing…</Text>
         </View>
       );

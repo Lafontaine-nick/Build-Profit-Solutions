@@ -1,7 +1,10 @@
 /**
  * Cost vs revenue for project budgeting.
  * Contract / sell price (grandTotal, bid) is revenue; spend tracking uses planned cost + allocated CO cost.
+ * Planned cost matches the estimate: hard costs + soft costs + contingency. Company overhead is not job cost.
  */
+
+import { getBidSoftCostTotal } from '@/utils/estimateAllowances';
 
 const safeNum = (value: unknown) => {
   const n = Number(value || 0);
@@ -244,6 +247,26 @@ export function getContractValueBase(project: any, plannedFromBucketsFallback = 
   return Math.max(0, plannedFromBucketsFallback);
 }
 
+const COMPANY_OVERHEAD_KEYS = [
+  'insuranceOverhead',
+  'equipmentMaintenanceOverhead',
+  'facilitiesOverhead',
+  'adminOverhead',
+  'otherOverhead',
+] as const;
+
+/** Allocated company overhead on the bid. Not part of the job-cost cap. */
+export function getAllocatedCompanyOverhead(project: any): number {
+  const ed = project?.estimateData || {};
+  const fromLines = COMPANY_OVERHEAD_KEYS.reduce((sum, key) => {
+    const value = Number(ed[key] ?? project?.[key] ?? 0);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+  if (fromLines > 0) return fromLines;
+  const saved = Number(project?.companyOverhead ?? ed?.companyOverhead ?? 0);
+  return Number.isFinite(saved) && saved > 0 ? saved : 0;
+}
+
 export type ProjectFinancialSnapshot = {
   contractValueBase: number;
   approvedChangeOrderRevenue: number;
@@ -254,7 +277,37 @@ export type ProjectFinancialSnapshot = {
   approvedChangeOrderCost: number;
   /** Spend cap: planned cost + allocated CO cost. */
   adjustedCostBudget: number;
+  /** Company overhead allocated on the estimate. Excluded from the cost cap. */
+  allocatedCompanyOverhead: number;
 };
+
+/**
+ * Equipment rental is a hard cost inside the planned-cost cap. Older sends stored it
+ * only in the cap, not on the Materials/Equipment bucket. Add it once when that gap
+ * is exactly the equipment amount.
+ */
+export function foldEquipmentRentalIntoMaterialsBucket<
+  T extends { name?: string; budget?: number; bidBudget?: number },
+>(buckets: T[] | undefined, project: any, plannedCostBudget: number): T[] {
+  const list = Array.isArray(buckets) ? buckets : [];
+  const equipment = Math.max(
+    0,
+    Number(project?.estimateData?.equipment ?? project?.equipment ?? 0) || 0
+  );
+  if (!(equipment > 0) || !(plannedCostBudget > 0) || list.length === 0) return list;
+  const bucketSum = list.reduce((sum, bucket) => sum + (Number(bucket?.budget) || 0), 0);
+  if (Math.abs(plannedCostBudget - bucketSum - equipment) >= 1) return list;
+  const materialsIndex = list.findIndex((bucket) =>
+    String(bucket?.name || '').toLowerCase().includes('material')
+  );
+  if (materialsIndex < 0) return list;
+  return list.map((bucket, index) => {
+    if (index !== materialsIndex) return bucket;
+    const budget = (Number(bucket.budget) || 0) + equipment;
+    const bidBase = Number(bucket.bidBudget ?? bucket.budget) || 0;
+    return { ...bucket, budget, bidBudget: bidBase + equipment };
+  });
+}
 
 /**
  * Sum bucket `budget` values that represent planned job cost.
@@ -365,31 +418,37 @@ export function computeProjectFinancials(
 
   const costFromLineItems = (() => {
     const bid = ed || project;
-    const materials = (bid?.materialLineItems || []).reduce(
+    const materialLineTotal = (bid?.materialLineItems || []).reduce(
       (s: number, i: any) => s + Number(i?.total || 0),
       0
     );
-    const labor = (bid?.laborLineItems || []).reduce(
+    const laborLineTotal = (bid?.laborLineItems || []).reduce(
       (s: number, i: any) => s + Number(i?.total || 0),
       0
     );
-    const overhead =
-      Number(bid?.equipment || 0) +
-      Number(bid?.facilities || 0) +
-      Number(bid?.insuranceOverhead || 0) +
-      Number(bid?.otherOverhead || 0) +
-      Number(bid?.planCost || 0) +
-      Number(bid?.permitCost || 0) +
-      Number(bid?.otherDirectCost || 0);
-    if (materials + labor + overhead > 0) return materials + labor + overhead;
+    const materials = materialLineTotal > 0 ? materialLineTotal : Number(bid?.materials ?? project?.materials) || 0;
+    const labor = laborLineTotal > 0 ? laborLineTotal : Number(bid?.labor ?? project?.labor) || 0;
+    const equipment = Number(bid?.equipment ?? project?.equipment) || 0;
+    const otherDirect = Number(bid?.otherDirectCost ?? project?.otherDirectCost) || 0;
+    const softCosts = getBidSoftCostTotal({ ...project, ...bid });
+    const contingency = Number(bid?.contingencyAllowance ?? project?.contingencyAllowance) || 0;
+    const jobCost = materials + labor + equipment + otherDirect + softCosts + contingency;
+    if (jobCost > 0) return jobCost;
     const buckets = project?.buckets || [];
-    const costBuckets = buckets.filter(
-      (b: any) =>
-        (b?.name || '').toLowerCase().includes('labor') ||
-        (b?.name || '').toLowerCase().includes('material') ||
-        (b?.name || '').toLowerCase().includes('allowance') ||
-        (b?.name || '').toLowerCase().includes('overhead')
-    );
+    const costBuckets = buckets.filter((b: any) => {
+      const name = String(b?.name || '').toLowerCase();
+      const isCompanyOverhead = name.includes('overhead') || name.includes('insurance') || name.includes('facilities');
+      if (isCompanyOverhead) return false;
+      return (
+        name.includes('labor') ||
+        name.includes('material') ||
+        name.includes('allowance') ||
+        name.includes('soft cost') ||
+        name.includes('soft-cost') ||
+        name.includes('contingency') ||
+        name.includes('permit')
+      );
+    });
     const fromBuckets = costBuckets.reduce(
       (s: number, b: any) => s + Number(b?.budget || 0),
       0
@@ -405,21 +464,20 @@ export function computeProjectFinancials(
     return 0;
   })();
 
-  const estimateCostFromParts =
-    Number((ed?.materials ?? project?.materials) || 0) +
-    Number((ed?.labor ?? project?.labor) || 0) +
-    Number((ed?.equipment ?? project?.equipment) || 0) +
-    Number((ed?.facilities ?? project?.facilities) || 0) +
-    Number((ed?.insuranceOverhead ?? project?.insuranceOverhead) || 0) +
-    Number((ed?.otherOverhead ?? project?.otherOverhead) || 0) +
-    Number((ed?.planCost ?? project?.planCost) || 0) +
-    Number((ed?.permitCost ?? project?.permitCost) || 0) +
-    Number((ed?.otherDirectCost ?? project?.otherDirectCost) || 0);
+  const estimateCostFromParts = (() => {
+    const bid = { ...project, ...ed };
+    const materials = Number(bid?.materials) || 0;
+    const labor = Number(bid?.labor) || 0;
+    const equipment = Number(bid?.equipment) || 0;
+    const otherDirect = Number(bid?.otherDirectCost) || 0;
+    const softCosts = getBidSoftCostTotal(bid);
+    const contingency = Number(bid?.contingencyAllowance) || 0;
+    return materials + labor + equipment + otherDirect + softCosts + contingency;
+  })();
 
   /**
-   * Planned cost budget = direct cost only (materials, labor, burden, permits, etc.).
-   * Never use: contract sell price, grandTotal, subtotal (often sell), or "revenue − profit" imputation
-   * as a primary source — those mix revenue/markup into the cost cap.
+   * Planned cost = hard costs + soft costs + contingency (the estimate total before markup).
+   * Company overhead is not included. Contract price and markup are not a cost cap.
    */
   let plannedCostBudget = 0;
   if (costFromLineItems > 0) {
@@ -469,5 +527,6 @@ export function computeProjectFinancials(
     plannedCostBudget,
     approvedChangeOrderCost,
     adjustedCostBudget,
+    allocatedCompanyOverhead: getAllocatedCompanyOverhead(project),
   };
 }

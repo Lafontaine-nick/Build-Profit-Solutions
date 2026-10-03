@@ -193,7 +193,7 @@ export default function SaveAsTemplateModal({
               {saving ? (
                 <ActivityIndicator color="#050B13" />
               ) : (
-                <Text style={[styles.saveButtonText, { color: canSave ? '#050B13' : '#94a3b8' }]}>
+                <Text style={[styles.saveButtonText, { color: canSave ? '#050B13' : '#d7e1f0' }]}>
                   Save template
                 </Text>
               )}
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subtitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     marginTop: 4,
     fontWeight: '500',

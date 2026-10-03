@@ -10,7 +10,7 @@ export type BudgetProfitMixSegment = {
 };
 
 /** Segment colors: teal (spent), blue (remaining), green (profit); shortfall stays distinct when EAC > contract. */
-const COLOR_SPENT = "#94a3b8";
+const COLOR_SPENT = '#d7e1f0';
 const COLOR_REMAINING = "rgba(148, 163, 184, 0.35)";
 const COLOR_PROFIT = "#2dcc9a";
 const COLOR_SHORTFALL = "#FB7185";
@@ -121,7 +121,7 @@ export default function BudgetProfitMixDonut({
     return `Budget and profit mix. ${rows.map((s) => `${s.label} ${formatMoney(s.value, currency)}`).join(". ")}`;
   }, [segments, formatMoney, currency]);
 
-  const labelDim = darkMode ? "#94a3b8" : "#64748b";
+  const labelDim = darkMode ? "#d7e1f0" : "#64748b";
   const valueBright = darkMode ? "#FFFFFF" : "#0f172a";
   const centerPctColor = projectedMarginPct >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
   const visibleSegments = segments.filter((s) => s.key !== "empty");

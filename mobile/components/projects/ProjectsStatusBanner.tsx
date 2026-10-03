@@ -23,7 +23,7 @@ type FlowColors = {
 };
 
 const BANNER_ACCENT = '#2dcc9a';
-const BANNER_MUTED = '#94a3b8';
+const BANNER_MUTED = '#d7e1f0';
 
 const BANNER_ICONS: Record<ProjectsStatusBannerVariant, keyof typeof Ionicons.glyphMap> = {
   submitted: 'paper-plane-outline',

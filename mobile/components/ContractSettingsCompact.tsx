@@ -157,7 +157,7 @@ function ContractSettingsModalBody({
       {showIntro ? (
         <View style={styles.modalHeader}>
           <Text style={[styles.modalTitle, { color: colors.text }]}>Contract settings</Text>
-          <Text style={[styles.modalSubtitle, { color: "#94a3b8" }]}>
+          <Text style={[styles.modalSubtitle, { color: "#d7e1f0" }]}>
             Who the agreement is for, where the work is, and how your name appears on the PDF.
           </Text>
         </View>
@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
   },
   pageSubtitle: {
     textAlign: "center",
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 14,
     fontWeight: "500",
     marginTop: 4,
@@ -872,7 +872,7 @@ const styles = StyleSheet.create({
   helperText: {
     fontSize: 13,
     lineHeight: 18,
-    color: "#94a3b8",
+    color: "#d7e1f0",
   },
   pageFooter: {
     paddingHorizontal: 20,

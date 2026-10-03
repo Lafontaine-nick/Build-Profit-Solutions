@@ -3,6 +3,7 @@
  * Used by AI Assistant compare response and by useProjectsCompareData hook.
  */
 import { computeProfitForecast } from './profitForecast';
+import { getAllocatedCompanyOverhead } from './projectFinancials';
 import { getProjectRevenue } from '@/lib/projectRevenue';
 
 // Include all projects — no hardcoded name filter (was ['chris','nick','jason'])
@@ -165,6 +166,7 @@ export function computeProjectsCompareData(
           committedPOs,
           progressPct: rawProgress * 100,
           isCompleted: status === 'completed',
+          allocatedCompanyOverhead: getAllocatedCompanyOverhead(merged),
         })
       : null;
 

@@ -82,7 +82,7 @@ function PdfPreviewColumn({
     marginBottom: 10,
   };
   const smallTitle = {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 12,
     fontWeight: "600" as const,
     marginBottom: 6,
@@ -175,12 +175,12 @@ function CollapsibleSection({
       >
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>{title}</Text>
-          <Text style={{ color: "#94a3b8", fontSize: 13, lineHeight: 18, marginTop: 4 }}>{countLabel}</Text>
+          <Text style={{ color: "#d7e1f0", fontSize: 13, lineHeight: 18, marginTop: 4 }}>{countLabel}</Text>
         </View>
         <MaterialIcons
           name={expanded ? "expand-less" : "expand-more"}
           size={24}
-          color="#94a3b8"
+          color={darkMode ? '#d7e1f0' : '#64748b'}
         />
       </TouchableOpacity>
       {expanded ? (
@@ -238,7 +238,7 @@ function CompactClauseRow({
     >
       <Text
         style={{
-          color: "#94a3b8",
+          color: "#d7e1f0",
           fontSize: 12,
           fontWeight: "700",
           width: 22,
@@ -305,7 +305,7 @@ export function ContractWordingEditor({
   showSummary = true,
 }: ContractWordingEditorProps) {
   const linkColor = "#e2e8f0";
-  const resetColor = "#94a3b8";
+  const resetColor = (darkMode ? "#d7e1f0" : "#64748b");
   const insets = useSafeAreaInsets();
 
   const assumptionCount = useMemo(
@@ -645,7 +645,7 @@ export function ContractWordingEditor({
                 </TouchableOpacity>
               </View>
               {modalSubtitle ? (
-                <Text style={{ textAlign: "center", color: "#94a3b8", fontSize: 14, fontWeight: "500", marginTop: 4, lineHeight: 20 }}>
+                <Text style={{ textAlign: "center", color: "#d7e1f0", fontSize: 14, fontWeight: "500", marginTop: 4, lineHeight: 20 }}>
                   {modalSubtitle}
                 </Text>
               ) : null}
@@ -662,7 +662,7 @@ export function ContractWordingEditor({
             >
               {editKind === "business" ? (
                 <>
-                  <Text style={{ color: "#94a3b8", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Title</Text>
+                  <Text style={{ color: "#d7e1f0", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Title</Text>
                   <TextInput
                     value={draftTitle}
                     onChangeText={setDraftTitle}
@@ -673,7 +673,7 @@ export function ContractWordingEditor({
                     style={[inputBase, { minHeight: 48, marginBottom: 16 }]}
                     {...resolveTextInputKeyboardProps()}
                   />
-                  <Text style={{ color: "#94a3b8", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Body</Text>
+                  <Text style={{ color: "#d7e1f0", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Body</Text>
                   <TextInput
                     ref={bodyInputRef}
                     value={draftBody}

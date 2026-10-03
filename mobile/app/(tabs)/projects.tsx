@@ -322,9 +322,9 @@ function getEffectiveScheduleEndPick(
 
 // Palette aligned with key metric cards
 const PROJECTS_ACCENT = '#2dcc9a';
-const PROJECTS_MUTED = '#94a3b8';
+const PROJECTS_MUTED = '#d7e1f0';
 const getStatusTheme = (darkMode: boolean) => ({
-  Active: { bg: PROJECTS_ACCENT, border: PROJECTS_ACCENT, color: '#050B13' },
+  Active: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.55)', color: '#8eecc9' },
   Completed: { bg: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.45)', color: PROJECTS_ACCENT },
   Submitted: { 
     bg: darkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.15)', 
@@ -1864,9 +1864,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.cardDark,
+    backgroundColor: PROJECTS_ACCENT,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
+    borderColor: PROJECTS_ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -1878,8 +1878,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   tabText: {
     fontSize: 15,
-    fontWeight: '600',
-    color: darkMode ? '#e2e8f0' : '#334155',
+    fontWeight: '700',
+    color: '#050B13',
   },
   tabTextActive: {
     color: '#050B13',
@@ -1927,7 +1927,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.cardDark,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.42)' : '#94a3b8',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.42)' : '#d7e1f0',
     padding: 24,
     maxHeight: '70%',
     alignSelf: 'stretch',

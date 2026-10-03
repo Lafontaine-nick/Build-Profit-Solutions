@@ -45,6 +45,7 @@ import {
   formatStep3ReviewFooterTotal,
   shouldShowStep3ClarifyQuestions,
 } from '@/utils/estimateDraftReviewStep3Ui';
+import { getElectricalConfirmScopeCardRows } from '@/utils/estimateInitialRevealUi';
 
 type Props = {
   visible: boolean;
@@ -171,6 +172,8 @@ export default function AIEstimateDraftReviewModal({
   };
   const confStyle = confidenceLevel ? confidenceColors[confidenceLevel] : confidenceColors.medium;
   const scopeOnly = isScopeOnlyDraft(draft);
+  const suggestedScopeCards = draft ? getElectricalConfirmScopeCardRows(draft) : null;
+  const hasSuggestedScopePrices = Boolean(suggestedScopeCards?.length);
   const showPricingActions = shouldShowStep3FinishPricingCard(draft, {
     showUseSavedPricing,
   });
@@ -222,9 +225,11 @@ export default function AIEstimateDraftReviewModal({
         title="Review draft"
         subtitle={
           scopeOnly
-            ? draft?.scopeAssumptionsConfirmed && isComplexEstimateTier(draft)
-              ? 'Scope confirmed — review suggested pricing'
-              : 'Scope found — add pricing or save draft'
+            ? hasSuggestedScopePrices
+              ? 'Suggested prices from Confirm scope'
+              : draft?.scopeAssumptionsConfirmed && isComplexEstimateTier(draft)
+                ? 'Review prices before the bid'
+                : 'Scope found — add pricing or save draft'
             : 'Final check before applying to your bid'
         }
         step={aiFlowStepTotal(draft)}
@@ -264,6 +269,7 @@ export default function AIEstimateDraftReviewModal({
             onAddPricesManually={onAddPricesManually}
             onContinueUnpriced={onContinueUnpriced}
             onRegenerate={onRegenerate}
+            markupPct={markupPct}
             showDetailsContent={
               <AIEstimateDraftReviewDetails
                 draft={draft}
@@ -427,6 +433,22 @@ export default function AIEstimateDraftReviewModal({
               <>
                 <MaterialIcons name="check-circle" size={20} color="#050B13" />
                 <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
+              </>
+            )}
+          </ReliableFlowPress>
+        ) : scopeOnly && hasSuggestedScopePrices && onSuggestRoughPrices ? (
+          <ReliableFlowPress
+            disabled={!draft || busy}
+            onPress={onSuggestRoughPrices}
+            style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+            accessibilityLabel="Apply suggested prices"
+          >
+            {applying || roughRangeLoading ? (
+              <ActivityIndicator color="#050B13" />
+            ) : (
+              <>
+                <MaterialIcons name="check-circle" size={20} color="#050B13" />
+                <Text style={styles.primaryBtnText}>Apply suggested prices</Text>
               </>
             )}
           </ReliableFlowPress>

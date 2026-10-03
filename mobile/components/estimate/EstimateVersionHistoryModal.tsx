@@ -268,7 +268,7 @@ export default function EstimateVersionHistoryModal({
                         </View>
                       ) : null}
                     </View>
-                    <Text style={{ color: bidTotal > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 22, fontWeight: '800', marginTop: 6 }}>
+                    <Text style={{ color: bidTotal > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 22, fontWeight: '800', marginTop: 6 }}>
                       {formatTemplateMoney(bidTotal)}
                     </Text>
                     <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 4, fontSize: 12 }]}>
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSubtitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     marginTop: 4,
     fontWeight: '500',

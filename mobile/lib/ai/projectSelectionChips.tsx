@@ -100,7 +100,7 @@ export default function ProjectSelectionChips({
                 {option.title}
               </Text>
               {option.status && (
-                <Text style={[styles.chipStatus, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+                <Text style={[styles.chipStatus, { color: darkMode ? '#d7e1f0' : '#64748b' }]}>
                   {option.status}
                 </Text>
               )}

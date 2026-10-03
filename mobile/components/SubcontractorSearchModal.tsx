@@ -589,7 +589,7 @@ function SubcontractorSearchModal({
     [Colors, darkMode]
   );
   const profileSectionLabel = useMemo(
-    () => ({ color: '#94a3b8', fontSize: 12, fontWeight: '600' as const, marginBottom: 8 }),
+    () => ({ color: '#d7e1f0', fontSize: 12, fontWeight: '600' as const, marginBottom: 8 }),
     []
   );
   const router = useRouter();
@@ -1630,7 +1630,7 @@ function SubcontractorSearchModal({
                 <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
                   Find Subcontractors
                 </Text>
-                <Text style={{ color: '#94a3b8', fontSize: 14, marginTop: 4, fontWeight: '500', letterSpacing: 0.12, lineHeight: 20, textAlign: 'center' }}>
+                <Text style={{ color: '#d7e1f0', fontSize: 14, marginTop: 4, fontWeight: '500', letterSpacing: 0.12, lineHeight: 20, textAlign: 'center' }}>
                   Search for qualified contractors
                 </Text>
               </View>
@@ -1722,7 +1722,7 @@ function SubcontractorSearchModal({
           <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
           {/* Trade Selector */}
           <View style={{ marginBottom: 12 }}>
-            <Text style={{ color: '#94a3b8', marginBottom: 8, fontSize: 12, fontWeight: '600' }}>Trade</Text>
+            <Text style={{ color: '#d7e1f0', marginBottom: 8, fontSize: 12, fontWeight: '600' }}>Trade</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
               {TRADE_OPTIONS.map(trade => (
                 <TouchableOpacity
@@ -1842,7 +1842,7 @@ function SubcontractorSearchModal({
             <View style={{ marginTop: 12 }}>
               <Text
                 style={{
-                  color: '#94a3b8',
+                  color: '#d7e1f0',
                   marginBottom: 8,
                   fontSize: 12,
                   fontWeight: '600',
@@ -1919,7 +1919,7 @@ function SubcontractorSearchModal({
               <MaterialIcons
                 name="my-location"
                 size={20}
-                color="#94a3b8"
+                color={darkMode ? '#d7e1f0' : '#64748b'}
               />
               <Text
                 style={{
@@ -1932,7 +1932,7 @@ function SubcontractorSearchModal({
               </Text>
             </TouchableOpacity>
             {locationNote ? (
-              <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 6 }}>
+              <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '500', marginTop: 6 }}>
                 {locationNote}
               </Text>
             ) : null}
@@ -1947,7 +1947,7 @@ function SubcontractorSearchModal({
             >
               <Text
                 style={{
-                  color: '#94a3b8',
+                  color: '#d7e1f0',
                   fontSize: 12,
                   fontWeight: '600',
                   marginBottom: 10,
@@ -2088,7 +2088,7 @@ function SubcontractorSearchModal({
             {/* Results */}
             {!loading && !locating && hasAnyResults && (
               <View>
-                <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
+                <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
                   <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>
                     {combinedBpsRows.length + googleRowsFiltered.length}
                   </Text>
@@ -2113,7 +2113,7 @@ function SubcontractorSearchModal({
                   <View key={section.key} style={{ marginBottom: 6 }}>
                     <Text
                       style={{
-                        color: '#94a3b8',
+                        color: '#d7e1f0',
                         fontSize: 12,
                         fontWeight: '600',
                         marginBottom: 10,
@@ -2601,7 +2601,7 @@ function SubcontractorSearchModal({
                     </Text>
                     <Text
                       style={{
-                        color: '#94a3b8',
+                        color: '#d7e1f0',
                         fontSize: 14,
                         marginTop: 4,
                         fontWeight: '500',
@@ -2741,7 +2741,7 @@ function SubcontractorSearchModal({
                     <Text style={profileSectionLabel}>Contact</Text>
                     <View style={profileNestedField}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <MaterialIcons name="phone" size={20} color="#94a3b8" style={{ marginRight: 12, marginTop: 2 }} />
+                      <MaterialIcons name="phone" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} style={{ marginRight: 12, marginTop: 2 }} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Phone</Text>
                         {selectedSubcontractor.phone ? (
@@ -2762,7 +2762,7 @@ function SubcontractorSearchModal({
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <MaterialIcons name="email" size={20} color="#94a3b8" style={{ marginRight: 12, marginTop: 2 }} />
+                      <MaterialIcons name="email" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} style={{ marginRight: 12, marginTop: 2 }} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Email</Text>
                         {selectedSubcontractor.email ? (

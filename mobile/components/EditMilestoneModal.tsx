@@ -173,7 +173,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   const fieldFill = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : ThemeColors.surface2;
   const fieldBorder = darkMode ? "rgba(148, 163, 184, 0.12)" : ThemeColors.line;
   const amountValue = parseFloat(String(paymentAmount).replace(/,/g, ""));
-  const amountColor = Number.isFinite(amountValue) && amountValue > 0 ? "#2dcc9a" : "#94a3b8";
+  const amountColor = Number.isFinite(amountValue) && amountValue > 0 ? "#2dcc9a" : "#d7e1f0";
 
   const handleHeaderBack = () => {
     if (Platform.OS === "ios") {
@@ -645,7 +645,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 13,
     marginTop: 2,
     fontWeight: "500",

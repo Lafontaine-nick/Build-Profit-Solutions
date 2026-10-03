@@ -308,7 +308,7 @@ function MaterialLaborCard({
 }
 
 function inputPlaceholderColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
-  return darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  return darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0';
 }
 
 function RateField({

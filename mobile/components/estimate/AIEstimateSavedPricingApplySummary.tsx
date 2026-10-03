@@ -109,7 +109,7 @@ export default function AIEstimateSavedPricingApplySummary({
             label="Continue with unpriced items"
             onPress={onContinueUnpriced}
             disabled={busy}
-            color="#94a3b8"
+            color={darkMode ? '#d7e1f0' : '#64748b'}
           />
         </>
       ) : (

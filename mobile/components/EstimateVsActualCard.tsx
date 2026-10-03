@@ -150,7 +150,7 @@ export default function EstimateVsActualCard({
     <>
         <View style={{ marginBottom: 18 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <MaterialIcons name="analytics" size={18} color="#94a3b8" />
+            <MaterialIcons name="analytics" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
             <Text
               style={{
                 flex: 1,

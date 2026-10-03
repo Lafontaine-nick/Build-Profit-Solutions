@@ -3,13 +3,14 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
 import { EstimateJobDurationFooter } from '@/components/estimate/EstimateJobDurationFooter';
 
 /** Lifted surface inside charcoal flow cards — lighter than #202022 for readable calendars */
 const CALENDAR_SURFACE_DARK = '#2e2e30';
-/** Same mint as the homepage button and the dashboard selected tab. */
-const CALENDAR_MINT = '#2dcc9a';
+/** Light mint used for selected dates and the open date field. */
+const CALENDAR_MINT = '#8eecc9';
+const CALENDAR_MINT_BORDER = 'rgba(45, 204, 154, 0.55)';
+const CALENDAR_MINT_WASH = 'rgba(45, 204, 154, 0.16)';
 
 interface GreyCalendarProps {
   onDayPress: (day: { dateString: string }) => void;
@@ -170,7 +171,6 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
               styles.dayInner,
               isSelected && styles.dayInnerSelected,
               !isSelected && isOtherEndpoint && styles.dayInnerRangeEndpoint,
-              isToday && !isSelected && !isOtherEndpoint && styles.dayInnerTodayHint,
             ]}
           >
             <Text style={dayNumberStyle}>{day}</Text>
@@ -189,7 +189,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
                     key={idx}
                     style={[
                       styles.dayEventDot,
-                      { backgroundColor: event.color || event.type || ESTIMATE_FLOW_GREEN },
+                      { backgroundColor: event.color || event.type || CALENDAR_MINT },
                     ]}
                   />
                 ))}
@@ -265,7 +265,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
           <EstimateJobDurationFooter
             startDate={rangeStartDate}
             endDate={rangeEndDate}
-            labelColor={darkMode ? '#94a3b8' : Colors.sub}
+            labelColor={darkMode ? '#d7e1f0' : Colors.sub}
             textColor={darkMode ? '#ffffff' : Colors.text}
             darkMode={darkMode}
           />
@@ -318,8 +318,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: CALENDAR_MINT,
-    backgroundColor: darkMode ? 'rgba(45, 204, 154, 0.16)' : 'rgba(45, 204, 154, 0.08)',
+    borderColor: CALENDAR_MINT_BORDER,
+    backgroundColor: darkMode ? CALENDAR_MINT_WASH : 'rgba(45, 204, 154, 0.08)',
   },
   todayButtonText: {
     fontSize: 12,
@@ -367,17 +367,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 2,
   },
   dayInnerSelected: {
-    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    backgroundColor: CALENDAR_MINT_WASH,
     borderWidth: 2,
-    borderColor: CALENDAR_MINT,
+    borderColor: CALENDAR_MINT_BORDER,
   },
   dayInnerRangeEndpoint: {
-    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.08)',
+    backgroundColor: darkMode ? CALENDAR_MINT_WASH : 'rgba(45, 204, 154, 0.08)',
     borderWidth: 2,
-    borderColor: ESTIMATE_FLOW_GREEN,
+    borderColor: CALENDAR_MINT_BORDER,
   },
   dayCellInRange: {
-    backgroundColor: darkMode ? 'rgba(52, 211, 153, 0.08)' : 'rgba(52, 211, 153, 0.1)',
+    backgroundColor: darkMode ? 'rgba(45, 204, 154, 0.08)' : 'rgba(45, 204, 154, 0.1)',
   },
   dayCellRangeStart: {
     borderTopLeftRadius: 12,
@@ -387,10 +387,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderTopRightRadius: 12,
     borderBottomRightRadius: 12,
   },
-  dayInnerTodayHint: {
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(45, 204, 154, 0.45)' : 'rgba(45, 204, 154, 0.4)',
-  },
   dayText: {
     fontSize: 14,
     fontWeight: '600',
@@ -398,8 +394,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayTextToday: {
     fontSize: 14,
-    fontWeight: '700',
-    color: CALENDAR_MINT,
+    fontWeight: '800',
+    color: '#2dcc9a',
   },
   dayTextSelected: {
     fontSize: 15,
@@ -409,7 +405,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   dayTextRangeEndpoint: {
     fontSize: 15,
     fontWeight: '700',
-    color: ESTIMATE_FLOW_GREEN,
+    color: CALENDAR_MINT,
   },
   dayEvents: {
     flexDirection: 'row',

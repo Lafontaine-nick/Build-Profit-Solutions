@@ -153,7 +153,6 @@ export type ElectricalCardGroupId =
   | 'switches'
   | 'lighting'
   | 'fans'
-  | 'exhaust_fans'
   | 'appliances'
   | 'life_safety'
   | 'rough_modifications';
@@ -179,7 +178,6 @@ export const ELECTRICAL_CARD_GROUPS: Array<{
   { id: 'switches', title: 'Switches / controls' },
   { id: 'lighting', title: 'Lighting' },
   { id: 'fans', title: 'Fans' },
-  { id: 'exhaust_fans', title: 'Exhaust fans' },
   { id: 'appliances', title: 'Appliance circuit + hookup' },
   { id: 'life_safety', title: 'Life safety / low voltage' },
   { id: 'rough_modifications', title: 'Rough / modifications' },
@@ -433,9 +431,9 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
   C(
     'electrical_bath_exhaust_fan',
     'bathExhaustFanCount',
-    'Bathroom exhaust fan electrical install',
+    'Exhaust fan',
     'Fan unit + standard mounting + electrical connection. Excludes ducting, roof/wall penetration, exterior termination, HVAC work, and dedicated homerun unless separately selected. Distinct from ceiling fans.',
-    'exhaust_fans'
+    'fans'
   ),
   C(
     'electrical_range_hookup',
@@ -1171,6 +1169,26 @@ export function syncElectricalScopeItems<
   const needsPlanConfirmation = (key: string) => {
     if (quantityOverrides[key]) return false;
     const source = String(quantitySources[key] || '');
+    if (
+      key === 'bathExhaustFanCount' &&
+      source !== 'user_entered' &&
+      source !== 'manual_override' &&
+      source !== 'user_confirmed_suggestion' &&
+      source !== 'contractor_confirmed_from_plan_review'
+    ) {
+      const kind = String(quantityProvenance[key]?.evidenceKind || '');
+      const exhaust = positiveNumber(quantityRecord.bathExhaustFanCount);
+      const ceiling = positiveNumber(quantityRecord.ceilingFanCount);
+      if (
+        kind !== 'explicit_label' &&
+        kind !== 'instance_tags' &&
+        exhaust != null &&
+        ceiling != null &&
+        exhaust === ceiling
+      ) {
+        return true;
+      }
+    }
     // Apply on the plan review is the contractor's confirmation. A leftover
     // needs-review flag must not keep the count off the price card.
     if (
@@ -2374,7 +2392,6 @@ const ELECTRICAL_TRIM_OWNED_GROUPS = new Set<ElectricalCardGroupId>([
   'switches',
   'lighting',
   'fans',
-  'exhaust_fans',
 ]);
 
 /**

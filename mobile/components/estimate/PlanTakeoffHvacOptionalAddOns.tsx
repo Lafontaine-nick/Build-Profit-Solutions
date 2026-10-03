@@ -60,7 +60,7 @@ export function PlanTakeoffHvacOptionalAddOns({
 const styles = StyleSheet.create({
   wrap: { marginBottom: 16 },
   eyebrow: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,

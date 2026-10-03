@@ -9,6 +9,7 @@ import { getColors } from '../theme/getColors';
 import { computeProfitForecast, computeElapsedCalendarPct } from '../src/lib/profitForecast';
 import {
   computeProjectFinancials,
+  foldEquipmentRentalIntoMaterialsBucket,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '../src/lib/projectFinancials';
@@ -231,6 +232,15 @@ export default function OverviewScreen({
   );
 
   const approvedChangeOrdersTotal = financials.approvedChangeOrderRevenue;
+  const displayBuckets = useMemo(
+    () =>
+      foldEquipmentRentalIntoMaterialsBucket(
+        project.buckets,
+        project,
+        financials.plannedCostBudget
+      ),
+    [project, financials.plannedCostBudget]
+  );
 
   // Calculate Purchase Orders total - ONLY includes PENDING POs (matches BudgetTab logic)
   // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing
@@ -365,6 +375,7 @@ export default function OverviewScreen({
     progressPct: progressForForecast,
     elapsedTimePct,
     isCompleted: isProjectCompleted,
+    allocatedCompanyOverhead: financials.allocatedCompanyOverhead,
   });
 
   const spendingTrendCostStatus = useMemo(
@@ -731,9 +742,9 @@ export default function OverviewScreen({
             </View>
           </View>
 
-        {project.buckets && project.buckets.length > 0 && (
+        {displayBuckets.length > 0 && (
           <View style={styles.budgetBreakdown}>
-            {project.buckets.map(bucket => {
+            {displayBuckets.map(bucket => {
               const bucketProgress = bucket.budget > 0 
                 ? (bucket.spent / bucket.budget) * 100 
                 : 0;

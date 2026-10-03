@@ -3,10 +3,10 @@ import { View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 /** iOS-style tab bar icon colors (spec) */
-export const TAB_NAV_ACTIVE = '#4ade80';
-export const TAB_NAV_INACTIVE_DARK = '#8E8E93';
+export const TAB_NAV_ACTIVE = '#8eecc9';
+export const TAB_NAV_INACTIVE_DARK = '#636366';
 export const TAB_NAV_INACTIVE_LIGHT = '#64748B';
-export const TAB_ASSISTANT_STAR = '#4ade80';
+export const TAB_ASSISTANT_STAR = '#636366';
 /** Lines on filled estimate icon */
 const ESTIMATE_LINES_ON_FILL = '#111111';
 

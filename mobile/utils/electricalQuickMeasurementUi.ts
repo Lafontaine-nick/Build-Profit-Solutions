@@ -95,7 +95,6 @@ const QM_GROUP_TITLES: Record<ElectricalCardGroupId, string> = {
   switches: 'Switches / controls',
   lighting: 'Lighting / fans',
   fans: 'Lighting / fans',
-  exhaust_fans: 'Exhaust fans',
   appliances: 'Appliance circuit + hookup',
   life_safety: 'Life safety / low voltage',
   rough_modifications: 'Modifications',
@@ -134,8 +133,6 @@ const QM_GROUP_CAPTIONS: Record<ElectricalCardGroupId, string> = {
   lighting:
     'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
   fans: 'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
-  exhaust_fans:
-    'Bathroom exhaust fans. Ceiling fans stay on the Fans card. Ducting and roof termination are separate.',
   appliances:
     'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
   life_safety: 'Smoke, CO, and low-voltage devices included in this bid.',
@@ -294,12 +291,6 @@ export function electricalQmGroupDefaultCollapsed(
   // A group stays open while a count is waiting, and after the contractor
   // checks that count, so the last tap does not collapse the card.
   if (groupId === 'lighting') return false;
-  if (
-    groupId === 'exhaust_fans' &&
-    fields?.some(field => field.value == null)
-  ) {
-    return false;
-  }
   if (fields?.some(field => field.confirmInput || field.selected)) return false;
   return true;
 }
@@ -310,7 +301,6 @@ const QM_GROUP_ORDER: ElectricalCardGroupId[] = [
   'receptacles',
   'switches',
   'lighting',
-  'exhaust_fans',
   'appliances',
   'life_safety',
   'rough_modifications',
@@ -418,13 +408,23 @@ export function buildElectricalQuickMeasurementGroups(input: {
         symbolFanNeedsConfirmation) &&
       positiveQuantity(measurements[card.measurementKey]) != null;
     const storedQuantity = positiveQuantity(measurements[card.measurementKey]);
+    const exhaustCopiesCeilingFans =
+      card.measurementKey === 'bathExhaustFanCount' &&
+      !userResolved &&
+      source !== 'user_entered' &&
+      source !== 'manual_override' &&
+      source !== 'user_confirmed_suggestion' &&
+      provenanceEntry?.evidenceKind !== 'explicit_label' &&
+      provenanceEntry?.evidenceKind !== 'instance_tags' &&
+      storedQuantity != null &&
+      storedQuantity === positiveQuantity(measurements.ceilingFanCount);
     const conflictedField =
       conflicted.has(card.measurementKey) &&
       !userResolved &&
       !retainedForConfirmation &&
       !instanceTagPriced &&
       storedQuantity == null;
-    const value = conflictedField
+    const value = conflictedField || exhaustCopiesCeilingFans
       ? null
       : (storedQuantity ??
         (input.userOverrides?.[card.measurementKey] &&
@@ -436,7 +436,13 @@ export function buildElectricalQuickMeasurementGroups(input: {
       !instanceTagPriced &&
       conflicted.has(card.measurementKey) &&
       value != null;
-    const selected = value != null && !retainedForConfirmation && !confirmDespiteConflict;
+    const exhaustEntry =
+      card.measurementKey === 'bathExhaustFanCount' && value == null;
+    const selected =
+      value != null &&
+      !retainedForConfirmation &&
+      !confirmDespiteConflict &&
+      !exhaustEntry;
     const field: ElectricalQmField = {
       key: card.measurementKey,
       itemId: card.itemId,
@@ -445,7 +451,8 @@ export function buildElectricalQuickMeasurementGroups(input: {
       value,
       selected,
       conflicted: conflictedField,
-      confirmInput: retainedForConfirmation || confirmDespiteConflict,
+      confirmInput:
+        retainedForConfirmation || confirmDespiteConflict || exhaustEntry,
       provenanceLabel:
         retainedForConfirmation || confirmDespiteConflict
           ? 'Needs confirmation'

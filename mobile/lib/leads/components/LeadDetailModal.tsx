@@ -1772,7 +1772,7 @@ export default function LeadDetailModal({
                     <MaterialIcons
                       name="phone"
                       size={18}
-                      color={lead.contact.phone ? '#020617' : '#94a3b8'}
+                      color={lead.contact.phone ? '#020617' : '#64748b'}
                     />
                     <Text
                       style={[
@@ -1804,7 +1804,7 @@ export default function LeadDetailModal({
                           ? darkMode
                             ? 'rgba(226, 232, 240, 0.95)'
                             : Colors.text
-                          : '#94a3b8'
+                          : '#64748b'
                       }
                     />
                     <Text

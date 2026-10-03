@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Typography } from '@/constants/Typography';
+import { confirmScopeChoiceSelectedYesColors } from '@/utils/estimateFlowCardStyle';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import type { ScopePackageBudgetBreakdown } from '@/utils/estimateDraftReviewUi';
 import {
@@ -175,6 +176,7 @@ export function PricingEntryModeToggle({
         ] as const
       ).map(opt => {
         const active = mode === opt.id;
+        const selectedMint = confirmScopeChoiceSelectedYesColors();
         return (
           <TouchableOpacity
             key={opt.id}
@@ -184,24 +186,23 @@ export function PricingEntryModeToggle({
             style={[
               styles.customPricingModeChip,
               styles.pricingEntryModeChip,
-              {
-                borderColor: active
-                  ? '#2dcc9a'
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.35)'
-                    : Colors.line,
-                backgroundColor: active
-                  ? '#2dcc9a'
-                  : darkMode
-                    ? '#3A3A3C'
-                    : '#E2E8F0',
-              },
+              active
+                ? {
+                    borderColor: selectedMint.borderColor,
+                    backgroundColor: selectedMint.backgroundColor,
+                  }
+                : {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.35)'
+                      : Colors.line,
+                    backgroundColor: darkMode ? '#3A3A3C' : '#E2E8F0',
+                  },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#050B13'
+                  ? selectedMint.textColor
                   : darkMode
                     ? '#e2e8f0'
                     : Colors.sub,
@@ -246,6 +247,7 @@ function PricingRateModeToggle({
     >
       {options.map(opt => {
         const active = mode === opt.id;
+        const selectedMint = confirmScopeChoiceSelectedYesColors();
         return (
           <TouchableOpacity
             key={opt.id}
@@ -256,24 +258,23 @@ function PricingRateModeToggle({
             accessibilityState={{ selected: active }}
             style={[
               styles.pricingRateModeChip,
-              {
-                borderColor: active
-                  ? '#2dcc9a'
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.35)'
-                    : Colors.line,
-                backgroundColor: active
-                  ? '#2dcc9a'
-                  : darkMode
-                    ? '#3A3A3C'
-                    : '#E2E8F0',
-              },
+              active
+                ? {
+                    borderColor: selectedMint.borderColor,
+                    backgroundColor: selectedMint.backgroundColor,
+                  }
+                : {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.35)'
+                      : Colors.line,
+                    backgroundColor: darkMode ? '#3A3A3C' : '#E2E8F0',
+                  },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#050B13'
+                  ? selectedMint.textColor
                   : darkMode
                     ? '#e2e8f0'
                     : Colors.sub,
@@ -340,7 +341,7 @@ export function PricingInputField({
   const [rateDraft, setRateDraft] = useState('');
   const [rateEditing, setRateEditing] = useState(false);
   const inputShell = inputShellStyle(Colors, darkMode);
-  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0';
   const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0) && !readOnly;
   const amount = Number(String(value || '').replace(/,/g, ''));
   const rateValue =
@@ -944,10 +945,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2dcc9a',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   pricingEditorDoneBtnText: {
-    color: '#050B13',
+    color: '#8eecc9',
     fontSize: 13,
     fontWeight: '800',
   },

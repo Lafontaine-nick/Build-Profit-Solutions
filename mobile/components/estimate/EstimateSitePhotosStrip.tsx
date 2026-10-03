@@ -419,14 +419,14 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         >
           {analyzing ? (
             <>
-              <ActivityIndicator size="small" color="#94a3b8" />
+              <ActivityIndicator size="small" color={darkMode ? '#d7e1f0' : '#64748b'} />
               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Reading photos…
               </Text>
             </>
           ) : (
             <>
-              <MaterialIcons name="image-search" size={18} color="#94a3b8" />
+              <MaterialIcons name="image-search" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Detect scope from {photos.length} photo{photos.length === 1 ? '' : 's'}
               </Text>

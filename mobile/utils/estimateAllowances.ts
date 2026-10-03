@@ -23,7 +23,31 @@ export function getBidAllowanceLineItemsTotal(bid: {
   return getAllowanceLineItemsTotal(bid?.allowanceLineItems);
 }
 
+/** Named soft-cost lines, plus plans, permits, engineering, lender fees, and interest. */
+export function getBidSoftCostTotal(bid: {
+  allowanceLineItems?: AllowanceLineLike[] | null;
+  planCost?: number | null;
+  permitCost?: number | null;
+  engineeringCost?: number | null;
+  financingFees?: number | null;
+  interestCost?: number | null;
+  contractorType?: number | string | null;
+} | null | undefined): number {
+  const contractorType = bid?.contractorType != null ? parseInt(String(bid.contractorType), 10) : null;
+  const includeBorrowingCosts = contractorType === 4 || contractorType === 5 || contractorType == null;
+  const borrowing = includeBorrowingCosts
+    ? (Number(bid?.financingFees) || 0) + (Number(bid?.interestCost) || 0)
+    : 0;
+  return (
+    getBidAllowanceLineItemsTotal(bid) +
+    (Number(bid?.planCost) || 0) +
+    (Number(bid?.permitCost) || 0) +
+    (Number(bid?.engineeringCost) || 0) +
+    borrowing
+  );
+}
+
 export function isAllowancesCategoryName(name: string | null | undefined): boolean {
   const n = String(name || '').trim().toLowerCase();
-  return n.includes('allowance');
+  return n.includes('allowance') || n.includes('soft cost') || n.includes('soft-cost');
 }

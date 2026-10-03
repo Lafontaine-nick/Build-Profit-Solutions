@@ -12,7 +12,7 @@ import {
   checklistItemInScope,
 } from '@/utils/scopeItemQuantities';
 import { resolveKitchenCountertopTakeoffSqft } from '@/utils/qmScopePanels/kitchenRemodel';
-import { isSoftCostScopePackage } from '@/utils/softCostScope';
+import { isContingencyScopePackage, isSoftCostScopePackage } from '@/utils/softCostScope';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
@@ -6962,6 +6962,7 @@ function allowanceLineItemsFromDraft(
   for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
     if (!packageIsApplyEligible(pkg, applyConfirmedOnly, draft)) continue;
     if (!isSoftCostScopePackage(pkg, draft)) continue;
+    if (isContingencyScopePackage(pkg)) continue;
     const total = packageAllowanceAmount(pkg);
     if (total <= 0) continue;
     const ruleKey = resolvePackageCostCode(pkg);
@@ -6982,6 +6983,19 @@ function allowanceLineItemsFromDraft(
     });
   }
   return lines;
+}
+
+function contingencyAllowanceFromDraft(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly: boolean
+): number {
+  let total = 0;
+  for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly, draft)) continue;
+    if (!isContingencyScopePackage(pkg)) continue;
+    total += packageAllowanceAmount(pkg);
+  }
+  return total;
 }
 
 function laborDescriptionForPackage(
@@ -7367,6 +7381,10 @@ export function applyDraftToEstimate(
     draftForApply,
     applyConfirmedOnly
   );
+  const contingencyAllowance = contingencyAllowanceFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
   const materialsCart = materialLineItems.map(cartItemFromMaterialLine);
   const tradeBudgetRollup = tradeBudgetRollupFromEstimate({
     laborLineItems,
@@ -7385,6 +7403,7 @@ export function applyDraftToEstimate(
     laborLineItems,
     materialLineItems,
     allowanceLineItems,
+    contingencyAllowance,
     tradeBudgetRollup,
     aiEstimateOriginalNotes: draftForApply.originalNotes || null,
     aiEstimateDraftSnapshot: {

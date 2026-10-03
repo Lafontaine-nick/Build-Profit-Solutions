@@ -21,7 +21,23 @@ const SOFT_COST_RULE_KEYS = new Set([
   'overhead_profit',
 ]);
 
-/** Soft-cost scopes (permits, cleanup, contingency, etc.) — flat allowance, not Materials/Labor. */
+/** Contingency is a bid buffer, not a soft-cost line. */
+export function isContingencyScopePackage(
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'checklistItemId'>
+): boolean {
+  const candidates = [
+    pkg.checklistItemId,
+    ...ruleKeysToTryForPackage(pkg.name, pkg.scope || ''),
+    String(pkg.scope || '').trim(),
+  ].filter(Boolean) as string[];
+  for (const ruleKey of candidates) {
+    const key = String(ruleKey).trim().toLowerCase();
+    if (key === 'contingency' || key === 'contingency_allowance') return true;
+  }
+  return /^contingency\b/i.test(String(pkg.name || '').trim());
+}
+
+/** Soft-cost scopes (permits, cleanup, mobilization, etc.) — flat allowance, not Materials/Labor. */
 export function isSoftCostScopePackage(
   pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'materialPrice' | 'laborPrice' | 'checklistItemId'>,
   draft?: Pick<EstimateAiDraft, 'scopeChecklist' | 'estimateTier'> | null

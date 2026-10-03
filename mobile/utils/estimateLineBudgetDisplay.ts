@@ -2,7 +2,7 @@ import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import type { EstimateLineSpendSummary } from '@/utils/rateInsightComparisons';
 
 export function lineSpendColor(summary: EstimateLineSpendSummary): string {
-  if (summary.loggedTotal <= 0) return '#94a3b8';
+  if (summary.loggedTotal <= 0) return '#d7e1f0';
   if (summary.budget <= 0) return '#22c55e';
   if (summary.remaining < 0) return '#f87171';
   return '#22c55e';
@@ -53,7 +53,7 @@ export function formatCategoryBudgetDetail(summary: CategoryBudgetSummary): stri
 }
 
 export function categoryBudgetSpendColor(summary: CategoryBudgetSummary): string {
-  if (!summary.hasEstimateBudget || summary.totalSpent <= 0) return '#94a3b8';
+  if (!summary.hasEstimateBudget || summary.totalSpent <= 0) return '#d7e1f0';
   if (summary.remaining < 0) return '#f87171';
   return '#22c55e';
 }

@@ -35,7 +35,7 @@ export default function BenchmarkPricingEvidence({
   const [expanded, setExpanded] = useState(semantics ? false : defaultExpanded);
   const [showComparables, setShowComparables] = useState(false);
   const text = darkMode ? '#e2e8f0' : '#1e293b';
-  const sub = darkMode ? '#94a3b8' : '#64748b';
+  const sub = darkMode ? '#d7e1f0' : '#64748b';
   const warn = darkMode ? '#fbbf24' : '#92400e';
   const hasPrimary = Boolean(evidence.quantityRoles?.primaryTakeoff?.quantity || evidence.primaryTakeoff?.quantity);
   const statusLabel = missingStatusDisplayLabel(evidence.scopeId);

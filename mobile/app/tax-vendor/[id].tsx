@@ -708,7 +708,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   titleHelper: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     lineHeight: 20,
     marginTop: 4,
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   scroll: { paddingBottom: 48 },
-  label: { color: '#94a3b8', fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  label: { color: '#d7e1f0', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   input: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 12,

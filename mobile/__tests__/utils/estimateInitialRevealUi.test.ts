@@ -2068,6 +2068,156 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(2);
   });
 
+  it('does not ask for a recessed-light price after the lighting card is applied', () => {
+    const measurements = {
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'electrical',
+      planImportFingerprint: 'shv-lot-49',
+      recessedLightCount: 31,
+      quickMeasurementSources: { recessedLightCount: 'detected_from_plan' },
+    };
+    const unpriced = {
+      projectType: 'electrical',
+      requiresScopeConfirmation: true,
+      scopeChecklist: { templateKey: 'electrical', items: [] },
+      scopeMeasurements: measurements,
+    } as EstimateAiDraft;
+    const priced = {
+      ...unpriced,
+      scopeAssumptionsConfirmed: true,
+      scopeMeasurements: {
+        ...measurements,
+        itemQuantities: {
+          electrical_recessed_light: {
+            quantity: 31,
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
+          electrical_recessed_light__material: {
+            quantity: 1395,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          electrical_recessed_light__labor: {
+            quantity: 3255,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          electrical_recessed_light: {
+            selectionStatus: 'accepted',
+            pricingSourceLabel: 'National average',
+            pricingSourceKind: 'national_average',
+            pricingTypeLabel: 'Material + labor',
+            materialAmount: 1395,
+            laborAmount: 3255,
+            totalAmount: 4650,
+          },
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(unpriced).pricingScope).toEqual([
+      'Price needed for Recessed / canless / wafer light · 31',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(unpriced)).toEqual([
+      { name: 'Recessed / canless / wafer light · 31', amount: 0 },
+    ]);
+    expect(getInitialRevealConfirmItems(priced).pricingScope).toEqual([]);
+    const confirmedScope = {
+      ...priced,
+      scopeChecklist: {
+        templateKey: 'electrical',
+        items: [
+          {
+            id: 'electrical_main_panel',
+            label: 'Main panel',
+            state: 'included',
+          },
+          {
+            id: 'electrical_recessed_light',
+            label: 'Recessed / canless / wafer light',
+            state: 'included',
+          },
+        ],
+      },
+      scopePackages: [
+        {
+          checklistItemId: 'electrical_main_panel',
+          name: 'Main panel',
+          price: 2050,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+        {
+          checklistItemId: 'electrical_recessed_light',
+          name: 'Recessed / canless / wafer light',
+          price: 4650,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+      ],
+    } as EstimateAiDraft;
+    const confirmedWithSymbols = {
+      ...confirmedScope,
+      scopeMeasurements: {
+        ...confirmedScope.scopeMeasurements,
+        gfciReceptacleCount: 10,
+        singlePoleSwitchCount: 48,
+        ceilingFanCount: 4,
+        bathExhaustFanCount: 2,
+        quickMeasurementSources: {
+          recessedLightCount: 'detected_from_plan',
+          gfciReceptacleCount: 'needs_confirmation',
+          singlePoleSwitchCount: 'needs_confirmation',
+          ceilingFanCount: 'needs_confirmation',
+          bathExhaustFanCount: 'user_entered',
+        },
+        itemQuantities: {
+          ...confirmedScope.scopeMeasurements?.itemQuantities,
+          electrical_bath_exhaust_fan: {
+            quantity: 2,
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
+          electrical_bath_exhaust_fan__material: {
+            quantity: 200,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          electrical_bath_exhaust_fan__labor: {
+            quantity: 300,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          ...confirmedScope.scopeMeasurements?.pricingAcceptance,
+          electrical_bath_exhaust_fan: {
+            selectionStatus: 'accepted',
+            pricingSourceLabel: 'National average',
+            pricingSourceKind: 'national_average',
+            pricingTypeLabel: 'Material + labor',
+            materialAmount: 200,
+            laborAmount: 300,
+            totalAmount: 500,
+          },
+        },
+      },
+    } as EstimateAiDraft;
+    expect(getInitialRevealChecklistScopePreview(confirmedScope)).toEqual([
+      { name: 'Service / panels', amount: 2050 },
+      { name: 'Lighting', amount: 4650, quantity: '31 each' },
+    ]);
+    expect(getInitialRevealChecklistScopePreview(confirmedWithSymbols)).toEqual([
+      { name: 'Service / panels', amount: 2050 },
+      { name: 'Lighting', amount: 4650, quantity: '31 each' },
+      { name: 'Fans', amount: 500, quantity: '2 each' },
+    ]);
+    expect(getInitialRevealStatusLabel(priced, 0).label).toBe('Mostly ready');
+  });
+
   it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {
     const draft = {
       projectType: 'other',

@@ -224,7 +224,6 @@ describe('electrical canonical architecture', () => {
       'Switches / controls',
       'Lighting',
       'Fans',
-      'Exhaust fans',
       'Appliance circuit + hookup',
       'Life safety / low voltage',
       'Rough / modifications',
@@ -818,11 +817,10 @@ describe('electrical canonical architecture', () => {
     expect(byId.electrical_undercabinet_light.helper).toMatch(
       /fixture install only/i
     );
-    expect(byId.electrical_bath_exhaust_fan.label).toBe(
-      'Bathroom exhaust fan electrical install'
-    );
+    expect(byId.electrical_bath_exhaust_fan.label).toBe('Exhaust fan');
+    expect(byId.electrical_bath_exhaust_fan.groupId).toBe('fans');
     expect(byId.electrical_bath_exhaust_fan.helper).toMatch(
-      /not include ducting/i
+      /excludes ducting/i
     );
     expect(byId.electrical_ceiling_fan.helper).toMatch(/fan-rated box/i);
   });

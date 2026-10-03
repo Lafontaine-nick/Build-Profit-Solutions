@@ -276,7 +276,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           <Text style={styles.forecastEyebrow}>Completed profit</Text>
           <View style={styles.forecastTitleRow}>
             <View style={styles.blockHeaderLeft}>
-              <Ionicons name="bar-chart-outline" size={20} color="#94a3b8" />
+              <Ionicons name="bar-chart-outline" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
               <Text style={styles.forecastBlockTitle}>Monthly Profit Trend</Text>
             </View>
           </View>
@@ -339,7 +339,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           <Text style={styles.forecastEyebrow}>Completed jobs</Text>
           <View style={styles.forecastTitleRow}>
             <View style={styles.blockHeaderLeft}>
-              <Ionicons name="triangle-outline" size={20} color="#94a3b8" />
+              <Ionicons name="triangle-outline" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
               <Text style={styles.forecastBlockTitle}>
                 Profitability by Project Type
               </Text>
@@ -385,7 +385,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             </Text>
             <View style={[styles.forecastTitleRow, styles.forecastRevenueTitleRow]}>
               <View style={styles.blockHeaderLeft}>
-                <Ionicons name="trending-up-outline" size={20} color="#94a3b8" />
+                <Ionicons name="trending-up-outline" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 <Text style={styles.forecastBlockTitle}>Net profit</Text>
               </View>
             </View>
@@ -495,7 +495,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   livePillText: {
     marginLeft: 6,
     fontSize: 12,
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
   },
 
@@ -513,7 +513,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     marginBottom: 8,
   },
   forecastTitleRow: {
@@ -773,7 +773,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.75,
     textTransform: "uppercase",
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
   },
   forecastValueSlot: {
     minHeight: 48,
@@ -791,7 +791,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   forecastValueQuiet: {
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
   },
   forecastValueLive: {
     color: "#2dcc9a",

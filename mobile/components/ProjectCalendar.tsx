@@ -212,7 +212,7 @@ export default function ProjectCalendar({
             surface: '#0f172a',
             surface2: '#1e293b',
             text: '#f1f5f9',
-            subtext: '#94a3b8',
+            subtext: '#d7e1f0',
             border: '#334155',
             green: '#2dcc9a',
             blue: '#22d3ee',
@@ -1114,7 +1114,7 @@ export default function ProjectCalendar({
                                   <>
                                     <Text style={{ fontSize: 16, fontWeight: '600', color: COLORS.text }}>{titleLead}</Text>
                                     {titleAmount ? (
-                                      <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 4, letterSpacing: -0.3, color: quietAmount ? '#94a3b8' : '#2dcc9a' }}>
+                                      <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 4, letterSpacing: -0.3, color: quietAmount ? (darkMode ? '#d7e1f0' : '#64748b') : '#2dcc9a' }}>
                                         {titleAmount}
                                       </Text>
                                     ) : null}
@@ -1349,7 +1349,7 @@ export default function ProjectCalendar({
                       value={eventTitle}
                       onChangeText={setEventTitle}
                       placeholder="Framing inspection"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={darkMode ? "#d7e1f0" : "#64748b"}
                     />
                   </View>
                   <View style={styles.stackedSplit}>
@@ -1377,7 +1377,7 @@ export default function ProjectCalendar({
                           setEventDate(formatted);
                         }}
                         placeholder="MM-DD-YY"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={darkMode ? "#d7e1f0" : "#64748b"}
                       />
                     </View>
                     <View style={[styles.stackedField, styles.stackedSplitCell]}>
@@ -1387,7 +1387,7 @@ export default function ProjectCalendar({
                         value={eventTime}
                         onChangeText={setEventTime}
                         placeholder="09:00"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={darkMode ? "#d7e1f0" : "#64748b"}
                       />
                     </View>
                   </View>
@@ -1395,7 +1395,7 @@ export default function ProjectCalendar({
               </View>
 
               <View style={styles.eventFormSection}>
-                <Text style={[styles.eventFormSectionTitle, { color: '#94a3b8' }]}>TYPE</Text>
+                <Text style={[styles.eventFormSectionTitle, { color: '#d7e1f0' }]}>TYPE</Text>
                 <View style={styles.eventFormTypeGrid}>
                     {(['inspection', 'work', 'delivery', 'payment', 'deadline', 'other'] as const).map((type) => (
                       <TouchableOpacity
@@ -1440,7 +1440,7 @@ export default function ProjectCalendar({
                       value={eventSubcontractor}
                       onChangeText={setEventSubcontractor}
                       placeholder="ABC Electric"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={darkMode ? "#d7e1f0" : "#64748b"}
                     />
                   </View>
                   <View style={styles.stackedField}>
@@ -1450,7 +1450,7 @@ export default function ProjectCalendar({
                       value={eventNotes}
                       onChangeText={setEventNotes}
                       placeholder="Additional details"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={darkMode ? "#d7e1f0" : "#64748b"}
                       multiline
                       numberOfLines={3}
                       textAlignVertical="top"
@@ -2163,7 +2163,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     marginBottom: 6,
-    color: '#94a3b8',
+    color: '#d7e1f0',
   },
   stackedInput: {
     fontSize: 17,

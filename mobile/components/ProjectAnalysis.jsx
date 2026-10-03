@@ -621,7 +621,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   /** Stepper + summary row: cost/drag up = warm, down = green, 0 = muted; bid = contract price (not cost). */
   const fineTuneValueColor = (field, raw) => {
     const v = raw ?? 0;
-    const muted = '#94a3b8';
+    const muted = (darkMode ? '#d7e1f0' : '#64748b');
     const costUp = '#f87171';
     const costDown = '#2dcc9a';
     if (field === 'markupPct') {
@@ -655,7 +655,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               Project Analysis
             </Text>
             <View style={styles.cardHeader}>
-              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', flex: 1 }}>
+              <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600', flex: 1 }}>
                 Scenario presets
               </Text>
               {hasChanges && (
@@ -664,7 +664,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </TouchableOpacity>
               )}
             </View>
-            <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 }}>
+            <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 }}>
               Stress-test profit. These are templates, not benchmarks.
             </Text>
 
@@ -728,7 +728,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             {/* Preset applied / insight — keep a block mounted when sliders leave a preset so layout height
                 does not collapse (avoids first fine-tune tap scroll jump on web from scroll anchoring). */}
             {(getPresetDetails || (hasChanges && !getActivePreset)) ? (
-              <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+              <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
                 {getPresetDetails
                   ? `${getPresetDetails.name} · ${getPresetDetails.details}`
                   : 'Custom scenario. Totals use these percentages.'}
@@ -833,7 +833,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     style={[
                       styles.heroBidValue,
                       {
-                        color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#94a3b8',
+                        color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
                         transform: [{
                           scale: totalBidAnim.interpolate({
                             inputRange: [0, 1],
@@ -870,7 +870,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                       style={[
                         styles.heroBidValue,
                         {
-                          color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#94a3b8',
+                          color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
                           transform: [{
                             scale: totalBidAnim.interpolate({
                               inputRange: [0, 1],
@@ -900,7 +900,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </View>
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Profit change</Text>
-                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta > 0 ? '#2dcc9a' : aiTip.profitDelta < 0 ? '#f87171' : '#94a3b8' }]}>
+                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta > 0 ? '#2dcc9a' : aiTip.profitDelta < 0 ? '#f87171' : '#d7e1f0' }]}>
                   {aiTip.profitDelta >= 0 ? '+' : '-'}
                   ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -917,7 +917,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
             {/* C) Safety / margin signal — same aiTip.text & color logic */}
             <View style={styles.safetyCard}>
-              <Text style={[styles.safetyCardTitle, { color: '#94a3b8' }]}>Margin check</Text>
+              <Text style={[styles.safetyCardTitle, { color: '#d7e1f0' }]}>Margin check</Text>
               <Text style={[styles.safetyCardBody, { color: sim.netProfitMarginPct < 5 ? '#f87171' : sim.netProfitMarginPct < 8 ? '#fbbf24' : '#e2e8f0' }]}>
                 {aiTip.text}
               </Text>
@@ -1300,7 +1300,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     marginLeft: 8,
   },
   resetText: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontWeight: '600',
     fontSize: ew(13, 15),
   },
@@ -1312,12 +1312,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     marginBottom: 16,
   },
   presetChip: {
-    backgroundColor: darkMode ? '#3A3A3C' : palette.chip,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : palette.chip,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.35)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.28)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1325,9 +1325,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     minWidth: 0,
   },
   presetChipActive: {
-    backgroundColor: '#2dcc9a',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
     borderWidth: 1,
-    borderColor: '#2dcc9a',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   presetChipActiveTypical: {
     backgroundColor: 'rgba(234, 179, 8, 0.08)',
@@ -1356,7 +1356,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     textAlign: 'center',
   },
   presetChipTextActive: {
-    color: '#050B13',
+    color: '#8eecc9',
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -1445,7 +1445,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
 
   fineTuneSectionTitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     fontWeight: '600',
     marginTop: 0,
@@ -1603,7 +1603,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
 
   heroSectionEyebrow: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     fontWeight: '600',
     marginTop: 0,
@@ -1694,7 +1694,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     lineHeight: ew(17, 20),
   },
   supportingTitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 10,

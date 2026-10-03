@@ -133,7 +133,7 @@ export default function EditTransactionModal({
       },
       materialSubtitle: {
         fontSize: 13,
-        color: darkMode ? "#94a3b8" : Colors.sub,
+        color: darkMode ? "#d7e1f0" : Colors.sub,
         marginTop: 4,
         lineHeight: 18,
         fontWeight: "500" as const,
@@ -470,7 +470,7 @@ export default function EditTransactionModal({
                   <Feather
                     name={vendorFeatherIcon}
                     size={16}
-                    color={darkMode ? "#94a3b8" : "#64748b"}
+                    color={darkMode ? "#d7e1f0" : "#64748b"}
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -493,7 +493,7 @@ export default function EditTransactionModal({
                     <Feather
                       name="package"
                       size={16}
-                      color={darkMode ? "#94a3b8" : "#64748b"}
+                      color={darkMode ? "#d7e1f0" : "#64748b"}
                       style={{ marginRight: 12 }}
                     />
                     <TextInput
@@ -552,7 +552,7 @@ export default function EditTransactionModal({
                   <Feather
                     name="file-text"
                     size={16}
-                    color={darkMode ? "#94a3b8" : "#64748b"}
+                    color={darkMode ? "#d7e1f0" : "#64748b"}
                     style={{ marginRight: 12, marginTop: 2 }}
                   />
                   <TextInput
@@ -576,7 +576,7 @@ export default function EditTransactionModal({
               <View style={expenseChrome.fieldGroup}>
                 <Text style={expenseChrome.materialLabel}>PO Number</Text>
                 <View style={expenseChrome.materialInputWrap}>
-                  <Feather name="hash" size={16} color={darkMode ? "#94a3b8" : "#64748b"} style={{ marginRight: 12 }} />
+                  <Feather name="hash" size={16} color={darkMode ? "#d7e1f0" : "#64748b"} style={{ marginRight: 12 }} />
                   <TextInput
                     style={expenseChrome.materialInput}
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}

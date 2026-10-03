@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subtitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     fontWeight: '500',
     marginTop: 4,
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   note: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 14,

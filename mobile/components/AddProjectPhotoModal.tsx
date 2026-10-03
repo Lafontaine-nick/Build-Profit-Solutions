@@ -183,7 +183,7 @@ export default function AddProjectPhotoModal({
             keyboardShouldPersistTaps="handled"
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
-          <Text style={[styles.hint, { color: darkMode ? "#94a3b8" : Colors.sub }]}>
+          <Text style={[styles.hint, { color: darkMode ? "#d7e1f0" : Colors.sub }]}>
             Add progress or inspection photos directly to your project portfolio — no daily log required.
           </Text>
 
@@ -204,14 +204,14 @@ export default function AddProjectPhotoModal({
                 style={[styles.photoActionButton, buttonSurface]}
                 onPress={() => pickImage("camera")}
               >
-                <MaterialIcons name="photo-camera" size={20} color="#94a3b8" />
+                <MaterialIcons name="photo-camera" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Take photo</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.photoActionButton, buttonSurface]}
                 onPress={() => pickImage("library")}
               >
-                <MaterialIcons name="photo-library" size={20} color="#94a3b8" />
+                <MaterialIcons name="photo-library" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Library</Text>
               </TouchableOpacity>
             </View>
@@ -219,7 +219,7 @@ export default function AddProjectPhotoModal({
 
           <View style={styles.fieldGroup}>
             <Text style={[styles.label, { color: darkMode ? "#e2e8f0" : Colors.text }]}>Description</Text>
-            <Text style={[styles.fieldHint, { color: darkMode ? "#94a3b8" : Colors.sub }]}>Optional — note what this photo shows.</Text>
+            <Text style={[styles.fieldHint, { color: darkMode ? "#d7e1f0" : Colors.sub }]}>Optional — note what this photo shows.</Text>
             <TextInput
               value={caption}
               onChangeText={setCaption}
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 13,
     marginTop: 2,
     fontWeight: "500",

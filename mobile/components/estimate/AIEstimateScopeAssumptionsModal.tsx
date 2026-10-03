@@ -2996,6 +2996,7 @@ function AllowanceOrSplitModeToggle({
         ] as const
       ).map(opt => {
         const active = mode === opt.id;
+        const selectedMint = confirmScopeChoiceSelectedYesColors();
         return (
           <TouchableOpacity
             key={opt.id}
@@ -3004,23 +3005,22 @@ function AllowanceOrSplitModeToggle({
             onPress={() => onChange(opt.id)}
             style={[
               styles.customPricingModeChip,
-              {
-                borderColor: active
-                  ? '#22c55e'
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.24)'
-                    : Colors.line,
-                backgroundColor: active
-                  ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(34, 197, 94, 0.08)'
-                  : 'transparent',
-              },
+              active
+                ? {
+                    borderColor: selectedMint.borderColor,
+                    backgroundColor: selectedMint.backgroundColor,
+                  }
+                : {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.24)'
+                      : Colors.line,
+                    backgroundColor: 'transparent',
+                  },
             ]}
           >
             <Text
               style={{
-                color: active ? '#22c55e' : '#60a5fa',
+                color: active ? selectedMint.textColor : '#60a5fa',
                 fontSize: 11,
                 fontWeight: '700',
               }}
@@ -3056,6 +3056,7 @@ function PricingEntryModeToggle({
         ] as const
       ).map(opt => {
         const active = mode === opt.id;
+        const selectedMint = confirmScopeChoiceSelectedYesColors();
         return (
           <TouchableOpacity
             key={opt.id}
@@ -3065,24 +3066,23 @@ function PricingEntryModeToggle({
             style={[
               styles.customPricingModeChip,
               styles.pricingEntryModeChip,
-              {
-                borderColor: active
-                  ? '#22c55e'
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.24)'
-                    : Colors.line,
-                backgroundColor: active
-                  ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(34, 197, 94, 0.08)'
-                  : 'transparent',
-              },
+              active
+                ? {
+                    borderColor: selectedMint.borderColor,
+                    backgroundColor: selectedMint.backgroundColor,
+                  }
+                : {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.24)'
+                      : Colors.line,
+                    backgroundColor: 'transparent',
+                  },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#22c55e'
+                  ? selectedMint.textColor
                   : darkMode
                     ? 'rgba(255,255,255,0.72)'
                     : Colors.sub,
@@ -3127,6 +3127,7 @@ function PricingRateModeToggle({
     >
       {options.map(opt => {
         const active = mode === opt.id;
+        const selectedMint = confirmScopeChoiceSelectedYesColors();
         return (
           <TouchableOpacity
             key={opt.id}
@@ -3142,24 +3143,23 @@ function PricingRateModeToggle({
             }
             style={[
               styles.pricingRateModeChip,
-              {
-                borderColor: active
-                  ? '#22c55e'
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.24)'
-                    : Colors.line,
-                backgroundColor: active
-                  ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(22, 197, 94, 0.08)'
-                  : 'transparent',
-              },
+              active
+                ? {
+                    borderColor: selectedMint.borderColor,
+                    backgroundColor: selectedMint.backgroundColor,
+                  }
+                : {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.24)'
+                      : Colors.line,
+                    backgroundColor: 'transparent',
+                  },
             ]}
           >
             <Text
               style={{
                 color: active
-                  ? '#22c55e'
+                  ? selectedMint.textColor
                   : darkMode
                     ? 'rgba(255,255,255,0.72)'
                     : Colors.sub,
@@ -3236,7 +3236,7 @@ function PricingInputField({
   const [totalDraft, setTotalDraft] = useState(value);
   const [totalEditing, setTotalEditing] = useState(false);
   const inputShell = inputShellStyle(Colors, darkMode);
-  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0';
   const supportsRateMode =
     Boolean(basis?.quantity && basis.quantity > 0) && !readOnly;
   const amount = Number(String(value || '').replace(/,/g, ''));
@@ -3645,7 +3645,7 @@ function CustomScopeItemComposer({
         value={label}
         onChangeText={onChangeLabel}
         placeholder={placeholder}
-        placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+        placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'}
         onSubmitEditing={() => {
           if (label.trim()) onAdd();
         }}
@@ -6070,7 +6070,7 @@ function QuantitySection({
       </Text>
     ) : null;
   const inputShell = inputShellStyle(Colors, darkMode);
-  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0';
   const focusQuantityField = (
     targetItemId: string,
     field: 'count' | 'allowance' = 'count'
@@ -9944,7 +9944,7 @@ function YesNoRow({
             onSubmitEditing={saveRename}
             placeholder='Scope item name'
             placeholderTextColor={
-              darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
+              darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'
             }
             style={[
               styles.customRenameInput,
@@ -12637,7 +12637,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
         borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
       }
     : baseInputShell;
-  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0';
   const caption = captionColor(darkMode, Colors);
   const label = estimate?.quantityLabel || quickMeasurementDisplayLabel(field);
   const plumbingFieldSpacing = PLUMBING_CARDS.some(
@@ -14231,7 +14231,7 @@ function InsulationAssemblyCard({
                       ) : null}
                       <Text
                         style={{
-                          color: '#94a3b8',
+                          color: '#d7e1f0',
                           fontSize: 12,
                           fontWeight: '600',
                           marginBottom: 8,
@@ -14258,7 +14258,7 @@ function InsulationAssemblyCard({
                         <>
                           <Text
                             style={{
-                              color: '#94a3b8',
+                              color: '#d7e1f0',
                               fontSize: 12,
                               fontWeight: '600',
                               marginTop: 12,
@@ -14271,7 +14271,7 @@ function InsulationAssemblyCard({
                           {facingNeedsReview ? (
                             <Text
                               style={{
-                                color: '#94a3b8',
+                                color: '#d7e1f0',
                                 fontSize: 10,
                                 marginTop: 6,
                                 lineHeight: 14,
@@ -14285,7 +14285,7 @@ function InsulationAssemblyCard({
                       ) : null}
                       <Text
                         style={{
-                          color: '#94a3b8',
+                          color: '#d7e1f0',
                           fontSize: 12,
                           fontWeight: '600',
                           marginTop: 12,
@@ -16481,7 +16481,13 @@ function CollapsibleQuickMeasurements({
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
+  const selectedElectricalTrade =
+    String(effectiveTemplateKey || '').toLowerCase() === 'electrical' ||
+    (String(measurements.planImportMode || '') === 'selected_trade' &&
+      String(measurements.planImportTradeKey || '').toLowerCase() ===
+        'electrical');
   const bathroomFixturesQmJob =
+    !selectedElectricalTrade &&
     !paintingPlanMeasurements &&
     !notesTradeFlow &&
     !wholeHomeLayout &&
@@ -17966,7 +17972,7 @@ function CollapsibleQuickMeasurements({
             keyboardType='decimal-pad'
             placeholder='Enter sqft'
             placeholderTextColor={
-              darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
+              darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'
             }
             {...nativeNumericKeyboardProps}
             style={{
@@ -19537,6 +19543,7 @@ function CollapsibleQuickMeasurements({
 
     return new Set(
       ELECTRICAL_CARDS.filter(card => {
+        if (card.measurementKey === 'bathExhaustFanCount') return true;
         if (userOwned(card.measurementKey)) return true;
         if (ELECTRICAL_UNPRINTED_PLAN_KEYS.has(card.measurementKey)) {
           if (
@@ -20776,6 +20783,12 @@ function CollapsibleQuickMeasurements({
                     hideServiceAmperageCard={electricalVisibleMeasurementKeys.has(
                       'mainPanelCount'
                     )}
+                    hideJobCondition={
+                      String(measurements.planImportMode || '') ===
+                        'selected_trade' &&
+                      String(measurements.planImportTradeKey || '') ===
+                        'electrical'
+                    }
                   />
             </>
           ) : null}
@@ -21948,7 +21961,7 @@ function ScopeGroupSection({
             >
               <Text
                 style={{
-                  color: statusQuiet ? '#94a3b8' : '#fbbf24',
+                  color: statusQuiet ? (darkMode ? '#d7e1f0' : '#64748b') : '#fbbf24',
                   fontSize: 12,
                   fontWeight: '800',
                 }}
@@ -22257,10 +22270,6 @@ export default function AIEstimateScopeAssumptionsModal({
     {}
   );
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
-  // Confirm Scope reuses this modal instance — open Quick measurements on each entry.
-  useEffect(() => {
-    if (visible) setQuickMeasurementsOpen(true);
-  }, [visible]);
   const [quickMeasurementSummary, setQuickMeasurementSummary] =
     useState<QuickMeasurementSummary>({
       detected: 0,
@@ -25717,8 +25726,20 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
 
   useEffect(() => {
+    if (!visible) {
+      // Confirm scope stays mounted under Initial estimate. The draft written
+      // on Continue changes this key; replaying the plan import on Back would
+      // replace the cards the contractor already priced.
+      if (
+        hydratedVisibleSessionRef.current &&
+        livePlanImportHandoffKeyRef.current &&
+        livePlanImportHandoffKey
+      ) {
+        livePlanImportHandoffKeyRef.current = livePlanImportHandoffKey;
+      }
+      return;
+    }
     if (
-      !visible ||
       !hydratedVisibleSessionRef.current ||
       !planImport ||
       !livePlanImportHandoffKey ||
@@ -31950,7 +31971,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   <Text
                     style={[
                       styles.bulkSuggestedPricingBtnText,
-                      { color: '#94a3b8' },
+                      { color: '#d7e1f0' },
                     ]}
                   >
                     {scrollToPricingLabel}
@@ -32681,11 +32702,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
   },
   compactSuggestedBtnText: {
-    color: '#22c55e',
+    color: '#8eecc9',
     fontSize: 14,
     fontWeight: '700',
   },
@@ -32735,10 +32756,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2dcc9a',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
   },
   pricingEditorDoneBtnText: {
-    color: '#050B13',
+    color: '#8eecc9',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -32785,7 +32808,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.12,
-    color: '#94a3b8',
+    color: '#d7e1f0',
   },
   budgetSplitHeaderPill: {
     flexShrink: 0,
@@ -33041,7 +33064,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   bulkSuggestedPricingBtnText: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontWeight: '700',
     fontSize: 13,
     textAlign: 'center',

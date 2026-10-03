@@ -437,7 +437,14 @@ export default function CategoryDetailModal({
         }
 
         // Flexible match for Allowances
-        if (categoryLower.includes('allowance') && expCategory.includes('allowance')) {
+        if (
+          (categoryLower.includes('allowance') ||
+            categoryLower.includes('soft cost') ||
+            categoryLower.includes('soft-cost')) &&
+          (expCategory.includes('allowance') ||
+            expCategory.includes('soft cost') ||
+            expCategory.includes('soft-cost'))
+        ) {
           debugLog(`✅ Allowances match`);
           return true;
         }
@@ -559,7 +566,10 @@ export default function CategoryDetailModal({
     : categoryName.toLowerCase().includes('materials') ||
         categoryName.toLowerCase().includes('equipment')
       ? '🧱'
-      : categoryName.toLowerCase().includes('allowance')
+      : categoryName.toLowerCase().includes('allowance') ||
+        categoryName.toLowerCase().includes('soft cost') ||
+        categoryName.toLowerCase().includes('soft-cost') ||
+        categoryName.toLowerCase().includes('contingency')
         ? '💼'
         : categoryName.toLowerCase().includes('subs')
           ? '👥'
@@ -989,7 +999,7 @@ export default function CategoryDetailModal({
                   }}
                   activeOpacity={0.88}
                 >
-                  <Ionicons name="camera-outline" size={18} color={darkMode ? "#94a3b8" : "#64748b"} />
+                  <Ionicons name="camera-outline" size={18} color={darkMode ? "#d7e1f0" : "#64748b"} />
                   <Text style={[styles.materialsScanButtonText, { color: darkMode ? "#F5F7FA" : Colors.text }]}>
                     Scan Product
                   </Text>
@@ -2394,7 +2404,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSubtitle: {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 14,
     marginTop: 4,
     textAlign: 'center',

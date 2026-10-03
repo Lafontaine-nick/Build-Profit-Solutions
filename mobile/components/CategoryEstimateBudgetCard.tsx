@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
   spentValueOver: { color: '#f87171' },
-  spentValueQuiet: { color: '#94a3b8' },
+  spentValueQuiet: { color: '#d7e1f0' },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',

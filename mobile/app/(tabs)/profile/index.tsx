@@ -100,7 +100,7 @@ import ContractorPricingMemorySettings from '@/components/estimate/ContractorPri
  */
 const PROFILE_MINT = '#2dcc9a';
 const PROFILE_MINT_TEXT = '#8eecc9';
-const PROFILE_SLATE = '#94a3b8';
+const PROFILE_SLATE = '#d7e1f0';
 
 const DEFAULT_CONTRACTOR_USER = {
   id: 'local',

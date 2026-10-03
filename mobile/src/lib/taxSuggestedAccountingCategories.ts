@@ -9,6 +9,8 @@ export const SUGGESTED_ACCOUNTING_CATEGORY: Record<TaxCategory, string> = {
   Subcontractors: 'Contract Labor',
   'Equipment Rental': 'Equipment Rental',
   'Permits / Plans': 'Licenses & Permits',
+  'Lender fees': 'Loan Fees',
+  Interest: 'Interest Expense',
   Insurance: 'Insurance',
   'Vehicle / Mileage': 'Car & Truck Expenses',
   'Software / Tools': 'Tools / Small Equipment',

@@ -78,7 +78,7 @@ export function ConfirmScopeChip({
               color: highlighted
                 ? SELECTED_GREEN
                 : darkMode
-                  ? '#94a3b8'
+                  ? '#d7e1f0'
                   : '#64748b',
             },
           ]}

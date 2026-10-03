@@ -5,7 +5,7 @@ import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax
 import { format1099ReviewMoney } from '@/src/lib/tax1099Review';
 
 function paidColor(amount: number): string {
-  if (!Number.isFinite(amount) || amount === 0) return '#94a3b8';
+  if (!Number.isFinite(amount) || amount === 0) return '#d7e1f0';
   if (amount < 0) return '#f87171';
   return '#2dcc9a';
 }

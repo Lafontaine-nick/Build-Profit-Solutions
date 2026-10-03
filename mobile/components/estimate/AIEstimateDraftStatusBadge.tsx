@@ -12,7 +12,7 @@ const STATUS_STYLES: Record<
   partial_pricing: { label: 'Partial Pricing', bg: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa' },
   calculated: { label: 'Calculated', bg: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' },
   ai_suggested: { label: 'AI Suggested', bg: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24' },
-  needs_review: { label: 'Needs Review', bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8' },
+  needs_review: { label: 'Needs Review', bg: 'rgba(148, 163, 184, 0.15)', color: '#d7e1f0' },
   missing_price: { label: 'Missing Price', bg: 'rgba(248, 113, 113, 0.15)', color: '#f87171' },
 };
 

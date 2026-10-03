@@ -58,7 +58,7 @@ export default function BudgetTab() {
     bg: darkMode ? '#0f172a' : '#f8fafc',
     card: darkMode ? '#1e293b' : '#ffffff',
     text: darkMode ? '#f1f5f9' : '#0f172a',
-    subtext: darkMode ? '#94a3b8' : '#64748b',
+    subtext: darkMode ? '#d7e1f0' : '#64748b',
     border: darkMode ? '#334155' : '#e2e8f0',
   };
 

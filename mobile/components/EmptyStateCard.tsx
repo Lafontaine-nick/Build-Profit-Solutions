@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   manualLinkText: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     fontWeight: '600',
   },

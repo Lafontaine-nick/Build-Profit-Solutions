@@ -38,7 +38,7 @@ import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnbo
 
 /** Same mint as the landing and sign-in primary buttons. */
 const ONBOARDING_ACCENT = '#2dcc9a';
-const ONBOARDING_MUTED = '#94a3b8';
+const ONBOARDING_MUTED = '#d7e1f0';
 
 interface OnboardingFlowProps {
   onComplete: () => void;

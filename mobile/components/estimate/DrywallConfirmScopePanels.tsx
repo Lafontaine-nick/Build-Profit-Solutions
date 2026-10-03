@@ -34,7 +34,7 @@ function hapticTap() {
 }
 
 function captionColor(darkMode: boolean, Colors: Colors) {
-  return darkMode ? '#94a3b8' : Colors.sub;
+  return darkMode ? '#d7e1f0' : Colors.sub;
 }
 
 function inactiveChoiceChipStyle(darkMode: boolean, Colors: Colors) {
@@ -440,7 +440,7 @@ function YesNoRow({
                         ? '#F5F7FA'
                         : Colors.text
                     : darkMode
-                      ? '#94a3b8'
+                      ? (darkMode ? '#d7e1f0' : '#64748b')
                       : Colors.sub,
                   fontSize: 14,
                   fontWeight: active ? '700' : '600',

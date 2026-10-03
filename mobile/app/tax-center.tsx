@@ -85,7 +85,7 @@ const percent = (value: number | null): string => {
 };
 
 function previewFigureColor(value: number, tone: 'live' | 'warn'): string {
-  if (!Number.isFinite(value) || value === 0) return '#94a3b8';
+  if (!Number.isFinite(value) || value === 0) return '#d7e1f0';
   return tone === 'warn' ? '#FBBF24' : '#2dcc9a';
 }
 
@@ -915,7 +915,7 @@ export default function TaxCenterScreen() {
                 <MaterialIcons
                   name={taxBreakdownExpanded ? 'expand-less' : 'expand-more'}
                   size={28}
-                  color="#94a3b8"
+                  color={darkMode ? '#d7e1f0' : '#64748b'}
                   style={styles.collapseChevron}
                 />
               </View>
@@ -940,7 +940,7 @@ export default function TaxCenterScreen() {
                       {projectSummaries.length} project{projectSummaries.length === 1 ? '' : 's'} in {selectedYear}
                     </Text>
                   </View>
-                  <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                  <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 </Pressable>
                 <SubcontractorTaxReport vendors={subcontractors} formatMoney={money} />
               </View>
@@ -1050,7 +1050,7 @@ export default function TaxCenterScreen() {
                       : 'Includes summary, projects, expenses, revenue, vendors, 1099 review, receipts, and export notes.'}
                   </Text>
                 </View>
-                <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
               </View>
             </Pressable>
 
@@ -1246,7 +1246,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   collapsePreviewLine: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     lineHeight: 20,
     marginTop: 6,
@@ -1297,7 +1297,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   projectSummarySub: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     marginTop: 2,
   },

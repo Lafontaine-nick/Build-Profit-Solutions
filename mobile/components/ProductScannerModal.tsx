@@ -306,7 +306,7 @@ function ProductScannerModalContent({
           </View>
           <Text
             style={{
-              color: '#94a3b8',
+              color: '#d7e1f0',
               fontSize: 13,
               lineHeight: 18,
               textAlign: 'center',
@@ -434,7 +434,7 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
 
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <Ionicons name="camera-outline" size={42} color="#94a3b8" />
+      <Ionicons name="camera-outline" size={42} color={darkMode ? '#d7e1f0' : '#64748b'} />
       <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginTop: 12, textAlign: 'center' }}>
         Camera scanner needs a rebuild
       </Text>
@@ -554,7 +554,7 @@ const LiveCameraScanner = memo(function LiveCameraScanner({ visible, isLocked, i
   if (!hasPermission) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Ionicons name="camera-outline" size={42} color="#94a3b8" />
+        <Ionicons name="camera-outline" size={42} color={darkMode ? '#d7e1f0' : '#64748b'} />
         <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginTop: 12 }}>
           Camera permission needed
         </Text>

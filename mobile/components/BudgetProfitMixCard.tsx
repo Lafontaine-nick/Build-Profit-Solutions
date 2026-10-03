@@ -43,7 +43,6 @@ export default function BudgetProfitMixCard({
   adjustedCostBudget,
   profitForecast,
   originalEstimateMarginPct,
-  originalEstimateProfit,
   onChipsPress,
   marginTop = 0,
   jobCompleted = false,
@@ -81,28 +80,24 @@ export default function BudgetProfitMixCard({
     if (!(adjustedContractValue > 0)) return 0;
     return (profitForecast.estimatedProfit / adjustedContractValue) * 100;
   }, [adjustedContractValue, originalEstimateMarginPct, profitForecast.estimatedProfit]);
-  const originalEstimateProfitResolved = useMemo(() => {
-    if (typeof originalEstimateProfit === 'number' && Number.isFinite(originalEstimateProfit)) {
-      return originalEstimateProfit;
-    }
-    return profitForecast.estimatedProfit;
-  }, [originalEstimateProfit, profitForecast.estimatedProfit]);
-  const marginDriftPts = profitForecast.projectedMarginPct - originalEstimateMarginPctResolved;
-  const profitDrift = profitForecast.projectedProfit - originalEstimateProfitResolved;
-  const estimateDriftColor =
-    Math.abs(marginDriftPts) < 0.15
-      ? pageSubtext
-      : marginDriftPts >= 0
-        ? '#2dcc9a'
-        : '#F97316';
-  const estimateDriftPillLabel =
-    Math.abs(marginDriftPts) < 0.15
-      ? 'On estimate'
-      : `${marginDriftPts > 0 ? '+' : ''}${marginDriftPts.toFixed(1)} pts`;
+  // Pill tracks net margin vs the estimate net margin. The Est. chip stays the builder-margin
+  // percent, so the planned overhead gap is not shown as a miss before any spend.
+  const marginDriftPts =
+    profitForecast.projectedMarginPct - profitForecast.originalEstimateMarginPct;
+  const profitDrift = profitForecast.profitVarianceVsEstimate;
+  const marginOnEstimate = Math.abs(marginDriftPts) < 0.15;
+  const estimateDriftColor = marginOnEstimate
+    ? pageSubtext
+    : marginDriftPts >= 0
+      ? '#2dcc9a'
+      : '#F97316';
+  const estimateDriftPillLabel = marginOnEstimate
+    ? 'On estimate'
+    : `${marginDriftPts > 0 ? '+' : ''}${marginDriftPts.toFixed(1)} pts`;
   const estimateDriftDetail =
     Math.abs(profitDrift) < 1
-      ? `Profit on estimate (${originalEstimateMarginPctResolved.toFixed(1)}% baseline)`
-      : `${profitDrift >= 0 ? '+' : '-'}${money(Math.abs(profitDrift), currency)} vs ${originalEstimateMarginPctResolved.toFixed(1)}% baseline`;
+      ? `Profit on estimate (${profitForecast.originalEstimateMarginPct.toFixed(1)}% baseline)`
+      : `${profitDrift >= 0 ? '+' : '-'}${money(Math.abs(profitDrift), currency)} vs ${profitForecast.originalEstimateMarginPct.toFixed(1)}% baseline`;
   const burnVsPlanPts = costBudgetUsedPctDisplay - profitForecast.scheduleProgressPct;
   const burnVsPlanColor =
     Math.abs(burnVsPlanPts) < 3
@@ -271,8 +266,8 @@ export default function BudgetProfitMixCard({
           {footerExpanded ? (
             <View style={styles.footerDetailBlock}>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                Margin vs bid compares the projected finish margin to your original bid baseline
-                ({originalEstimateMarginPctResolved.toFixed(1)}%).
+                Margin vs bid compares the projected finish margin to the estimate net margin
+                ({profitForecast.originalEstimateMarginPct.toFixed(1)}%). The Est. chip is the builder margin before company overhead.
               </Text>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
                 Spend vs progress compares two percentages: how much of your cost budget is used (money out

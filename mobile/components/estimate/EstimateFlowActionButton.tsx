@@ -48,7 +48,7 @@ export default function EstimateFlowActionButton({
     ? '#8eecc9'
     : selected
       ? '#050B13'
-      : iconColor || '#94a3b8';
+      : iconColor || (darkMode ? '#d7e1f0' : '#64748b');
   const shellLayout = {
     flex: 1 as const,
     minHeight: 44,

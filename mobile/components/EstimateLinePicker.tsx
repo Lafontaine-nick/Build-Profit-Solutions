@@ -288,7 +288,7 @@ export default function EstimateLinePicker({
             </Pressable>
             <View style={styles.headerCenter}>
               <Text style={[styles.sheetTitle, { color: colors.text }]}>Link to estimate</Text>
-              <Text style={[styles.sheetSubtitle, { color: darkMode ? '#94a3b8' : colors.secondary }]}>
+              <Text style={[styles.sheetSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
                 Choose a budget item
               </Text>
             </View>
@@ -415,7 +415,7 @@ export default function EstimateLinePicker({
                       <MaterialIcons
                         name={isPending ? 'radio-button-checked' : 'radio-button-unchecked'}
                         size={22}
-                        color={isPending ? '#2dcc9a' : (darkMode ? '#94a3b8' : colors.secondary)}
+                        color={isPending ? '#2dcc9a' : (darkMode ? '#d7e1f0' : colors.secondary)}
                       />
                     </Pressable>
                   );

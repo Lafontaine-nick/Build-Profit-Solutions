@@ -28,6 +28,8 @@ const SUGGESTED_ACCOUNTING_MAP: Partial<Record<TaxCategory, string>> = {
   Subcontractors: 'Contract Labor',
   'Equipment Rental': 'Equipment Rental',
   'Permits / Plans': 'Permits & Fees',
+  'Lender fees': 'Loan Fees',
+  Interest: 'Interest Expense',
   Insurance: 'Insurance',
   'Vehicle / Mileage': 'Auto Expense',
   'Software / Tools': 'Software',
@@ -95,7 +97,7 @@ export default function TaxQuickBooksMappingScreen() {
           </Text>
           <Text style={styles.examples}>
             Examples: Materials → Job Materials · Labor → Labor · Subcontractors → Contract Labor · Equipment Rental →
-            Equipment Rental · Permits / Plans → Permits & Fees · Insurance → Insurance · Vehicle / Mileage → Auto Expense
+            Equipment Rental · Permits / Plans → Permits & Fees · Lender fees → Loan Fees · Interest → Interest Expense · Insurance → Insurance · Vehicle / Mileage → Auto Expense
             · Software / Tools → Software · Office / Admin → Office Expense · Other → Uncategorized Expense
           </Text>
 

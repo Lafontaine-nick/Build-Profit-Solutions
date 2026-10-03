@@ -764,7 +764,7 @@ export default function AddTransactionModal({
       },
       materialSubtitle: {
         fontSize: 13,
-        color: darkMode ? "#94a3b8" : Colors.sub,
+        color: darkMode ? "#d7e1f0" : Colors.sub,
         marginTop: 4,
         lineHeight: 18,
         fontWeight: "500" as const,
@@ -1794,7 +1794,7 @@ export default function AddTransactionModal({
                       style={[
                         styles.hint,
                         sqftCalculatedTotal <= 0
-                          ? { color: darkMode ? "#94a3b8" : "#64748b" }
+                          ? { color: darkMode ? "#d7e1f0" : "#64748b" }
                           : null,
                       ]}
                     >
@@ -2393,7 +2393,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   linkedBudgetHint: {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 14,
     fontWeight: "600",
     marginBottom: 8,

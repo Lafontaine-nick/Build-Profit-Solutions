@@ -7,7 +7,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, formatPlanningMoney } from '@/utils/estimateAiDraft';
+import { getElectricalConfirmScopeCardRows } from '@/utils/estimateInitialRevealUi';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   formatScopeQuantity,
@@ -45,6 +46,7 @@ type Props = {
   onContinueUnpriced?: () => void;
   onRegenerate: () => void;
   showDetailsContent: React.ReactNode;
+  markupPct?: number;
 };
 
 export default function AIEstimateDraftReviewScopeOnly({
@@ -61,15 +63,28 @@ export default function AIEstimateDraftReviewScopeOnly({
   roughPricingUnavailable = false,
   onAddPricesManually,
   onContinueUnpriced,
-  onRegenerate,
   showDetailsContent,
+  markupPct = 0,
 }: Props) {
   const [showDetails, setShowDetails] = useState(false);
   const scopePackages = getScopePackagesForReview(draft);
-  const stillNeeded = getStillNeededList(draft);
+  const suggestedCards = getElectricalConfirmScopeCardRows(draft);
+  const suggestedSubtotal = suggestedCards
+    ? Math.round(suggestedCards.reduce((sum, row) => sum + row.amount, 0) * 100) / 100
+    : 0;
+  const markup = Math.max(0, Number(markupPct) || 0);
+  const suggestedTotal =
+    suggestedSubtotal > 0 && markup > 0
+      ? Math.round(suggestedSubtotal * (1 + markup / 100) * 100) / 100
+      : suggestedSubtotal;
+  const stillNeeded = suggestedCards?.length
+    ? []
+    : getStillNeededList(draft).filter(
+        item => !/customer name|project address/i.test(item)
+      );
   const hasPricing = draftHasApplyablePricing(draft);
   const hasUnpriced = draftHasUnpricedScope(draft);
-  const showPricingActions = hasUnpriced || !hasPricing;
+  const showPricingActions = !suggestedCards?.length && (hasUnpriced || !hasPricing);
   const proposal = draft.pendingPricingProposal;
   const flowCard = (extra?: object) => ({
     ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
@@ -78,7 +93,18 @@ export default function AIEstimateDraftReviewScopeOnly({
 
   return (
     <>
-      {draft.estimateConfidence ? (
+      {suggestedCards?.length ? (
+        <View style={flowCard({ backgroundColor: 'rgba(45, 204, 154, 0.12)' })}>
+          <Text style={{ color: '#2dcc9a', fontSize: 22, fontWeight: '800' }}>
+            {formatPlanningMoney(suggestedTotal)}
+          </Text>
+          <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>
+            {markup > 0
+              ? `Suggested total · ${markup}% markup`
+              : 'Suggested total from Confirm scope'}
+          </Text>
+        </View>
+      ) : draft.estimateConfidence ? (
         <View style={flowCard({ backgroundColor: confStyle.bg })}>
           <Text style={{ color: confStyle.color, fontSize: 13, fontWeight: '800' }}>
             {draft.estimateConfidence.label}
@@ -157,9 +183,38 @@ export default function AIEstimateDraftReviewScopeOnly({
 
       <View style={flowCard()}>
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 10 }}>
-          Scope found
+          {suggestedCards?.length
+            ? `Scope · ${suggestedCards.length} item${suggestedCards.length === 1 ? '' : 's'}`
+            : 'Scope found'}
         </Text>
-        {scopePackages.map((pkg, index) => {
+        {suggestedCards?.length
+          ? suggestedCards.map((row, index) => (
+              <View
+                key={`card-${row.name}-${index}`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  marginBottom: index < suggestedCards.length - 1 ? 10 : 0,
+                  paddingBottom: index < suggestedCards.length - 1 ? 10 : 0,
+                  borderBottomWidth: index < suggestedCards.length - 1 ? StyleSheet.hairlineWidth : 0,
+                  borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                }}
+              >
+                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', flex: 1 }}>
+                  {row.name}
+                  {row.quantity ? (
+                    <Text style={{ color: Colors.sub, fontWeight: '600' }}>{` · ${row.quantity}`}</Text>
+                  ) : null}
+                </Text>
+                <Text style={{ color: '#2dcc9a', fontSize: 14, fontWeight: '800' }}>
+                  {formatPlanningMoney(row.amount)}
+                </Text>
+              </View>
+            ))
+          : null}
+        {!suggestedCards?.length && scopePackages.map((pkg, index) => {
           const qty = formatScopeQuantity(pkg);
           return (
             <View
@@ -196,23 +251,22 @@ export default function AIEstimateDraftReviewScopeOnly({
         </View>
       ) : null}
 
-      <TouchableOpacity
-        activeOpacity={0.88}
-        onPress={() => setShowDetails((v) => !v)}
-        style={{ marginBottom: showDetails ? 10 : 4, alignItems: 'center' }}
-      >
-        <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>
-          {showDetails ? 'Hide details' : 'View details'}
-        </Text>
-      </TouchableOpacity>
+      {suggestedCards?.length ? null : (
+        <>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => setShowDetails((v) => !v)}
+            style={{ marginBottom: showDetails ? 10 : 4, alignItems: 'center' }}
+          >
+            <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>
+              {showDetails ? 'Hide details' : 'View details'}
+            </Text>
+          </TouchableOpacity>
 
-      {showDetails ? showDetailsContent : null}
+          {showDetails ? showDetailsContent : null}
+        </>
+      )}
 
-      <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onRegenerate} style={{ marginTop: 8 }}>
-        <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600', textAlign: 'center' }}>
-          Edit notes & regenerate
-        </Text>
-      </TouchableOpacity>
     </>
   );
 }

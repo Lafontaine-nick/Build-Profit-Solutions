@@ -49,13 +49,13 @@ export function resolveWeeklyProjectWeeks(
   );
 }
 
-/** Active green ring when an inline date field has its calendar open. */
+/** Light mint ring when an inline date field has its calendar open. */
 export function estimateFlowActiveDateFieldStyle(isActive: boolean): ViewStyle {
   if (!isActive) return {};
   return {
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: 'rgba(45, 204, 154, 0.55)',
     borderWidth: 1.5,
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
   };
 }
 

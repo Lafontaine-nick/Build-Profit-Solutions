@@ -248,6 +248,7 @@ export default function AssistantScreen() {
         contractCollectedPct,
         elapsedTimePct,
         isCompleted: String(projectStatus).toLowerCase() === 'completed',
+        allocatedCompanyOverhead: financials.allocatedCompanyOverhead,
       });
       const st = String(projectStatus).toLowerCase();
       const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);

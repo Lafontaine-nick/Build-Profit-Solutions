@@ -1417,7 +1417,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                   <Ionicons
                     name="person-add-outline"
                     size={14}
-                    color={isSignup ? "#022C22" : (darkMode ? "#94a3b8" : "#64748b")}
+                    color={isSignup ? "#022C22" : (darkMode ? "#d7e1f0" : "#64748b")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1450,7 +1450,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                   <Ionicons
                     name="log-in-outline"
                     size={14}
-                    color={!isSignup ? "#022C22" : (darkMode ? "#94a3b8" : "#64748b")}
+                    color={!isSignup ? "#022C22" : (darkMode ? "#d7e1f0" : "#64748b")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1904,7 +1904,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   },
   headerEyebrow: {
     ...confirmScopeSectionLabelStyle(),
-    color: isDark ? "#94a3b8" : "#64748b",
+    color: isDark ? "#d7e1f0" : "#64748b",
     marginBottom: 8,
     ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
@@ -1925,7 +1925,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     fontWeight: "800",
   },
   headerSubtitle: {
-    color: isDark ? "#94a3b8" : "#64748b",
+    color: isDark ? "#d7e1f0" : "#64748b",
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8,
@@ -2052,7 +2052,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginBottom: 6,
   },
   forgotText: {
-    color: isDark ? "#94a3b8" : "#64748b",
+    color: isDark ? "#d7e1f0" : "#64748b",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -2108,7 +2108,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginTop: 4,
   },
   footerText: {
-    color: isDark ? "#94a3b8" : "#64748b",
+    color: isDark ? "#d7e1f0" : "#64748b",
     fontSize: 13,
   },
   footerLink: {
@@ -2128,7 +2128,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     lineHeight: 16,
   },
   termsLink: {
-    color: isDark ? "#94a3b8" : "#64748b",
+    color: isDark ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
     textDecorationLine: "underline",
   },

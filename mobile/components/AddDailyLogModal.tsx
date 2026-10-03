@@ -408,14 +408,14 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   style={[styles.photoActionButton, fieldSurface]}
                   onPress={takePhoto}
                 >
-                  <MaterialIcons name="photo-camera" size={20} color="#94a3b8" />
+                  <MaterialIcons name="photo-camera" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Take photo</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.photoActionButton, fieldSurface]}
                   onPress={pickFromLibrary}
                 >
-                  <MaterialIcons name="photo-library" size={20} color="#94a3b8" />
+                  <MaterialIcons name="photo-library" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <Text style={[styles.photoActionText, !darkMode && { color: Colors.text }]}>Library</Text>
                 </TouchableOpacity>
               </View>
@@ -542,7 +542,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: {
-    color: "#94a3b8",
+    color: "#d7e1f0",
     fontSize: 13,
     marginTop: 2,
     fontWeight: "500",

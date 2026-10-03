@@ -22,6 +22,11 @@ export interface ProfitForecastInput {
   elapsedTimePct?: number;
   /** When true, forecast final cost = actual expenses (job done, no more spending) */
   isCompleted?: boolean;
+  /**
+   * Allocated company overhead for this bid. It is not part of the job-cost cap.
+   * Projected and estimated profit are net of this amount.
+   */
+  allocatedCompanyOverhead?: number;
 }
 
 export type ForecastMethod =
@@ -42,14 +47,14 @@ export interface ProfitForecastOutput {
   currentProjectedProfit: number;
   /** Spend-to-date margin: (contract - actualExpenses) / contract */
   spendToDateMarginPct: number;
-  /** Expected margin at completion: (contract - forecastFinalCost) / contract. Uses run-rate (actualExpenses/progress) for forecast. */
+  /** Expected net margin at completion: (contract - forecastFinalCost - allocated overhead) / contract. */
   projectedMarginPct: number;
-  /** Original estimate profit/margin based on the planned cost baseline. */
+  /** Original estimate net profit/margin: contract - planned cost - allocated overhead. */
   originalEstimateProfit: number;
   originalEstimateMarginPct: number;
   /** Planned cost budget remaining after actual expenses and commitments. */
   remainingCostBudget: number;
-  /** Estimated profit = contractValue - estimatedCostBaseline */
+  /** Estimated net profit = contractValue - estimatedCostBaseline - allocated company overhead */
   estimatedProfit: number;
   /** Profit variance = projectedProfit - estimatedProfit (positive = profit improved) */
   profitVarianceVsEstimate: number;
@@ -267,7 +272,8 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
 
   forecastFinalCost = Math.max(forecastFinalCost, actualPlusCommitted, 0);
 
-  const projectedProfit = contractValue - forecastFinalCost;
+  const allocatedCompanyOverhead = Math.max(0, safeNum(input.allocatedCompanyOverhead));
+  const projectedProfit = contractValue - forecastFinalCost - allocatedCompanyOverhead;
 
   const spendToDateMarginPct =
     contractValue > 0 ? ((contractValue - actualExpenses) / contractValue) * 100 : 0;
@@ -280,7 +286,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
       ? input.estimatedCostBaseline
       : adjustedBudget;
 
-  const estimatedProfit = contractValue - costForVariance;
+  const estimatedProfit = contractValue - costForVariance - allocatedCompanyOverhead;
   const profitVarianceVsEstimate = projectedProfit - estimatedProfit;
   const originalEstimateMarginPct =
     contractValue > 0 ? (estimatedProfit / contractValue) * 100 : 0;

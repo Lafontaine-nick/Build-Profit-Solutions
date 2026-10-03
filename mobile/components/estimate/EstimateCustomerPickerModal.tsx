@@ -216,7 +216,7 @@ export default function EstimateCustomerPickerModal({
                     {item.name}
                   </Text>
                   {latestProject ? (
-                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600', marginTop: 4 }} numberOfLines={1}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600', marginTop: 4 }} numberOfLines={1}>
                       {latestProject}
                     </Text>
                   ) : null}
@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSubtitle: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 14,
     marginTop: 4,
     fontWeight: '500',

@@ -800,6 +800,32 @@ describe('electricalQuickMeasurementUi', () => {
     expect(confirmScopeChipPainted(true, false, true)).toBe(false);
   });
 
+  it('does not copy the ceiling-fan count into the exhaust-fan box', () => {
+    const fields = buildElectricalQuickMeasurementGroups({
+      measurements: {
+        ceilingFanCount: 5,
+        bathExhaustFanCount: 5,
+        planImportTradeKey: 'electrical',
+        measurementProvenance: {
+          ceilingFanCount: {
+            evidenceKind: 'instance_tags',
+            status: 'plan_verified',
+          },
+        },
+      },
+      sources: {
+        ceilingFanCount: 'contractor_confirmed_from_plan_review',
+        bathExhaustFanCount: 'needs_confirmation',
+      },
+    }).flatMap(group => group.fields);
+    expect(fields.find(field => field.key === 'ceilingFanCount')).toMatchObject(
+      { value: 5, selected: true }
+    );
+    expect(
+      fields.find(field => field.key === 'bathExhaustFanCount')
+    ).toMatchObject({ value: null, selected: false, confirmInput: true });
+  });
+
   it('treats finger travel past the slop as a scroll, not a chip tap', () => {
     expect(CONFIRM_SCOPE_CHIP_SCROLL_SLOP).toBeGreaterThanOrEqual(12);
     expect(confirmScopeChipIsTap(0, 0)).toBe(true);

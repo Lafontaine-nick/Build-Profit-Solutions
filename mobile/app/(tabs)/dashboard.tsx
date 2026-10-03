@@ -102,7 +102,7 @@ import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
 import { pickCompletedDisplayDateRaw } from "@/lib/projectCompletedDisplayDate";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
-import { isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
+import { getAllocatedCompanyOverhead, isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
 import {
   computeProfitabilityByProjectType,
   getCompletedProjectMarginPercent,
@@ -849,6 +849,7 @@ const computeDashboardProfitOutlook = (
         committedPOs: committedPoTotalForDashboardForecast(p),
         progressPct,
         isCompleted: false,
+        allocatedCompanyOverhead: getAllocatedCompanyOverhead(p),
       });
       pipelineProjectedNetProfit += pf.projectedProfit;
       activePipelineProjectCount += 1;
@@ -926,7 +927,7 @@ const EVENT_TYPE_COLORS: Record<CalendarEvent["type"], string> = {
 const ACCENT_GREEN = "#19E180";
 /** Same mint as the homepage button. Color stays on the selected tab, status, and a number that moved. */
 const DASHBOARD_ACCENT = "#2dcc9a";
-const DASHBOARD_MUTED = "#94a3b8";
+const DASHBOARD_MUTED = '#d7e1f0';
 const BPS_BRAND_GREEN = DASHBOARD_ACCENT;
 const BPS_BRAND_TEAL = DASHBOARD_MUTED;
 

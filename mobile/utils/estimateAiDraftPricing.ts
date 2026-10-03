@@ -814,7 +814,7 @@ export function sourceBadgeColor(source: string): string {
   }
   if (source === 'supplier_pricing' || source === 'company_default') return '#34d399';
   if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') return '#fbbf24';
-  return '#94a3b8';
+  return '#d7e1f0';
 }
 
 export type SourceVisual = {
@@ -845,7 +845,7 @@ export function sourceVisual(source: string, mode: 'saved' | 'suggest' = 'saved'
     return {
       label: 'Manual',
       shortLabel: 'Manual',
-      color: '#94a3b8',
+      color: '#d7e1f0',
       bg: 'rgba(148,163,184,0.14)',
     };
   }

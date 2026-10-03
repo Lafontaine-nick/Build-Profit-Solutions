@@ -154,7 +154,7 @@ export default function ProjectPhotosCard({
     <>
       <View style={flowCardStyle}>
             <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148,163,184,0.1)' : lineColor }]}>
-              <MaterialIcons name="photo-library" size={22} color="#94a3b8" />
+              <MaterialIcons name="photo-library" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
               <Text style={[styles.sectionTitle, { color: textColor, marginLeft: 12 }]}>Site Photos</Text>
               {photos.length > 0 ? (
                 <Text style={[styles.countLabel, { color: mutedColor, marginRight: 10 }]}>
@@ -203,7 +203,7 @@ export default function ProjectPhotosCard({
               </ScrollView>
             ) : (
               <View style={styles.emptyWrap}>
-                <MaterialIcons name="photo-camera" size={28} color="#94a3b8" />
+                <MaterialIcons name="photo-camera" size={28} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 <Text style={[styles.emptyTitle, { color: textColor }]}>No site photos yet</Text>
                 <Text style={[styles.emptyBody, { color: mutedColor }]}>
                   Tap + to add portfolio photos, or attach them from a daily log.

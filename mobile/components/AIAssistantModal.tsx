@@ -68,6 +68,7 @@ import {
 } from "@/lib/ai/projectContextResolver";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
+import { getAllocatedCompanyOverhead } from "@/src/lib/projectFinancials";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
@@ -963,7 +964,7 @@ const QUICK_ACTIONS = [
 ];
 
 const CENTRAL_MINT = "#2dcc9a";
-const CENTRAL_SLATE = "#94a3b8";
+const CENTRAL_SLATE = '#d7e1f0';
 const CENTRAL_CARD = "#202022";
 const CENTRAL_CARD_BORDER = "rgba(148, 163, 184, 0.12)";
 const CENTRAL_GOLD = "#fbbf24";
@@ -3784,6 +3785,11 @@ const AIAssistantModal: React.FC<Props> = ({
               committedPOs,
               progressPct,
               isCompleted: progressPct >= 100,
+              allocatedCompanyOverhead: getAllocatedCompanyOverhead({
+                ...storageProject,
+                ...contextProject,
+                estimateData: mergedEstimateData,
+              }),
             }) : null;
             const hydratedContext = {
               ...ctxObj,

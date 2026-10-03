@@ -894,8 +894,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             };
           }
 
-          const isAllowancesBucket = bucketName.includes('allowance');
-          const isAllowancesCategory = expenseCategory.includes('allowance');
+          const isAllowancesBucket =
+            bucketName.includes('allowance') ||
+            bucketName.includes('soft cost') ||
+            bucketName.includes('soft-cost');
+          const isAllowancesCategory =
+            expenseCategory.includes('allowance') ||
+            expenseCategory.includes('soft cost') ||
+            expenseCategory.includes('soft-cost');
           if (isAllowancesBucket && isAllowancesCategory) {
             return {
               ...bucket,
@@ -946,7 +952,9 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
               cat === 'subs' ||
               cat.includes('subcontract') ||
               cat.includes('crew'));
-          const isAllow = bn.includes('allowance') && cat.includes('allowance');
+          const isAllow =
+            (bn.includes('allowance') || bn.includes('soft cost') || bn.includes('soft-cost')) &&
+            (cat.includes('allowance') || cat.includes('soft cost') || cat.includes('soft-cost'));
           return isMat || isLab || isAllow;
         });
 
@@ -1031,7 +1039,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           }
 
           // Flexible match for Allowances
-          if (bucketName.includes('allowance') && expenseCategory.includes('allowance')) {
+          if (
+            (bucketName.includes('allowance') ||
+              bucketName.includes('soft cost') ||
+              bucketName.includes('soft-cost')) &&
+            (expenseCategory.includes('allowance') ||
+              expenseCategory.includes('soft cost') ||
+              expenseCategory.includes('soft-cost'))
+          ) {
             return {
               ...bucket,
               spent: Math.max(0, (bucket.spent || 0) - expenseToDelete.amount),

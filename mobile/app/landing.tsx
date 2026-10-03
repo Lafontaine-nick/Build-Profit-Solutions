@@ -638,7 +638,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
   tagline: {
     marginTop: 10,
     fontSize: 14,
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
     textAlign: "center",
   },
@@ -647,7 +647,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     marginTop: 6,
     textAlign: "center",
     paddingHorizontal: 12,
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
   },
 
@@ -708,7 +708,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
   testimonialAttribution: {
     fontSize: 13,
     textAlign: "center",
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
   },
   feedbackTitle: {
@@ -723,7 +723,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     fontSize: 12,
     lineHeight: 17,
     textAlign: "center",
-    color: darkMode ? "#94a3b8" : "#64748b",
+    color: darkMode ? "#d7e1f0" : "#64748b",
     fontWeight: "500",
     maxWidth: 440,
     paddingHorizontal: 8,

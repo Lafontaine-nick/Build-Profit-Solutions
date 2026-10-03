@@ -420,7 +420,7 @@ export function ElectricalQmCollapsibleCard({
           style={[
             styles.qmPanelCaption,
             {
-              color: darkMode ? '#94a3b8' : '#64748b',
+              color: darkMode ? '#d7e1f0' : '#64748b',
               marginTop: 2,
               marginBottom: 0,
             },
@@ -438,7 +438,7 @@ export function ElectricalQmCollapsibleCard({
               style={[
                 styles.qmPanelCaption,
                 {
-                  color: darkMode ? '#94a3b8' : '#64748b',
+                  color: darkMode ? '#d7e1f0' : '#64748b',
                   marginTop: 12,
                   marginBottom: 12,
                 },
@@ -459,7 +459,7 @@ export function ElectricalQmCollapsibleCard({
             <Text
               style={[
                 styles.qmCollapseFooterText,
-                { color: darkMode ? '#94a3b8' : '#64748b' },
+                { color: darkMode ? '#d7e1f0' : '#64748b' },
               ]}
             >
               Collapse card ⌃
@@ -1221,6 +1221,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     showConduitOption = true,
     showTrenchingOption = true,
     hideServiceAmperageCard = false,
+    hideJobCondition = false,
   }: {
     values: ElectricalConfirmScopeAttributes;
     onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
@@ -1234,6 +1235,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     showConduitOption?: boolean;
     showTrenchingOption?: boolean;
     hideServiceAmperageCard?: boolean;
+    hideJobCondition?: boolean;
   }) {
     const [local, setLocal] = useState(values);
     const localRef = useRef(values);
@@ -1333,13 +1335,15 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
 
     return (
       <>
-        <ElectricalJobConditionCard
-          condition={local.electricalProjectCondition}
-          collapsed={Boolean(collapsed.job_condition)}
-          darkMode={darkMode}
-          onToggle={handlers.toggleJobCondition}
-          onSelect={handlers.selectJobCondition}
-        />
+        {hideJobCondition ? null : (
+          <ElectricalJobConditionCard
+            condition={local.electricalProjectCondition}
+            collapsed={Boolean(collapsed.job_condition)}
+            darkMode={darkMode}
+            onToggle={handlers.toggleJobCondition}
+            onSelect={handlers.selectJobCondition}
+          />
+        )}
         {hideServiceAmperageCard ? null : (
           <ElectricalServiceAmperageCard
             serviceAmperage={local.serviceAmperage}
@@ -1395,6 +1399,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     previous.showConduitOption === next.showConduitOption &&
     previous.showTrenchingOption === next.showTrenchingOption &&
     previous.hideServiceAmperageCard === next.hideServiceAmperageCard &&
+    previous.hideJobCondition === next.hideJobCondition &&
     previous.onCommit === next.onCommit &&
     previous.onPreview === next.onPreview &&
     previous.commitRef === next.commitRef &&
@@ -1839,9 +1844,15 @@ const ElectricalQmScopeOption = React.memo(
       : null;
     const quantityRow = (
       <QmSqftMeasurementRow
-        label={`${field.label} quantity`}
+        label={
+          field.key === 'bathExhaustFanCount' && !confirmedPlanCount
+            ? 'Exhaust fan'
+            : `${field.label} quantity`
+        }
         helperText={
-          awaitingPlanConfirm
+          field.key === 'bathExhaustFanCount' && !confirmedPlanCount
+            ? 'Not a ceiling fan. Ducting and roof termination are separate.'
+            : awaitingPlanConfirm
             ? undefined
             : field.conflicted
               ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
@@ -1857,7 +1868,11 @@ const ElectricalQmScopeOption = React.memo(
         applying={applying}
         darkMode={darkMode}
         Colors={Colors}
-        highlighted={field.conflicted || !hasPositiveQuantity}
+        highlighted={
+          field.key === 'bathExhaustFanCount' && !confirmedPlanCount
+            ? false
+            : field.conflicted || !hasPositiveQuantity
+        }
       />
     );
     const editQuantityControl = (
@@ -1875,6 +1890,10 @@ const ElectricalQmScopeOption = React.memo(
         </Text>
       </TouchableOpacity>
     );
+
+    if (field.key === 'bathExhaustFanCount' && !confirmedPlanCount) {
+      return <View style={styles.confirmBlock}>{quantityRow}</View>;
+    }
 
     return (
       <View>
@@ -1980,7 +1999,7 @@ const ElectricalQmScopeOption = React.memo(
               >
                 <Text
                   style={{
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     fontSize: 11,
                   }}
                 >
@@ -2065,7 +2084,7 @@ const styles = StyleSheet.create({
   confirmBlock: { gap: 12, alignSelf: 'stretch', width: '100%' },
   panelAmperageBlock: { gap: 10, alignSelf: 'stretch', width: '100%' },
   panelAmperageCaption: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 12,
     lineHeight: 17,
   },

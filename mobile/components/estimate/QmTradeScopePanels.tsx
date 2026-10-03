@@ -369,7 +369,7 @@ function hvacScopePanelColors(darkMode: boolean, Colors: Colors) {
       ? 'rgba(148, 163, 184, 0.28)'
       : 'rgba(100, 116, 139, 0.24)',
     backgroundColor: darkMode ? QM_MEASUREMENT_SHELL_FILL_DARK : '#f1f5f9',
-    sectionLabelColor: darkMode ? '#94a3b8' : '#64748b',
+    sectionLabelColor: darkMode ? '#d7e1f0' : '#64748b',
     captionColor: captionColor(darkMode, Colors),
   };
 }
@@ -458,7 +458,7 @@ function QmScopeChoiceChip({
                 : active
                   ? '#8eecc9'
                   : darkMode
-                    ? '#94a3b8'
+                    ? '#d7e1f0'
                     : '#64748b',
             fontSize: 11,
             fontWeight: '700',
@@ -507,7 +507,7 @@ function QmConcreteScopeChoiceChip({
 
 export function qmNeutralScopePanelStyle(darkMode: boolean) {
   return {
-    titleColor: darkMode ? '#94a3b8' : '#64748b',
+    titleColor: darkMode ? '#d7e1f0' : '#64748b',
     borderColor: darkMode
       ? 'rgba(148, 163, 184, 0.28)'
       : 'rgba(100, 116, 139, 0.22)',
@@ -932,7 +932,7 @@ export function QmSqftMeasurementRow({
               editable={!applying}
               placeholder={placeholder || defaultPlaceholder}
               placeholderTextColor={
-                darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
+                darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'
               }
               style={{
                 flex: 1,
@@ -1015,7 +1015,7 @@ export function QmSqftMeasurementRow({
           onBlur={onBlur}
           editable={!applying}
           placeholder={placeholder || defaultPlaceholder}
-          placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+          placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'}
           style={{
             flex: 1,
             color: darkMode ? '#F5F7FA' : Colors.text,
@@ -2380,7 +2380,7 @@ export function QmFlooringScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#64748b' : '#94a3b8', marginTop: 2 },
+                  { color: darkMode ? '#64748b' : '#d7e1f0', marginTop: 2 },
                 ]}
               >
                 Tap to collapse card
@@ -2389,7 +2389,7 @@ export function QmFlooringScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b' },
+                  { color: darkMode ? '#d7e1f0' : '#64748b' },
                 ]}
               >
                 {selectedExistingTypes.length} selected ·{' '}
@@ -2408,7 +2408,7 @@ export function QmFlooringScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b' },
+                  { color: darkMode ? '#d7e1f0' : '#64748b' },
                 ]}
               >
                 Select what is in the space now. Multiple types are allowed.
@@ -2712,7 +2712,7 @@ export function QmFlooringScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}
@@ -2753,7 +2753,7 @@ export function QmFlooringScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#64748b' : '#94a3b8', marginTop: 2 },
+                { color: darkMode ? '#64748b' : '#d7e1f0', marginTop: 2 },
               ]}
             >
               Tap to collapse card
@@ -2826,7 +2826,7 @@ export function QmFlooringScopePanels({
                 <Text
                   style={[
                     styles.qmPanelCaption,
-                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 4 },
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 4 },
                   ]}
                 >
                   Enter how much of this area is carpet, tile, or another
@@ -2837,7 +2837,7 @@ export function QmFlooringScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b' },
+                  { color: darkMode ? '#d7e1f0' : '#64748b' },
                 ]}
               >
                 Select what is being installed. Multiple products are allowed.
@@ -3076,7 +3076,7 @@ export function QmFlooringScopePanels({
               style={[
                 styles.qmPanelCaption,
                 {
-                  color: darkMode ? '#94a3b8' : '#64748b',
+                  color: darkMode ? '#d7e1f0' : '#64748b',
                   textAlign: 'center',
                 },
               ]}
@@ -3340,7 +3340,7 @@ export function QmFlooringScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}
@@ -4304,7 +4304,7 @@ export function QmLandscapingScopePanels({
           <Text
             style={[
               styles.qmPanelCaption,
-              { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+              { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
             ]}
           >
             {demoExpanded
@@ -4319,7 +4319,7 @@ export function QmLandscapingScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
               ]}
             >
               Vegetation and loose landscape debris removal only. Tree removal,
@@ -4460,7 +4460,7 @@ export function QmLandscapingScopePanels({
                   <Text
                     style={[
                       styles.qmPanelCaption,
-                      { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 6 },
+                      { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 6 },
                     ]}
                   >
                     {
@@ -4473,7 +4473,7 @@ export function QmLandscapingScopePanels({
                 <Text
                   style={[
                     styles.qmPanelCaption,
-                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 8 },
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 8 },
                   ]}
                 >
                   Tree removal, dirt excavation, hardscape demolition, and
@@ -4513,7 +4513,7 @@ export function QmLandscapingScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#64748b' : '#94a3b8', marginTop: 2 },
+                { color: darkMode ? '#64748b' : '#d7e1f0', marginTop: 2 },
               ]}
             >
               Tap to collapse card
@@ -4522,7 +4522,7 @@ export function QmLandscapingScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b' },
+                { color: darkMode ? '#d7e1f0' : '#64748b' },
               ]}
             >
               {selected.length} selected landscape component
@@ -4535,7 +4535,7 @@ export function QmLandscapingScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b' },
+                { color: darkMode ? '#d7e1f0' : '#64748b' },
               ]}
             >
               Select every landscape component in this bid. Use SF, LF, each, or
@@ -4688,7 +4688,7 @@ export function QmLandscapingScopePanels({
                                 style={[
                                   styles.qmPanelCaption,
                                   {
-                                    color: darkMode ? '#94a3b8' : '#64748b',
+                                    color: darkMode ? '#d7e1f0' : '#64748b',
                                     marginTop: 6,
                                   },
                                 ]}
@@ -4704,7 +4704,7 @@ export function QmLandscapingScopePanels({
                               style={[
                                 styles.qmPanelCaption,
                                 {
-                                  color: darkMode ? '#94a3b8' : '#64748b',
+                                  color: darkMode ? '#d7e1f0' : '#64748b',
                                   marginTop: 8,
                                 },
                               ]}
@@ -4780,7 +4780,7 @@ export function QmLandscapingScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}
@@ -5076,7 +5076,7 @@ export function QmConcreteScopePanels({
                 <Text
                   style={[
                     styles.qmPanelCaption,
-                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                   ]}
                 >
                   Demo, grading, excavation, and other site conditions.
@@ -5433,9 +5433,7 @@ export function QmConcreteScopePanels({
                                       0 ? (
                                       <Text
                                         style={{
-                                          color: darkMode
-                                            ? '#94a3b8'
-                                            : '#64748b',
+                                          color: darkMode ? '#d7e1f0' : '#64748b',
                                           fontSize: 11,
                                           marginTop: 5,
                                         }}
@@ -5496,7 +5494,7 @@ export function QmConcreteScopePanels({
           <Text
             style={[
               styles.qmPanelCaption,
-              { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+              { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
             ]}
           >
             {expanded
@@ -5511,7 +5509,7 @@ export function QmConcreteScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
               ]}
             >
               Select the flatwork type and any additional work beyond the
@@ -5577,7 +5575,7 @@ export function QmConcreteScopePanels({
                       style={[
                         styles.qmPanelCaption,
                         {
-                          color: darkMode ? '#94a3b8' : '#64748b',
+                          color: darkMode ? '#d7e1f0' : '#64748b',
                           marginBottom: 6,
                         },
                       ]}
@@ -5693,7 +5691,7 @@ export function QmConcreteScopePanels({
                       style={[
                         styles.qmPanelCaption,
                         {
-                          color: darkMode ? '#94a3b8' : '#64748b',
+                          color: darkMode ? '#d7e1f0' : '#64748b',
                           marginBottom: 0,
                         },
                       ]}
@@ -5743,7 +5741,7 @@ export function QmConcreteScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 Structural concrete is separate from exterior flatwork and is
@@ -5807,7 +5805,7 @@ export function QmConcreteScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 Enter the house and garage slab areas. These stay blank until
@@ -5898,7 +5896,7 @@ export function QmConcreteScopePanels({
                             style={[
                               styles.qmPanelCaption,
                               {
-                                color: darkMode ? '#94a3b8' : '#64748b',
+                                color: darkMode ? '#d7e1f0' : '#64748b',
                                 marginTop: 6,
                               },
                             ]}
@@ -5935,7 +5933,7 @@ export function QmConcreteScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 Reinforcement, complex forming, mixed exterior work, upgrades,
@@ -6060,7 +6058,7 @@ export function QmConcreteScopePanels({
                           ) > 0 ? (
                             <Text
                               style={{
-                                color: darkMode ? '#94a3b8' : '#64748b',
+                                color: darkMode ? '#d7e1f0' : '#64748b',
                                 fontSize: 11,
                                 marginTop: 5,
                               }}
@@ -6112,7 +6110,7 @@ export function QmConcreteScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}
@@ -6496,7 +6494,7 @@ export function QmRoofingScopePanels({
           <Text
             style={[
               styles.qmPanelCaption,
-              { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+              { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
             ]}
           >
             {installExpanded
@@ -6512,7 +6510,7 @@ export function QmRoofingScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
                 ]}
               >
                 Enter the amounts for this new roof. Blank rows stay unpriced.
@@ -6522,7 +6520,7 @@ export function QmRoofingScopePanels({
                 <Text
                   style={[
                     styles.qmPanelCaption,
-                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
                   ]}
                 >
                   Select every install component included in this bid.
@@ -6693,7 +6691,7 @@ export function QmRoofingScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 Tear-off, disposal, and existing roof conditions.
@@ -6734,7 +6732,7 @@ export function QmRoofingScopePanels({
                 <Text
                   style={[
                     styles.qmPanelCaption,
-                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                   ]}
                 >
                   Vents, penetrations, repairs, and closeout extras.
@@ -6771,7 +6769,7 @@ export function QmRoofingScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
               ]}
             >
               Gutters and downspouts priced independently by LF and each.
@@ -6803,7 +6801,7 @@ export function QmRoofingScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}
@@ -6993,7 +6991,7 @@ export function QmStuccoScopePanels({
           <Text
             style={[
               styles.qmPanelCaption,
-              { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+              { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
             ]}
           >
             {wallExpanded
@@ -7008,7 +7006,7 @@ export function QmStuccoScopePanels({
             <Text
               style={[
                 styles.qmPanelCaption,
-                { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 },
+                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
               ]}
             >
               Pick the system, then enter the exterior wall area. Scaffolding
@@ -7062,7 +7060,7 @@ export function QmStuccoScopePanels({
                         color: selected
                           ? '#6ee7b7'
                           : darkMode
-                            ? '#94a3b8'
+                            ? '#d7e1f0'
                             : '#64748b',
                         fontSize: 12,
                         lineHeight: 16,
@@ -7184,7 +7182,7 @@ export function QmStuccoScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 Soffits, parapets, foam trim, and control joints.
@@ -7289,7 +7287,7 @@ export function QmStuccoScopePanels({
               <Text
                 style={[
                   styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                 ]}
               >
                 {showAccessExtras
@@ -7384,7 +7382,7 @@ export function QmStuccoScopePanels({
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#94a3b8' : '#64748b',
+                    color: darkMode ? '#d7e1f0' : '#64748b',
                     textAlign: 'center',
                   },
                 ]}

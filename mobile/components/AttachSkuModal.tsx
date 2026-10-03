@@ -174,7 +174,7 @@ function SkuModalHeaderRow({
         </Text>
         <Text
           style={{
-            color: "#94a3b8",
+            color: "#d7e1f0",
             fontSize: 14,
             marginTop: 4,
             fontWeight: "500",
@@ -990,7 +990,7 @@ export default function AttachSkuModal({
                   <MaterialCommunityIcons
                     name="storefront-outline"
                     size={18}
-                    color={store === "hd" ? "#050B13" : "#94a3b8"}
+                    color={store === "hd" ? "#050B13" : "#d7e1f0"}
                   />
                   <Text
                     style={{
@@ -1020,7 +1020,7 @@ export default function AttachSkuModal({
                   <MaterialCommunityIcons
                     name="tools"
                     size={18}
-                    color={store === "lowes" ? "#050B13" : "#94a3b8"}
+                    color={store === "lowes" ? "#050B13" : "#d7e1f0"}
                   />
                   <Text
                     style={{
@@ -1055,7 +1055,7 @@ export default function AttachSkuModal({
                   <Feather
                     name="search"
                     size={16}
-                    color="#94a3b8"
+                    color={darkMode ? '#d7e1f0' : '#64748b'}
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -1115,7 +1115,7 @@ export default function AttachSkuModal({
                   <Feather
                     name="map-pin"
                     size={16}
-                    color="#94a3b8"
+                    color={darkMode ? '#d7e1f0' : '#64748b'}
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
@@ -1162,7 +1162,7 @@ export default function AttachSkuModal({
             >
               <Text
                 style={{
-                  color: loading || !q || !zip ? '#94a3b8' : '#050B13',
+                  color: loading || !q || !zip ? (darkMode ? '#d7e1f0' : '#64748b') : '#050B13',
                   fontSize: loading || !q || !zip ? 15 : 16,
                   fontWeight: loading || !q || !zip ? '600' : '800',
                 }}
@@ -1275,7 +1275,7 @@ export default function AttachSkuModal({
                           {item.store?.toUpperCase() || 'HD'} • {item.zip || 'N/A'} • {item.sku || "No SKU"}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8, flexWrap: 'wrap' }}>
-                          <Text style={{ fontWeight: '700', fontSize: 15, color: item.price != null && item.price > 0 ? '#2dcc9a' : '#94a3b8' }}>
+                          <Text style={{ fontWeight: '700', fontSize: 15, color: item.price != null && item.price > 0 ? '#2dcc9a' : '#d7e1f0' }}>
                             {isRentalMode ? (
                               item.unit ? `Rental • ${item.unit}` : "Rental Equipment"
                             ) : (

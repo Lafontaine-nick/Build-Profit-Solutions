@@ -32,8 +32,10 @@ export function mapApprovedCostBucketsToBudgetLines(
       const lower = name.toLowerCase();
       const category = lower.includes('labor')
         ? 'Labor'
-        : lower.includes('allowance')
-          ? 'Allowances'
+        : lower.includes('allowance') || lower.includes('soft cost') || lower.includes('soft-cost')
+          ? 'Soft costs'
+          : lower.includes('contingency')
+            ? 'Contingency'
           : lower.includes('overhead') || lower.includes('permit')
             ? 'Overhead'
             : 'Materials/Equipment';

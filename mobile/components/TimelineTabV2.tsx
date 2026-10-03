@@ -338,7 +338,7 @@ function MilestoneCardV2({
           ) : null}
             </View>
             {canRecord ? (
-              <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+              <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
             ) : (
               <View style={styles.mChevronSlot} />
             )}
@@ -1405,7 +1405,7 @@ export default function TimelineTabV2({
               </View>
 
               <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line, marginTop: 16 }]}>
-                  <MaterialIcons name="schedule" size={22} color="#94a3b8" />
+                  <MaterialIcons name="schedule" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Overall Progress
                   </Text>
@@ -1422,7 +1422,7 @@ export default function TimelineTabV2({
           {/* Daily Logs Section - At the top for recent activity */}
           <View style={timelineFlowCardStyle}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="description" size={22} color="#94a3b8" />
+                  <MaterialIcons name="description" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Daily Logs
                   </Text>
@@ -1471,8 +1471,8 @@ export default function TimelineTabV2({
                           <View style={styles.logHeaderRight}>
                             {log.weather && (
                               <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15,23,42,0.06)", borderColor: "rgba(148, 163, 184, 0.35)" }]}>
-                                <MaterialIcons name="wb-sunny" size={14} color={darkMode ? "#94a3b8" : "#64748b"} />
-                                <Text style={[styles.logBadgeText, { color: darkMode ? "#94a3b8" : "#64748b" }]}>{log.weather}</Text>
+                                <MaterialIcons name="wb-sunny" size={14} color={darkMode ? "#d7e1f0" : "#64748b"} />
+                                <Text style={[styles.logBadgeText, { color: darkMode ? "#d7e1f0" : "#64748b" }]}>{log.weather}</Text>
                               </View>
                             )}
                             {Array.isArray(log.photoIds) && log.photoIds.length > 0 && (
@@ -1539,7 +1539,7 @@ export default function TimelineTabV2({
                   </View>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
-                    <MaterialIcons name="edit-note" size={28} color="#94a3b8" />
+                    <MaterialIcons name="edit-note" size={28} color={darkMode ? '#d7e1f0' : '#64748b'} />
                     <Text style={[styles.emptyLogsTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                       No site logs yet
                     </Text>
@@ -1568,7 +1568,7 @@ export default function TimelineTabV2({
           {(canViewPaymentSchedule && paymentScheduleMilestones.length > 0) || nextWorkMilestone ? (
           <View style={timelineFlowCardStyle}>
                     <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                      <MaterialIcons name="event" size={22} color="#94a3b8" />
+                      <MaterialIcons name="event" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                         {canViewPaymentSchedule ? "Payments" : "Upcoming"}
                       </Text>
@@ -1604,7 +1604,7 @@ export default function TimelineTabV2({
                                 onPress={() => onOpenMilestone(paymentScheduleHighlight.nextUpcoming!)}
                                 style={[styles.upcomingShell, styles.upcomingShellLast]}
                               >
-                                <View style={[styles.upcomingDot, { backgroundColor: "#94a3b8" }]} />
+                                <View style={[styles.upcomingDot, { backgroundColor: "#d7e1f0" }]} />
                                 <View style={styles.upcomingTextCol}>
                                   <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeUpcoming]}>
                                     <Text style={styles.paymentHighlightBadgeTextUpcoming}>Upcoming</Text>
@@ -1631,7 +1631,7 @@ export default function TimelineTabV2({
                           onPress={() => onOpenMilestone(nextWorkMilestone)}
                           style={[styles.upcomingShell, styles.upcomingShellLast]}
                         >
-                          <View style={[styles.upcomingDot, { backgroundColor: "#94a3b8" }]} />
+                          <View style={[styles.upcomingDot, { backgroundColor: "#d7e1f0" }]} />
                           <View style={styles.upcomingTextCol}>
                             <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
                               {nextWorkMilestone.title}
@@ -1652,7 +1652,7 @@ export default function TimelineTabV2({
           {canViewPaymentSchedule ? (
           <View style={[timelineFlowCardStyle, embedded && styles.timelineFlowCardFill]}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="list" size={22} color="#94a3b8" />
+                  <MaterialIcons name="list" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     All Payments
                   </Text>
@@ -2157,7 +2157,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.3,
-    color: "#94a3b8",
+    color: "#d7e1f0",
     textTransform: "uppercase",
   },
   paymentAllCollectedText: {

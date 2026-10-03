@@ -1,10 +1,7 @@
 import React, { useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import {
-  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
-  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
-} from '@/utils/estimateFlowCardStyle';
+import { ESTIMATE_FLOW_TEXT_SECONDARY_DARK } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   label: string;
@@ -26,7 +23,7 @@ function taxFigureColor(value: string): string {
   const numeric = value.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
   if (!numeric) return '#FFFFFF';
   const amount = Number(numeric[0]);
-  if (!Number.isFinite(amount) || amount === 0) return '#94a3b8';
+  if (!Number.isFinite(amount) || amount === 0) return '#d7e1f0';
   if (amount < 0) return '#f87171';
   return '#2dcc9a';
 }
@@ -117,9 +114,9 @@ const styles = StyleSheet.create({
     width: '48%',
     borderRadius: 14,
     padding: 12,
-    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.12)',
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
   iconWrap: {
     width: 34,
@@ -170,7 +167,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   helper: {
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontSize: 11,
     marginTop: 6,
   },

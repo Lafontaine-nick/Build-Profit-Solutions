@@ -1,8 +1,7 @@
 import { Tabs } from 'expo-router';
 import React, { useMemo, useEffect, type ComponentType } from 'react';
 import { View, StyleSheet, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { HapticTab } from '@/components/HapticTab';
+import { HapticTab, PillHapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -21,8 +20,6 @@ import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermi
 import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
 import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 
-const ASSISTANT_LABEL_COLOR = '#5eead4';
-
 export type TabLayoutSharedProps = {
   PillTabBarBackground: ComponentType;
 };
@@ -33,7 +30,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const { hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
   const { darkMode, theme } = useTheme();
-  const tabInactiveColor = darkMode ? '#8E8E93' : '#64748B';
+  const tabInactiveColor = darkMode ? '#636366' : '#64748B';
   const sidebarBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)';
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
@@ -97,7 +94,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
             }
           : {
               tabBarPosition: 'bottom' as const,
-              tabBarButton: HapticTab,
+              tabBarButton: PillHapticTab,
               tabBarStyle: {
                 position: 'absolute' as const,
                 bottom: 22,
@@ -148,49 +145,17 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
         tabBarIcon: ({ focused }: { focused: boolean }) => {
           if (route.name === 'assistant') {
-            const circleSize = desktopWebSidebar ? 44 : 40;
-            const starSize = desktopWebSidebar ? 20 : 18;
+            const starSize = desktopWebSidebar ? 22 : 22;
             return (
               <View style={styles.iconWrapper}>
-                {focused ? (
-                  <LinearGradient
-                    colors={['#22c55e', '#22d3ee']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[
-                      styles.assistantCircle,
-                      styles.assistantCircleFocused,
-                      {
-                        width: circleSize,
-                        height: circleSize,
-                        borderRadius: circleSize / 2,
-                      },
-                    ]}
-                  >
-                    <TabBarAssistantStar size={starSize} color="#050B13" />
-                  </LinearGradient>
-                ) : (
-                  <View
-                    style={[
-                      styles.assistantCircle,
-                      styles.assistantCircleInactive,
-                      {
-                        width: circleSize,
-                        height: circleSize,
-                        borderRadius: circleSize / 2,
-                      },
-                    ]}
-                  >
-                    <TabBarAssistantStar size={starSize} />
-                  </View>
-                )}
-                {hasAlerts && !focused ? (
-                  <View
-                    style={[
-                      styles.assistantAlertDot,
-                      { right: desktopWebSidebar ? 10 : 6 },
-                    ]}
+                <TabIconSlot>
+                  <TabBarAssistantStar
+                    size={starSize}
+                    color={focused ? TAB_NAV_ACTIVE : tabInactiveColor}
                   />
+                </TabIconSlot>
+                {hasAlerts && !focused ? (
+                  <View style={styles.assistantAlertDot} />
                 ) : null}
               </View>
             );
@@ -239,7 +204,6 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
         name="assistant"
         options={{
           title: t('tabs.assistant'),
-          tabBarActiveTintColor: ASSISTANT_LABEL_COLOR,
         }}
       />
       <Tabs.Screen
@@ -271,33 +235,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  assistantCircle: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 3,
-    overflow: 'visible',
-  },
-  assistantCircleInactive: {
-    borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.32)',
-    backgroundColor: 'rgba(74, 222, 128, 0.1)',
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  assistantCircleFocused: {
-    borderWidth: 0,
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
-  },
   assistantAlertDot: {
     position: 'absolute',
     top: 0,
+    right: 2,
     width: 8,
     height: 8,
     borderRadius: 4,

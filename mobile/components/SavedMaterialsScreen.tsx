@@ -113,7 +113,7 @@ export default function SavedMaterialsScreen({
             <MaterialCommunityIcons
               name="package-variant"
               size={40}
-              color="#94a3b8"
+              color={darkMode ? '#d7e1f0' : '#64748b'}
             />
           )}
         </View>
@@ -128,7 +128,7 @@ export default function SavedMaterialsScreen({
           </Text>
           
           <View style={styles.priceRow}>
-            <Text style={[styles.price, { color: item.price > 0 ? '#2dcc9a' : '#94a3b8' }]}>
+            <Text style={[styles.price, { color: item.price > 0 ? '#2dcc9a' : '#d7e1f0' }]}>
               ${item.price.toFixed(2)}
               {item.unit ? ` • ${item.unit}` : ''}
             </Text>
@@ -176,7 +176,7 @@ export default function SavedMaterialsScreen({
               onPress={() => item.url && Linking.openURL(item.url)}
               style={styles.viewButton}
             >
-              <MaterialIcons name="open-in-new" size={18} color="#94a3b8" />
+              <MaterialIcons name="open-in-new" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -228,7 +228,7 @@ export default function SavedMaterialsScreen({
           <MaterialCommunityIcons
             name="bookmark-outline"
             size={64}
-            color="#94a3b8"
+            color={darkMode ? '#d7e1f0' : '#64748b'}
           />
           <Text style={styles.emptyTitle}>No Saved Materials</Text>
           <Text style={styles.emptyText}>
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: '#d7e1f0',
     marginTop: 4,
     fontWeight: '500',
     letterSpacing: 0.12,
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
   },
   details: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#d7e1f0',
     marginBottom: 8,
   },
   priceRow: {
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
   },
   quantityLabel: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: '#d7e1f0',
     fontWeight: '600',
     minWidth: 60,
   },
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: '#d7e1f0',
     textAlign: 'center',
   },
 });

@@ -446,7 +446,7 @@ export default function ScopeReviewSheet({
                             value={includeCostAmount}
                             onChangeText={setIncludeCostAmount}
                             placeholder="Amount ($)"
-                            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+                            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#d7e1f0'}
                             keyboardType="decimal-pad"
                             style={[
                               styles.includeCostInput,

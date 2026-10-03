@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.12,
     marginBottom: 2,
-    color: '#94a3b8',
+    color: '#d7e1f0',
   },
   assistantTitle: {
     fontSize: 17,

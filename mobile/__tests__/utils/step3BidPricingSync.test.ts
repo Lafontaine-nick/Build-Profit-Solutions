@@ -691,8 +691,9 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     const allowanceLines = bid.allowanceLineItems as Array<{ name?: string; amount?: number }>;
 
     expect(laborLines).toHaveLength(0);
-    expect(allowanceLines).toHaveLength(2);
-    expect(allowanceLines.find((l) => l.name === 'Contingency')?.amount).toBe(5000);
+    expect(allowanceLines).toHaveLength(1);
+    expect(allowanceLines.find((l) => l.name === 'Contingency')).toBeUndefined();
+    expect(Number(bid.contingencyAllowance)).toBe(5000);
     expect(allowanceLines.find((l) => /Mobilization/i.test(String(l.name || '')))?.amount).toBe(750);
   });
 

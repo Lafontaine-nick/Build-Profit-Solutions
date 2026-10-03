@@ -35,6 +35,7 @@ import {
 } from '../src/lib/profitForecast';
 import {
   computeProjectFinancials,
+  foldEquipmentRentalIntoMaterialsBucket,
   sumPlannedCostFromBuckets,
 } from '../src/lib/projectFinancials';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
@@ -357,7 +358,13 @@ export default function BudgetTab({
                 expCategory === 'subs' ||
                 expCategory.includes('subcontract') ||
                 expCategory.includes('crew'))) ||
-            (lineCategory.includes('allowance') && expCategory.includes('allowance'))
+            ((lineCategory.includes('allowance') ||
+              lineCategory.includes('soft cost') ||
+              lineCategory.includes('soft-cost')) &&
+              (expCategory.includes('allowance') ||
+                expCategory.includes('soft cost') ||
+                expCategory.includes('soft-cost'))) ||
+            (lineCategory.includes('contingency') && expCategory.includes('contingency'))
           );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
@@ -412,6 +419,9 @@ export default function BudgetTab({
         n.includes('equip') ||
         n.includes('labor') ||
         n.includes('allowance') ||
+        n.includes('soft cost') ||
+        n.includes('soft-cost') ||
+        n.includes('contingency') ||
         n.includes('overhead')
       );
     });
@@ -562,7 +572,11 @@ export default function BudgetTab({
   // only to the visible Material/Labor cards so approved AI change orders show up where
   // users expect without changing the underlying financial cap calculations.
   const buckets = useMemo(() => {
-    const list = projectData?.buckets || [];
+    const list = foldEquipmentRentalIntoMaterialsBucket(
+      projectData?.buckets || [],
+      mergedProjectForFinancials,
+      financials.plannedCostBudget
+    );
     return list.map((bucket: any) => {
       const bucketName = String(bucket?.name || '').toLowerCase();
       const isMaterialsBucket =
@@ -581,7 +595,12 @@ export default function BudgetTab({
         bidBudget: safe(bucket?.bidBudget ?? bucket?.budget) + approvedCoBudget,
       };
     });
-  }, [projectData?.buckets, approvedChangeOrderAllocations]);
+  }, [
+    projectData?.buckets,
+    approvedChangeOrderAllocations,
+    mergedProjectForFinancials,
+    financials.plannedCostBudget,
+  ]);
   
   // Memoize buckets with stable IDs to prevent unnecessary re-renders
   const stableBuckets = useMemo(() => {
@@ -693,11 +712,13 @@ export default function BudgetTab({
         contractCollectedPct,
         elapsedTimePct,
         isCompleted: isProjectCompleted,
+        allocatedCompanyOverhead: financials.allocatedCompanyOverhead,
       }),
     [
       financials.adjustedContractValue,
       financials.adjustedCostBudget,
       financials.plannedCostBudget,
+      financials.allocatedCompanyOverhead,
       actual,
       purchaseOrdersTotal,
       progressForForecast,
@@ -761,7 +782,7 @@ export default function BudgetTab({
   const remainingPercent = Math.max(0, 100 - Math.min(usagePercent, 100));
 
   const budgetAccent = '#2dcc9a';
-  const budgetMuted = darkMode ? '#94a3b8' : '#64748b';
+  const budgetMuted = darkMode ? '#d7e1f0' : '#64748b';
   const remainingColor = remaining > 0 ? budgetAccent : '#ef4444';
   const quietMoneyColor = (amount: number) => (amount === 0 ? budgetMuted : undefined);
 
@@ -785,7 +806,7 @@ export default function BudgetTab({
 
   const pageSubtext = darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#8891a0';
   const pageCaption = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#8891a0';
-  const pageInstructional = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#94a3b8';
+  const pageInstructional = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#d7e1f0';
 
   /** Budget Totals: row labels + helper lines under margin rows */
   const budgetTotalsTheme = {
@@ -951,7 +972,10 @@ export default function BudgetTab({
                       : itemName.toLowerCase().includes('materials') ||
                           itemName.toLowerCase().includes('equipment')
                         ? 'construction'
-                        : itemName.toLowerCase().includes('allowance')
+                        : itemName.toLowerCase().includes('allowance') ||
+                          itemName.toLowerCase().includes('soft cost') ||
+                          itemName.toLowerCase().includes('soft-cost') ||
+                          itemName.toLowerCase().includes('contingency')
                           ? 'account-balance-wallet'
                           : itemName.toLowerCase().includes('subs')
                             ? 'people'

@@ -140,7 +140,7 @@ import {
   notesSuggestPlumbingBid,
 } from '../../utils/subcontractorTrade/plumbingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '../../utils/benchmarkReasonablenessContext';
-import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
+import { getBidAllowanceLineItemsTotal, getBidSoftCostTotal, isAllowancesCategoryName } from '../../utils/estimateAllowances';
 import { getEstimateStep5MarginTargetFeedback } from '../../utils/estimateStep5MarginTarget';
 import {
   confirmScopeSectionLabelStyle,
@@ -1058,7 +1058,7 @@ const getModalStyles = (Colors, darkMode) => StyleSheet.create({
   budgetDollarSign: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: '#d7e1f0',
     marginLeft: 12,
     marginRight: 4,
   },
@@ -2415,7 +2415,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23, textAlign: 'center' }}>
                     {isLaborForm ? 'Add Labor' : 'Add Materials & Equipment'}
                   </Text>
-                  <Text style={{ color: '#94a3b8', fontSize: 14, marginTop: 4, fontWeight: '500', lineHeight: 20, textAlign: 'center' }}>
+                  <Text style={{ color: '#d7e1f0', fontSize: 14, marginTop: 4, fontWeight: '500', lineHeight: 20, textAlign: 'center' }}>
                     {isLaborForm ? 'Log your labor expense' : 'Log your material or equipment expense'}
                   </Text>
                 </View>
@@ -2537,7 +2537,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             },
                           ]}
                         >
-                          <Feather name="clock" size={16} color={mode === 'hourly' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                          <Feather name="clock" size={16} color={mode === 'hourly' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
                               color: mode === 'hourly' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2563,7 +2563,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             },
                           ]}
                         >
-                          <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                          <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
                               color: mode === 'sqft' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2596,7 +2596,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             },
                           ]}
                         >
-                          <Feather name="user" size={16} color={laborType === 'inhouse' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                          <Feather name="user" size={16} color={laborType === 'inhouse' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
                               color: laborType === 'inhouse' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2622,7 +2622,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             },
                           ]}
                         >
-                          <Feather name="tool" size={16} color={laborType === 'subcontractor' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                          <Feather name="tool" size={16} color={laborType === 'subcontractor' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                           <Text
                             style={{
                               color: laborType === 'subcontractor' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2700,7 +2700,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       <View style={{ borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.12)' }}>
                         <Text
                           style={{
-                            color: ((Number(hours) || 0) * (decimalMoneyInputToNumber(laborRateDigits) || 0)) > 0 ? '#2dcc9a' : '#94a3b8',
+                            color: ((Number(hours) || 0) * (decimalMoneyInputToNumber(laborRateDigits) || 0)) > 0 ? '#2dcc9a' : '#d7e1f0',
                             fontSize: 18,
                             fontWeight: '800',
                             textAlign: 'center',
@@ -2788,7 +2788,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               },
                             ]}
                           >
-                            <Feather name="dollar-sign" size={16} color={mode === 'flat' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                            <Feather name="dollar-sign" size={16} color={mode === 'flat' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                             <Text
                               style={{
                                 color: mode === 'flat' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2814,7 +2814,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               },
                             ]}
                           >
-                            <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                            <Feather name="maximize-2" size={16} color={mode === 'sqft' ? '#050B13' : '#d7e1f0'} style={{ marginBottom: 4 }} />
                             <Text
                               style={{
                                 color: mode === 'sqft' ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
@@ -2904,7 +2904,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   <Feather
                                     name="dollar-sign"
                                     size={16}
-                                    color="#94a3b8"
+                                    color={darkMode ? '#d7e1f0' : '#64748b'}
                                     style={{ marginLeft: 12, marginRight: 8 }}
                                   />
                                   <TextInput
@@ -2949,7 +2949,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   const rate = decimalMoneyInputToNumber(unitPriceText);
                                   const lineTotal = sq * rate;
                                   return (
-                                    <Text style={{ color: lineTotal > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 18, fontWeight: '800' }}>
+                                    <Text style={{ color: lineTotal > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 18, fontWeight: '800' }}>
                                       {formatMoneyFull(lineTotal, { decimals: 2 })}
                                     </Text>
                                   );
@@ -3022,7 +3022,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           <Text numberOfLines={1} style={{ flex: 1, fontSize: 15, fontWeight: '500', color: category ? Colors.text : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub) }}>
                             {category || 'Select'}
                           </Text>
-                          <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                          <Ionicons name="chevron-forward" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                         </TouchableOpacity>
                       </View>
                   </LineItemFormShell>
@@ -3526,8 +3526,8 @@ function getEstimateStep5ProfileBehavior(contractorType) {
     normalizedContractorType,
     showDeveloperProjectCosts,
     otherProjectCostsHelperText: showDeveloperProjectCosts
-      ? 'Job-specific costs outside of materials and labor: equipment, plans, engineering, financing, interest, and named soft-cost allowances.'
-      : 'Job-specific costs outside of materials and labor: equipment, plans, engineering, and named soft-cost allowances.',
+      ? 'Job-specific costs outside of materials and labor: equipment, plans, engineering, financing, interest, and soft costs.'
+      : 'Job-specific costs outside of materials and labor: equipment, plans, engineering, and soft costs.',
   };
 }
 
@@ -3535,10 +3535,15 @@ function getEstimateAllowanceLineItemsTotal(bid) {
   return getBidAllowanceLineItemsTotal(bid);
 }
 
+/** Soft costs: named lines, plans, permits, engineering, lender fees, and interest. */
+function getEstimateSoftCostTotal(bid) {
+  return getBidSoftCostTotal(bid);
+}
+
 function getEstimateProjectCostBreakdown(bid) {
   const profileBehavior = getEstimateStep5ProfileBehavior(bid?.contractorType);
-  // Plans stay as a dedicated field. Legacy permitCost / otherDirectCost / contingencyAllowance
-  // still count if present on older bids, but those inputs are no longer shown in Step 5.
+  // planCost is a soft cost (see getEstimateSoftCostTotal). It stays in this
+  // project-cost total once, with legacy permitCost. Contingency is separate.
   const permitCosts =
     (Number(bid?.planCost) || 0) + (Number(bid?.permitCost) || 0);
   const equipmentRental = Number(bid?.equipment) || 0;
@@ -3548,13 +3553,14 @@ function getEstimateProjectCostBreakdown(bid) {
   const interest = Number(bid?.interestCost) || 0;
   const contingency = Number(bid?.contingencyAllowance) || 0;
   const allowances = getEstimateAllowanceLineItemsTotal(bid);
-  const developerOnlyProjectCosts = financingFees + interest + contingency;
+  const developerOnlyProjectCosts = financingFees + interest;
   const totalProjectCosts =
     permitCosts +
     equipmentRental +
     otherDirectCost +
     engineering +
     allowances +
+    contingency +
     (profileBehavior.showDeveloperProjectCosts ? developerOnlyProjectCosts : 0);
 
   return {
@@ -3586,15 +3592,12 @@ function getEstimateStep5Financials(bid, materials, labor) {
   const projectCosts = getEstimateProjectCostBreakdown(bid);
   const companyOverheadTotal = getEstimateCompanyOverheadTotal(bid);
 
-  const coreMarkupProjectCosts =
-    projectCosts.equipmentRental +
-    projectCosts.permitCosts +
-    projectCosts.engineering +
-    projectCosts.otherDirectCost +
-    (Number(projectCosts.allowances) || 0);
-
-  const markupBaseSubtotal = materials + labor + coreMarkupProjectCosts;
-  const totalCostBeforeMarkup = materials + labor + projectCosts.totalProjectCosts;
+  const hardJobCosts = projectCosts.equipmentRental + projectCosts.otherDirectCost;
+  const hardCosts = materials + labor + hardJobCosts;
+  const softCosts = getEstimateSoftCostTotal(bid);
+  const markupBaseSubtotal = hardCosts + softCosts;
+  const coreMarkupProjectCosts = hardJobCosts + softCosts;
+  const totalCostBeforeMarkup = hardCosts + softCosts + projectCosts.contingency;
   const markupPct = Number(bid?.markupPct) || 0;
   const markupAmount = (markupBaseSubtotal * markupPct) / 100;
   const bidPrice = totalCostBeforeMarkup + markupAmount;
@@ -3602,6 +3605,8 @@ function getEstimateStep5Financials(bid, materials, labor) {
   return {
     projectCosts,
     companyOverheadTotal,
+    hardCosts,
+    softCosts,
     coreMarkupProjectCosts,
     markupBaseSubtotal,
     totalCostBeforeMarkup,
@@ -3774,7 +3779,19 @@ const addDaysToDateString = (dateString, daysToAdd) => {
   const base = dateString ? new Date(`${dateString}T00:00:00`) : new Date();
   if (Number.isNaN(base.getTime())) return new Date().toISOString().split('T')[0];
   base.setDate(base.getDate() + daysToAdd);
-  return base.toISOString().split('T')[0];
+  const year = base.getFullYear();
+  const month = String(base.getMonth() + 1).padStart(2, '0');
+  const day = String(base.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/** Holdback is released after the last progress payment, not on that same day. */
+const holdbackDateAfterLastProgress = (lastProgressDate, holdbackDate) => {
+  if (!lastProgressDate) return holdbackDate || '';
+  if (!holdbackDate || holdbackDate === lastProgressDate) {
+    return addDaysToDateString(lastProgressDate, 7);
+  }
+  return holdbackDate;
 };
 
 const roundEstimateAiMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -3855,7 +3872,7 @@ const buildWeeklyProgressSchedule = ({
   }
 
   if (safeHoldbackPercent > 0 || holdbackAmount > 0) {
-    const scheduledDate = addDaysToDateString(startDate, safeProjectWeeks * 7);
+    const scheduledDate = addDaysToDateString(startDate, (safeProjectWeeks + 1) * 7);
     rows.push({
       id: `weekly-progress-holdback-${now}`,
       name: 'Final Holdback',
@@ -4821,7 +4838,7 @@ export default function EstimateGeneratorScreen() {
     const financials = getEstimateStep5Financials(bid, materials, labor);
     const subtotal = financials.totalCostBeforeMarkup;
     const costContextTotal = financials.overheadContextTotal;
-    const contingency = financials.projectCosts.developerProjectCostsActive ? financials.projectCosts.contingency : 0;
+    const contingency = financials.projectCosts.contingency;
     const profit = financials.markupAmount;
     const total = financials.bidPrice;
     const marginRatio = total > 0 ? profit / total : 0;
@@ -4849,6 +4866,8 @@ export default function EstimateGeneratorScreen() {
       costContextTotal,
       companyOverhead: financials.companyOverheadTotal,
       permitCosts: financials.projectCosts.permitCosts,
+      hardCosts: financials.hardCosts,
+      softCosts: financials.softCosts,
       totalProjectCosts: financials.projectCosts.totalProjectCosts,
       markupBaseSubtotal: financials.markupBaseSubtotal,
       contingency,
@@ -5016,14 +5035,17 @@ export default function EstimateGeneratorScreen() {
   /** Keep Confirm scope mounted/hydrated while other AI flow screens are open. */
   const prepareAiScopeWhileHidden = useMemo(() => {
     if (!aiDraft || showAiScopeAssumptionsModal) return false;
+    // Initial estimate sits on top of Step 2. Leave Confirm scope mounted so
+    // Back restores the same cards, quantities, and applied prices.
+    if (showAiInitialRevealModal) return true;
     if (draftNeedsScopeConfirmation(aiDraft)) {
-      return showAiInitialRevealModal || showAiBuilderModal;
+      return showAiBuilderModal;
     }
     if (
       isComplexEstimateTier(aiDraft) &&
       (aiDraft.scopeAssumptionsConfirmed || aiDraft.confirmedAssumptions?.length)
     ) {
-      return showAiInitialRevealModal || showAiDraftReviewModal;
+      return showAiDraftReviewModal;
     }
     return false;
   }, [
@@ -6487,30 +6509,36 @@ export default function EstimateGeneratorScreen() {
     [aiDraft, pauseDraftReviewForPricingModal]
   );
 
-  const reopenConfirmScopeFromReview = useCallback(() => {
+  const showConfirmScopeFromReview = useCallback(() => {
     setShowAiDraftReviewModal(false);
     setShowAiBuilderModal(false);
     setShowAiInitialRevealModal(false);
     setShowAiScopeAssumptionsModal(true);
+  }, []);
+
+  const reopenConfirmScopeFromReview = useCallback(() => {
+    showConfirmScopeFromReview();
     setAiDraft((prev) => {
       if (!prev) return prev;
       const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
       latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
       return syncDraftWithLatestScopeMeasurements(withMeasurements);
     });
-  }, [syncDraftWithLatestScopeMeasurements]);
+  }, [showConfirmScopeFromReview, syncDraftWithLatestScopeMeasurements]);
 
   /** Step 2 in the 3-step AI flow — Confirm scope (complex) or Initial estimate (simple). */
   const returnToAiFlowStep2 = useCallback(() => {
     if (aiDraft && isComplexEstimateTier(aiDraft)) {
-      reopenConfirmScopeFromReview();
+      // Show the cards already on screen. Rebuilding the draft here inserted
+      // unrelated scope, such as a vanity panel on an electrical bid.
+      showConfirmScopeFromReview();
       return;
     }
     setShowAiInitialRevealModal(true);
     setShowAiDraftReviewModal(false);
     setShowAiScopeAssumptionsModal(false);
     setShowAiBuilderModal(false);
-  }, [aiDraft, reopenConfirmScopeFromReview]);
+  }, [aiDraft, showConfirmScopeFromReview]);
 
   const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
     aiDraftReviewResumeRef.current = false;
@@ -6526,13 +6554,18 @@ export default function EstimateGeneratorScreen() {
 
   const handleInitialRevealBack = useCallback(() => {
     // "Initial estimate" (post-scope) should return to Confirm scope, not Step 1.
+    // Do not rebuild the draft here — that replaced the cards the contractor
+    // had selected. The Confirm scope screen stays mounted underneath.
     // "Scope found" (pre-scope) still returns to Build with AI.
     if (aiDraft && isComplexEstimateTier(aiDraft) && !draftNeedsScopeConfirmation(aiDraft)) {
-      returnToAiFlowStep2();
+      setShowAiInitialRevealModal(false);
+      setShowAiDraftReviewModal(false);
+      setShowAiBuilderModal(false);
+      setShowAiScopeAssumptionsModal(true);
       return;
     }
     transitionToAiBuilder();
-  }, [aiDraft, returnToAiFlowStep2, transitionToAiBuilder]);
+  }, [aiDraft, transitionToAiBuilder]);
 
   const handlePriceScopeItemFromPricingModal = useCallback(
     (scopeName) => {
@@ -6875,6 +6908,7 @@ export default function EstimateGeneratorScreen() {
           const nextBid = {
             ...appliedBid,
             aiSaveToPricingLibrary: aiSaveToPricingLibrary,
+            summarySendLocked: true,
           };
           lastSavedBidRef.current = null;
           pendingSaveRef.current = null;
@@ -7717,6 +7751,16 @@ export default function EstimateGeneratorScreen() {
   const checklistTotal = 6;
   const setupProgressPct = Math.round((completedChecklistCount / checklistTotal) * 100);
 
+  const summaryStepRef = useRef(step);
+  useEffect(() => {
+    const previousStep = summaryStepRef.current;
+    summaryStepRef.current = step;
+    if (previousStep !== 0 || step <= 0 || !bid?.summarySendLocked) return;
+    setBid((current) => (
+      current?.summarySendLocked ? { ...current, summarySendLocked: false } : current
+    ));
+  }, [step, bid?.summarySendLocked]);
+
   /** Must run after `shouldShowGuidance` + `completedChecklistCount` exist (avoid TDZ / ReferenceError on Estimates mount). */
   useEffect(() => {
     if (step === 5) {
@@ -7971,7 +8015,14 @@ export default function EstimateGeneratorScreen() {
     if (step !== 5) {
       equipmentRentalInputFocusedRef.current = false;
       setEquipmentRentalFocused(false);
+      isMarkupFocused.current = false;
+      setMarkupPctFocused(false);
     }
+  }, [step]);
+
+  useEffect(() => {
+    mainScrollYRef.current = 0;
+    mainScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [step]);
 
   useEffect(() => {
@@ -9729,7 +9780,8 @@ export default function EstimateGeneratorScreen() {
         // Calculate labor and materials budgets from the current financial context.
         // CRITICAL: financialContext.materials and financialContext.labor are calculated from current state in the useEffect
         // These are the source of truth, not snapshotBid.materialLineItems which might be stale
-        const materialsBudget = financialContext.materials || 0;
+        const equipmentRental = Number(snapshotBid.equipment) || 0;
+        const materialsBudget = (financialContext.materials || 0) + equipmentRental;
         const laborBudget = financialContext.labor || 0;
 
         // CRITICAL: Also update snapshotBid.materialLineItems to match materialsCart so it's saved correctly
@@ -9839,9 +9891,13 @@ export default function EstimateGeneratorScreen() {
             b.name === 'Materials/Equipment' || b.name === 'Materials'
           )?.spent || 0;
           const allowancesSpent = projectData?.buckets?.find(b =>
-            String(b?.name || '').toLowerCase().includes('allowance')
+            isAllowancesCategoryName(b?.name)
           )?.spent || 0;
-          const allowancesBudget = getEstimateAllowanceLineItemsTotal(snapshotBid);
+          const allowancesBudget = getEstimateSoftCostTotal(snapshotBid);
+          const contingencyBudget = Number(snapshotBid.contingencyAllowance) || 0;
+          const contingencySpent = projectData?.buckets?.find(b =>
+            String(b?.name || '').toLowerCase().includes('contingency')
+          )?.spent || 0;
           
           // Update or create projectData with correct buckets
           const updatedProjectData = {
@@ -9869,10 +9925,21 @@ export default function EstimateGeneratorScreen() {
                 ? [
                     {
                       id: '3',
-                      name: 'Allowances',
+                      name: 'Soft costs',
                       spent: allowancesSpent,
                       budget: allowancesBudget,
                       bidBudget: allowancesBudget,
+                    },
+                  ]
+                : []),
+              ...(contingencyBudget > 0 || contingencySpent > 0
+                ? [
+                    {
+                      id: '4',
+                      name: 'Contingency',
+                      spent: contingencySpent,
+                      budget: contingencyBudget,
+                      bidBudget: contingencyBudget,
                     },
                   ]
                 : []),
@@ -9880,7 +9947,8 @@ export default function EstimateGeneratorScreen() {
                 b.name !== 'Labor' && 
                 b.name !== 'Materials/Equipment' && 
                 b.name !== 'Materials' &&
-                !String(b?.name || '').toLowerCase().includes('allowance')
+                !isAllowancesCategoryName(b?.name) &&
+                !String(b?.name || '').toLowerCase().includes('contingency')
               ) || []),
             ],
             expenses: projectData?.expenses || [],
@@ -10137,7 +10205,11 @@ export default function EstimateGeneratorScreen() {
       syncedDraft,
       { applyConfirmedOnly: true, applySuggestedSplits: false }
     );
-    const nextBid = { ...fixedBid, aiSaveToPricingLibrary: bid.aiSaveToPricingLibrary };
+    const nextBid = {
+      ...fixedBid,
+      aiSaveToPricingLibrary: bid.aiSaveToPricingLibrary,
+      summarySendLocked: bid.summarySendLocked,
+    };
     lastSavedBidRef.current = null;
     pendingSaveRef.current = null;
     setBid(nextBid);
@@ -12984,6 +13056,10 @@ export default function EstimateGeneratorScreen() {
   const getStepFieldTextColor = (value) => (
     String(value ?? '').trim() ? Colors.text : estimateStepMutedInputColor
   );
+  const getStep5AmountColor = (displayValue) => {
+    const amount = parseFloat(String(displayValue ?? '').replace(/,/g, ''));
+    return Number.isFinite(amount) && amount > 0 ? '#2dcc9a' : getStepFieldTextColor(displayValue);
+  };
 
   /** Steps 1–2 only: light mode empties lighter than Colors.sub; filled = Colors.text. Dark: same as getStepFieldTextColor. */
   const estimateStep12EmptyLight = '#94a3b8';
@@ -13017,7 +13093,6 @@ export default function EstimateGeneratorScreen() {
     switch (step) {
       case 0: {
         // Bid Summary - not a numbered step, accessible via Summary button
-        const projectCostsAmount = calc.totalProjectCosts ?? 0;
         const companyOverheadAmount = calc.companyOverhead ?? 0;
         const netProfitAmount = (calc.profit || 0) - companyOverheadAmount;
         const netProfitPctOnBid = calc.total > 0 ? (netProfitAmount / calc.total) * 100 : 0;
@@ -13077,6 +13152,23 @@ export default function EstimateGeneratorScreen() {
           summaryStatusTone = 'progress';
         }
         const summaryStatusColors = estimateSummaryStatusColors(summaryStatusTone);
+        const summaryOptionalSteps = [
+          {
+            done: Boolean(String(bid.customerName || bid.clientName || '').trim()),
+            label: 'Customer information',
+            step: 1,
+          },
+          {
+            done: Number(bid.markupPct) > 0 || companyOverheadAmount > 0,
+            label: 'Overhead & markup',
+            step: 5,
+          },
+          {
+            done: hasPaymentSchedule,
+            label: 'Payment schedule',
+            step: 7,
+          },
+        ].filter((item) => !item.done);
         const bidLifecycleStatus = String(bid?.status || bid?.bidStatus || '').toLowerCase();
         const sentProject = [...(estimates || []), ...(activeProjects || [])].find(
           (p) => String(p?.id || '') === String(bid?.id || ''),
@@ -13128,16 +13220,16 @@ export default function EstimateGeneratorScreen() {
                 </Text>
 
                 <Text
-                  style={[estimateSummaryHeroAmountStyle(), { color: summaryHasPricing ? '#2dcc9a' : '#94a3b8' }]}
+                  style={[estimateSummaryHeroAmountStyle(), { color: summaryHasPricing ? '#2dcc9a' : '#d7e1f0' }]}
                 >
                   {moneyRounded(calc.total)}
                 </Text>
                 {summaryHasPricing ? (
                   <>
-                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
                       Estimated bid (incl. markup) · {bid.markupPct || 0}% markup
                     </Text>
-                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
                       {summaryStatusLabel}
                       {summaryLineItemCount > 0
                         ? summaryLineItemCount === 1
@@ -13147,7 +13239,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </>
                 ) : (
-                  <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                  <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
                     Add a customer and line items, or start with AI.
                   </Text>
                 )}
@@ -13159,7 +13251,7 @@ export default function EstimateGeneratorScreen() {
                       onPress={handleReadinessCTA}
                       style={{ alignSelf: 'flex-start', marginTop: 10 }}
                     >
-                      <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                      <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                         Review items
                       </Text>
                     </TouchableOpacity>
@@ -13179,10 +13271,10 @@ export default function EstimateGeneratorScreen() {
                 {summaryHasPricing ? (
                   <View style={{ marginTop: 22 }}>
                     {[
-                      { label: 'Materials', value: money(calc.materials) },
-                      { label: 'Labor', value: money(calc.labor) },
-                      ...(projectCostsAmount > 0 ? [{ label: 'Project costs', value: money(projectCostsAmount) }] : []),
-                      { label: `Markup (${bid.markupPct || 0}%)`, value: money(calc.profit) },
+                      { label: 'Hard costs', value: money(calc.hardCosts || 0) },
+                      ...((calc.softCosts || 0) > 0 ? [{ label: 'Soft costs', value: money(calc.softCosts) }] : []),
+                      ...((calc.contingency || 0) > 0 ? [{ label: 'Contingency', value: money(calc.contingency) }] : []),
+                      { label: `Builder margin (${bid.markupPct || 0}%)`, value: money(calc.profit) },
                       ...(companyOverheadAmount > 0 ? [{ label: 'Allocated company overhead', value: `-${money(companyOverheadAmount)}` }] : []),
                     ].map((row) => (
                       <View
@@ -13221,28 +13313,86 @@ export default function EstimateGeneratorScreen() {
                       </Text>
                     </View>
                     {bidWasSubmitted ? (
-                      <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18, marginTop: 16 }}>
+                      <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 16 }}>
                         Sent to Projects. Mark as won when the client accepts.
                       </Text>
-                    ) : (
-                      <TouchableOpacity
-                        activeOpacity={0.88}
-                        onPress={handleSubmitBid}
-                        style={{
-                          marginTop: 8,
-                          width: '100%',
-                          backgroundColor: '#2dcc9a',
-                          borderRadius: 14,
-                          minHeight: 50,
-                          paddingVertical: 15,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
-                          Send to Projects
+                    ) : bid.summarySendLocked && summaryOptionalSteps.length > 0 ? (
+                      <View style={{ marginTop: 16 }}>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
+                          Continue the bid
                         </Text>
-                      </TouchableOpacity>
+                        <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+                          Add these if you want them. Send to Projects shows after you come back to Summary.
+                        </Text>
+                        <View style={{ marginTop: 12, gap: 8 }}>
+                          {summaryOptionalSteps.map((item) => (
+                            <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <MaterialIcons name="radio-button-unchecked" size={16} color="#8eecc9" />
+                              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>{item.label}</Text>
+                            </View>
+                          ))}
+                        </View>
+                        <TouchableOpacity
+                          activeOpacity={0.88}
+                          onPress={() => {
+                            setStep(summaryOptionalSteps[0].step);
+                            setActiveNavButton('next');
+                          }}
+                          style={{
+                            marginTop: 14,
+                            width: '100%',
+                            backgroundColor: '#2dcc9a',
+                            borderRadius: 14,
+                            minHeight: 50,
+                            paddingVertical: 15,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
+                            {`Continue · ${summaryOptionalSteps[0].label}`}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={{ marginTop: 16 }}>
+                        {summaryOptionalSteps.length > 0 ? (
+                          <View style={{ marginBottom: 14 }}>
+                            <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18 }}>
+                              Still optional if you want them on the bid.
+                            </Text>
+                            <TouchableOpacity
+                              activeOpacity={0.88}
+                              onPress={() => {
+                                setStep(summaryOptionalSteps[0].step);
+                                setActiveNavButton('next');
+                              }}
+                              style={{ marginTop: 8, alignSelf: 'flex-start', paddingVertical: 4 }}
+                            >
+                              <Text style={{ color: '#8eecc9', fontSize: 14, fontWeight: '700' }}>
+                                {`Continue · ${summaryOptionalSteps[0].label}`}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                        <TouchableOpacity
+                          activeOpacity={0.88}
+                          onPress={handleSubmitBid}
+                          style={{
+                            width: '100%',
+                            backgroundColor: '#2dcc9a',
+                            borderRadius: 14,
+                            minHeight: 50,
+                            paddingVertical: 15,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#050B13', fontSize: 16, fontWeight: '800' }}>
+                            Send to Projects
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     )}
                   </View>
                 ) : (
@@ -13294,7 +13444,7 @@ export default function EstimateGeneratorScreen() {
                         activeOpacity={0.85}
                         onPress={() => setShowRecoveryModal(true)}
                       >
-                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                        <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                           {savedEstimates.length === 1
                             ? 'Saved bids (1)'
                             : `Saved bids (${savedEstimates.length})`}
@@ -13312,7 +13462,7 @@ export default function EstimateGeneratorScreen() {
                       setShowTemplatePicker(true);
                     }}
                   >
-                    <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                       {savedBidTemplates.length > 0
                         ? `Bid templates (${savedBidTemplates.length})`
                         : 'Bid templates'}
@@ -13367,12 +13517,12 @@ export default function EstimateGeneratorScreen() {
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                  <Ionicons name="people-outline" size={20} color="#94a3b8" />
+                  <Ionicons name="people-outline" size={20} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
                       Saved customers
                     </Text>
-                    <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
                       {savedCustomers.length > 0 ? (
                         <>
                           <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>{savedCustomers.length} saved</Text>
@@ -13384,7 +13534,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                <Ionicons name="chevron-forward" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
               </TouchableOpacity>
 
               {hasStep1CustomerInfo ? (
@@ -13683,7 +13833,7 @@ export default function EstimateGeneratorScreen() {
                     false: darkMode ? '#3A3A3C' : '#cbd5e1',
                     true: 'rgba(45, 204, 154, 0.45)',
                   }}
-                  thumbColor={saveCustomerForFutureBids ? '#2dcc9a' : '#94a3b8'}
+                  thumbColor={saveCustomerForFutureBids ? '#2dcc9a' : '#d7e1f0'}
                   ios_backgroundColor={darkMode ? '#3A3A3C' : '#cbd5e1'}
                 />
               </View>
@@ -13747,7 +13897,7 @@ export default function EstimateGeneratorScreen() {
                   >
                     {PROJECT_TYPES.find((type) => type.value === bid.projectType)?.label || 'Select'}
                   </Text>
-                  <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                  <Ionicons name="chevron-forward" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 </TouchableOpacity>
               </View>
 
@@ -13922,10 +14072,6 @@ export default function EstimateGeneratorScreen() {
                       estimateAccessoryShellStyle,
                       { minHeight: 48, justifyContent: 'center' },
                       estimateFlowActiveDateFieldStyle(showStartDateCalendar),
-                      showStartDateCalendar && {
-                        borderColor: '#2dcc9a',
-                        backgroundColor: 'rgba(45, 204, 154, 0.14)',
-                      },
                     ]}
                     onPress={() => {
                       setShowEndDateCalendar(false);
@@ -13945,10 +14091,6 @@ export default function EstimateGeneratorScreen() {
                       estimateAccessoryShellStyle,
                       { minHeight: 48, justifyContent: 'center' },
                       estimateFlowActiveDateFieldStyle(showEndDateCalendar),
-                      showEndDateCalendar && {
-                        borderColor: '#2dcc9a',
-                        backgroundColor: 'rgba(45, 204, 154, 0.14)',
-                      },
                     ]}
                     onPress={() => {
                       setShowStartDateCalendar(false);
@@ -14048,7 +14190,7 @@ export default function EstimateGeneratorScreen() {
                       }}
                       onPress={() => setSkuModalVisible(true)}
                     >
-                      <Ionicons name="search-outline" size={18} color="#94a3b8" />
+                      <Ionicons name="search-outline" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                       <Text numberOfLines={1} style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                         Material Search
                       </Text>
@@ -14074,7 +14216,7 @@ export default function EstimateGeneratorScreen() {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                       >
-                        <Ionicons name="camera-outline" size={18} color="#94a3b8" />
+                        <Ionicons name="camera-outline" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                         <Text numberOfLines={1} style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                           Scan Product
                         </Text>
@@ -14234,7 +14376,7 @@ export default function EstimateGeneratorScreen() {
                                         )}
                                       </View>
                                       <View style={{ alignItems: 'flex-end' }}>
-                                        <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                                        <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
                                           {money(item.total || 0)}
                                         </Text>
                                         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -14253,7 +14395,7 @@ export default function EstimateGeneratorScreen() {
                                                 borderColor: 'rgba(148, 163, 184, 0.35)',
                                               }}
                                             >
-                                              <Ionicons name="create-outline" size={15} color="#94a3b8" />
+                                              <Ionicons name="create-outline" size={15} color={darkMode ? '#d7e1f0' : '#64748b'} />
                                             </TouchableOpacity>
                                           )}
                                           <TouchableOpacity
@@ -14347,7 +14489,7 @@ export default function EstimateGeneratorScreen() {
                             </ScrollView>
                             <View style={[estimateFlowLineItemsTotalStyle(darkMode), { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Items</Text>
+                                <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600' }}>Items</Text>
                                 <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                   {materialsCart.length}
                                 </Text>
@@ -14356,7 +14498,7 @@ export default function EstimateGeneratorScreen() {
                                 <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                   Total Materials
                                 </Text>
-                                <Text style={{ color: materialsCart.reduce((sum, item) => sum + (item.total || 0), 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                                <Text style={{ color: materialsCart.reduce((sum, item) => sum + (item.total || 0), 0) > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                   {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
                                 </Text>
                               </View>
@@ -14392,7 +14534,7 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600', flex: 1 }}>
                       Bid Templates
                     </Text>
-                    <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                    <Ionicons name="chevron-forward" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                   </TouchableOpacity>
                 </View>
             </View>
@@ -14815,7 +14957,7 @@ export default function EstimateGeneratorScreen() {
                     }}
                     onPress={() => setSubcontractorModalVisible(true)}
                   >
-                    <Ionicons name="search-outline" size={18} color="#94a3b8" />
+                    <Ionicons name="search-outline" size={18} color={darkMode ? '#d7e1f0' : '#64748b'} />
                     <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                       Find Subcontractor
                     </Text>
@@ -14946,7 +15088,7 @@ export default function EstimateGeneratorScreen() {
                                     )}
                                   </View>
                                   <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                                    <Text style={{ color: (item.total || 0) > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 16, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
                                       {money(item.total || 0)}
                                     </Text>
                                     <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -14964,7 +15106,7 @@ export default function EstimateGeneratorScreen() {
                                           borderColor: 'rgba(148, 163, 184, 0.35)',
                                         }}
                                       >
-                                        <Ionicons name="create-outline" size={15} color="#94a3b8" />
+                                        <Ionicons name="create-outline" size={15} color={darkMode ? '#d7e1f0' : '#64748b'} />
                                       </TouchableOpacity>
                                       <TouchableOpacity
                                         onPress={() => {
@@ -15053,7 +15195,7 @@ export default function EstimateGeneratorScreen() {
                           </ScrollView>
                           <View style={[estimateFlowLineItemsTotalStyle(darkMode), { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Items</Text>
+                              <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600' }}>Items</Text>
                               <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                 {laborItems.length}
                               </Text>
@@ -15062,7 +15204,7 @@ export default function EstimateGeneratorScreen() {
                               <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                 Total Labor
                               </Text>
-                              <Text style={{ color: totalLabor > 0 ? '#2dcc9a' : '#94a3b8', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                              <Text style={{ color: totalLabor > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                 {money(totalLabor)}
                               </Text>
                             </View>
@@ -15144,7 +15286,7 @@ export default function EstimateGeneratorScreen() {
             : null;
         const showDeveloperProjectCosts = profileBehavior.showDeveloperProjectCosts;
         const showAdvancedDeveloperCosts = showDeveloperProjectCosts;
-        const markupBaseSummary = 'hard costs + equipment + plans + engineering + allowances';
+        const markupBaseSummary = 'hard costs + soft costs';
         const handleSelectStep5Profile = (typeNum) => {
           const currentBid = bidRef.current || bid;
           const updatedBid = {
@@ -15192,19 +15334,6 @@ export default function EstimateGeneratorScreen() {
         const currentMarkup = bid.markupPct || 0;
         const profit = calc?.profit || 0;
         const subtotal = calc?.subtotal || 0;
-        const overheadLoadRatio = subtotal > 0 ? businessOverheadDeduct / subtotal : 0;
-        const overheadWarning =
-          businessOverheadDeduct === 0
-            ? {
-                tone: 'strong',
-                text: 'Allocated company overhead is currently $0. Projected net profit may be overstated if business overhead is not accounted for.',
-              }
-            : subtotal > 0 && overheadLoadRatio < 0.01
-              ? {
-                  tone: 'soft',
-                  text: 'Allocated company overhead appears low for this estimate. Continue if this is intentional.',
-                }
-              : null;
         // Net profit = gross markup minus business overhead only (plans/permits are job cost, not taken again here).
         const netProfit = profit - businessOverheadDeduct;
         const bidPriceForMargin = jobTotal;
@@ -15213,7 +15342,7 @@ export default function EstimateGeneratorScreen() {
         const marginOnBidLockedByMarkupPctOnly =
           businessOverheadDeduct < 0.005 &&
           Math.abs((calc?.markupBaseSubtotal ?? 0) - (calc?.subtotal ?? 0)) < 0.005;
-        const netProfitAccentColor = netProfit > 0 ? '#2dcc9a' : netProfit < 0 ? '#f87171' : '#94a3b8';
+        const netProfitAccentColor = netProfit > 0 ? '#2dcc9a' : netProfit < 0 ? '#f87171' : '#d7e1f0';
         
         // Status badges evaluate projected net margin vs pricing profile — not markup % alone.
         const showApplyButton = true;
@@ -15230,10 +15359,11 @@ export default function EstimateGeneratorScreen() {
         const markupStatusText = marginTargetFeedback.markupStatusText;
         const markupStatusColor = marginTargetFeedback.markupStatusColor;
 
-        const step5Muted = darkMode ? 'rgba(215, 225, 240, 0.9)' : Colors.sub;
-        const step5MutedSoft = darkMode ? 'rgba(198, 210, 232, 0.78)' : Colors.sub;
+        const step5Label = darkMode ? '#d7e1f0' : '#334155';
+        const step5Muted = step5Label;
+        const step5MutedSoft = darkMode ? 'rgba(215, 225, 240, 0.72)' : Colors.sub;
         const step5FieldLabelStyle = {
-          color: '#94a3b8',
+          color: step5Label,
           fontSize: 12,
           fontWeight: '600',
           marginBottom: 8,
@@ -15270,16 +15400,16 @@ export default function EstimateGeneratorScreen() {
           gap: 8,
         };
         const step5ProfileChipBaseStyle = {
-          paddingVertical: 12,
+          paddingVertical: 11,
           paddingHorizontal: 12,
           borderRadius: 14,
           borderWidth: 1,
-          borderColor: 'rgba(148, 163, 184, 0.35)',
-          backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.28)',
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 0, 0, 0.03)',
         };
         const step5ProfileChipSelectedStyle = {
-          backgroundColor: '#2dcc9a',
-          borderColor: '#2dcc9a',
+          backgroundColor: 'rgba(45, 204, 154, 0.16)',
+          borderColor: 'rgba(45, 204, 154, 0.55)',
         };
         const step5InputBaseStyle = [
           estimateFlowInputShellStyle(Colors, darkMode),
@@ -15303,6 +15433,42 @@ export default function EstimateGeneratorScreen() {
               }
             : { autoComplete: 'off' };
 
+        const step5DollarField = (displayValue, inputProps = {}) => (
+          <View style={[estimateFlowInputShellStyle(Colors, darkMode), { justifyContent: 'center' }]}>
+            <Text
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: 16,
+                zIndex: 2,
+                fontSize: ew(14, 16),
+                fontWeight: '600',
+                color: getStep5AmountColor(displayValue),
+              }}
+            >
+              $
+            </Text>
+            <TextInput
+              autoCorrect={false}
+              spellCheck={false}
+              placeholder="0"
+              placeholderTextColor={estimateStepMutedInputColor}
+              {...inputProps}
+              keyboardType="decimal-pad"
+              {...step5DecimalInputProps}
+              style={{
+                paddingVertical: 12,
+                paddingRight: 16,
+                paddingLeft: 30,
+                fontSize: ew(14, 16),
+                backgroundColor: 'transparent',
+                color: getStep5AmountColor(displayValue),
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
+              }}
+            />
+          </View>
+        );
+
         /** RN Web: TouchableWithoutFeedback steals taps from TextInputs — keep dismiss wrapper only on native. */
         const Step5KeyboardDismissWrap =
           Platform.OS === 'web' ? View : TouchableWithoutFeedback;
@@ -15320,7 +15486,7 @@ export default function EstimateGeneratorScreen() {
 
               {/* Pricing profile — 2×2 grid + full-width custom + supporting panel below */}
               <View>
-                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 10 }}>
+                <Text style={{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 10 }}>
                   Pricing profile
                 </Text>
 
@@ -15347,9 +15513,9 @@ export default function EstimateGeneratorScreen() {
                         >
                           <Text
                             style={{
-                              color: selected ? '#050B13' : (darkMode ? '#e2e8f0' : Colors.text),
+                              color: selected ? '#8eecc9' : (darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text),
                               fontSize: ew(13, 15),
-                              fontWeight: selected ? '800' : '700',
+                              fontWeight: selected ? '800' : '600',
                               letterSpacing: -0.2,
                               lineHeight: ew(16, 19),
                             }}
@@ -15359,7 +15525,7 @@ export default function EstimateGeneratorScreen() {
                           </Text>
                           <Text
                             style={{
-                              color: selected ? 'rgba(5, 11, 19, 0.72)' : '#94a3b8',
+                              color: selected ? 'rgba(142, 236, 201, 0.82)' : step5MutedSoft,
                               fontSize: ew(11, 13),
                               lineHeight: ew(13, 16),
                               marginTop: 2,
@@ -15389,10 +15555,10 @@ export default function EstimateGeneratorScreen() {
                     style={{
                       color:
                         normalizedContractorType === 5
-                          ? '#050B13'
-                          : (darkMode ? '#e2e8f0' : Colors.text),
+                          ? '#8eecc9'
+                          : (darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text),
                       fontSize: ew(13, 15),
-                      fontWeight: normalizedContractorType === 5 ? '800' : '700',
+                      fontWeight: normalizedContractorType === 5 ? '800' : '600',
                       letterSpacing: -0.2,
                       lineHeight: ew(16, 19),
                     }}
@@ -15403,8 +15569,8 @@ export default function EstimateGeneratorScreen() {
                     style={{
                       color:
                         normalizedContractorType === 5
-                          ? 'rgba(5, 11, 19, 0.72)'
-                          : '#94a3b8',
+                          ? 'rgba(142, 236, 201, 0.82)'
+                          : step5MutedSoft,
                       fontSize: ew(11, 13),
                       lineHeight: ew(13, 16),
                       marginTop: 2,
@@ -15420,7 +15586,7 @@ export default function EstimateGeneratorScreen() {
                       <>
                         <Text
                           style={{
-                            color: '#94a3b8',
+                            color: step5Label,
                             fontSize: 12,
                             fontWeight: '600',
                             marginBottom: 4,
@@ -15451,7 +15617,7 @@ export default function EstimateGeneratorScreen() {
                             </Text>
                             <Text
                               style={{
-                                color: '#94a3b8',
+                                color: step5MutedSoft,
                                 fontWeight: '600',
                               }}
                             >
@@ -15461,7 +15627,7 @@ export default function EstimateGeneratorScreen() {
                         ))}
                         <Text
                           style={{
-                            color: '#94a3b8',
+                            color: step5MutedSoft,
                             fontSize: 12,
                             marginTop: 6,
                             lineHeight: 16,
@@ -15492,9 +15658,9 @@ export default function EstimateGeneratorScreen() {
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Direct job costs</Text>
+                <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Direct job costs</Text>
                 <Text style={step5SectionSubtitleStyle}>
-                  Materials and labor used to build the job
+                  Materials, labor, and equipment used to build the job
                 </Text>
               </View>
 
@@ -15508,42 +15674,26 @@ export default function EstimateGeneratorScreen() {
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 }}
                   >
                     <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700', flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: item.value > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(18, 20), fontWeight: '800', letterSpacing: -0.25 }}>
+                    <Text style={{ color: item.value > 0 ? '#2dcc9a' : '#d7e1f0', fontSize: ew(18, 20), fontWeight: '800', letterSpacing: -0.25 }}>
                       {money(item.value)}
                     </Text>
                   </View>
                 ))}
               </View>
-              </View>
 
-              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Job-specific costs</Text>
-                <Text style={step5SectionSubtitleStyle}>
-                  Equipment, plans, engineering, and allowances for this job only
-                </Text>
-              </View>
-
-              <View ref={equipmentRentalBlockRef} style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
+              <View ref={equipmentRentalBlockRef} style={{ ...step5FieldWrapStyle, marginTop: 8 }}>
                 <Text style={step5FieldLabelStyle}>Equipment rental</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(equipmentRentalText) }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={equipmentRentalText}
-                  onFocus={() => {
+                {step5DollarField(equipmentRentalText, {
+                  value: equipmentRentalText,
+                  onFocus: () => {
                     equipmentRentalInputFocusedRef.current = true;
                     setEquipmentRentalFocused(true);
-                  }}
-                  onChangeText={(text) => {
+                  },
+                  onChangeText: (text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     setEquipmentRentalText(formatStep5NumericInput(cleaned));
-                  }}
-                  onBlur={() => {
+                  },
+                  onBlur: () => {
                     equipmentRentalInputFocusedRef.current = false;
                     setEquipmentRentalFocused(false);
                     const cleaned = sanitizeStep5NumericInput(equipmentRentalText);
@@ -15556,139 +15706,93 @@ export default function EstimateGeneratorScreen() {
                         updateBid('equipment', num);
                       }
                     }
-                  }}
-                />
+                  },
+                })}
               </View>
 
-              <View style={step5FieldWrapStyle}>
-                <Text style={step5FieldLabelStyle}>Plans</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('planCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('planCost', num);
-                      }
-                    }
-                  }}
-                />
               </View>
 
-              <View style={step5FieldWrapStyle}>
-                <Text style={step5FieldLabelStyle}>Engineering</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('engineeringCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('engineeringCost', num);
-                      }
-                    }
-                  }}
-                />
-              </View>
-
-              {showDeveloperProjectCosts && (
-                <>
-                  <View style={step5FieldWrapStyle}>
-                    <Text style={step5FieldLabelStyle}>Financing / Fees</Text>
-                    <TextInput
-                      keyboardType="decimal-pad"
-                      {...step5DecimalInputProps}
-                      autoCorrect={false}
-                      spellCheck={false}
-                      style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : '') }]}
-                      placeholder="0"
-                      placeholderTextColor={estimateStepMutedInputColor}
-                      value={bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : ''}
-                      onChangeText={(text) => {
-                        const cleaned = sanitizeStep5NumericInput(text);
-                        if (cleaned === '' || cleaned === '.') {
-                          updateBid('financingFees', 0);
-                        } else {
-                          const num = parseFloat(cleaned);
-                          if (!isNaN(num)) {
-                            updateBid('financingFees', num);
-                          }
-                        }
-                      }}
-                    />
-                  </View>
-
-                  <View style={step5FieldWrapStyle}>
-                    <Text style={step5FieldLabelStyle}>Interest</Text>
-                    <TextInput
-                      keyboardType="decimal-pad"
-                      {...step5DecimalInputProps}
-                      autoCorrect={false}
-                      spellCheck={false}
-                      style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : '') }]}
-                      placeholder="0"
-                      placeholderTextColor={estimateStepMutedInputColor}
-                      value={bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : ''}
-                      onChangeText={(text) => {
-                        const cleaned = sanitizeStep5NumericInput(text);
-                        if (cleaned === '' || cleaned === '.') {
-                          updateBid('interestCost', 0);
-                        } else {
-                          const num = parseFloat(cleaned);
-                          if (!isNaN(num)) {
-                            updateBid('interestCost', num);
-                          }
-                        }
-                      }}
-                    />
-                  </View>
-                </>
-              )}
-
-              <View
-                style={[
-                  step5NestedPanelStyle,
-                  { marginBottom: 16 },
-                ]}
-              >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                   <View style={{ flex: 1, marginRight: 12 }}>
-                    <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '800' }}>
-                      Allowances
-                    </Text>
-                    <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 13), marginTop: 3 }}>
-                      Soft costs like permits, cleanup, or contingency
+                    <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Soft costs</Text>
+                    <Text style={step5SectionSubtitleStyle}>
+                      Engineering, lender fees, interest, and any other job soft cost
                     </Text>
                   </View>
-                  <Text style={{ color: getEstimateAllowanceLineItemsTotal(bid) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(16, 18), fontWeight: '800' }}>
-                    {money(getEstimateAllowanceLineItemsTotal(bid))}
+                  <Text style={{ color: getEstimateSoftCostTotal(bid) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800', marginTop: 2 }}>
+                    {money(getEstimateSoftCostTotal(bid))}
                   </Text>
                 </View>
 
-                {(Array.isArray(bid.allowanceLineItems) ? bid.allowanceLineItems : []).length === 0 ? (
-                  <Text style={{ color: step5MutedSoft, fontSize: ew(12, 13), marginTop: 14 }}>
-                    No allowances yet
-                  </Text>
-                ) : (
+                <View style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
+                  <Text style={step5FieldLabelStyle}>Engineering</Text>
+                  {step5DollarField(
+                    bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : '',
+                    {
+                      value: bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : '',
+                      onChangeText: (text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('engineeringCost', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('engineeringCost', num);
+                          }
+                        }
+                      },
+                    }
+                  )}
+                </View>
+
+                {showDeveloperProjectCosts && (
+                  <>
+                    <View style={step5FieldWrapStyle}>
+                      <Text style={step5FieldLabelStyle}>Lender fees</Text>
+                      {step5DollarField(
+                        bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : '',
+                        {
+                          value: bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : '',
+                          onChangeText: (text) => {
+                            const cleaned = sanitizeStep5NumericInput(text);
+                            if (cleaned === '' || cleaned === '.') {
+                              updateBid('financingFees', 0);
+                            } else {
+                              const num = parseFloat(cleaned);
+                              if (!isNaN(num)) {
+                                updateBid('financingFees', num);
+                              }
+                            }
+                          },
+                        }
+                      )}
+                    </View>
+
+                    <View style={step5FieldWrapStyle}>
+                      <Text style={step5FieldLabelStyle}>Interest</Text>
+                      {step5DollarField(
+                        bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : '',
+                        {
+                          value: bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : '',
+                          onChangeText: (text) => {
+                            const cleaned = sanitizeStep5NumericInput(text);
+                            if (cleaned === '' || cleaned === '.') {
+                              updateBid('interestCost', 0);
+                            } else {
+                              const num = parseFloat(cleaned);
+                              if (!isNaN(num)) {
+                                updateBid('interestCost', num);
+                              }
+                            }
+                          },
+                        }
+                      )}
+                    </View>
+                  </>
+                )}
+
+                {(Array.isArray(bid.allowanceLineItems) ? bid.allowanceLineItems : []).length === 0 ? null : (
                   <View style={{ marginTop: 12, gap: 10 }}>
                     {(bid.allowanceLineItems || []).map((line, index) => {
                       const lineId = String(line?.id || `${line?.name || 'allowance'}-${index}`);
@@ -15697,26 +15801,17 @@ export default function EstimateGeneratorScreen() {
                       const nameText = String(line?.name || '').trim();
 
                       if (isEditing) {
-                        const isNewAllowance = !nameText && !(amountValue > 0);
                         return (
-                          <View key={lineId} style={step5AllowanceEditPanelStyle}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                              <Ionicons
-                                name={isNewAllowance ? 'add-circle-outline' : 'create-outline'}
-                                size={15}
-                                color={darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub}
-                              />
-                              <Text
-                                style={[
-                                  confirmScopeSectionLabelStyle(),
-                                  { color: Colors.sub, marginLeft: 6, marginBottom: 0 },
-                                ]}
-                              >
-                                {isNewAllowance ? 'New allowance' : 'Edit allowance'}
-                              </Text>
-                            </View>
-
-                            <Text style={[step5FieldLabelStyle, { marginBottom: 0 }]}>What for?</Text>
+                          <View
+                            key={lineId}
+                            style={{
+                              marginTop: 16,
+                              paddingTop: 16,
+                              borderTopWidth: StyleSheet.hairlineWidth,
+                              borderTopColor: estimateFlowDividerColor(darkMode),
+                            }}
+                          >
+                            <Text style={step5FieldLabelStyle}>What for?</Text>
                             <TextInput
                               autoCorrect={false}
                               spellCheck={false}
@@ -15728,34 +15823,22 @@ export default function EstimateGeneratorScreen() {
                                   marginBottom: 0,
                                 },
                               ]}
-                              placeholder="e.g. Contingency, permits, cleanup"
+                              placeholder="Permits, plans, cleanup"
                               placeholderTextColor={estimateStepMutedInputColor}
                               value={allowanceDraftName}
                               onChangeText={setAllowanceDraftName}
+                              {...resolveTextInputKeyboardProps()}
                             />
 
-                            <Text style={[step5FieldLabelStyle, { marginTop: 2, marginBottom: 0 }]}>Amount</Text>
-                            <TextInput
-                              keyboardType="decimal-pad"
-                              {...step5DecimalInputProps}
-                              autoCorrect={false}
-                              spellCheck={false}
-                              style={[
-                                ...step5InputBaseStyle,
-                                {
-                                  color: getStepFieldTextColor(allowanceDraftAmount),
-                                  marginBottom: 0,
-                                },
-                              ]}
-                              placeholder="0"
-                              placeholderTextColor={estimateStepMutedInputColor}
-                              value={allowanceDraftAmount}
-                              onChangeText={(text) => {
+                            <Text style={[step5FieldLabelStyle, { marginTop: 14 }]}>Amount</Text>
+                            {step5DollarField(allowanceDraftAmount, {
+                              value: allowanceDraftAmount,
+                              onChangeText: (text) => {
                                 setAllowanceDraftAmount(formatStep5NumericInput(sanitizeStep5NumericInput(text)));
-                              }}
-                            />
+                              },
+                            })}
 
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 }}>
                               <TouchableOpacity
                                 activeOpacity={0.8}
                                 onPress={() => {
@@ -15777,12 +15860,18 @@ export default function EstimateGeneratorScreen() {
                                   setAllowanceDraftAmount('');
                                   Keyboard.dismiss();
                                 }}
-                                style={[
-                                  estimateFlowOutlineActionButtonStyle(),
-                                  { flex: 1, minHeight: 42 },
-                                ]}
+                                style={{
+                                  flex: 1,
+                                  minHeight: 42,
+                                  borderRadius: 14,
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(148, 163, 184, 0.35)',
+                                  backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
                               >
-                                <Text style={estimateFlowOutlineActionButtonTextStyle()}>Cancel</Text>
+                                <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
                               </TouchableOpacity>
                               <TouchableOpacity
                                 activeOpacity={0.88}
@@ -15794,7 +15883,7 @@ export default function EstimateGeneratorScreen() {
                                       ? 0
                                       : parseFloat(cleanedAmount);
                                   if (!cleanedName) {
-                                    Alert.alert('Name required', 'Enter what this allowance is for.');
+                                    Alert.alert('Name required', 'Enter what this soft cost is for.');
                                     return;
                                   }
                                   if (!Number.isFinite(num) || num <= 0) {
@@ -15822,7 +15911,7 @@ export default function EstimateGeneratorScreen() {
                                 }}
                                 style={[
                                   estimateFlowPrimaryButtonStyle(),
-                                  { flex: 1, width: undefined, minHeight: 42, paddingVertical: 11 },
+                                  { flex: 1, width: undefined, minHeight: 42, paddingVertical: 11, backgroundColor: '#2dcc9a' },
                                 ]}
                               >
                                 <Text style={estimateFlowPrimaryButtonTextStyle()}>Save</Text>
@@ -15835,28 +15924,26 @@ export default function EstimateGeneratorScreen() {
                       return (
                         <View
                           key={lineId}
-                          style={[
-                            estimateFlowLineItemStyle(Colors, darkMode),
-                            {
-                              marginBottom: 0,
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 10,
-                              opacity: editingAllowanceId ? 0.45 : 1,
-                            },
-                          ]}
+                          style={{
+                            marginTop: 14,
+                            paddingTop: 12,
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: estimateFlowDividerColor(darkMode),
+                            opacity: editingAllowanceId ? 0.45 : 1,
+                          }}
                         >
-                          <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                             <Text
-                              style={{ color: Colors.text, fontSize: ew(14, 15), fontWeight: '700' }}
+                              style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700', flex: 1 }}
                               numberOfLines={1}
                             >
-                              {nameText || 'Untitled allowance'}
+                              {nameText || 'Untitled soft cost'}
                             </Text>
-                            <Text style={{ color: '#22c55e', fontSize: ew(13, 14), fontWeight: '700', marginTop: 2 }}>
+                            <Text style={{ color: amountValue > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800' }}>
                               {money(amountValue)}
                             </Text>
                           </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 6 }}>
                           <TouchableOpacity
                             activeOpacity={0.75}
                             disabled={Boolean(editingAllowanceId)}
@@ -15867,29 +15954,11 @@ export default function EstimateGeneratorScreen() {
                                 amountValue > 0 ? formatStep5NumericInput(String(amountValue)) : ''
                               );
                             }}
-                            style={{
-                              borderWidth: 1,
-                              borderColor: editingAllowanceId
-                                ? darkMode
-                                  ? 'rgba(148, 163, 184, 0.25)'
-                                  : 'rgba(148, 163, 184, 0.35)'
-                                : darkMode
-                                  ? 'rgba(255, 255, 255, 0.28)'
-                                  : 'rgba(15, 23, 42, 0.2)',
-                              borderRadius: 8,
-                              paddingHorizontal: 10,
-                              paddingVertical: 5,
-                              opacity: editingAllowanceId ? 0.5 : 1,
-                            }}
                           >
                             <Text
                               style={{
-                                color: editingAllowanceId
-                                  ? step5MutedSoft
-                                  : darkMode
-                                    ? '#ffffff'
-                                    : Colors.text,
-                                fontSize: ew(12, 13),
+                                color: editingAllowanceId ? step5MutedSoft : '#2dcc9a',
+                                fontSize: ew(13, 14),
                                 fontWeight: '700',
                               }}
                             >
@@ -15901,8 +15970,8 @@ export default function EstimateGeneratorScreen() {
                             disabled={Boolean(editingAllowanceId)}
                             onPress={() => {
                               Alert.alert(
-                                'Delete allowance?',
-                                nameText ? `Remove “${nameText}”?` : 'Remove this allowance?',
+                                'Delete soft cost?',
+                                nameText ? `Remove “${nameText}”?` : 'Remove this soft cost?',
                                 [
                                   { text: 'Cancel', style: 'cancel' },
                                   {
@@ -15923,40 +15992,27 @@ export default function EstimateGeneratorScreen() {
                                 ]
                               );
                             }}
-                            style={{
-                              borderWidth: 1,
-                              borderColor: editingAllowanceId
-                                ? darkMode
-                                  ? 'rgba(248, 113, 113, 0.25)'
-                                  : 'rgba(248, 113, 113, 0.3)'
-                                : darkMode
-                                  ? 'rgba(248, 113, 113, 0.55)'
-                                  : 'rgba(239, 68, 68, 0.45)',
-                              borderRadius: 8,
-                              paddingHorizontal: 10,
-                              paddingVertical: 5,
-                              opacity: editingAllowanceId ? 0.5 : 1,
-                            }}
                           >
                             <Text
                               style={{
                                 color: editingAllowanceId ? step5MutedSoft : '#f87171',
-                                fontSize: ew(12, 13),
+                                fontSize: ew(13, 14),
                                 fontWeight: '700',
                               }}
                             >
                               Delete
                             </Text>
                           </TouchableOpacity>
+                          </View>
                         </View>
                       );
                     })}
                   </View>
                 )}
 
+                {editingAllowanceId ? null : (
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  disabled={Boolean(editingAllowanceId)}
                   onPress={() => {
                     const newId = `allowance-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
                     updateBid('allowanceLineItems', [
@@ -15964,7 +16020,7 @@ export default function EstimateGeneratorScreen() {
                       {
                         id: newId,
                         name: '',
-                        description: 'Manual allowance',
+                        description: 'Manual soft cost',
                         amount: 0,
                         total: 0,
                         totalCost: 0,
@@ -15977,30 +16033,51 @@ export default function EstimateGeneratorScreen() {
                     setAllowanceDraftAmount('');
                   }}
                   style={{
-                    alignSelf: 'stretch',
-                    width: '100%',
-                    minHeight: 48,
-                    marginTop: 12,
-                    borderRadius: 14,
-                    backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
-                    borderWidth: 1,
-                    borderColor: 'rgba(148, 163, 184, 0.35)',
+                    alignSelf: 'flex-start',
                     flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: 6,
-                    opacity: editingAllowanceId ? 0.45 : 1,
+                    marginTop: 14,
+                    paddingVertical: 4,
                   }}
                 >
-                  <Ionicons name="add" size={16} color="#94a3b8" />
-                  <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>Add allowance</Text>
+                  <Ionicons name="add" size={16} color="#2dcc9a" />
+                  <Text style={{ color: '#2dcc9a', fontSize: 15, fontWeight: '700' }}>Add soft cost</Text>
                 </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+              <View style={{ marginBottom: 12 }}>
+                <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Contingency</Text>
+                <Text style={step5SectionSubtitleStyle}>
+                  Buffer for this bid. Separate from soft costs.
+                </Text>
+              </View>
+              <View style={{ ...step5FieldWrapStyle, marginTop: 14, marginBottom: 4 }}>
+                {step5DollarField(
+                  bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : '',
+                  {
+                    value: bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('contingencyAllowance', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('contingencyAllowance', num);
+                        }
+                      }
+                    },
+                  }
+                )}
               </View>
               </View>
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
+                <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
                 <Text style={step5SectionSubtitleStyle}>
                   The share of company overhead this bid should recover
                 </Text>
@@ -16008,148 +16085,114 @@ export default function EstimateGeneratorScreen() {
 
               <View style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
                 <Text style={step5FieldLabelStyle}>Insurance overhead</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('insuranceOverhead', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('insuranceOverhead', num);
+                {step5DollarField(
+                  bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : '',
+                  {
+                    value: bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('insuranceOverhead', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('insuranceOverhead', num);
+                        }
                       }
-                    }
-                  }}
-                />
+                    },
+                  }
+                )}
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Equipment maintenance</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('equipmentMaintenance', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('equipmentMaintenance', num);
+                {step5DollarField(
+                  bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : '',
+                  {
+                    value: bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('equipmentMaintenance', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('equipmentMaintenance', num);
+                        }
                       }
-                    }
-                  }}
-                />
+                    },
+                  }
+                )}
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Facilities</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('facilities', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('facilities', num);
+                {step5DollarField(
+                  bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : '',
+                  {
+                    value: bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('facilities', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('facilities', num);
+                        }
                       }
-                    }
-                  }}
-                />
+                    },
+                  }
+                )}
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Admin</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('adminOverhead', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('adminOverhead', num);
+                {step5DollarField(
+                  bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : '',
+                  {
+                    value: bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('adminOverhead', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('adminOverhead', num);
+                        }
                       }
-                    }
-                  }}
-                />
+                    },
+                  }
+                )}
               </View>
 
               <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
                 <Text style={step5FieldLabelStyle}>Other overhead</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[...step5InputBaseStyle, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('otherOverhead', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('otherOverhead', num);
+                {step5DollarField(
+                  bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : '',
+                  {
+                    value: bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : '',
+                    onChangeText: (text) => {
+                      const cleaned = sanitizeStep5NumericInput(text);
+                      if (cleaned === '' || cleaned === '.') {
+                        updateBid('otherOverhead', 0);
+                      } else {
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) {
+                          updateBid('otherOverhead', num);
+                        }
                       }
-                    }
-                  }}
-                />
+                    },
+                  }
+                )}
               </View>
-
-              {overheadWarning ? (
-                <Text
-                  style={{
-                    color: overheadWarning.tone === 'strong' ? '#fbbf24' : '#94a3b8',
-                    fontSize: 13,
-                    lineHeight: 18,
-                    fontWeight: '500',
-                    marginBottom: 8,
-                  }}
-                >
-                  {overheadWarning.text}
-                </Text>
-              ) : null}
 
               </View>
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Markup, overhead & profit</Text>
+                <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Markup, overhead & profit</Text>
                 <Text style={step5SectionSubtitleStyle}>
                   Markup helps cover allocated company overhead and generate profit
                 </Text>
@@ -16158,15 +16201,12 @@ export default function EstimateGeneratorScreen() {
               <View ref={markupPctBlockRef} style={{ marginTop: 14, marginBottom: 4 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text style={step5FieldLabelStyle}>Markup %</Text>
+                  {applyButtonText !== 'Apply 0%' ? (
                   <TouchableOpacity
                     activeOpacity={0.88}
                     onPress={() => {
-                      // Only update if not already at recommended (not "Apply 0%")
-                      if (applyButtonText !== 'Apply 0%') {
-                        // If it's a range (e.g., "Apply 0-5%"), apply the recommended markup
-                        updateBid('markupPct', recommendedMarkup);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }
+                      updateBid('markupPct', recommendedMarkup);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }}
                     style={{
                       paddingHorizontal: 11,
@@ -16180,7 +16220,7 @@ export default function EstimateGeneratorScreen() {
                       gap: 5,
                     }}
                   >
-                    <Ionicons name="color-wand-outline" size={15} color="#94a3b8" />
+                    <Ionicons name="color-wand-outline" size={15} color={darkMode ? '#d7e1f0' : '#64748b'} />
                     <Text
                       style={{
                         color: darkMode ? '#e2e8f0' : Colors.text,
@@ -16194,6 +16234,7 @@ export default function EstimateGeneratorScreen() {
                       {applyButtonText}
                     </Text>
                   </TouchableOpacity>
+                  ) : null}
                 </View>
                 <TextInput
                   ref={markupInputRef}
@@ -16210,14 +16251,20 @@ export default function EstimateGeneratorScreen() {
                     setMarkupPctFocused(true);
                   }}
                   onChangeText={(text) => {
-                    // Only update local state while typing - no re-renders of parent
                     const cleaned = sanitizeStep5NumericInput(text);
                     setMarkupPctText(formatStep5NumericInput(cleaned));
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('markupPct', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('markupPct', num);
+                      }
+                    }
                   }}
                   onBlur={() => {
                     isMarkupFocused.current = false;
                     setMarkupPctFocused(false);
-                    // Only update bid state when done typing
                     const cleaned = sanitizeStep5NumericInput(markupPctText);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('markupPct', 0);
@@ -16226,6 +16273,7 @@ export default function EstimateGeneratorScreen() {
                       const num = parseFloat(cleaned);
                       if (!isNaN(num)) {
                         updateBid('markupPct', num);
+                        setMarkupPctText(formatStep5NumericInput(String(num)));
                       }
                     }
                   }}
@@ -16261,12 +16309,12 @@ export default function EstimateGeneratorScreen() {
                 <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginBottom: 0, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={[{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Total project cost</Text>
+                      <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Total project cost</Text>
                       <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
-                        Materials, labor, and job-specific costs
+                        {`Hard costs ${money(calc.hardCosts || 0)} · Soft costs ${money(calc.softCosts || 0)} · Contingency ${money(calc.contingency || 0)}`}
                       </Text>
                       <Text style={{ color: step5MutedSoft, fontSize: ew(10.5, 13), marginTop: 6, lineHeight: ew(15, 18), fontWeight: '600' }}>
-                        {`Markup base: ${markupBaseSummary}`}
+                        {`Builder margin is ${markupBaseSummary}. Contingency and overhead are not marked up.`}
                       </Text>
                     </View>
                     <Text style={{
@@ -16283,11 +16331,11 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#94a3b8', fontSize: ew(13, 15), fontWeight: '700' }}>
-                      {`+ Markup (${Number(currentMarkup) || 0}%)`}
+                    <Text style={{ color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(13, 15), fontWeight: '700' }}>
+                      {`+ Builder margin (${Number(currentMarkup) || 0}%)`}
                     </Text>
                     <Text style={{
-                      color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#94a3b8',
+                      color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
                       fontSize: 16,
                       fontWeight: '700',
                       textAlign: 'right',
@@ -16302,7 +16350,7 @@ export default function EstimateGeneratorScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
                     <Text style={{
-                      color: (calc?.grandTotal || calc?.total || 0) > 0 ? '#2dcc9a' : '#94a3b8',
+                      color: (calc?.grandTotal || calc?.total || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
                       fontSize: 20,
                       fontWeight: '800',
                       letterSpacing: -0.35,
@@ -16315,7 +16363,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 10 }} />
-                  <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 10 }}>Profit breakdown</Text>
+                  <Text style={{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 10 }}>Profit breakdown</Text>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <Text style={{ color: step5Muted, fontSize: ew(13, 15), fontWeight: '600' }}>Markup available</Text>
                     <Text style={{
@@ -16395,7 +16443,6 @@ export default function EstimateGeneratorScreen() {
                 marginTop: 18,
                 marginBottom: 8,
                 paddingHorizontal: 20,
-                opacity: darkMode ? 0.78 : 0.72,
                 fontStyle: 'italic',
                 lineHeight: ew(17, 20),
               }}>
@@ -16512,15 +16559,22 @@ export default function EstimateGeneratorScreen() {
             startDate: weeklyProgressStartDate,
           });
           const dateDrafts = overrides.dateDrafts ?? weeklyPaymentDateDrafts;
-          return rows.map((row) => {
+          const datedRows = rows.map((row) => {
             let scheduledDate = row.scheduledDate;
             if (row.type === 'deposit' && dateDrafts.deposit) {
               scheduledDate = dateDrafts.deposit;
-            } else if (row.type === 'holdback' && dateDrafts.holdback) {
-              scheduledDate = dateDrafts.holdback;
             } else if (row.type === 'weekly' && row.weekNumber && dateDrafts.weeks?.[row.weekNumber - 1]) {
               scheduledDate = dateDrafts.weeks[row.weekNumber - 1];
             }
+            return { ...row, scheduledDate, dueDate: scheduledDate };
+          });
+          const lastProgressDate = [...datedRows].reverse().find((row) => row.type === 'weekly')?.scheduledDate;
+          return datedRows.map((row) => {
+            if (row.type !== 'holdback') return row;
+            const scheduledDate = holdbackDateAfterLastProgress(
+              lastProgressDate,
+              dateDrafts.holdback,
+            );
             return { ...row, scheduledDate, dueDate: scheduledDate };
           });
         };
@@ -16532,11 +16586,11 @@ export default function EstimateGeneratorScreen() {
           const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
           const financials = getEstimateStep5Financials(currentBid, materials, labor);
           const scheduleGrandTotal =
-            Math.round(financials.bidPrice) ||
-            calc?.total ||
-            calc?.grandTotal ||
-            currentBid.grandTotal ||
-            currentBid.total ||
+            roundPayment(financials.bidPrice) ||
+            roundPayment(calc?.total) ||
+            roundPayment(calc?.grandTotal) ||
+            roundPayment(currentBid.grandTotal) ||
+            roundPayment(currentBid.total) ||
             0;
 
           let normalizedRows = rows;
@@ -16708,11 +16762,11 @@ export default function EstimateGeneratorScreen() {
           const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
           const financials = getEstimateStep5Financials(currentBid, materials, labor);
           const scheduleGrandTotal =
-            Math.round(financials.bidPrice) ||
-            calc?.total ||
-            calc?.grandTotal ||
-            currentBid.grandTotal ||
-            currentBid.total ||
+            roundPayment(financials.bidPrice) ||
+            roundPayment(calc?.total) ||
+            roundPayment(calc?.grandTotal) ||
+            roundPayment(currentBid.grandTotal) ||
+            roundPayment(currentBid.total) ||
             0;
 
           let normalizedRows = rows;
@@ -16877,9 +16931,9 @@ export default function EstimateGeneratorScreen() {
                 : null;
           const numericAmount = Number(amount) || 0;
           const valueColor = strong
-            ? (numericAmount > 0 ? '#2dcc9a' : '#94a3b8')
+            ? (numericAmount > 0 ? '#2dcc9a' : '#d7e1f0')
             : Colors.text;
-          const pctColor = '#94a3b8';
+          const pctColor = (darkMode ? '#d7e1f0' : '#64748b');
           return (
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={{ color: valueColor, fontSize: strong ? 16 : 15, fontWeight: strong ? '800' : '700', letterSpacing: strong ? -0.2 : 0 }}>
@@ -17124,19 +17178,21 @@ export default function EstimateGeneratorScreen() {
           fontWeight: '800',
         };
         const step7SectionLabel = {
-          color: '#94a3b8',
+          color: '#d7e1f0',
           fontSize: 12,
           fontWeight: '600',
           letterSpacing: 0,
           textTransform: 'none',
           marginBottom: 4,
         };
+        const step7SelectedText = '#8eecc9';
         const step7SelectedFill = {
-          backgroundColor: step7Accent,
-          borderColor: step7Accent,
+          backgroundColor: 'rgba(45, 204, 154, 0.16)',
+          borderColor: 'rgba(45, 204, 154, 0.55)',
           borderWidth: 1,
         };
         const step7ProjectStartColor = ESTIMATE_FLOW_CHIP_GREEN;
+        const step7DepositColor = '#f97316';
         const step7WeeklyPaymentColor = '#22d3ee';
         const step7ProjectEndColor = '#FFD166';
         const step7HoldbackColor = '#c084fc';
@@ -17171,7 +17227,7 @@ export default function EstimateGeneratorScreen() {
           paddingVertical: 9,
         };
         const step7FieldLabel = {
-          color: '#94a3b8',
+          color: '#d7e1f0',
           fontSize: 12,
           fontWeight: '600',
           letterSpacing: 0,
@@ -17187,8 +17243,8 @@ export default function EstimateGeneratorScreen() {
           padding: 14,
           borderRadius: 14,
           borderWidth: 1,
-          borderColor: 'rgba(148, 163, 184, 0.35)',
-          backgroundColor: '#3A3A3C',
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.28)',
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 0, 0, 0.03)',
         };
         const formatStep7DateLabel = (dateString) => {
           if (!dateString) return 'Select date';
@@ -17312,7 +17368,7 @@ export default function EstimateGeneratorScreen() {
             ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: step7ProjectEndColor }] : []),
           ];
           if (weeklyPaymentDateDrafts.deposit) {
-            events.push({ date: weeklyPaymentDateDrafts.deposit, color: ESTIMATE_FLOW_BLUE });
+            events.push({ date: weeklyPaymentDateDrafts.deposit, color: step7DepositColor });
           }
           (weeklyPaymentDateDrafts.weeks || []).forEach((date) => {
             if (date) events.push({ date, color: step7WeeklyPaymentColor });
@@ -17328,7 +17384,7 @@ export default function EstimateGeneratorScreen() {
             ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: '#FFD166' }] : []),
           ];
           if (milestonePaymentDateDrafts.deposit) {
-            events.push({ date: milestonePaymentDateDrafts.deposit, color: ESTIMATE_FLOW_BLUE });
+            events.push({ date: milestonePaymentDateDrafts.deposit, color: step7DepositColor });
           }
           (milestonePaymentDateDrafts.milestones || []).forEach((date) => {
             if (date) events.push({ date, color: ESTIMATE_FLOW_GREEN });
@@ -17353,7 +17409,7 @@ export default function EstimateGeneratorScreen() {
           customPaymentRows.forEach((payment) => {
             if (customPaymentDraft.id && payment.id === customPaymentDraft.id) return;
             const date = payment.scheduledDate || payment.dueDate;
-            addEvent(date, isCustomDepositPayment(payment) ? ESTIMATE_FLOW_BLUE : ESTIMATE_FLOW_GREEN);
+            addEvent(date, isCustomDepositPayment(payment) ? step7DepositColor : ESTIMATE_FLOW_GREEN);
           });
           if (customPaymentDraft.scheduledDate) {
             const editingRow = customPaymentDraft.id
@@ -17366,7 +17422,7 @@ export default function EstimateGeneratorScreen() {
             });
             addEvent(
               customPaymentDraft.scheduledDate,
-              draftIsDeposit ? ESTIMATE_FLOW_BLUE : ESTIMATE_FLOW_GREEN,
+              draftIsDeposit ? step7DepositColor : ESTIMATE_FLOW_GREEN,
             );
           }
           return events;
@@ -17413,7 +17469,7 @@ export default function EstimateGeneratorScreen() {
                 <Text style={{ color: value ? Colors.text : step7MutedSoft, fontSize: 13, fontWeight: '700' }}>
                   {formatStep7DateLabel(value)}
                 </Text>
-                <Ionicons name="calendar-outline" size={16} color="#94a3b8" />
+                <Ionicons name="calendar-outline" size={16} color={darkMode ? '#d7e1f0' : '#64748b'} />
               </TouchableOpacity>
               {isOpen && (
                 <View style={{ marginTop: 8 }}>
@@ -17425,7 +17481,7 @@ export default function EstimateGeneratorScreen() {
                       )}
                       {(legendVariant === 'weekly-schedule' || legendVariant === 'milestone-schedule') && (
                         <>
-                          {renderCalendarLegendDot(ESTIMATE_FLOW_BLUE, 'Deposit')}
+                          {renderCalendarLegendDot(step7DepositColor, 'Deposit')}
                           {legendVariant === 'weekly-schedule'
                             ? renderCalendarLegendDot(step7WeeklyPaymentColor, 'Weekly')
                             : renderCalendarLegendDot(ESTIMATE_FLOW_GREEN, 'Milestone')}
@@ -17536,17 +17592,17 @@ export default function EstimateGeneratorScreen() {
                             borderRadius: 10,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            backgroundColor: selected ? 'rgba(5, 11, 19, 0.12)' : '#2A2A2E',
+                            backgroundColor: selected ? 'rgba(45, 204, 154, 0.22)' : '#2A2A2E',
                           }}>
                             <Ionicons
                               name={option.icon}
                               size={19}
-                              color={selected ? step7MintText : '#94a3b8'}
+                              color={selected ? step7SelectedText : '#d7e1f0'}
                             />
                           </View>
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 15, fontWeight: '800' }}>
+                              <Text style={{ color: selected ? step7SelectedText : '#e2e8f0', fontSize: 15, fontWeight: '800' }}>
                                 {option.title}
                               </Text>
                               {option.badge ? (
@@ -17554,15 +17610,15 @@ export default function EstimateGeneratorScreen() {
                                   borderRadius: 999,
                                   paddingHorizontal: 8,
                                   paddingVertical: 3,
-                                  backgroundColor: selected ? 'rgba(5, 11, 19, 0.14)' : 'rgba(45, 204, 154, 0.14)',
+                                  backgroundColor: 'rgba(45, 204, 154, 0.14)',
                                 }}>
-                                  <Text style={{ color: selected ? step7MintText : '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
+                                  <Text style={{ color: selected ? step7SelectedText : '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
                                     {option.badge}
                                   </Text>
                                 </View>
                               ) : null}
                             </View>
-                            <Text style={{ color: selected ? 'rgba(5, 11, 19, 0.72)' : '#94a3b8', fontSize: 12, lineHeight: 16, marginTop: 5 }}>
+                            <Text style={{ color: selected ? 'rgba(142, 236, 201, 0.82)' : '#d7e1f0', fontSize: 12, lineHeight: 16, marginTop: 5 }}>
                               {option.description}
                             </Text>
                           </View>
@@ -17694,8 +17750,16 @@ export default function EstimateGeneratorScreen() {
                         {weeklyPreviewHoldbackPct > 0 && renderStep7DateSelector({
                           id: 'weekly-holdback-date',
                           label: 'Final holdback date',
-                          value: weeklyPaymentDateDrafts.holdback,
-                          fallbackDate: addDaysToDateString(weeklyProgressStartDate, weeklyPreviewWeeks * 7),
+                          value: holdbackDateAfterLastProgress(
+                            weeklyPaymentDateDrafts.weeks?.[weeklyPreviewWeeks - 1] ||
+                              addDaysToDateString(weeklyProgressStartDate, weeklyPreviewWeeks * 7),
+                            weeklyPaymentDateDrafts.holdback,
+                          ),
+                          fallbackDate: holdbackDateAfterLastProgress(
+                            weeklyPaymentDateDrafts.weeks?.[weeklyPreviewWeeks - 1] ||
+                              addDaysToDateString(weeklyProgressStartDate, weeklyPreviewWeeks * 7),
+                            weeklyPaymentDateDrafts.holdback,
+                          ),
                           calendarEvents: weeklyScheduleCalendarEvents,
                           legendVariant: 'weekly-schedule',
                           onSelect: (dateString) => setWeeklyPaymentDateDrafts((prev) => ({
@@ -17726,14 +17790,14 @@ export default function EstimateGeneratorScreen() {
                                   minHeight: 36,
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  backgroundColor: '#3A3A3C',
+                                  backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 0, 0, 0.03)',
                                   borderWidth: 1,
-                                  borderColor: 'rgba(148, 163, 184, 0.35)',
+                                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.28)',
                                 },
                                 selected && step7SelectedFill,
                               ]}
                             >
-                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
+                              <Text style={{ color: selected ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
                                 {value === 0 ? 'No holdback' : `${value}%`}
                               </Text>
                             </TouchableOpacity>
@@ -17782,9 +17846,9 @@ export default function EstimateGeneratorScreen() {
                                   alignItems: 'center',
                                   gap: 9,
                                   paddingHorizontal: 12,
-                                  backgroundColor: '#3A3A3C',
+                                  backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 0, 0, 0.03)',
                                   borderWidth: 1,
-                                  borderColor: 'rgba(148, 163, 184, 0.35)',
+                                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.28)',
                                 },
                                 selected && step7SelectedFill,
                               ]}
@@ -17792,9 +17856,9 @@ export default function EstimateGeneratorScreen() {
                               <Ionicons
                                 name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                                 size={18}
-                                color={selected ? step7MintText : '#94a3b8'}
+                                color={selected ? step7SelectedText : '#d7e1f0'}
                               />
-                              <Text style={{ color: selected ? step7MintText : '#e2e8f0', fontSize: 13, fontWeight: '600', flex: 1, lineHeight: 18 }}>
+                              <Text style={{ color: selected ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '600', flex: 1, lineHeight: 18 }}>
                                 {label}
                               </Text>
                             </TouchableOpacity>
@@ -17858,7 +17922,7 @@ export default function EstimateGeneratorScreen() {
                       </Text>
                     </View>
 
-                    <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18 }}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18 }}>
                       Minor punch-list items should not delay payment for completed work. If incomplete or defective work remains, the customer may only withhold a reasonable amount directly related to those specific items.
                     </Text>
 
@@ -18031,7 +18095,7 @@ export default function EstimateGeneratorScreen() {
                             style={[step7DateField, { minHeight: 58, paddingVertical: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }]}
                           >
                             <View style={{ flex: 1 }}>
-                              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                              <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
                                 Milestone {index + 1}
                               </Text>
                               <TextInput
@@ -18059,7 +18123,7 @@ export default function EstimateGeneratorScreen() {
                                 {...resolveTextInputKeyboardProps({ multiline: true })}
                               />
                             </View>
-                            <Ionicons name="create-outline" size={16} color="#94a3b8" style={{ marginTop: 2 }} />
+                            <Ionicons name="create-outline" size={16} color={darkMode ? '#d7e1f0' : '#64748b'} style={{ marginTop: 2 }} />
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -18431,7 +18495,7 @@ export default function EstimateGeneratorScreen() {
                                     '#FFD166',
                                     weeklyProgressEndDate ? `End ${formatStep7DateLabel(weeklyProgressEndDate)}` : 'End not set',
                                   )}
-                                  {renderCalendarLegendDot(ESTIMATE_FLOW_BLUE, 'Deposit')}
+                                  {renderCalendarLegendDot(step7DepositColor, 'Deposit')}
                                   {renderCalendarLegendDot(ESTIMATE_FLOW_GREEN, 'Other payments')}
                                 </View>
                               <GreyCalendar
@@ -18529,7 +18593,7 @@ export default function EstimateGeneratorScreen() {
                           label: 'Scheduled total',
                           value: money(customPreviewScheduledTotal),
                           strong: true,
-                          color: customPreviewIsOver ? '#f87171' : (customPreviewScheduledTotal > 0 ? '#2dcc9a' : '#94a3b8'),
+                          color: customPreviewIsOver ? '#f87171' : (customPreviewScheduledTotal > 0 ? '#2dcc9a' : '#d7e1f0'),
                         },
                         {
                           label: customPreviewIsOver ? 'Over contract amount' : 'Remaining',
@@ -18615,7 +18679,7 @@ export default function EstimateGeneratorScreen() {
                       </TouchableOpacity>
                     )}
 
-                    <Text style={{ color: '#94a3b8', fontSize: 13, lineHeight: 18 }}>
+                    <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18 }}>
                       Use custom rows when a client, lender, or contract requires specific billing dates, amounts, labels, or terms.
                     </Text>
                   </View>
@@ -21731,7 +21795,7 @@ export default function EstimateGeneratorScreen() {
                         {healthScore}
                       </Text>
                     </View>
-                    <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600' }}>Health score</Text>
+                    <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600' }}>Health score</Text>
                   </View>
                 </View>
                 <TouchableOpacity
@@ -21742,7 +21806,7 @@ export default function EstimateGeneratorScreen() {
                   activeOpacity={0.75}
                   style={{ alignSelf: 'flex-start', marginTop: 10 }}
                 >
-                  <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                  <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                     {scoreExplanationExpanded ? 'Hide details' : 'Why this score?'}
                   </Text>
                 </TouchableOpacity>
@@ -21772,7 +21836,7 @@ export default function EstimateGeneratorScreen() {
                         }}
                         activeOpacity={0.75}
                       >
-                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                        <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                           {healthScoreBreakdownExpanded ? 'Hide summary' : 'View summary'}
                         </Text>
                       </TouchableOpacity>
@@ -21783,7 +21847,7 @@ export default function EstimateGeneratorScreen() {
                         }}
                         activeOpacity={0.75}
                       >
-                        <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600' }}>
+                        <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '600' }}>
                           {finalStepLegalExpanded ? 'Hide legal notes' : 'View legal review notes'}
                         </Text>
                       </TouchableOpacity>
@@ -21887,7 +21951,7 @@ export default function EstimateGeneratorScreen() {
 
             {reviewItems.length > 0 && (
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
+                <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
                   Review before sending
                 </Text>
                 <View style={{ gap: 6 }}>
@@ -21910,7 +21974,7 @@ export default function EstimateGeneratorScreen() {
                 <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 21, marginBottom: 12 }}>
                   Standard template wording is included.
                 </Text>
-                <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>
+                <Text style={{ color: '#d7e1f0', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>
                   Using standard template
                 </Text>
                 <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
@@ -21977,7 +22041,7 @@ export default function EstimateGeneratorScreen() {
                       <Ionicons name="chevron-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, fontWeight: '500', marginTop: 4, lineHeight: 20 }}>
+                  <Text style={{ textAlign: 'center', color: '#d7e1f0', fontSize: 14, fontWeight: '500', marginTop: 4, lineHeight: 20 }}>
                     {formatContractWordingSummary(
                       contractLangAssumptions,
                       contractLangBusinessTerms,
@@ -22452,7 +22516,7 @@ export default function EstimateGeneratorScreen() {
                 )}
 
                 {/* Next button — solid green on Summary when setup complete; quiet text when Continue owns progression */}
-                {step === 0 && setupProgressPct >= 100 ? (
+                {step === 0 && ((calc?.total || 0) > 0 || setupProgressPct >= 100) ? (
                   <TouchableOpacity
                     activeOpacity={0.88}
                     style={[
@@ -22512,7 +22576,7 @@ export default function EstimateGeneratorScreen() {
         {step < STEPS.length ? (
           <Text
             style={{
-              color: '#94a3b8',
+              color: '#d7e1f0',
               fontSize: 13,
               fontWeight: '500',
               textAlign: 'center',
@@ -22604,7 +22668,7 @@ export default function EstimateGeneratorScreen() {
 
                 {/* Progress Meter */}
                 <View style={{ marginBottom: 12 }}>
-                  <Text style={{ color: darkMode ? '#94a3b8' : '#374151', fontSize: 12, marginBottom: 6 }}>
+                  <Text style={{ color: darkMode ? '#d7e1f0' : '#374151', fontSize: 12, marginBottom: 6 }}>
                     Guided setup — {setupProgressPct}% complete
                   </Text>
                   <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999 }}>

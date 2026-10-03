@@ -610,7 +610,7 @@ export default function ProductFoundSheet({
                       : { backgroundColor: Colors.surface2, borderColor: Colors.line },
                   ]}
                 >
-                  <Ionicons name="open-outline" size={16} color={darkMode ? '#94a3b8' : Colors.sub} />
+                  <Ionicons name="open-outline" size={16} color={darkMode ? '#d7e1f0' : Colors.sub} />
                   <Text style={[styles.storeLinkText, { color: darkMode ? '#e2e8f0' : Colors.text }]}>
                     {storePageLabel}
                   </Text>
@@ -705,10 +705,10 @@ export default function ProductFoundSheet({
                 },
               ]}
             >
-              <Text style={[styles.quietLabel, { color: darkMode ? '#94a3b8' : Colors.sub }]}>
+              <Text style={[styles.quietLabel, { color: darkMode ? '#d7e1f0' : Colors.sub }]}>
                 Line item total
               </Text>
-              <Text style={[styles.lineTotalValue, costTotal <= 0 ? { color: darkMode ? '#94a3b8' : Colors.sub } : null]}>
+              <Text style={[styles.lineTotalValue, costTotal <= 0 ? { color: darkMode ? '#d7e1f0' : Colors.sub } : null]}>
                 {money(costTotal)}
               </Text>
             </View>
@@ -779,7 +779,7 @@ export default function ProductFoundSheet({
                     },
                   ]}
                 >
-                  <Text style={[styles.quietLabel, { color: darkMode ? '#94a3b8' : Colors.sub }]}>
+                  <Text style={[styles.quietLabel, { color: darkMode ? '#d7e1f0' : Colors.sub }]}>
                     Change order customer price
                   </Text>
                   <Text style={styles.lineTotalValue}>{money(changeOrderSellTotal)}</Text>
