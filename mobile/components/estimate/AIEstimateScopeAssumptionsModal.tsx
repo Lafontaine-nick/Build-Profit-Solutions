@@ -933,7 +933,7 @@ function ScopeItemTitleRow({
             : noteBadge === 'review'
               ? 'Review'
               : null;
-  const badgeColor = noteBadge === 'review' ? '#fbbf24' : '#2dcc9a';
+  const badgeColor = '#2dcc9a';
 
   return (
     <View style={styles.cardTitleRow}>
@@ -2263,9 +2263,7 @@ function SuggestedBudgetSplitRows({
 
   return (
     <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
-      {display.quantityLine &&
-      !isInsulationAssemblyCard &&
-      !isHvacPackageLineCard ? (
+      {isFlooringLineCard ? (
         <Text
           style={{
             color: caption,
@@ -2273,18 +2271,36 @@ function SuggestedBudgetSplitRows({
             fontWeight: '600',
             marginBottom: 8,
           }}
+          numberOfLines={1}
         >
-          {display.quantityLine}
+          {display.quantityLine || headerTitle}
         </Text>
-      ) : null}
+      ) : (
+        <>
+          {display.quantityLine &&
+          !isInsulationAssemblyCard &&
+          !isHvacPackageLineCard ? (
+            <Text
+              style={{
+                color: caption,
+                fontSize: 12,
+                fontWeight: '600',
+                marginBottom: 8,
+              }}
+            >
+              {display.quantityLine}
+            </Text>
+          ) : null}
 
-      <Text
-        style={[styles.budgetSplitHeaderTitle, { color: caption }]}
-        numberOfLines={2}
-        ellipsizeMode='tail'
-      >
-        {headerTitle}
-      </Text>
+          <Text
+            style={[styles.budgetSplitHeaderTitle, { color: caption }]}
+            numberOfLines={2}
+            ellipsizeMode='tail'
+          >
+            {headerTitle}
+          </Text>
+        </>
+      )}
 
       <Text
         style={[CONFIRM_SCOPE_PRICE_TEXT, { color: text, marginTop: 6 }]}
@@ -3567,7 +3583,8 @@ function scopeCardStyle(
     estimateFlowCardStyle(Colors, darkMode),
     {
       backgroundColor:
-        accent.backgroundColor || (darkMode ? '#202022' : Colors.surface),
+        accent.backgroundColor || (darkMode ? '#3A3A3C' : Colors.surface),
+      borderRadius: 16,
       opacity: accent.opacity,
       ...(accent.borderColor ? { borderColor: accent.borderColor } : {}),
     },
@@ -9192,20 +9209,22 @@ function WetAreaInstallLineCard({
           {helper}
         </Text>
       ) : null}
-      <View style={styles.includedPillRow}>
-        <View
-          style={[
-            styles.includedPill,
-            darkMode ? styles.includedPillDark : styles.includedPillLight,
-          ]}
-        >
-          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
-            {item.id === 'demo_clearing'
-              ? 'Included · labor + equipment + disposal'
-              : 'Included · labor + materials'}
-          </Text>
+      {String(templateKey || '').toLowerCase() === 'flooring' ? null : (
+        <View style={styles.includedPillRow}>
+          <View
+            style={[
+              styles.includedPill,
+              darkMode ? styles.includedPillDark : styles.includedPillLight,
+            ]}
+          >
+            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+              {item.id === 'demo_clearing'
+                ? 'Included · labor + equipment + disposal'
+                : 'Included · labor + materials'}
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
       <QuantitySection
         itemId={item.id}
         inScope
@@ -12521,6 +12540,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   compact = false,
   relaxedSpacing = false,
   laborComplexityMultiplier = 1,
+  statusLabel,
 }: {
   field: QuickMeasurementFieldDef;
   value: string;
@@ -12546,6 +12566,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   relaxedSpacing?: boolean;
   /** Labor-only project complexity multiplier for MEP plan hints. */
   laborComplexityMultiplier?: number;
+  statusLabel?: string;
 }) {
   const insulationOptions =
     field.key === 'insulationMaterialType'
@@ -12719,6 +12740,18 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
             </TouchableOpacity>
           ) : null}
         </View>
+        {!estimate && statusLabel ? (
+          <Text
+            style={{
+              color: '#fbbf24',
+              fontSize: 12,
+              fontWeight: '700',
+              marginBottom: 6,
+            }}
+          >
+            {statusLabel}
+          </Text>
+        ) : null}
         {estimate ? (
           <TouchableOpacity
             onPress={onToggleDetails}
@@ -15510,9 +15543,11 @@ function CollapsibleQuickMeasurements({
         )
       );
     }
+    const dedicatedInsulationTemplate =
+      String(effectiveTemplateKey || '').toLowerCase() === 'insulation';
     const assemblyCardOwnsInsulation =
-      insulationAssemblyCardActive ||
-      (String(effectiveTemplateKey || '').toLowerCase() !== 'insulation' &&
+      !dedicatedInsulationTemplate &&
+      (insulationAssemblyCardActive ||
         includedScopeKeys.includes('insulation'));
     if (assemblyCardOwnsInsulation) {
       const insulationAssemblyMeasurementKeys =
@@ -15544,17 +15579,17 @@ function CollapsibleQuickMeasurements({
         'floorAreaSqft',
         'exteriorWallInsulationSqft',
         'atticInsulationSqft',
-        'floorInsulationSqft',
         'insulatedRoofDeckSqft',
         'openingDeductionSqft',
-        'garageSeparationInsulationSqft',
-        'insulatedGarageWallSqft',
-        'insulatedGarageCeilingSqft',
       ]);
       const hiddenInsulationFields = new Set<QuickMeasurementFieldKey>([
         'insulationMaterialType',
         'insulationRValue',
         'garageInsulationIncluded',
+        'floorInsulationSqft',
+        'garageSeparationInsulationSqft',
+        'insulatedGarageWallSqft',
+        'insulatedGarageCeilingSqft',
       ]);
       const noteText = String(notes || '');
       const noteHasField = (key: QuickMeasurementFieldKey) =>
@@ -16366,12 +16401,7 @@ function CollapsibleQuickMeasurements({
       measurements.planImportTradeKey === 'flooring') ||
       (String(effectiveTemplateKey || '').toLowerCase() === 'flooring' &&
         Boolean(measurements.planImportFingerprint)));
-  const notesCallOutExistingFloor =
-    /\b(?:existing|current|old)\s+(?:floor|flooring|carpet|tile|hardwood|lvp|vinyl)\b/i.test(
-      String(notes || '')
-    );
-  const flooringPlanOmitsExistingWork =
-    flooringPlanExport && !notesCallOutExistingFloor;
+  const flooringPlanOmitsExistingWork = flooringPlanExport;
   const landscapingQmJob =
     !paintingPlanMeasurements &&
     !concretePlanExport &&
@@ -16669,6 +16699,24 @@ function CollapsibleQuickMeasurements({
         ...openingResultsFromMore,
       ];
     }
+    if (String(effectiveTemplateKey || '').toLowerCase() === 'insulation') {
+      const insulationSurfaceKeys = new Set<QuickMeasurementFieldKey>([
+        'exteriorWallInsulationSqft',
+        'atticInsulationSqft',
+      ]);
+      const insulationSurfaceResults = positioned.more.filter(result =>
+        insulationSurfaceKeys.has(result.key)
+      );
+      if (insulationSurfaceResults.length) {
+        positioned.more = positioned.more.filter(
+          result => !insulationSurfaceKeys.has(result.key)
+        );
+        positioned.needsConfirmation = [
+          ...insulationSurfaceResults,
+          ...positioned.needsConfirmation,
+        ];
+      }
+    }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
     if (!showWetAreaFinishSteppers)
       return { groups: positioned, wetArea: [] as typeof positioned.more };
@@ -16684,6 +16732,7 @@ function CollapsibleQuickMeasurements({
     typedMeasurementHomes,
     measurements.quickMeasurementSources,
     measurements.quickMeasurementUserOverrides,
+    effectiveTemplateKey,
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
@@ -18878,7 +18927,7 @@ function CollapsibleQuickMeasurements({
             ? 'Confirm the highlighted measurements before they are priced.'
             : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
-          ? 'Review suggestions to apply planning estimates.'
+          ? 'Review planning estimates before they are priced.'
           : concreteStructurePrompt ||
             'All set — measurements look complete.'
       : concreteStructurePrompt || 'Optional — autofill repeated quantities';
@@ -19213,6 +19262,11 @@ function CollapsibleQuickMeasurements({
         compact={wholeHomeLayout}
         relaxedSpacing={relaxedSpacing}
         laborComplexityMultiplier={mepLaborComplexityMultiplier}
+        statusLabel={
+          result.sourceTag === 'plan_suggested'
+            ? 'Planning estimate'
+            : undefined
+        }
       />
     );
   };
@@ -20502,7 +20556,11 @@ function CollapsibleQuickMeasurements({
                     >
                       <Text
                         style={{
-                          color: selected ? '#050B13' : Colors.text,
+                          color: selected
+                            ? darkMode
+                              ? '#ffffff'
+                              : '#050B13'
+                            : Colors.text,
                           fontSize: 13,
                           fontWeight: '700',
                         }}
@@ -21435,7 +21493,7 @@ function CollapsibleQuickMeasurements({
                       justifyContent: 'space-between',
                     }}
                   >
-                    {sectionTitle('Suggestions')}
+                    {sectionTitle('Planning estimate')}
                     {displayGroups.suggestions.length > 1 ? (
                       <TouchableOpacity
                         onPress={useAllSuggestions}
@@ -22634,6 +22692,16 @@ export default function AIEstimateScopeAssumptionsModal({
       'selected_trade' &&
       (measurements.planImportTradeKey || planImport?.selectedTrade) ===
         'drywall');
+  const flooringPlanOmitsExistingWork =
+    (singleTradePlanImport && singleTradeKey === 'flooring') ||
+    ((measurements.planImportMode || planImport?.estimatingMode) ===
+      'selected_trade' &&
+      (measurements.planImportTradeKey || planImport?.selectedTrade) ===
+        'flooring') ||
+    (String(checklist?.templateKey || '').toLowerCase() === 'flooring' &&
+      Boolean(
+        measurements.planImportFingerprint || planImport?.planImportFingerprint
+      ));
   const roofingPlanExport =
     ((singleTradePlanImport && singleTradeKey === 'roofing') ||
       ((measurements.planImportMode || planImport?.estimatingMode) ===

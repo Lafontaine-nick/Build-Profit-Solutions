@@ -154,7 +154,7 @@ function confirmationBadge(
           marginTop: 2,
         }}
       >
-        Suggested from plan
+        Planning estimate
       </Text>
     );
   }

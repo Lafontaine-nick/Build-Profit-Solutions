@@ -224,6 +224,7 @@ describe('electrical canonical architecture', () => {
       'Switches / controls',
       'Lighting',
       'Fans',
+      'Exhaust fans',
       'Appliance circuit + hookup',
       'Life safety / low voltage',
       'Rough / modifications',

@@ -41,7 +41,8 @@ export type QuickMeasurementSourceTag =
   | 'manual_override'
   | 'user_confirmed_suggestion'
   | 'calculated_from_deductions'
-  | 'calculated_confirmed';
+  | 'calculated_confirmed'
+  | 'plan_suggested';
 
 export type QuickMeasurementSourceMap = Partial<
   Record<string, QuickMeasurementSourceTag>
@@ -143,6 +144,8 @@ export function quickMeasurementSourceLabel(
     case 'estimated_from_formula':
     case 'fallback_multiplier':
       return 'Planning estimate';
+    case 'plan_suggested':
+      return 'Planning estimate';
     case 'needs_confirmation':
       return 'Needs confirmation';
     case 'user_entered':
@@ -209,6 +212,9 @@ function resolveFieldState(params: {
     }
     if (params.sourceTag === 'needs_confirmation') {
       return 'needs_confirmation';
+    }
+    if (params.sourceTag === 'plan_suggested') {
+      return 'estimate_available';
     }
     if (
       params.sourceTag === 'calculated_from_components' ||
@@ -655,7 +661,8 @@ export function quickMeasurementSummaryLine(
 ): string {
   const aiVerified = summary.aiVerified || 0;
   const fromPlan = summary.detected + (summary.planConfirmed || 0);
-  return `${fromPlan} from plan · ${aiVerified} AI verified · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
+  const planningEstimates = summary.estimateAvailable;
+  return `${fromPlan} from plan · ${aiVerified} AI verified · ${planningEstimates} planning estimate${planningEstimates === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
 }
 
 export type QuickMeasurementUiGroups = {
@@ -826,6 +833,7 @@ export const PLAN_BACKED_QUICK_MEASUREMENT_SOURCES = new Set<string>([
   'measured_from_geometry',
   'contractor_confirmed_from_plan_review',
   'needs_confirmation',
+  'plan_suggested',
 ]);
 
 export function preservePlanBackedMeasurementFields<
@@ -870,6 +878,7 @@ const PLAN_DETECT_PRESERVED_SOURCES = new Set<QuickMeasurementSourceTag>([
   'calculated_from_components',
   'calculated_from_deductions',
   'estimated_from_formula',
+  'plan_suggested',
 ]);
 
 /** Merge newly plan-detected keys without clobbering stronger provenance. */

@@ -1995,7 +1995,7 @@ describe('estimateInitialRevealUi', () => {
       whatAiDid: ['Detected stucco.'],
       requiresScopeConfirmation: true,
       originalNotes:
-        'Suggested scope from plans:\nPermit responsibility\nExisting substrate condition and required repairs\nSurface preparation and repair scope\nColors, texture, and coating requirements',
+        'Planning estimate from plans:\nPermit responsibility\nExisting substrate condition and required repairs\nSurface preparation and repair scope\nColors, texture, and coating requirements',
       scopeChecklist: {
         templateKey: 'stucco',
         items: [

@@ -709,7 +709,6 @@ export const ELECTRICAL_LEGENDLESS_SYMBOL_KEYS = new Set([
   'smokeDetectorCount',
   'coDetectorCount',
   'threeWaySwitchCount',
-  'bathExhaustFanCount',
   'exteriorLightCount',
   'exteriorReceptacleCount',
 ]);
@@ -1158,8 +1157,8 @@ export function buildPlanReviewMeasurementRowState(input: {
     : electricalSymbolCount
       ? {
           ...provenance,
-          status: 'plan_verified' as const,
-          label: 'Detected from plan',
+          status: 'from_plan_symbols' as const,
+          label: 'Needs confirmation',
         }
     : paintingBidQuantity &&
     (input.key === 'interiorDoorCount' || input.key === 'exteriorDoorCount') &&
@@ -1176,7 +1175,7 @@ export function buildPlanReviewMeasurementRowState(input: {
             provenance.status === 'calculated'
               ? 'Calculated'
               : provenance.status === 'planning_estimate'
-                ? 'Suggested'
+                ? 'Planning estimate'
                 : provenance.status === 'needs_review' ||
                     provenance.status === 'ai_inferred' ||
                     provenance.status === 'from_plan_symbols'
@@ -2717,10 +2716,7 @@ export function confirmedPlanTakeoffLines(input: {
     ) {
       continue;
     }
-    if (
-      !(tradeKey === 'framing' && !wholeProject && key === 'framedAreaSqft') &&
-      isDerivedPlanTakeoffKey(key, value, measurements)
-    ) {
+    if (isDerivedPlanTakeoffKey(key, value, measurements)) {
       continue;
     }
     if (wholeProject) {
@@ -2744,11 +2740,6 @@ export function confirmedPlanTakeoffLines(input: {
       );
     }
     return lines;
-  }
-
-  if (tradeKey === 'framing' && !wholeProject && !numeric.has('framedAreaSqft')) {
-    const framed = resolveCoveredFramedAreaSqft(measurements);
-    if (framed != null && framed > 0) numeric.set('framedAreaSqft', framed);
   }
 
   const ordered = [
@@ -2820,7 +2811,7 @@ export function buildImportedPlanSummaryText(input: {
     }
   }
   if (input.scopeLabels?.length) {
-    lines.push('Suggested scope from plans:');
+    lines.push('Planning estimate from plans:');
     lines.push(input.scopeLabels.join(', '));
   }
   return lines.join('\n');

@@ -153,6 +153,7 @@ export type ElectricalCardGroupId =
   | 'switches'
   | 'lighting'
   | 'fans'
+  | 'exhaust_fans'
   | 'appliances'
   | 'life_safety'
   | 'rough_modifications';
@@ -178,6 +179,7 @@ export const ELECTRICAL_CARD_GROUPS: Array<{
   { id: 'switches', title: 'Switches / controls' },
   { id: 'lighting', title: 'Lighting' },
   { id: 'fans', title: 'Fans' },
+  { id: 'exhaust_fans', title: 'Exhaust fans' },
   { id: 'appliances', title: 'Appliance circuit + hookup' },
   { id: 'life_safety', title: 'Life safety / low voltage' },
   { id: 'rough_modifications', title: 'Rough / modifications' },
@@ -433,7 +435,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'bathExhaustFanCount',
     'Bathroom exhaust fan electrical install',
     'Fan unit + standard mounting + electrical connection. Excludes ducting, roof/wall penetration, exterior termination, HVAC work, and dedicated homerun unless separately selected. Distinct from ceiling fans.',
-    'fans'
+    'exhaust_fans'
   ),
   C(
     'electrical_range_hookup',
@@ -2372,6 +2374,7 @@ const ELECTRICAL_TRIM_OWNED_GROUPS = new Set<ElectricalCardGroupId>([
   'switches',
   'lighting',
   'fans',
+  'exhaust_fans',
 ]);
 
 /**

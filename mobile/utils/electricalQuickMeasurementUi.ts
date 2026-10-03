@@ -95,6 +95,7 @@ const QM_GROUP_TITLES: Record<ElectricalCardGroupId, string> = {
   switches: 'Switches / controls',
   lighting: 'Lighting / fans',
   fans: 'Lighting / fans',
+  exhaust_fans: 'Exhaust fans',
   appliances: 'Appliance circuit + hookup',
   life_safety: 'Life safety / low voltage',
   rough_modifications: 'Modifications',
@@ -133,6 +134,8 @@ const QM_GROUP_CAPTIONS: Record<ElectricalCardGroupId, string> = {
   lighting:
     'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
   fans: 'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
+  exhaust_fans:
+    'Bathroom exhaust fans. Ceiling fans stay on the Fans card. Ducting and roof termination are separate.',
   appliances:
     'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
   life_safety: 'Smoke, CO, and low-voltage devices included in this bid.',
@@ -281,12 +284,22 @@ export function electricalNewBuildMainPanelOffer(input: {
 
 export function electricalQmGroupDefaultCollapsed(
   groupId?: string,
-  fields?: Array<{ confirmInput?: boolean; selected?: boolean }>
+  fields?: Array<{
+    confirmInput?: boolean;
+    selected?: boolean;
+    value?: number | null;
+  }>
 ): boolean {
   // Lighting stays open because the recessed count is the priced scope.
   // A group stays open while a count is waiting, and after the contractor
   // checks that count, so the last tap does not collapse the card.
   if (groupId === 'lighting') return false;
+  if (
+    groupId === 'exhaust_fans' &&
+    fields?.some(field => field.value == null)
+  ) {
+    return false;
+  }
   if (fields?.some(field => field.confirmInput || field.selected)) return false;
   return true;
 }
@@ -297,6 +310,7 @@ const QM_GROUP_ORDER: ElectricalCardGroupId[] = [
   'receptacles',
   'switches',
   'lighting',
+  'exhaust_fans',
   'appliances',
   'life_safety',
   'rough_modifications',
@@ -455,6 +469,7 @@ export function buildElectricalQuickMeasurementGroups(input: {
     const fields = [...(byGroup.get(groupId) || []), ...extra].filter(
       field =>
         !planElectrical ||
+        field.key === 'bathExhaustFanCount' ||
         field.value != null ||
         field.confirmInput ||
         field.selected

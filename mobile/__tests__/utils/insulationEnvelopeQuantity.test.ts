@@ -229,7 +229,26 @@ describe('insulationEnvelopeQuantity', () => {
     expect(resolveConditionedCeilingAreaSqft(facts, 2571)).toBe(2571);
   });
 
-  it('does not create a two-story attic quantity from total living area alone', () => {
+  it('suggests attic from the main-floor footprint on a two-story plan with no ceiling boundary', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(
+        {
+          storyCount: 2,
+          wallHeightFt: 9.1,
+          buildingAreas: { mainFloorLivingSqft: 2513 },
+        },
+        2513,
+        { allowConditionedAreaCeilingSuggestion: true }
+      )
+    );
+    const attic = result?.components.find(
+      component => component.key === 'atticInsulationSqft'
+    );
+    expect(attic?.quantity).toBe(2513);
+    expect(attic?.source).toBe('planning_assumption');
+  });
+
+  it('suggests a planning attic from the same footprint used for the wall', () => {
     const inputs = insulationEnvelopeInputsFromPlanFacts(
       {
         storyCount: 2,
@@ -239,11 +258,11 @@ describe('insulationEnvelopeQuantity', () => {
       { allowConditionedAreaCeilingSuggestion: true }
     );
     expect(inputs.conditionedCeilingAreaSqft).toBeNull();
-    expect(
-      resolveInsulationEnvelopePlanningQuantity(inputs)?.components.some(
-        component => component.key === 'atticInsulationSqft'
-      ) ?? false
-    ).toBe(false);
+    const attic = resolveInsulationEnvelopePlanningQuantity(
+      inputs
+    )?.components.find(component => component.key === 'atticInsulationSqft');
+    expect(attic?.quantity).toBe(3660);
+    expect(attic?.source).toBe('planning_assumption');
   });
 
   it('never uses total living as attic ceiling when floor areas imply multi-story', () => {

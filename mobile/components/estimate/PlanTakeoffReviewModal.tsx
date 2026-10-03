@@ -682,9 +682,20 @@ export default function PlanTakeoffReviewModal({
       );
     }
     if (effectiveTradeKey === 'framing') {
-      return filterPlanReviewMeasurementEntries(
-        hydrateFramingPlanMeasurementsFromAreas(filtered)
-      );
+      const hydrated = hydrateFramingPlanMeasurementsFromAreas(filtered);
+      const living = Number(hydrated.floorAreaSqft);
+      const garage = Number(hydrated.garageSqft) || 0;
+      const framed = Number(hydrated.framedAreaSqft);
+      // Living plus garage is already on this screen. Keep that sum for pricing
+      // without listing it as a third measurement.
+      if (
+        living > 0 &&
+        framed > 0 &&
+        Math.abs(framed - (living + Math.max(0, garage))) < 1
+      ) {
+        delete hydrated.framedAreaSqft;
+      }
+      return filterPlanReviewMeasurementEntries(hydrated);
     }
     if (effectiveTradeKey === 'painting' && paintingHydration) {
       return filterPlanReviewMeasurementEntries(paintingHydration.measurements);
@@ -790,7 +801,8 @@ export default function PlanTakeoffReviewModal({
             }
             if (
               component.source === 'planning_assumption' &&
-              component.key !== 'exteriorWallInsulationSqft'
+              component.key !== 'exteriorWallInsulationSqft' &&
+              component.key !== 'atticInsulationSqft'
             ) {
               return false;
             }
@@ -831,11 +843,15 @@ export default function PlanTakeoffReviewModal({
       const reviewAttic = positiveMeasurement(
         reviewMeasurements.atticInsulationSqft
       );
+      const envelopeAttic = envelope.components.find(
+        component => component.key === 'atticInsulationSqft'
+      );
       if (
         atticBoundary?.calculatedSqft != null &&
-        hasFullInsulationCeilingBoundary(
+        (hasFullInsulationCeilingBoundary(
           insulationPlanFacts?.ceilingBoundary
-        ) &&
+        ) ||
+          reviewAttic == null) &&
         (reviewAttic == null ||
           insulationAtticMateriallyDiffersFromCeilingBoundary(
             reviewAttic,
@@ -845,6 +861,12 @@ export default function PlanTakeoffReviewModal({
         reviewMeasurements.atticInsulationSqft = String(
           atticBoundary.calculatedSqft
         );
+      } else if (
+        reviewAttic == null &&
+        envelopeAttic &&
+        envelopeAttic.quantity > 0
+      ) {
+        reviewMeasurements.atticInsulationSqft = String(envelopeAttic.quantity);
       }
       // Living and garage areas are plan context, not insulation bid
       // quantities. Opening deductions explain the net wall number but are
@@ -856,13 +878,14 @@ export default function PlanTakeoffReviewModal({
       return filterPlanReviewMeasurementEntries(reviewMeasurements);
     }
     if (effectiveTradeKey === 'drywall') {
-      return filterPlanReviewMeasurementEntries(
-        hydrateDrywallMeasurementsFromRooms(
-          filtered,
-          takeoff?.rooms,
-          takeoff?.planFacts
-        )
+      const hydrated = hydrateDrywallMeasurementsFromRooms(
+        filtered,
+        takeoff?.rooms,
+        takeoff?.planFacts
       );
+      // Fire-rated board is the garage surface hung as Type X, not more area.
+      delete hydrated.fireRatedDrywallSqft;
+      return filterPlanReviewMeasurementEntries(hydrated);
     }
     if (effectiveTradeKey === 'windows_doors') {
       return hydrateWindowsDoorsPlanReviewMeasurements(
@@ -984,6 +1007,16 @@ export default function PlanTakeoffReviewModal({
     ) {
       measurementEntries.push(['roofSquares', '']);
     }
+    if (effectiveTradeKey === 'insulation') {
+      for (const key of [
+        'exteriorWallInsulationSqft',
+        'atticInsulationSqft',
+      ]) {
+        if (!measurementEntries.some(([entryKey]) => entryKey === key)) {
+          measurementEntries.push([key, '']);
+        }
+      }
+    }
     if (effectiveTradeKey === 'electrical') {
       const seen = new Set(measurementEntries.map(([key]) => key));
       for (const reading of takeoff.lowConfidence || []) {
@@ -1089,13 +1122,15 @@ export default function PlanTakeoffReviewModal({
             ? 'Not found on plan — enter roof squares'
             : stuccoQuantityNeedsEntry
               ? stuccoEntryLabel
+            : key === 'atticInsulationSqft' && !(Number(value) > 0)
+              ? 'Not found on plan — enter attic / ceiling SF'
             : key === 'atticInsulationSqft' &&
             Number(value) > 0 &&
             !(Number(takeoff.measurements?.atticInsulationSqft) > 0) &&
             !takeoff.measurementProvenance?.[key]
             ? atticMatchesCeilingBoundary
               ? 'Calculated from conditioned ceiling geometry — confirm before pricing'
-              : 'Planning estimate from the living area — confirm before pricing'
+              : 'Planning estimate from the main-floor footprint — confirm before pricing'
             : key === 'exteriorWallInsulationSqft' &&
                 insulationOpeningNeedsReview(takeoff) &&
                 !(Number(value) > 0)
@@ -2055,6 +2090,7 @@ export default function PlanTakeoffReviewModal({
               return (
                 row.include &&
                 row.pricingEligible &&
+                row.provenance.status !== 'planning_estimate' &&
                 takeoff.electricalValidation?.fields?.[row.key]
                   ?.pricingEligible !== false &&
                 !unconfirmedLowConfidence.some(
@@ -2189,6 +2225,15 @@ export default function PlanTakeoffReviewModal({
         )
         .map(row => row.key),
     ]);
+    const suggestedReviewSources = Object.fromEntries(
+      rows.flatMap(row => {
+        if (row.provenance.status !== 'planning_estimate') return [];
+        if (!row.include) return [];
+        if (!(Number(row.value) > 0)) return [];
+        if (unresolvedFields.has(row.key)) return [];
+        return [[row.key, 'plan_suggested'] as const];
+      })
+    );
     const unconfirmedReviewSources = Object.fromEntries(
       rows.flatMap(row => {
         if (unresolvedFields.has(row.key)) return [];
@@ -2261,13 +2306,15 @@ export default function PlanTakeoffReviewModal({
         ...(hvacQuickMeasurementSourcesFromReview ||
         openingCountQuickMeasurementSourcesFromReview ||
         drawingCountApply ||
-        Object.keys(unconfirmedReviewSources).length
+        Object.keys(unconfirmedReviewSources).length ||
+        Object.keys(suggestedReviewSources).length
           ? {
               quickMeasurementSources: {
                 ...(hvacQuickMeasurementSourcesFromReview || {}),
                 ...(openingCountQuickMeasurementSourcesFromReview || {}),
                 ...(drawingCountApply?.sources || {}),
                 ...unconfirmedReviewSources,
+                ...suggestedReviewSources,
               },
             }
           : {}),

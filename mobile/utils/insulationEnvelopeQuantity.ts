@@ -562,15 +562,22 @@ export function resolveInsulationEnvelopePlanningQuantity(
     roofDeck && raw.preferRoofDeckOverAttic !== false
   );
   let attic = explicitAttic ?? suggestedAttic;
+  let atticFromFootprint = false;
+  const mainFloorCeiling = n(raw.mainFloorLivingSqft);
+  const footprintCeiling =
+    stories <= 1 ? atticFootprint : mainFloorCeiling;
   if (
     !preferRoofDeck &&
     attic == null &&
-    atticFootprint &&
+    footprintCeiling &&
     !raw.requireExplicitSurfaceTakeoff &&
     !raw.suppressAtticPlanningFallback &&
-    (stories === 1 || n(raw.conditionedCeilingAreaSqft) != null)
+    (stories === 1 ||
+      n(raw.conditionedCeilingAreaSqft) != null ||
+      mainFloorCeiling != null)
   ) {
-    attic = Math.round(atticFootprint);
+    attic = Math.round(footprintCeiling);
+    atticFromFootprint = true;
   }
   if (!preferRoofDeck && attic != null) {
     components.push({
@@ -579,19 +586,25 @@ export function resolveInsulationEnvelopePlanningQuantity(
       quantity: attic,
       unit: 'sqft',
       source:
-        !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
-          ? 'contractor_entered'
-          : 'calculated_from_plan',
+        atticFromFootprint
+          ? 'planning_assumption'
+          : !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
+            ? 'contractor_entered'
+            : 'calculated_from_plan',
       confidence:
-        !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
-          ? 'high'
-          : 'medium',
+        atticFromFootprint
+          ? 'low'
+          : !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
+            ? 'high'
+            : 'medium',
       included: !hasUnconfirmedAtticAssembly,
       formula:
         n(raw.atticInsulationSqft) != null
           ? undefined
-          : ceilingBoundaryFormula ||
-            'Conditioned ceiling boundary; garage and covered patio excluded',
+          : atticFromFootprint
+            ? 'Planning estimate from the main-floor footprint — confirm before pricing'
+            : ceilingBoundaryFormula ||
+              'Conditioned ceiling boundary; garage and covered patio excluded',
       contractorConfirmationRequired:
         hasUnconfirmedAtticAssembly || n(raw.atticInsulationSqft) == null,
     });

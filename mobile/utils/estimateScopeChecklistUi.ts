@@ -7209,7 +7209,12 @@ export function groupScopeChecklistItems(
   }
 
   const remainder = items.filter(i => !used.has(i.id) && !openingIds.has(i.id));
-  if (remainder.length) result.push({ title: 'Other', items: remainder });
+  const visibleRemainder =
+    String(templateKey || '').toLowerCase() === 'insulation'
+      ? remainder.filter(item => item.id !== 'cleanup')
+      : remainder;
+  if (visibleRemainder.length)
+    result.push({ title: 'Other', items: visibleRemainder });
 
   return result;
 }

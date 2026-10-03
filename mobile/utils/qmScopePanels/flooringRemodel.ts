@@ -413,14 +413,6 @@ export function flooringPlanOmitsRemoval(
       m.planImportTradeKey === 'flooring') ||
     Boolean(m.planImportFingerprint);
   if (!planFlooring) return false;
-  const notes = String(m.scopeNotes || '');
-  if (
-    /\b(?:existing|current|old)\s+(?:floor|flooring|carpet|tile|hardwood|lvp|vinyl)\b/i.test(
-      notes
-    )
-  ) {
-    return false;
-  }
   const sources = m.quickMeasurementSources as
     | Record<string, unknown>
     | undefined;
@@ -882,18 +874,22 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
     positiveCount(saved.flooringInstallScopeCount) ||
     positiveCount(saved.flooringDemoScopeCount);
 
-  let existing = readFlooringExisting(saved);
+  let existing = flooringPlanOmitsRemoval(saved)
+    ? emptyFlooringExisting()
+    : readFlooringExisting(saved);
   const inferredExisting = inferExistingFlooringFromNotes(ctx.notes);
-  existing = {
-    flooringExistingCount:
-      positiveCount(saved.flooringExistingCount) ||
-      inferredExisting.flooringExistingCount,
-    flooringExistingTypes:
-      (Array.isArray(saved.flooringExistingTypes) &&
-      saved.flooringExistingTypes.length
-        ? saved.flooringExistingTypes
-        : inferredExisting.flooringExistingTypes) || null,
-  };
+  if (!flooringPlanOmitsRemoval(saved)) {
+    existing = {
+      flooringExistingCount:
+        positiveCount(saved.flooringExistingCount) ||
+        inferredExisting.flooringExistingCount,
+      flooringExistingTypes:
+        (Array.isArray(saved.flooringExistingTypes) &&
+        saved.flooringExistingTypes.length
+          ? saved.flooringExistingTypes
+          : inferredExisting.flooringExistingTypes) || null,
+    };
+  }
 
   const install = positiveCount(saved.flooringInstallScopeCount)
     ? readFlooringInstall(saved)

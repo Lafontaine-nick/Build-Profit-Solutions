@@ -44,7 +44,6 @@ export const DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS = [
   'garageWallDrywallSqft',
   'garageCeilingDrywallSqft',
   'moistureResistantDrywallSqft',
-  'fireRatedDrywallSqft',
   'highCeilingDrywallSqft',
   'vaultedCeilingDrywallSqft',
   'level5FinishSqft',
@@ -54,6 +53,7 @@ export const DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS = [
 export const DRYWALL_QUANTITY_KEYS = [
   'drywallSqft',
   'drywallOpeningDeductionSqft',
+  'fireRatedDrywallSqft',
   ...DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
 ] as const;
 

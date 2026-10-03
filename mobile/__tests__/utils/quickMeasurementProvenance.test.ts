@@ -451,7 +451,7 @@ describe('summarizeQuickMeasurementFieldStates', () => {
       relevantTotal: 22,
     });
     expect(line).toBe(
-      '12 from plan · 0 AI verified · 6 suggestions · 4 need confirmation'
+      '12 from plan · 0 AI verified · 6 planning estimates · 4 need confirmation'
     );
   });
 });

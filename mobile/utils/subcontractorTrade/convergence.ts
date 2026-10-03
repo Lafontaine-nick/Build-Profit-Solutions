@@ -91,6 +91,7 @@ const STORAGE_TO_PROVENANCE: Record<string, NormalizedMeasurementProvenance> = {
   calculated_from_components: 'PLANNING_ESTIMATE',
   calculated_from_deductions: 'PLANNING_ESTIMATE',
   estimated_from_formula: 'PLANNING_ESTIMATE',
+  plan_suggested: 'PLANNING_ESTIMATE',
   fallback_multiplier: 'PLANNING_ESTIMATE',
   user_entered: 'USER_ENTERED',
   user_confirmed_suggestion: 'USER_ENTERED',

@@ -1829,15 +1829,6 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
         'e.g. 300',
         'sqft',
         'interior'
-      ),
-      F(
-        'fireRatedDrywallSqft',
-        'Fire-rated board',
-        'e.g. 900',
-        'sqft',
-        'interior',
-        undefined,
-        'Garage or separation assemblies — typically 5/8" Type X.'
       )
     ),
     row(

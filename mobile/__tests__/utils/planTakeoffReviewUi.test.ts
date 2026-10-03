@@ -1532,7 +1532,10 @@ describe('plan takeoff review UI polish', () => {
     });
     expect(row.pricingEligible).toBe(true);
     expect(row.includeDefault).toBe(true);
-    expect(row.provenance.label).toBe('Detected from plan');
+    expect(row.provenance).toMatchObject({
+      status: 'from_plan_symbols',
+      label: 'Needs confirmation',
+    });
   });
 
   it('keeps a calculated insulation wall suggested while ceiling remains confirmable', () => {
@@ -1549,7 +1552,7 @@ describe('plan takeoff review UI polish', () => {
     expect(wall).toMatchObject({
       pricingEligible: true,
       includeDefault: true,
-      provenance: { label: 'Suggested' },
+      provenance: { label: 'Planning estimate' },
     });
     expect(ceiling).toMatchObject({
       pricingEligible: false,

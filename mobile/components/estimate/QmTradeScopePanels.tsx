@@ -1778,7 +1778,7 @@ export function QmFlooringScopePanels({
   );
   const [demo, setDemo] = useState(() => readFlooringDemo(measurements));
   const [existingExpanded, setExistingExpanded] = useState(false);
-  const [newExpanded, setNewExpanded] = useState(false);
+  const [newExpanded, setNewExpanded] = useState(true);
   const [prepExpanded, setPrepExpanded] = useState(false);
   const [showMoreNewFlooring, setShowMoreNewFlooring] = useState(false);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
@@ -3033,19 +3033,24 @@ export function QmFlooringScopePanels({
                   activeOpacity={0.75}
                   accessibilityRole='button'
                   accessibilityLabel='Add another flooring material'
-                  style={{ width: '100%', marginTop: 8 }}
+                  style={[
+                    styles.qmOption,
+                    {
+                      marginTop: 4,
+                      borderColor: '#34d399',
+                      backgroundColor: darkMode
+                        ? 'rgba(52, 211, 153, 0.12)'
+                        : 'rgba(52, 211, 153, 0.10)',
+                    },
+                  ]}
                 >
                   <Text
                     style={[
-                      styles.qmPanelCaption,
-                      {
-                        color: darkMode ? '#F5F7FA' : Colors.text,
-                        fontWeight: '700',
-                        textAlign: 'center',
-                      },
+                      styles.qmOptionText,
+                      { color: '#34d399', fontWeight: '700' },
                     ]}
                   >
-                    Add another flooring material
+                    + Add another flooring material
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -6600,21 +6605,10 @@ export function QmRoofingScopePanels({
             />
             {planOnlyRoof ? (
               groundUpMeasurementRows
-                .filter(row => {
-                  if (
-                    row.key === 'roofDripEdgeLf' ||
-                    row.key === 'roofRidgeCapLf'
-                  ) {
-                    return false;
-                  }
-                  return (
-                    Number(
-                      String(
-                        (measurements as Record<string, unknown>)[row.key] || ''
-                      ).replace(/,/g, '')
-                    ) > 0
-                  );
-                })
+                .filter(
+                  row =>
+                    row.key !== 'roofDripEdgeLf' && row.key !== 'roofRidgeCapLf'
+                )
                 .map(row => (
                 <QmSqftMeasurementRow
                   key={row.key}

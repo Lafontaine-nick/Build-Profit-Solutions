@@ -274,7 +274,7 @@ describe('Stucco plan import', () => {
       results.find(result => result.key === 'stuccoNetWallSqft')?.state
     ).toBe('not_relevant');
     expect(quickMeasurementSummaryLine(summary)).toBe(
-      '2 from plan · 0 AI verified · 0 suggestions · 1 need confirmation'
+      '2 from plan · 0 AI verified · 0 planning estimates · 1 need confirmation'
     );
   });
 
