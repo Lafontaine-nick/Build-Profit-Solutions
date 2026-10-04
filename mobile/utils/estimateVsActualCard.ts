@@ -17,7 +17,7 @@ export type SpendProgressDisplay = {
 };
 
 export function formatSpendProgress(summary: ProjectActualSummary): SpendProgressDisplay {
-  const spent = summary.mappedDirectCostActual ?? summary.actualDirectCost ?? 0;
+  const spent = summary.actualDirectCost ?? summary.mappedDirectCostActual ?? 0;
   const budget = summary.estimatedDirectCost ?? 0;
   if (budget <= 0) {
     return { percentLabel: '—', progressPercent: 0 };
@@ -33,7 +33,7 @@ export function formatSpendDollarsLine(
   summary: ProjectActualSummary,
   formatMoney: (amount: number) => string
 ): string | undefined {
-  const spent = summary.mappedDirectCostActual ?? summary.actualDirectCost;
+  const spent = summary.actualDirectCost ?? summary.mappedDirectCostActual;
   const budget = summary.estimatedDirectCost;
   if (spent == null || budget == null || budget <= 0) return undefined;
   return `${formatMoney(spent)} of ${formatMoney(budget)} cost budget`;
@@ -78,7 +78,7 @@ export function formatCostBudgetVsBidNote(
   if (costBudget <= 0 || bidPrice <= 0) return undefined;
   const margin = bidPrice - costBudget;
   if (margin <= costBudget * 0.02) return undefined;
-  return `${formatMoney(costBudget)} cost budget (materials + labor). ${formatMoney(bidPrice)} bid includes ${formatMoney(margin)} markup & profit — this card tracks costs only.`;
+  return `${formatMoney(costBudget)} cost cap (hard costs, soft costs, and contingency). ${formatMoney(bidPrice)} bid includes ${formatMoney(margin)} markup. This card tracks job costs only.`;
 }
 
 export function formatVarianceDollarsLine(

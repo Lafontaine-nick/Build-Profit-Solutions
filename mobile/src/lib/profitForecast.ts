@@ -49,6 +49,8 @@ export interface ProfitForecastOutput {
   spendToDateMarginPct: number;
   /** Expected net margin at completion: (contract - forecastFinalCost - allocated overhead) / contract. */
   projectedMarginPct: number;
+  /** Company overhead on the bid. Not part of the job-cost cap. */
+  allocatedCompanyOverhead: number;
   /** Original estimate net profit/margin: contract - planned cost - allocated overhead. */
   originalEstimateProfit: number;
   originalEstimateMarginPct: number;
@@ -92,11 +94,9 @@ export function getProfitStatus(marginPct: number): ProfitStatus {
 /**
  * Sum milestone payment amounts that look **collected / completed** as % of contract (0–100).
  */
-export function contractCollectedPctFromMilestones(
-  milestones: unknown[] | undefined,
-  adjustedContractValue: number
-): number | undefined {
-  if (!Array.isArray(milestones) || !(adjustedContractValue > 0)) return undefined;
+/** Dollar total of milestone payments marked collected, received, or completed. */
+export function sumCollectedMilestonePayments(milestones: unknown[] | undefined): number {
+  if (!Array.isArray(milestones)) return 0;
   let collected = 0;
   for (const raw of milestones) {
     const m = raw as Record<string, unknown>;
@@ -111,6 +111,15 @@ export function contractCollectedPctFromMilestones(
       (Number(m.progressPct) || 0) >= 99.5;
     if (done) collected += amt;
   }
+  return collected;
+}
+
+export function contractCollectedPctFromMilestones(
+  milestones: unknown[] | undefined,
+  adjustedContractValue: number
+): number | undefined {
+  if (!Array.isArray(milestones) || !(adjustedContractValue > 0)) return undefined;
+  const collected = sumCollectedMilestonePayments(milestones);
   return Math.min(100, (collected / adjustedContractValue) * 100);
 }
 
@@ -303,6 +312,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
     currentProjectedProfit: projectedProfit,
     spendToDateMarginPct,
     projectedMarginPct,
+    allocatedCompanyOverhead,
     originalEstimateProfit: estimatedProfit,
     originalEstimateMarginPct,
     remainingCostBudget,

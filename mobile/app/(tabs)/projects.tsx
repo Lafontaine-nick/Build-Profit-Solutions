@@ -1163,8 +1163,8 @@ export default function ProjectsScreen() {
         {/* ALL PROJECTS CARD — highlight ring while active-project walkthrough intro is showing */}
         <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
         <View style={[styles.wideContainer, styles.tabFlowWide]}>
-          <View style={styles.allProjectsCard}>
-              {projects.length === 0 ? (
+          {projects.length === 0 ? (
+            <View style={styles.allProjectsCard}>
                 <View style={styles.emptyState}>
                   <Ionicons name="folder-outline" size={48} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
                   <Text style={styles.emptyStateText}>
@@ -1182,9 +1182,10 @@ export default function ProjectsScreen() {
                         : 'Your in-progress jobs will show up here.'}
                   </Text>
                 </View>
+            </View>
               ) : (
-                <View>
-                  {projects.map((project, projectIndex) => {
+                <View style={styles.projectCardStack}>
+                  {projects.map((project) => {
                     const statusThemeMap = getStatusTheme(darkMode);
                     const statusKey =
                       (project.status in statusThemeMap ? project.status : 'Draft') as keyof typeof statusThemeMap;
@@ -1197,10 +1198,7 @@ export default function ProjectsScreen() {
                     return (
                     <Pressable
                       key={project.id}
-                      style={[
-                        styles.projectCard,
-                        projectIndex === projects.length - 1 && styles.projectCardLast,
-                      ]}
+                      style={styles.projectCardSolo}
                       onPress={() => handleProjectPress(project)}
                     >
                       <View
@@ -1323,9 +1321,7 @@ export default function ProjectsScreen() {
                     {project.projectedProfit != null && Number.isFinite(project.projectedProfit) && (
                       <Text style={styles.projectProfitLine}>
                         {isCompletedProject ? 'Net profit' : 'Est. profit'}:{' '}
-                        {formatMoneyUSD(
-                          isCompletedProject ? project.projectedProfit : Math.round(project.projectedProfit)
-                        )}
+                        {formatMoneyUSD(project.projectedProfit)}
                       </Text>
                     )}
                     <Text style={styles.projectMarginLine}>
@@ -1430,7 +1426,6 @@ export default function ProjectsScreen() {
           })}
                 </View>
               )}
-          </View>
         </View>
         </FirstEstimateWalkthroughHighlight>
 
@@ -1536,6 +1531,14 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   allProjectsCard: {
     ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
   },
+  projectCardStack: {
+    gap: 12,
+  },
+  projectCardSolo: {
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
   card: {
     ...tabFlowCardStyle(Colors, darkMode),
     ...(desktopWeb ? { padding: 16 } : {}),
@@ -1600,8 +1603,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   projectCardInner: {
     backgroundColor: 'transparent',
     borderRadius: 0,
-    paddingVertical: 16,
-    paddingHorizontal: 2,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
     borderWidth: 0,
     borderColor: 'transparent',
   },
@@ -1851,7 +1854,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   tabsContainer: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 16,
     paddingHorizontal: 4,
   },
   statusBannerStrip: {

@@ -41,6 +41,7 @@ interface ProjectDataContextType {
     notes?: string;
     receiptUri?: string | null;
     linkedLineId?: string | null;
+    trade?: string;
   }) => void;
   deleteExpense: (expenseId: string) => void;
   clearAllExpenses: () => void;
@@ -830,6 +831,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     notes?: string;
     receiptUri?: string | null;
     linkedLineId?: string;
+    trade?: string;
   }) => {
     // Emit PM event for expense added
     pmEventTracker.emit({

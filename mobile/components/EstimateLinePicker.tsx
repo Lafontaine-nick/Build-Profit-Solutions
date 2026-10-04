@@ -203,7 +203,7 @@ export default function EstimateLinePicker({
     <>
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.text }]}>
-          {readOnly ? 'Budget item' : 'Budget item (optional)'}
+          {readOnly ? 'Budget item' : 'Link to the estimate'}
         </Text>
         {readOnly && selected ? (
           <View
@@ -224,8 +224,11 @@ export default function EstimateLinePicker({
               selected
                 ? { backgroundColor: colors.card, borderColor: colors.accent }
                 : {
-                    backgroundColor: darkMode ? '#3A3A3C' : colors.card,
-                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : colors.border,
+                    backgroundColor: darkMode
+                      ? 'rgba(45, 204, 154, 0.14)'
+                      : 'rgba(45, 204, 154, 0.1)',
+                    borderColor: colors.accent,
+                    borderWidth: 1.5,
                   },
             ]}
             accessibilityRole="button"
@@ -236,19 +239,21 @@ export default function EstimateLinePicker({
                 selectedSummaryContent
               ) : (
                 <>
-                  <Text style={[styles.selectorTitle, { color: darkMode ? '#e2e8f0' : colors.text }]}>
+                  <Text style={[styles.selectorTitle, styles.chooseTitle, { color: colors.accent }]}>
                     Choose from estimate
                   </Text>
-                  <Text style={[styles.selectorSubtitle, { color: colors.secondary }]}>
-                    Or leave blank to enter a manual expense
+                  <Text style={[styles.selectorSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
+                    {kind === 'materials'
+                      ? 'Pick a material line from this bid'
+                      : 'Pick a labor line from this bid'}
                   </Text>
                 </>
               )}
             </View>
             <MaterialIcons
               name="chevron-right"
-              size={24}
-              color={colors.secondary}
+              size={26}
+              color={selected ? colors.secondary : colors.accent}
             />
           </Pressable>
         )}
@@ -360,6 +365,7 @@ export default function EstimateLinePicker({
                         styles.option,
                         {
                           borderBottomColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.border,
+                          backgroundColor: 'transparent',
                         },
                         isLast && styles.optionLast,
                       ]}
@@ -373,8 +379,11 @@ export default function EstimateLinePicker({
                             <BudgetStatusBadge variant={lineBudgetStatusVariant(summary)} />
                           ) : null}
                         </View>
-                        <Text style={[styles.optionMeta, { color: colors.secondary }]}>
-                          {lineCategoryLabel(kind)} · Budget {formatMoneyFull(line.budget, { decimals: 0 })}
+                        <Text style={[styles.optionMeta, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
+                          {lineCategoryLabel(kind)} · Budget{' '}
+                          <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>
+                            {formatMoneyFull(line.budget, { decimals: 0 })}
+                          </Text>
                           {line.quantity && line.unit ? ` · ${line.quantity} ${line.unit}` : ''}
                         </Text>
                         {summary.loggedTotal > 0 ? (
@@ -414,8 +423,8 @@ export default function EstimateLinePicker({
                       </View>
                       <MaterialIcons
                         name={isPending ? 'radio-button-checked' : 'radio-button-unchecked'}
-                        size={22}
-                        color={isPending ? '#2dcc9a' : (darkMode ? '#d7e1f0' : colors.secondary)}
+                        size={24}
+                        color="#2dcc9a"
                       />
                     </Pressable>
                   );
@@ -523,6 +532,7 @@ const styles = StyleSheet.create({
   },
   selectorText: { flex: 1, minWidth: 0 },
   selectorTitle: { fontSize: 15, fontWeight: '700' },
+  chooseTitle: { fontSize: 16, fontWeight: '800' },
   selectorSubtitle: { fontSize: 12, marginTop: 4 },
   linkedLabel: { fontSize: 12, fontWeight: '800', marginTop: 4 },
   clearText: { fontSize: 12, fontWeight: '700', marginTop: 6 },

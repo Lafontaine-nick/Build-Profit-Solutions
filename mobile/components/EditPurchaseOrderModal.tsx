@@ -1,25 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Pressable } from "react-native";
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import PricingModeSection, { PricingMode } from "./PricingModeSection";
-import {
-  centsDigitsToNumber,
-  clampCentsDigitsInput,
-  decimalMoneyInputToNumber,
-  digitsOnly,
-  dollarsToCentsDigits,
-  sanitizeDecimalMoneyInput,
-} from "@/src/lib/keyboardMoney";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
+import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
-import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import GradientRingBackInner from "./GradientRingBackInner";
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
 
@@ -54,14 +44,12 @@ type Props = {
 
 export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose, onSave, onCancel }: Props) {
   const { theme, darkMode } = useTheme();
+  const insets = useSafeAreaInsets();
   const Colors = getColors(theme);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
   const [poNumber, setPONumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
-  const [pricingMode, setPricingMode] = useState<PricingMode>("flat");
-  const [sqftInput, setSqftInput] = useState("");
-  const [ratePerSqftInput, setRatePerSqftInput] = useState("");
   const [description, setDescription] = useState("");
   const [orderDate, setOrderDate] = useState(() => new Date());
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() => new Date());
@@ -71,7 +59,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
     if (visible && purchaseOrder) {
       setPONumber(purchaseOrder.poNumber);
       setVendor(purchaseOrder.vendor);
-      setAmount(dollarsToCentsDigits(purchaseOrder.amount));
+      setAmount(purchaseOrder.amount != null ? String(purchaseOrder.amount) : "");
       setDescription(purchaseOrder.description || "");
       const od = parseISODateToLocal(purchaseOrder.orderDate);
       setOrderDate(od);
@@ -79,47 +67,13 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
         ? parseISODateToLocal(purchaseOrder.expectedDelivery)
         : new Date(od.getTime() + 14 * 24 * 60 * 60 * 1000);
       setExpectedDeliveryDate(ed);
-      setPricingMode("flat");
-      setSqftInput("");
-      setRatePerSqftInput("");
     }
   }, [visible, purchaseOrder]);
-
-  useEffect(() => {
-    if (pricingMode !== "sqft") return;
-    const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-    const rate = decimalMoneyInputToNumber(ratePerSqftInput);
-    if (sq > 0 && rate > 0) {
-      setAmount(dollarsToCentsDigits(sq * rate));
-    } else {
-      setAmount("");
-    }
-  }, [pricingMode, sqftInput, ratePerSqftInput]);
-
-  const onSqftChange = useCallback((text: string) => {
-    setSqftInput(digitsOnly(text));
-  }, []);
-
-  const onRatePerSqftChange = useCallback((text: string) => {
-    setRatePerSqftInput(sanitizeDecimalMoneyInput(text));
-  }, []);
 
   const handleSave = () => {
     if (!purchaseOrder) return;
 
-    if (pricingMode === "sqft") {
-      const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-      const rate = decimalMoneyInputToNumber(ratePerSqftInput);
-      if (sq <= 0 || rate <= 0) {
-        Alert.alert(
-          "Square feet & rate required",
-          "Enter square feet and rate ($/sq ft) to calculate the total, or switch to Flat amount."
-        );
-        return;
-      }
-    }
-
-    const amountNum = centsDigitsToNumber(amount);
+    const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount");
       return;
@@ -141,8 +95,6 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
 
   const descriptionRef = useRef<TextInput>(null);
   const amountRef = useRef<TextInput>(null);
-  const sqftRef = useRef<TextInput>(null);
-  const ratePerSqftRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   if (!purchaseOrder) return null;
@@ -168,6 +120,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           style={[
             styles.container,
             { backgroundColor: darkMode ? "#000000" : "#FFFFFF" },
+            { paddingTop: Platform.OS === "web" ? WEB_MODAL_TOP_INSET : insets.top },
             webFormColumn,
             Platform.OS === "web" && styles.containerWeb,
           ]}
@@ -178,44 +131,22 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
             innerStyle={Platform.OS === "web" ? styles.webFrameInner : undefined}
           >
           {/* Header */}
-          <View style={[styles.header, Platform.OS === "web" && styles.headerWeb]}>
-            <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onClose();
-                  }}
-                  style={[styles.backBtn, !darkMode && { backgroundColor: Colors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.headerIconBorder}
-                >
-                  <View style={[styles.headerIconContainer, !darkMode && { backgroundColor: Colors.bg }]}>
-                    <Text style={{ fontSize: 24 }}>📋</Text>
-                  </View>
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.title, !darkMode && { color: '#000000' }]}>Edit Purchase Orders</Text>
-                  <Text style={[styles.subtitle, !darkMode && { color: '#4B5563' }]}>Transactions & Invoices</Text>
-                </View>
-              </View>
-            </View>
+          <View style={[styles.header, { paddingTop: 8 }]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onClose();
+              }}
+              style={[
+                styles.backBtn,
+                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
+              ]}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
+            </Pressable>
+            <Text style={[styles.title, !darkMode && { color: '#000000' }]}>Edit Purchase Order</Text>
+            <Text style={[styles.subtitle, !darkMode && { color: '#4B5563' }]}>Purchase Orders</Text>
           </View>
 
           {/* Form */}
@@ -231,13 +162,14 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
             showsVerticalScrollIndicator={false}
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
+            <View style={[styles.formCard, { backgroundColor: darkMode ? '#202022' : Colors.surface2, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line }]}>
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Vendor / Supplier *</Text>
               <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <Feather
-                  name="shopping-bag"
+                  name="package"
                   size={16}
-                  color={darkMode ? "#8DA0B8" : "#6B7280"}
+                  color={darkMode ? "#d7e1f0" : "#64748b"}
                   style={styles.inputIcon}
                 />
                 <TextInput
@@ -247,79 +179,62 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   value={vendor}
                   onChangeText={setVendor}
                   autoCapitalize="words"
-                  onSubmitEditing={() => {
-                    if (pricingMode === "sqft") {
-                      sqftRef.current?.focus();
-                    } else {
-                      amountRef.current?.focus();
-                    }
-                  }}
+                  onSubmitEditing={() => amountRef.current?.focus()}
                   {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
 
             <View style={styles.fieldGroup}>
-              <PricingModeSection
-                pricingMode={pricingMode}
-                onPricingModeChange={(mode) => {
-                  setPricingMode(mode);
-                  if (mode === "sqft") {
-                    setSqftInput("");
-                    setRatePerSqftInput("");
-                    setAmount("");
-                  }
-                }}
-                sqftInput={sqftInput}
-                ratePerSqftInput={ratePerSqftInput}
-                onSqftInputChange={onSqftChange}
-                onRatePerSqftInputChange={onRatePerSqftChange}
-                amount={amount}
-                onAmountChange={setAmount}
-                sqftRef={sqftRef}
-                ratePerSqftRef={ratePerSqftRef}
-                amountRef={amountRef}
-                onFlatAmountSubmitEditing={() => Keyboard.dismiss()}
-                onSqftSubmitEditing={() => ratePerSqftRef.current?.focus()}
-                onRateSubmitEditing={() => {
-                  Keyboard.dismiss();
-                  descriptionRef.current?.focus();
-                }}
-              />
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Amount *</Text>
+              <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <Text style={styles.dollarSign}>$</Text>
+                <TextInput
+                  ref={amountRef}
+                  style={[styles.input, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
+                  placeholder="0"
+                  placeholderTextColor={placeholderTint}
+                  value={amount}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, "");
+                    const parts = cleaned.split(".");
+                    setAmount(parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleaned);
+                  }}
+                  selectionColor="#2dcc9a"
+                  keyboardType="decimal-pad"
+                  {...nativeNumericKeyboardProps}
+                />
+              </View>
+              {amount && !isNaN(parseFloat(amount)) ? (
+                <Text style={styles.amountHint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
+              ) : null}
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Description</Text>
-              <View style={[styles.textAreaWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+              <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <Feather
                   name="file-text"
                   size={16}
-                  color={darkMode ? "#8DA0B8" : "#6B7280"}
-                  style={styles.inputIconTop}
+                  color={darkMode ? "#d7e1f0" : "#64748b"}
+                  style={styles.inputIcon}
                 />
                 <TextInput
                   ref={descriptionRef}
-                  style={[styles.input, styles.textArea, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
-                  placeholder="What was purchased or service provided?"
+                  style={[styles.input, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
+                  placeholder="Windows, wire, fixtures"
                   placeholderTextColor={placeholderTint}
                   value={description}
                   onChangeText={setDescription}
-                  onFocus={() => {
-                    setTimeout(() => {
-                      scrollViewRef.current?.scrollToEnd({ animated: true });
-                    }, 100);
-                  }}
-                  multiline
-                  numberOfLines={2}
                   onSubmitEditing={() => Keyboard.dismiss()}
-                  {...resolveTextInputKeyboardProps({ multiline: true })}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>
-                Delivery or pickup date
+                Arrives
               </Text>
               <TouchableOpacity
                 onPress={() => {
@@ -334,7 +249,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 <Feather
                   name="truck"
                   size={16}
-                  color={darkMode ? '#8DA0B8' : '#6B7280'}
+                  color={darkMode ? "#d7e1f0" : "#64748b"}
                   style={{ marginRight: 12 }}
                 />
                 <Text style={[styles.dateButtonText, !darkMode && { color: '#000000' }]}>
@@ -358,18 +273,15 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   }}
                 />
               )}
-              <Text style={[styles.deliveryHint, !darkMode && { color: '#059669' }]}>
-                Used for calendar and job-site scheduling
-              </Text>
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>PO Number</Text>
               <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <Feather
-                  name="tag"
+                  name="hash"
                   size={16}
-                  color={darkMode ? "#8DA0B8" : "#6B7280"}
+                  color={darkMode ? "#d7e1f0" : "#64748b"}
                   style={styles.inputIcon}
                 />
                 <TextInput
@@ -388,6 +300,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   {...resolveTextInputKeyboardProps()}
                 />
               </View>
+              </View>
             </View>
           </ScrollView>
 
@@ -402,9 +315,21 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
               activeOpacity={0.9}
             >
               <View style={styles.saveButtonSolid}>
-                <Text style={styles.saveText}>✓ Save</Text>
+                <Text style={styles.saveText}>Save</Text>
               </View>
             </TouchableOpacity>
+            <Pressable
+              onPress={() => {
+                if (!purchaseOrder) return;
+                Alert.alert("Cancel this purchase order?", `${poNumber || "This order"} will be removed from the open orders.`, [
+                  { text: "Keep", style: "cancel" },
+                  { text: "Cancel order", style: "destructive", onPress: () => onCancel(purchaseOrder.id) },
+                ]);
+              }}
+              style={styles.deleteBtn}
+            >
+              <Text style={styles.deleteText}>Delete</Text>
+            </Pressable>
           </View>
           </WebFormGradientFrame>
         </View>
@@ -454,58 +379,45 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   header: {
-    flexDirection: "row",
     alignItems: "center",
-    padding: 20,
-    paddingTop: 60,
+    paddingHorizontal: 56,
+    paddingBottom: 14,
+    marginBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148, 163, 184, 0.12)",
-  },
-  headerWeb: {
-    paddingTop: 20,
-  },
-  backBtnWrapper: {
-    marginRight: 16,
-  },
-  backBtnBorder: {
-    borderRadius: 22,
-    padding: 1,
-    overflow: "hidden",
+    borderBottomColor: "rgba(148, 163, 184, 0.14)",
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 21,
-    backgroundColor: "#000000",
+    position: "absolute",
+    left: 8,
+    top: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-  },
-  headerIconBorder: {
-    borderRadius: 15,
-    padding: 1,
-  },
-  headerIconContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 2,
   },
   title: {
     color: "white",
-    fontSize: 26,
+    fontSize: 18,
     fontWeight: "700",
-    letterSpacing: -0.4,
-    lineHeight: 32,
+    letterSpacing: -0.25,
+    lineHeight: 23,
+    textAlign: "center",
   },
   subtitle: {
-    color: "rgba(226, 232, 240, 0.78)",
-    fontSize: 14,
-    marginTop: 6,
+    color: "#d7e1f0",
+    fontSize: 13,
+    marginTop: 4,
     fontWeight: "500",
-    letterSpacing: 0.15,
-    lineHeight: 20,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  formCard: {
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    marginBottom: 8,
   },
   closeButton: {
     width: 32,
@@ -524,24 +436,37 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   fieldGroup: {
-    marginBottom: 20,
+    marginBottom: 18,
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#FFFFFF",
-    marginBottom: 10,
-    letterSpacing: 0.2,
+    marginBottom: 8,
+    letterSpacing: 0.25,
   },
   inputWrapper: {
-    borderRadius: 12,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    minHeight: 48,
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
-    borderColor: "#6B7280",
+    borderColor: "rgba(148, 163, 184, 0.12)",
+  },
+  dollarSign: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#2dcc9a",
+    marginRight: 4,
+  },
+  amountHint: {
+    color: "#2dcc9a",
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: "600",
   },
   textAreaWrapper: {
     borderRadius: 12,
@@ -579,12 +504,13 @@ const styles = StyleSheet.create({
   dateButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 48,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.16)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: "rgba(148, 163, 184, 0.12)",
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
   },
   dateButtonText: {
     color: "#FFFFFF",
@@ -599,13 +525,23 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   actions: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    flexDirection: "column",
+    paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
-    gap: 12,
+    gap: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(148, 163, 184, 0.12)",
+    borderTopColor: "rgba(148, 163, 184, 0.14)",
+  },
+  deleteBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#f87171",
   },
   cancelButton: {
     flex: 1,
@@ -628,18 +564,12 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#22c55e",
-    borderRadius: 14,
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    backgroundColor: "#2dcc9a",
   },
   saveText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: "#050B13",
     letterSpacing: 0.25,
   },
 }); 

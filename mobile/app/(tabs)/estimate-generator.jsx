@@ -127,6 +127,7 @@ import {
   planImportPayloadFromDraft,
   removeScopePackageFromDraft,
   syncConfirmScopeMeasurementsFromPackages,
+  syncElectricalScopeQuantitiesOnBidLines,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
 import {
@@ -134,6 +135,7 @@ import {
   stripConfirmedMeasurementsFromScopeDescription,
 } from '../../utils/subcontractorTrade/paintingPlanConvergence';
 import { buildWetAreaInstallPdfMeasurementCard } from '../../utils/wetAreaInstallPdfExport';
+import { buildElectricalPdfMeasurementCard } from '../../utils/electricalPdfExport';
 import {
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
@@ -3748,16 +3750,6 @@ const money = (n) => {
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2 
-  });
-};
-
-/** Rounded dollars for Summary hero, chips, and chart — full precision stays in Cost Breakdown. */
-const moneyRounded = (n) => {
-  const value = Math.round(Number(n) || 0);
-  return value.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
   });
 };
 
@@ -10227,6 +10219,42 @@ export default function EstimateGeneratorScreen() {
   ]);
 
   useEffect(() => {
+    if (!isLoaded) return;
+    const measurements =
+      aiDraft?.scopeMeasurements ||
+      bid?.aiEstimateDraftSnapshot?.draft?.scopeMeasurements;
+    if (!measurements) return;
+    const labor = syncElectricalScopeQuantitiesOnBidLines(
+      bid.laborLineItems,
+      measurements
+    );
+    const materials = syncElectricalScopeQuantitiesOnBidLines(
+      bid.materialLineItems,
+      measurements
+    );
+    const cart = syncElectricalScopeQuantitiesOnBidLines(
+      materialsCart,
+      measurements
+    );
+    if (!labor && !materials && !cart) return;
+    if (labor || materials) {
+      setBid(prev => ({
+        ...prev,
+        ...(labor ? { laborLineItems: labor } : {}),
+        ...(materials ? { materialLineItems: materials } : {}),
+      }));
+    }
+    if (cart) setMaterialsCart(cart);
+  }, [
+    isLoaded,
+    aiDraft?.scopeMeasurements,
+    bid?.aiEstimateDraftSnapshot?.draft?.scopeMeasurements,
+    bid?.laborLineItems,
+    bid?.materialLineItems,
+    materialsCart,
+  ]);
+
+  useEffect(() => {
     if (!isLoaded || isInitialLoadRef.current) return;
     if (!hasMeaningfulEstimateDraft(bid, materialsCart)) return;
     const timeoutId = setTimeout(() => {
@@ -11155,13 +11183,17 @@ export default function EstimateGeneratorScreen() {
     const paintingMeasurementLines = buildPaintingPdfMeasurementLines(
       bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements
     );
+    const draftMeasurements =
+      bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements;
     const wetAreaInstallCard = buildWetAreaInstallPdfMeasurementCard({
-      measurements: bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements,
+      measurements: draftMeasurements,
       checklistItems: bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.items,
       templateKey:
         bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.templateKey ||
         bidData.projectType,
     });
+    const electricalMeasurementCard =
+      buildElectricalPdfMeasurementCard(draftMeasurements);
     const strippedScope = stripConfirmedMeasurementsFromScopeDescription(
       bidData.scopeDescription || ''
     );
@@ -11169,7 +11201,9 @@ export default function EstimateGeneratorScreen() {
       paintingMeasurementLines.length > 0
         ? paintingMeasurementLines
         : strippedScope.measurementLines;
-    const measurementCards = wetAreaInstallCard ? [wetAreaInstallCard] : [];
+    const measurementCards = [wetAreaInstallCard, electricalMeasurementCard].filter(
+      Boolean
+    );
     const scopeDescription = strippedScope.description;
     const scopeBullets = scopeDescription
       ? scopeDescription.split('\n').filter(line => line.trim())
@@ -13222,7 +13256,7 @@ export default function EstimateGeneratorScreen() {
                 <Text
                   style={[estimateSummaryHeroAmountStyle(), { color: summaryHasPricing ? '#2dcc9a' : '#d7e1f0' }]}
                 >
-                  {moneyRounded(calc.total)}
+                  {money(calc.total)}
                 </Text>
                 {summaryHasPricing ? (
                   <>

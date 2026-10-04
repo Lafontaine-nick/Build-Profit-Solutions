@@ -23,7 +23,9 @@ export type TaxCategory =
   | 'Labor'
   | 'Subcontractors'
   | 'Equipment Rental'
-  | 'Permits / Plans'
+  | 'Permits'
+  | 'Plans'
+  | 'Engineering'
   | 'Lender fees'
   | 'Interest'
   | 'Insurance'
@@ -37,7 +39,9 @@ export const TAX_CATEGORIES: TaxCategory[] = [
   'Labor',
   'Subcontractors',
   'Equipment Rental',
-  'Permits / Plans',
+  'Permits',
+  'Plans',
+  'Engineering',
   'Lender fees',
   'Interest',
   'Insurance',
@@ -522,6 +526,9 @@ export function inferVendorTypeFromTaxCategory(category: TaxCategory, expense?: 
     category === 'Equipment Rental' ||
     category === 'Software / Tools' ||
     category === 'Insurance' ||
+    category === 'Permits' ||
+    category === 'Plans' ||
+    category === 'Engineering' ||
     category === 'Lender fees' ||
     category === 'Interest'
   ) {
@@ -558,7 +565,9 @@ export function mapExpenseToTaxCategory(expense: Partial<TaxExpense> | string | 
   if (/labor|payroll|wage|hour|employee/.test(text)) return 'Labor';
   if (/material|lumber|concrete|drywall|paint|tile|roof|supply|hardware|homedepot|home depot|lowe/.test(text)) return 'Materials';
   if (/equipment|rental|scaffold|lift|excavator|bobcat|tool rental/.test(text)) return 'Equipment Rental';
-  if (/permit|plan|inspection|engineering|architect|drawing/.test(text)) return 'Permits / Plans';
+  if (/\bengineering\b|\bengineer\b|\barchitects?\b|\bdrawings?\b/.test(text)) return 'Engineering';
+  if (/\bpermits?\b|\binspections?\b/.test(text)) return 'Permits';
+  if (/\bplans?\b/.test(text)) return 'Plans';
   if (/insurance|liability|bond|workers comp|worker/.test(text)) return 'Insurance';
   if (/vehicle|mileage|fuel|gas|truck|parking|toll/.test(text)) return 'Vehicle / Mileage';
   if (/software|subscription|app|saas|tool|license/.test(text)) return 'Software / Tools';

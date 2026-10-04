@@ -91,28 +91,30 @@ export default function BudgetProfitMixCard({
     : marginDriftPts >= 0
       ? '#2dcc9a'
       : '#F97316';
-  const estimateDriftPillLabel = marginOnEstimate
-    ? 'On estimate'
-    : `${marginDriftPts > 0 ? '+' : ''}${marginDriftPts.toFixed(1)} pts`;
   const estimateDriftDetail =
     Math.abs(profitDrift) < 1
       ? `Profit on estimate (${profitForecast.originalEstimateMarginPct.toFixed(1)}% baseline)`
       : `${profitDrift >= 0 ? '+' : '-'}${money(Math.abs(profitDrift), currency)} vs ${profitForecast.originalEstimateMarginPct.toFixed(1)}% baseline`;
   const burnVsPlanPts = costBudgetUsedPctDisplay - profitForecast.scheduleProgressPct;
-  const burnVsPlanColor =
-    Math.abs(burnVsPlanPts) < 3
-      ? pageSubtext
-      : burnVsPlanPts > 0
-        ? '#F97316'
-        : '#2dcc9a';
-  /** Same number as before (budget used % minus job progress %); wording aimed at non-finance users. */
-  const burnVsPlanPillLabel =
-    Math.abs(burnVsPlanPts) < 3
-      ? 'On pace'
-      : burnVsPlanPts > 0
-        ? `${burnVsPlanPts.toFixed(1)}% over`
-        : `${Math.abs(burnVsPlanPts).toFixed(1)}% under`;
-  const spendVsScheduleDetail = `${costBudgetUsedPctDisplay.toFixed(1)}% of cost budget used · ${profitForecast.scheduleProgressPct.toFixed(1)}% done on the schedule`;
+  const schedulePct = profitForecast.scheduleProgressPct;
+  const spentWithCommitted = spentToDate + committedPOsTotal;
+  const overCostCap = adjustedCostBudget > 0 && spentWithCommitted > adjustedCostBudget + 0.5;
+  const profitStatus = !hasContractForMix
+    ? ''
+    : marginOnEstimate
+      ? 'Profit is on the estimate.'
+      : profitDrift >= 0
+        ? `Profit is ${money(profitDrift, currency)} above the estimate.`
+        : `Profit is ${money(Math.abs(profitDrift), currency)} under the estimate.`;
+  const paceWords = overCostCap
+    ? 'Spending is over the cost cap.'
+    : schedulePct < 1 && spentToDate > 0
+      ? "The schedule hasn't started."
+      : Math.abs(burnVsPlanPts) < 3
+        ? 'Spending is in line with the schedule.'
+        : burnVsPlanPts > 0
+          ? `Spending is ahead of the ${schedulePct.toFixed(0)}% schedule.`
+          : `The schedule is further along, at ${schedulePct.toFixed(0)}%.`;
 
   return (
     <View style={[styles.sectionCardContainer, { marginTop }]}>
@@ -143,73 +145,18 @@ export default function BudgetProfitMixCard({
             </View>
           </View>
           {hasContractForMix ? (
-            <View style={styles.signalPillRow}>
-              <View style={styles.signalPill}>
-                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
-                  Margin vs bid
-                </Text>
-                <Text style={[styles.signalPillValue, { color: estimateDriftColor }]} numberOfLines={1}>
-                  {estimateDriftPillLabel}
-                </Text>
-              </View>
-              <View style={styles.signalPillDivider} />
-              <View style={styles.signalPill}>
-                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
-                  Spend vs progress
-                </Text>
-                <Text style={[styles.signalPillValue, { color: burnVsPlanColor }]} numberOfLines={1}>
-                  {burnVsPlanPillLabel}
-                </Text>
-              </View>
-              <View style={styles.signalPillDivider} />
-              <View style={styles.signalPill}>
-                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
-                  Budget spent
-                </Text>
-                <Text style={[styles.signalPillValue, { color: pageSubtext }]} numberOfLines={1}>
-                  {`${costBudgetUsedPctDisplay.toFixed(1)}%`}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-          {hasContractForMix ? (
-            <View style={styles.referenceChipRow}>
-              <Pressable
-                onPress={onChipsPress}
-                style={({ pressed }) => [
-                  styles.referenceChip,
-                  pressed && { opacity: 0.82 },
-                ]}
-              >
-                <Text
-                  style={[styles.referenceChipText, { color: pageInstructional }]}
-                  numberOfLines={1}
-                >
-                  Contract {money(adjustedContractValue, currency)}
+            <View style={styles.plainStatusBlock}>
+              <Text style={[styles.plainStatusLead, { color: estimateDriftColor }]}>
+                {profitStatus}
+              </Text>
+              <Text style={[styles.plainStatusBody, { color: overCostCap ? '#F97316' : pageSubtext }]}>
+                {paceWords}
+              </Text>
+              <Pressable onPress={onChipsPress} disabled={!onChipsPress}>
+                <Text style={[styles.plainStatusMeta, { color: pageInstructional }]}>
+                  Contract {money(adjustedContractValue, currency)} · Cost cap {money(adjustedCostBudget, currency)}
                 </Text>
               </Pressable>
-              <Pressable
-                onPress={onChipsPress}
-                style={({ pressed }) => [
-                  styles.referenceChip,
-                  pressed && { opacity: 0.82 },
-                ]}
-              >
-                <Text
-                  style={[styles.referenceChipText, { color: pageInstructional }]}
-                  numberOfLines={1}
-                >
-                  Cap {money(adjustedCostBudget, currency)}
-                </Text>
-              </Pressable>
-              <View style={styles.referenceChip}>
-                <Text
-                  style={[styles.referenceChipText, { color: pageInstructional }]}
-                  numberOfLines={1}
-                >
-                  Est. {originalEstimateMarginPctResolved.toFixed(1)}%
-                </Text>
-              </View>
             </View>
           ) : null}
         </View>
@@ -224,7 +171,13 @@ export default function BudgetProfitMixCard({
               contractValue={adjustedContractValue}
               spentToDate={spentToDate}
               forecastFinalCost={profitForecast.forecastFinalCost}
+              allocatedCompanyOverhead={profitForecast.allocatedCompanyOverhead}
               projectedMarginPct={profitForecast.projectedMarginPct}
+              spentNote={
+                adjustedCostBudget > 0
+                  ? `${costBudgetUsedPctDisplay.toFixed(1)}% of the cost cap`
+                  : undefined
+              }
               currency={currency}
               formatMoney={money}
               darkMode={darkMode}
@@ -247,11 +200,6 @@ export default function BudgetProfitMixCard({
           )}
         </View>
         <View style={styles.budgetProfitMixFooterBlock}>
-          <Text style={[styles.budgetProfitMixFooterCaption, { color: pageInstructional }]}>
-            {jobCompleted
-              ? 'Net margin is contract value vs final cost at closeout (actuals in the app).'
-              : 'Projected margin is estimated from current spend, commitments, and progress. Estimate only.'}
-          </Text>
           {hasContractForMix ? (
             <Pressable
               onPress={() => setFooterExpanded(prev => !prev)}
@@ -266,20 +214,10 @@ export default function BudgetProfitMixCard({
           {footerExpanded ? (
             <View style={styles.footerDetailBlock}>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                Margin vs bid compares the projected finish margin to the estimate net margin
-                ({profitForecast.originalEstimateMarginPct.toFixed(1)}%). The Est. chip is the builder margin before company overhead.
+                The {profitForecast.projectedMarginPct.toFixed(1)}% is net profit. Before the {money(profitForecast.allocatedCompanyOverhead, currency)} company overhead, the builder margin on this bid is {originalEstimateMarginPctResolved.toFixed(1)}%.
               </Text>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                Spend vs progress compares two percentages: how much of your cost budget is used (money out
-                the door plus open POs) vs how far along the job is on the schedule ({spendVsScheduleDetail}).
-              </Text>
-              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                If the middle number is under, you have used less budget than the schedule suggests for this
-                point in the job (usually good). If it is over, you have used more budget than the schedule
-                suggests (worth a look). On pace means the two are within a few percent.
-              </Text>
-              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                {estimateDriftDetail}.
+                The bar splits the contract into money spent, cost still left, company overhead, and your profit. {estimateDriftDetail}.
               </Text>
               {showNegativeMarginNote ? (
                 <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
@@ -328,48 +266,21 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     maxWidth: '100%',
   },
-  signalPillRow: {
+  plainStatusBlock: {
     marginTop: 12,
-    flexDirection: 'column',
-    alignSelf: 'stretch',
-    paddingTop: 4,
-    gap: 8,
+    gap: 6,
   },
-  signalPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  signalPillDivider: {
-    display: 'none',
-  },
-  signalPillLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18,
-    flex: 1,
-  },
-  signalPillValue: {
+  plainStatusLead: {
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
-    textAlign: 'right',
-    fontVariant: ['tabular-nums'],
   },
-  referenceChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: 10,
-    marginTop: 10,
+  plainStatusBody: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
   },
-  referenceChip: {
-    paddingVertical: 2,
-    justifyContent: 'center',
-  },
-  referenceChipText: {
+  plainStatusMeta: {
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 18,
@@ -397,9 +308,9 @@ const styles = StyleSheet.create({
   },
   budgetProfitMixFooterDisclaimer: {
     marginTop: 8,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 18,
     textAlign: 'left',
     paddingHorizontal: 8,
   },
@@ -410,7 +321,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   learnMoreText: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
     textDecorationLine: 'underline',
   },

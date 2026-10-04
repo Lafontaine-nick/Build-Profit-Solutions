@@ -25,6 +25,7 @@ describe('project profit and equipment buckets', () => {
     expect(result.forecastFinalCost).toBe(25155);
     expect(result.projectedProfit).toBe(4431);
     expect(result.estimatedProfit).toBe(4431);
+    expect(result.allocatedCompanyOverhead).toBe(200);
     expect(result.projectedMarginPct).toBeCloseTo(14.876, 2);
   });
 
@@ -59,5 +60,15 @@ describe('project profit and equipment buckets', () => {
         estimateData: { insuranceOverhead: 200 },
       })
     ).toBe(200);
+    expect(
+      getAllocatedCompanyOverhead({
+        estimateData: { insuranceOverhead: 200, equipmentMaintenance: 100 },
+      })
+    ).toBe(300);
+    expect(
+      getAllocatedCompanyOverhead({
+        estimateData: { facilities: 50, adminOverhead: 25 },
+      })
+    ).toBe(75);
   });
 });

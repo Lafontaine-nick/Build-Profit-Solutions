@@ -575,6 +575,23 @@ function normalizeText(value: unknown): string {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
 }
 
+function budgetCategoryFamily(value: string): string {
+  if (value.includes('contingency')) return 'contingency';
+  if (value.includes('soft') || value.includes('allowance')) return 'soft';
+  if (value.includes('labor') || value.includes('labour') || value.includes('subcontract')) return 'labor';
+  if (value.includes('material') || value.includes('equipment')) return 'materials';
+  return '';
+}
+
+function budgetCategoriesMatch(expenseCategory: unknown, lineCategory: unknown): boolean {
+  const expenseName = normalizeText(expenseCategory);
+  const lineName = normalizeText(lineCategory);
+  if (!expenseName || !lineName) return false;
+  if (expenseName === lineName) return true;
+  const expenseFamily = budgetCategoryFamily(expenseName);
+  return expenseFamily !== '' && expenseFamily === budgetCategoryFamily(lineName);
+}
+
 function resolveMapping(actual: ActualScopeRecord, items: EstimateSnapshotScopeItem[]): {
   item?: EstimateSnapshotScopeItem;
   status: ActualMappingStatus;
@@ -1337,7 +1354,7 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
   const actualByLine = lines.map((line) => {
     const matched = (data.expenses || []).filter((expense) => {
       if (expense.linkedLineId === line.id) return true;
-      return normalizeText(expense.category) === normalizeText(line.category);
+      return budgetCategoriesMatch(expense.category, line.category);
     });
     return {
       scopeItemKey: line.id,

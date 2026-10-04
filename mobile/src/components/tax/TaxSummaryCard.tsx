@@ -30,11 +30,11 @@ function taxFigureColor(value: string): string {
 
 function fontSizeForCardValue(value: string): number {
   const len = String(value || '').length;
-  if (len <= 9) return 20;
-  if (len <= 11) return 18;
-  if (len <= 13) return 16;
-  if (len <= 15) return 14;
-  return 12;
+  if (len <= 9) return 22;
+  if (len <= 11) return 20;
+  if (len <= 13) return 18;
+  if (len <= 15) return 16;
+  return 14;
 }
 
 function TaxSummaryCardValue({ value }: { value: string }) {
@@ -168,12 +168,14 @@ const styles = StyleSheet.create({
   },
   helper: {
     color: '#d7e1f0',
-    fontSize: 11,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
     marginTop: 6,
   },
   tapHint: {
-    color: 'rgba(148, 163, 184, 0.9)',
-    fontSize: 10,
+    color: '#d7e1f0',
+    fontSize: 12,
     marginTop: 8,
     fontWeight: '600',
   },

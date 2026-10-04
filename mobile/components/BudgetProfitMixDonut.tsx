@@ -12,6 +12,7 @@ export type BudgetProfitMixSegment = {
 /** Segment colors: teal (spent), blue (remaining), green (profit); shortfall stays distinct when EAC > contract. */
 const COLOR_SPENT = '#d7e1f0';
 const COLOR_REMAINING = "rgba(148, 163, 184, 0.35)";
+const COLOR_OVERHEAD = "#94a3b8";
 const COLOR_PROFIT = "#2dcc9a";
 const COLOR_SHORTFALL = "#FB7185";
 
@@ -19,36 +20,44 @@ const COLOR_SHORTFALL = "#FB7185";
  * Derives three donut segments from the same inputs as Budget profit forecast:
  * — Spent to Date (actual job spend)
  * — Projected Remaining Cost or Remaining cost when complete (max(0, EAC − spent))
- * — Projected Profit / Projected Shortfall, or Net profit / Net shortfall when complete (contract value − EAC), by magnitude for the arc
+ * — Company overhead when the bid allocates it (not part of the job-cost cap)
+ * — Projected Profit / Projected Shortfall, or Net profit / Net shortfall when complete
+ *   (contract value − EAC − overhead), by magnitude for the arc
  *
- * Arc angles sum to 360° with denominator spent + remaining + |contract − EAC| so loss cases still close the ring.
+ * Arc angles sum to 360° with denominator spent + remaining + overhead + |net profit| so loss cases still close the ring.
  */
 export function computeBudgetProfitMixSegments(params: {
   contractValue: number;
   spentToDate: number;
   forecastFinalCost: number;
+  /** Allocated company overhead. Subtracted from profit, not from the job-cost cap. */
+  allocatedCompanyOverhead?: number;
   /** When the job is marked completed, use net / actual wording in the legend. */
   jobCompleted?: boolean;
 }): { segments: BudgetProfitMixSegment[]; contractValue: number } {
   const cv = Math.max(0, params.contractValue);
   const s = Math.max(0, params.spentToDate);
   const eac = Math.max(0, params.forecastFinalCost);
+  const overhead = Math.max(0, params.allocatedCompanyOverhead ?? 0);
   const remaining = Math.max(0, eac - s);
-  const profit = cv - eac;
+  const profit = cv - eac - overhead;
   const done = !!params.jobCompleted;
 
   if (cv <= 1e-6) {
     return { segments: [], contractValue: cv };
   }
 
-  const remainLabel = done ? "Remaining cost" : "Projected Remaining Cost";
+  const remainLabel = "Left to spend";
   const thirdLabel =
-    profit >= 0 ? (done ? "Net profit" : "Projected Profit") : done ? "Net shortfall" : "Projected Shortfall";
+    profit >= 0 ? (done ? "Your profit" : "Your profit") : done ? "Shortfall" : "Shortfall";
   const thirdColor = profit >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
 
   const parts = [
-    { key: "spent", label: "Spent to Date", value: s, color: COLOR_SPENT },
+    { key: "spent", label: "Spent", value: s, color: COLOR_SPENT },
     { key: "remain", label: remainLabel, value: remaining, color: COLOR_REMAINING },
+    ...(overhead > 0
+      ? [{ key: "overhead", label: "Company overhead", value: overhead, color: COLOR_OVERHEAD }]
+      : []),
     {
       key: profit >= 0 ? "profit" : "shortfall",
       label: thirdLabel,
@@ -85,8 +94,11 @@ type Props = {
   contractValue: number;
   spentToDate: number;
   forecastFinalCost: number;
-  /** Same source as Financial Health: (contract − EAC) / contract × 100 */
+  /** Net margin: (contract − EAC − allocated overhead) / contract × 100 */
   projectedMarginPct: number;
+  /** Quiet note under the Spent row, such as the share of the cost cap. */
+  spentNote?: string;
+  allocatedCompanyOverhead?: number;
   currency?: string;
   formatMoney: (n: number, curr: string) => string;
   darkMode: boolean;
@@ -99,6 +111,8 @@ export default function BudgetProfitMixDonut({
   spentToDate,
   forecastFinalCost,
   projectedMarginPct,
+  spentNote,
+  allocatedCompanyOverhead = 0,
   currency = "USD",
   formatMoney,
   darkMode,
@@ -110,9 +124,10 @@ export default function BudgetProfitMixDonut({
         contractValue,
         spentToDate,
         forecastFinalCost,
+        allocatedCompanyOverhead,
         jobCompleted,
       }),
-    [contractValue, spentToDate, forecastFinalCost, jobCompleted]
+    [contractValue, spentToDate, forecastFinalCost, allocatedCompanyOverhead, jobCompleted]
   );
 
   const accessibilityLabel = useMemo(() => {
@@ -134,7 +149,7 @@ export default function BudgetProfitMixDonut({
       accessibilityLabel={accessibilityLabel}
     >
       <Text style={[styles.centerLabel, { color: labelDim }]}>
-        {jobCompleted ? "NET MARGIN" : "PROJECTED MARGIN"}
+        NET MARGIN
       </Text>
       <Text style={[styles.centerValue, { color: centerPctColor }]}>
         {`${projectedMarginPct.toFixed(1)}%`}
@@ -151,22 +166,22 @@ export default function BudgetProfitMixDonut({
         ))}
       </View>
       <View style={styles.legend}>
-        {visibleSegments.map((seg) => {
-          const pct = (seg.sweepDeg / 360) * 100;
-          const pctStr = pct < 1 && pct > 0 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`;
-          return (
+        {visibleSegments.map((seg) => (
             <View key={seg.key} style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: seg.color }]} />
-              <Text style={[styles.legendLabel, { color: labelDim }]}>
-                {seg.label}
-              </Text>
-              <Text style={[styles.legendPct, { color: labelDim }]}>{pctStr}</Text>
+              <View style={styles.legendLabelWrap}>
+                <Text style={[styles.legendLabel, { color: labelDim }]}>
+                  {seg.label}
+                </Text>
+                {seg.key === "spent" && spentNote ? (
+                  <Text style={[styles.legendNote, { color: labelDim }]}>{spentNote}</Text>
+                ) : null}
+              </View>
               <Text style={[styles.legendValue, { color: valueBright }]}>
                 {formatMoney(seg.value, currency)}
               </Text>
             </View>
-          );
-        })}
+          ))}
       </View>
     </View>
   );
@@ -215,10 +230,18 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     flexShrink: 0,
   },
+  legendLabelWrap: {
+    flex: 1,
+  },
   legendLabel: {
     fontSize: 14,
     fontWeight: "500",
-    flex: 1,
+  },
+  legendNote: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
   },
   legendPct: {
     fontSize: 13,

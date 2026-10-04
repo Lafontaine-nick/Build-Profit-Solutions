@@ -81,6 +81,7 @@ import {
   hasDetailedElectricalQuantities,
   syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { electricalPricingCardMeasurementNote } from '@/utils/electricalPdfExport';
 import {
   PLUMBING_CARDS,
   buildPlumbingStructuredMeasurements,
@@ -21907,6 +21908,7 @@ function ScopeGroupSection({
                   fontWeight: '600',
                   marginTop: 2,
                 }}
+                numberOfLines={2}
               >
                 {includesNote ||
                   `${items.length} ${items.length === 1 ? 'item' : 'items'}${
@@ -31760,7 +31762,20 @@ export default function AIEstimateScopeAssumptionsModal({
                       group.title === 'Roofing System' &&
                       shinglePriceIncludesStandardEdge
                         ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
-                        : null
+                        : (() => {
+                            const electricalNote =
+                              electricalPricingCardMeasurementNote(
+                                visibleItems,
+                                measurementsForAppliedPricing as Record<
+                                  string,
+                                  unknown
+                                >
+                              );
+                            if (!electricalNote) return null;
+                            return groupCollapsed
+                              ? `${electricalNote} · Tap for detail`
+                              : electricalNote;
+                          })()
                     }
                     statusLabel={
                       drywallFinishGroup && !drywallFinishOn

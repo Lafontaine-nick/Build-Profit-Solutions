@@ -20,6 +20,7 @@ import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import {
   getApprovedChangeOrderPaymentRows,
   formatChangeOrderPaymentRowTitle,
+  isBillingTimelineMilestone,
   isChangeOrderTimelineMilestone,
 } from "@/src/lib/projectFinancials";
 import { businessWorkspaceService } from "@/services/businessWorkspaceService";
@@ -187,7 +188,7 @@ function isPaymentTimelineMilestone(m: Milestone): boolean {
 }
 
 function computeOverallPct(items: Milestone[]) {
-  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
+  const workItems = items.filter((m) => !isBillingTimelineMilestone(m));
   if (!workItems.length) return 0;
   return workItems.reduce((acc, m) => acc + clampPct(m.progressPct), 0) / workItems.length;
 }

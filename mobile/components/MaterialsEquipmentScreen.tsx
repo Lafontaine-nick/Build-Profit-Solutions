@@ -209,6 +209,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     isPlanned?: boolean;
     projectPhase?: string;
     scope?: string;
+    trade?: string;
     priceReasonableness?: 'normal' | 'high' | 'outlier';
   }) => {
     if (Platform.OS !== "web") {
@@ -224,6 +225,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
       date: transaction.date,
       notes: transaction.description,
       receiptUri: transaction.receiptUri || null,
+      trade: transaction.trade || undefined,
     });
 
     setShowAddModal(false);

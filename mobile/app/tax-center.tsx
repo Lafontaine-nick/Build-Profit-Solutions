@@ -1449,9 +1449,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   basisFootnote: {
-    color: 'rgba(148, 163, 184, 0.9)',
-    fontSize: 11,
-    lineHeight: 16,
+    color: '#d7e1f0',
+    fontSize: 15,
+    lineHeight: 21,
     marginTop: 8,
     marginBottom: 2,
   },

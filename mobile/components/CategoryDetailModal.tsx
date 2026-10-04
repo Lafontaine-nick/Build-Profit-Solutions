@@ -43,6 +43,32 @@ function parseLocalDate(dateString: string): Date {
   return new Date(dateString + "T00:00:00");
 }
 
+function purchaseOrderSummaryLabel(tab: 'total' | 'committed' | 'received', count: number) {
+  if (count <= 0) {
+    if (tab === 'committed') return 'Nothing on order yet.';
+    if (tab === 'received') return 'None received yet.';
+    return 'No purchase orders yet.';
+  }
+  if (tab === 'committed') return count === 1 ? '1 still on order.' : `${count} still on order.`;
+  if (tab === 'received') return count === 1 ? '1 received.' : `${count} received.`;
+  return count === 1 ? '1 purchase order.' : `${count} purchase orders.`;
+}
+
+function purchaseOrderItemLabel(description: string | undefined) {
+  const raw = String(description || '').trim();
+  if (!raw) return '';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function purchaseOrderArrivalLine(date: Date, status: string, daysUntil: number) {
+  const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (status !== 'Pending') return formatted;
+  if (daysUntil > 1) return `Arrives ${formatted}, in ${daysUntil} days.`;
+  if (daysUntil === 1) return `Arrives tomorrow, ${formatted}.`;
+  if (daysUntil === 0) return `Arrives today, ${formatted}.`;
+  return `Expected ${formatted}.`;
+}
+
 /** RN Web: `Alert.alert` is unreliable in Safari; keep Budget → Add flows usable. */
 function categoryDetailWebAlert(title: string, message?: string) {
   if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.alert === "function") {
@@ -179,10 +205,17 @@ export default function CategoryDetailModal({
     (categoryLower.includes('materials') || categoryLower.includes('equipment'));
   const isLaborCategory =
     categoryLower.includes('labor') || categoryLower.includes('subs');
+  const isSoftCostCategory =
+    categoryLower.includes('soft cost') ||
+    categoryLower.includes('soft-cost') ||
+    categoryLower.includes('allowance');
+  const isContingencyCategory = categoryLower.includes('contingency');
+  const usesPlannedBudgetCard = isSoftCostCategory || isContingencyCategory;
   const shouldGroupByEstimateLine =
     isMaterialsEquipmentCategory || isLaborCategory;
   const usesWideDarkCardLayout =
     shouldGroupByEstimateLine ||
+    usesPlannedBudgetCard ||
     isChangeOrdersCategory ||
     isPurchaseOrdersCategory;
   const cardBg =
@@ -533,18 +566,52 @@ export default function CategoryDetailModal({
   }, [data, isPurchaseOrdersCategory]);
 
   const estimateBudgetKind = isLaborCategory ? 'labor' : 'materials';
-  const { spendSummaries, categorySummary: estimateCategorySummary } =
+  const { spendSummaries, options: estimateLineOptions, categorySummary: estimateCategorySummary } =
     useEstimateLineBudgets(
     shouldGroupByEstimateLine ? (projectData as unknown as Record<string, unknown>) : null,
     estimateBudgetKind
   );
 
+  const plannedCategoryBudget = useMemo(() => {
+    if (!usesPlannedBudgetCard) return 0;
+    const buckets = Array.isArray(projectData?.buckets) ? projectData.buckets : [];
+    const bucket = buckets.find((entry: { name?: string }) => {
+      const name = String(entry?.name || '').toLowerCase();
+      if (isContingencyCategory) return name.includes('contingency');
+      return name.includes('soft') || name.includes('allowance');
+    });
+    const fromBucket = Number(bucket?.budget ?? bucket?.bidBudget ?? 0);
+    if (fromBucket > 0) return fromBucket;
+    const estimateData = (projectData as { estimateData?: Record<string, unknown> })?.estimateData;
+    if (isContingencyCategory) {
+      return Number(estimateData?.contingencyAllowance ?? (projectData as { contingencyAllowance?: number })?.contingencyAllowance ?? 0) || 0;
+    }
+    return 0;
+  }, [usesPlannedBudgetCard, projectData, isContingencyCategory]);
+
+  const materialsEquipmentBudget = useMemo(() => {
+    const lineBudget = estimateCategorySummary.totalBudget;
+    if (!isMaterialsEquipmentCategory) return lineBudget;
+    const estimateData = (projectData as { estimateData?: { equipment?: number } })?.estimateData;
+    const equipment = Math.max(
+      0,
+      Number(estimateData?.equipment ?? (projectData as { equipment?: number })?.equipment ?? 0) || 0
+    );
+    if (!(equipment > 0)) return lineBudget;
+    const alreadyOnALine = estimateLineOptions.some((option) => /equipment/i.test(option.name));
+    return alreadyOnALine ? lineBudget : lineBudget + equipment;
+  }, [estimateCategorySummary.totalBudget, estimateLineOptions, isMaterialsEquipmentCategory, projectData]);
+
   const categoryBudgetSummary = useMemo(
-    () =>
-      shouldGroupByEstimateLine && estimateCategorySummary.hasEstimateBudget
-        ? buildCategoryBudgetSummary(estimateCategorySummary.totalBudget, total)
-        : buildCategoryBudgetSummary(0, total),
-    [shouldGroupByEstimateLine, estimateCategorySummary, total]
+    () => {
+      if (usesPlannedBudgetCard) {
+        return buildCategoryBudgetSummary(plannedCategoryBudget, total);
+      }
+      return shouldGroupByEstimateLine && (estimateCategorySummary.hasEstimateBudget || materialsEquipmentBudget > 0)
+        ? buildCategoryBudgetSummary(materialsEquipmentBudget, total)
+        : buildCategoryBudgetSummary(0, total);
+    },
+    [usesPlannedBudgetCard, plannedCategoryBudget, shouldGroupByEstimateLine, estimateCategorySummary.hasEstimateBudget, materialsEquipmentBudget, total]
   );
 
   // Reset add form when category modal closes (avoids stale open state on next open)
@@ -758,6 +825,7 @@ export default function CategoryDetailModal({
       notes: transaction.description,
       receiptUri: transaction.receiptUri || null,
       linkedLineId: transaction.linkedLineId || undefined,
+      trade: transaction.trade || undefined,
       isPlanned: transaction.isPlanned !== undefined ? transaction.isPlanned : true,
       projectPhase: transaction.projectPhase || undefined,
       scope: transaction.scope || undefined,
@@ -934,7 +1002,7 @@ export default function CategoryDetailModal({
           )}
 
           {/* Total Spent / Budget Card */}
-          {shouldGroupByEstimateLine ? (
+          {shouldGroupByEstimateLine || usesPlannedBudgetCard ? (
             <CategoryEstimateBudgetCard
               summary={categoryBudgetSummary}
               darkMode={darkMode}
@@ -958,24 +1026,24 @@ export default function CategoryDetailModal({
                 ]}
               >
                 <View style={styles.totalCard}>
-                  <Text style={[styles.totalLabel, { color: supportSub }]}>
-                    {isPurchaseOrdersCategory 
-                      ? (activePOTab === 'total' ? 'Total POs' : activePOTab === 'committed' ? 'Committed POs' : 'Received POs')
+                  <Text style={[styles.totalLabel, { color: darkMode ? '#d7e1f0' : supportSub, textTransform: 'none', fontSize: 15, fontWeight: '700', letterSpacing: 0 }]}>
+                    {isPurchaseOrdersCategory
+                      ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
                       : 'Total Spent'}
                   </Text>
-                  <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
+                  <Text style={[styles.totalValue, !(total > 0) && { color: darkMode ? '#d7e1f0' : '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                 </View>
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
                 <View style={[styles.totalCardInner, { backgroundColor: cardBg, borderColor: nestedCardBorder, borderWidth: 1 }]}>
                   <View style={styles.totalCard}>
-                    <Text style={[styles.totalLabel, { color: Colors.sub }]}>
-                      {isPurchaseOrdersCategory 
-                        ? (activePOTab === 'total' ? 'Total POs' : activePOTab === 'committed' ? 'Committed POs' : 'Received POs')
+                    <Text style={[styles.totalLabel, { color: Colors.sub, textTransform: 'none', fontSize: 15, fontWeight: '700', letterSpacing: 0 }]}>
+                      {isPurchaseOrdersCategory
+                        ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
                         : 'Total Spent'}
                     </Text>
-                    <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
+                    <Text style={[styles.totalValue, !(total > 0) && { color: '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                   </View>
                 </View>
               </View>
@@ -1032,7 +1100,9 @@ export default function CategoryDetailModal({
               }}
             >
               <View style={[styles.addButton, styles.addButtonSolid]}>
-                <Text style={styles.addButtonText}>+ Add {categoryName}</Text>
+                <Text style={styles.addButtonText}>
+                  {isPurchaseOrdersCategory ? '+ Add purchase order' : `+ Add ${categoryName}`}
+                </Text>
               </View>
             </TouchableOpacity>
           )}
@@ -1118,10 +1188,9 @@ export default function CategoryDetailModal({
                   if (!po) return null;
                   
                   const daysUntilDelivery = Math.ceil((parseLocalDate(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                  const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
                   
                   return (
-                    <View key={item.id} style={{ marginBottom: 12 }}>
+                    <View key={item.id}>
                       {darkMode ? (
                           <View
                             style={[
@@ -1145,7 +1214,6 @@ export default function CategoryDetailModal({
                               {/* Header with PO Number and Icon */}
                               <View style={{ marginBottom: 10 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                                  <Text style={{ fontSize: 18 }}>{categoryIcon}</Text>
                                   <View style={{ flex: 1, minWidth: 0 }}>
                                     <Text 
                                       style={{ color: Colors.text, fontSize: 15, lineHeight: 20, fontWeight: '700' }}
@@ -1180,13 +1248,14 @@ export default function CategoryDetailModal({
                                         {po.status.toUpperCase()}
                                       </Text>
                                     </View>
+                                    {purchaseOrderItemLabel(po.description) ? (
+                                      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '600', lineHeight: 20, marginTop: 6 }} numberOfLines={2}>
+                                        {purchaseOrderItemLabel(po.description)}
+                                      </Text>
+                                    ) : null}
                                   </View>
                                   <Text style={{ 
-                                    color: po.status === 'Pending' 
-                                      ? '#f59e0b' 
-                                      : po.status === 'Received'
-                                      ? '#2dcc9a'
-                                      : '#64748b',
+                                    color: po.status === 'Cancelled' ? '#64748b' : '#2dcc9a',
                                     fontSize: 15,
                                     fontWeight: '700'
                                   }}>
@@ -1202,27 +1271,15 @@ export default function CategoryDetailModal({
                               
                               {/* Expected Delivery */}
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
                                 <Text style={{ 
-                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#2dcc9a',
-                                  fontSize: 12,
-                                  fontWeight: '600'
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#f87171' : (darkMode ? '#d7e1f0' : '#64748b'),
+                                  fontSize: 14,
+                                  fontWeight: '500',
+                                  lineHeight: 20,
                                 }}>
-                                  {parseLocalDate(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  {po.status === 'Pending' && (
-                                    <Text style={{ color: 'rgba(255,255,255,0.6)', fontWeight: '400' }}>
-                                      {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
-                                    </Text>
-                                  )}
+                                  {purchaseOrderArrivalLine(parseLocalDate(po.expectedDelivery), po.status, daysUntilDelivery)}
                                 </Text>
                               </View>
-
-                              {/* Description */}
-                              {po.description && (
-                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{po.description}</Text>
-                                </View>
-                              )}
 
                               {/* Actions */}
                               {po.status === 'Pending' && (
@@ -1286,7 +1343,6 @@ export default function CategoryDetailModal({
                               {/* Same content as dark mode but with Colors */}
                               <View style={{ marginBottom: 10 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                                  <Text style={{ fontSize: 18 }}>{categoryIcon}</Text>
                                   <View style={{ flex: 1, minWidth: 0 }}>
                                     <Text 
                                       style={{ color: Colors.text, fontSize: 15, lineHeight: 20, fontWeight: '700' }}
@@ -1321,13 +1377,14 @@ export default function CategoryDetailModal({
                                         {po.status.toUpperCase()}
                                       </Text>
                                     </View>
+                                    {purchaseOrderItemLabel(po.description) ? (
+                                      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '600', lineHeight: 20, marginTop: 6 }} numberOfLines={2}>
+                                        {purchaseOrderItemLabel(po.description)}
+                                      </Text>
+                                    ) : null}
                                   </View>
                                   <Text style={{ 
-                                    color: po.status === 'Pending' 
-                                      ? '#f59e0b' 
-                                      : po.status === 'Received'
-                                      ? '#2dcc9a'
-                                      : '#64748b',
+                                    color: po.status === 'Cancelled' ? '#64748b' : '#2dcc9a',
                                     fontSize: 15,
                                     fontWeight: '700'
                                   }}>
@@ -1342,26 +1399,15 @@ export default function CategoryDetailModal({
                               </View>
                               
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }}>
-                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
                                 <Text style={{ 
-                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#2dcc9a',
-                                  fontSize: 12,
-                                  fontWeight: '600'
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#f87171' : '#64748b',
+                                  fontSize: 14,
+                                  fontWeight: '500',
+                                  lineHeight: 20,
                                 }}>
-                                  {parseLocalDate(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  {po.status === 'Pending' && (
-                                    <Text style={{ color: Colors.sub, fontWeight: '400' }}>
-                                      {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
-                                    </Text>
-                                  )}
+                                  {purchaseOrderArrivalLine(parseLocalDate(po.expectedDelivery), po.status, daysUntilDelivery)}
                                 </Text>
                               </View>
-
-                              {po.description && (
-                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{po.description}</Text>
-                                </View>
-                              )}
 
                               {po.status === 'Pending' && (
                                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.line }}>
@@ -1428,7 +1474,7 @@ export default function CategoryDetailModal({
                   const mutedText = darkMode ? 'rgba(226,232,240,0.72)' : Colors.sub;
 
                   return (
-                    <View key={item.id} style={{ marginBottom: 12 }}>
+                    <View key={item.id}>
                       <TouchableOpacity
                         style={[
                           styles.transactionCard,
@@ -1492,7 +1538,7 @@ export default function CategoryDetailModal({
                 
                 // For other categories (expenses, change orders), use the original card design
                 return (
-                  <View key={item.id} style={{ marginBottom: 12 }}>
+                  <View key={item.id}>
                     {darkMode ? (
                       <TouchableOpacity 
                         style={[
@@ -2618,7 +2664,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.35,
   },
   transactionsContainer: {
-    gap: 16,
+    gap: 8,
   },
   transactionCardBorder: {
     borderRadius: 20,

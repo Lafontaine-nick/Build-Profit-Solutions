@@ -4812,7 +4812,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
       {/* ALL PROJECTS */}
       <View style={styles.allProjectsContainer}>
-        <View style={styles.allProjectsCard}>
             <View style={styles.cardHeaderRow}>
               <View>
                 <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
@@ -4832,10 +4831,13 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             </View>
 
             {showAllProjectsLoading ? (
+              <View style={styles.allProjectsCard}>
               <View style={styles.emptyState}>
                 <ActivityIndicator size="small" color={DASHBOARD_ACCENT} />
               </View>
+              </View>
             ) : projects.length === 0 ? (
+              <View style={styles.allProjectsCard}>
               <View style={styles.emptyState}>
                 <View style={styles.emptyStateIconCircle}>
                   <Ionicons name="document-text-outline" size={32} color={DASHBOARD_MUTED} />
@@ -4850,6 +4852,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
                   </View>
                 </Pressable>
+              </View>
               </View>
             ) : projects.length >= 4 ? (
               <ScrollView
@@ -4889,7 +4892,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 ))}
               </View>
             )}
-        </View>
       </View>
 
     </>
@@ -6003,6 +6005,7 @@ const getStyles = (
     maxHeight: 340,
   },
   allProjectsListScrollContent: {
+    gap: 12,
     paddingBottom: 8,
   },
   /** Insights tab: Next Steps list when 4+ items */
@@ -6057,8 +6060,8 @@ const getStyles = (
   },
   cardSubtitle: {
     marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: "500",
     color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
   },
@@ -6537,17 +6540,12 @@ const getStyles = (
 
   // PROJECT SUMMARY CARDS
   projectSummaryPressable: {
-    marginTop: 0,
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
     paddingVertical: 14,
-    paddingHorizontal: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.22)" : "rgba(15, 23, 42, 0.1)",
+    paddingHorizontal: 14,
     zIndex: 2,
   },
-  projectSummaryPressableLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 2,
-  },
+  projectSummaryPressableLast: {},
   projectSummaryQuietProgress: {
     flexDirection: "row",
     alignItems: "center",
@@ -6560,7 +6558,7 @@ const getStyles = (
     marginTop: 0,
   },
   allProjectsList: {
-    marginTop: 12,
+    gap: 12,
     zIndex: 2,
   },
   projectSummaryWrapper: {

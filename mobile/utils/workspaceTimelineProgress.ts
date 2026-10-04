@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
-import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
+import { isBillingTimelineMilestone } from '@/src/lib/projectFinancials';
 import { readSyncMeta, resourceTimestamp, writeSyncMeta } from '@/utils/workspaceResourceMerge';
 
 const TIMELINE_STORAGE_PREFIX = 'bps.timeline.v2.';
@@ -18,16 +18,9 @@ const timelineFetchCache = new Map<string, TimelineCacheEntry>();
 let lastBulkFetchAt = 0;
 let lastBulkFetchKey = '';
 
-function isDepositMilestone(m: any): boolean {
-  const t = (m?.title || m?.name || m?.description || '').toLowerCase();
-  return t.includes('deposit') || m?.type === 'deposit' || m?.weekNumber === 0;
-}
-
 export function computeOverallPctFromTimelineItems(items: any[]): number {
   if (!Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter(
-    (m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m)
-  );
+  const workItems = items.filter((m) => !isBillingTimelineMilestone(m));
   if (!workItems.length) return 0;
   const sum = workItems.reduce((acc, m) => {
     const pct = Math.min(

@@ -73,6 +73,18 @@ describe('estimateVsActualCard', () => {
     );
   });
 
+  it('uses all job costs for spend progress when the full actual is known', () => {
+    const summary = {
+      mappedDirectCostActual: 2200,
+      actualDirectCost: 2750,
+      estimatedDirectCost: 27010,
+    };
+    expect(formatSpendProgress(summary).percentLabel).toBe('10.2%');
+    expect(formatSpendDollarsLine(summary, (n) => `$${n.toFixed(2)}`)).toBe(
+      '$2750.00 of $27010.00 cost budget'
+    );
+  });
+
   it('shows signed variance when mapped subset is reliable', () => {
     const display = formatEstimateVarianceDisplay({
       ...feedback().projectSummary,
@@ -91,7 +103,7 @@ describe('estimateVsActualCard', () => {
       'Materials/Equipment · Labor'
     );
     expect(formatCostBudgetVsBidNote(26952.83, 32273.23, (n) => `$${n.toFixed(2)}`)).toMatch(
-      /materials \+ labor.*markup & profit/
+      /hard costs, soft costs, and contingency.*markup/
     );
   });
 

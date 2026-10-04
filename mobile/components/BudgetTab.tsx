@@ -782,6 +782,8 @@ export default function BudgetTab({
   const remainingPercent = Math.max(0, 100 - Math.min(usagePercent, 100));
 
   const budgetAccent = '#2dcc9a';
+  const budgetOver = '#f87171';
+  const budgetIcon = darkMode ? '#8eecc9' : '#0d9488';
   const budgetMuted = darkMode ? '#d7e1f0' : '#64748b';
   const remainingColor = remaining > 0 ? budgetAccent : '#ef4444';
   const quietMoneyColor = (amount: number) => (amount === 0 ? budgetMuted : undefined);
@@ -954,8 +956,8 @@ export default function BudgetTab({
       </View>
 
           {tab === 'lines' && (
-              <View style={[budgetFlowCardStyle, { marginTop: 12 }]}>
-                  <View style={[styles.budgetPageHeader, { marginBottom: 4 }]}>
+              <View style={styles.budgetCategoryStack}>
+                  <View style={styles.budgetPageHeader}>
                     <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
                       Budget Categories
                     </Text>
@@ -981,15 +983,10 @@ export default function BudgetTab({
                             ? 'people'
                             : 'inventory';
 
-                    const isLastCategory = index === stableBuckets.length - 1;
                     return (
                       <View
                         key={item.stableId || item.id || `budget-item-${index}`}
-                        style={[
-                          styles.budgetOpenRow,
-                          { borderBottomColor: rowHairline },
-                          isLastCategory && styles.budgetOpenRowLast,
-                        ]}
+                        style={[budgetFlowCardStyle, styles.budgetCategoryCard]}
                       >
                       <Pressable
                         accessibilityRole="button"
@@ -998,12 +995,25 @@ export default function BudgetTab({
                       >
                         <View style={styles.budgetCardHeader}>
                           {isOverBudget && (
-                            <View style={[styles.warningBadge, { backgroundColor: '#ef4444', position: 'absolute', top: 0, right: 28, zIndex: 2 }]}>
-                              <Text style={styles.warningBadgeText}>Over Budget</Text>
+                            <View
+                              style={[
+                                styles.warningBadge,
+                                {
+                                  backgroundColor: 'rgba(248, 113, 113, 0.16)',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(248, 113, 113, 0.38)',
+                                  position: 'absolute',
+                                  top: 0,
+                                  right: 28,
+                                  zIndex: 2,
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.warningBadgeText, { color: budgetOver }]}>Over Budget</Text>
                             </View>
                           )}
                           <View style={styles.budgetCardHeaderMain}>
-                            <MaterialIcons name={categoryIconName as any} size={22} color={budgetMuted} style={{ marginTop: 2 }} />
+                            <MaterialIcons name={categoryIconName as any} size={22} color={budgetIcon} style={{ marginTop: 2 }} />
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left' }]} numberOfLines={2}>
                                 {itemName}
@@ -1039,7 +1049,7 @@ export default function BudgetTab({
                                 styles.rowValueMetric,
                                 {
                                   color: isOverBudget
-                                    ? '#ef4444'
+                                    ? budgetOver
                                     : quietMoneyColor(spent) ?? budgetTotalsTheme.valueNeutral,
                                   marginTop: 6,
                                 },
@@ -1058,7 +1068,7 @@ export default function BudgetTab({
                                   styles.progressBarFill,
                                   {
                                     width: `${Math.min(spentPercent, 100)}%`,
-                                    backgroundColor: isOverBudget ? '#ef4444' : budgetAccent,
+                                    backgroundColor: isOverBudget ? budgetOver : budgetAccent,
                                   },
                                 ]}
                               />
@@ -1066,7 +1076,7 @@ export default function BudgetTab({
                           </View>
                           <View style={styles.categoryMetaRow}>
                             {isOverBudget ? (
-                              <Text style={[styles.categoryRemainingEmphasis, { color: theme.accent }]}>
+                              <Text style={[styles.categoryRemainingEmphasis, { color: budgetOver }]}>
                                 Over by {money(spent - budgetValue, currency)}
                               </Text>
                             ) : (
@@ -1088,127 +1098,137 @@ export default function BudgetTab({
         )}
 
         {tab === 'cos' && (
-            <View style={[budgetFlowCardStyle, { marginTop: 12 }]}>
-                {/* Purchase Orders Card */}
+            <View style={styles.budgetCategoryStack}>
                 {(() => {
-                  // Get all POs for display (show Pending, Received, but exclude Cancelled)
-                  const individualPOs = (projectData?.purchaseOrders || [])
-                    .filter(po => po.status !== 'Cancelled')
-                    .sort((a, b) => new Date(a.expectedDelivery).getTime() - new Date(b.expectedDelivery).getTime());
-                  
-                  // Calculate total for display: includes ALL active POs (Pending + Received)
-                  // This is different from purchaseOrdersTotal which only counts Pending (for budget calculations)
-                  const poTotalForDisplay = individualPOs.reduce((sum, po) => {
-                    let amount = 0;
-                    if (typeof po.amount === 'string') {
-                      amount = parseFloat(po.amount) || 0;
-                    } else if (typeof po.amount === 'number') {
-                      amount = po.amount;
-                    } else {
-                      amount = Number(po.amount) || 0;
-                    }
-                    return sum + amount;
-                  }, 0);
-                  
-                  // Use the display total (includes Pending + Received)
-                  const poTotal = poTotalForDisplay;
-                  
-                  // Reduced logging to prevent terminal glitching
-                  
+                  const onOrder = purchaseOrdersTotal;
+                  const received = receivedPOsTotal;
+                  const placed = onOrder + received;
+                  const receivedPercent = placed > 0 ? (received / placed) * 100 : 0;
                   return (
-                    <View
-                      key="purchase-orders-card"
-                      style={[styles.budgetOpenRow, { borderBottomColor: rowHairline }]}
-                    >
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => setSelectedCategory('Purchase Orders')}
-                          style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.72 : 1 }]}
-                        >
-                          <View style={styles.budgetCardHeader}>
-                            <View style={styles.budgetCardHeaderMain}>
-                              <MaterialIcons name="receipt-long" size={22} color={budgetMuted} style={{ marginTop: 2 }} />
-                              <View style={{ flex: 1, minWidth: 0 }}>
-                                <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left' }]}>
-                                  Purchase Orders
-                                </Text>
-                                <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
-                                  View transactions
-                                </Text>
-                              </View>
+                    <View style={[budgetFlowCardStyle, styles.budgetCategoryCard]}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setSelectedCategory('Purchase Orders')}
+                        style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.72 : 1 }]}
+                      >
+                        <View style={styles.budgetCardHeader}>
+                          <View style={styles.budgetCardHeaderMain}>
+                            <MaterialIcons name="receipt-long" size={22} color={budgetIcon} style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left' }]}>
+                                Purchase Orders
+                              </Text>
+                              <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
+                                View transactions
+                              </Text>
                             </View>
-                            <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
                           </View>
-
-                          <View style={styles.budgetCardFooterRow}>
-                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
-                              Total
-                            </Text>
-                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(poTotal) ?? budgetTotalsTheme.valueNeutral }]}>
-                              {money(poTotal, currency)}
+                          <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
+                        </View>
+                        <View style={styles.budgetStatusRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>On order</Text>
+                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(onOrder) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
+                              {money(onOrder, currency)}
                             </Text>
                           </View>
-                        </Pressable>
-                    </View>
-                  );
-                })()}
-
-                {/* Change Orders Card */}
-                {(() => {
-                  // Get the EXACT same array that individual items use
-                  // Fallback to raw change orders if normalization fails
-                  const individualCOs = normalizedChangeOrders.length > 0 
-                    ? normalizedChangeOrders 
-                    : (projectData?.changeOrders || []).map((co: any) => ({
-                        id: String(co.id || ''),
-                        title: String(co.title || 'Change Order'),
-                        amount: Number(co.amount || 0),
-                        status: (co.status || (co.approved ? 'Approved' : 'Submitted')) as 'Draft' | 'Submitted' | 'Approved' | 'Rejected',
-                        materialsAmount: co.materialsAmount ? Number(co.materialsAmount) : undefined,
-                        laborAmount: co.laborAmount ? Number(co.laborAmount) : undefined,
-                        notes: co.notes,
-                        approved: co.approved || co.status === 'Approved',
-                        date: co.date || new Date().toISOString(),
-                      }));
-                  
-                  
-                  // Use the changeOrdersTotal from useMemo (includes both COs and expenses with category "Change Orders")
-                  const coTotal = changeOrdersTotal;
-                  
-                  return (
-                    <View
-                      key="change-orders-card"
-                      style={[styles.budgetOpenRow, styles.budgetOpenRowLast, { borderBottomColor: rowHairline }]}
-                    >
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => setSelectedCategory('Change Orders')}
-                          style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.72 : 1 }]}
-                        >
-                      <View style={styles.budgetCardHeader}>
-                        <View style={styles.budgetCardHeaderMain}>
-                          <MaterialIcons name="edit-note" size={22} color={budgetMuted} style={{ marginTop: 2 }} />
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left' }]}>
-                              Change Orders
-                            </Text>
-                            <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
-                              View transactions
+                          <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Received</Text>
+                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(received) ?? budgetAccent, marginTop: 6 }]}>
+                              {money(received, currency)}
                             </Text>
                           </View>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
-                      </View>
-
-                      <View style={styles.budgetCardFooterRow}>
-                        <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
-                          Total
-                        </Text>
-                        <Text style={[styles.rowValueMetric, { color: quietMoneyColor(coTotal) ?? budgetTotalsTheme.valueNeutral }]}>
-                          {money(coTotal, currency)}
-                        </Text>
-                      </View>
-                    </Pressable>
+                        <View style={styles.progressBarContainer}>
+                          <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
+                            {receivedPercent > 0 ? (
+                              <View style={[styles.progressBarFill, { width: `${Math.min(receivedPercent, 100)}%`, backgroundColor: budgetAccent }]} />
+                            ) : null}
+                          </View>
+                          <View style={styles.categoryMetaRow}>
+                            <Text style={[styles.categoryRemainingEmphasis, { color: theme.text }]}>
+                              {placed <= 0
+                                ? 'Nothing on order yet'
+                                : onOrder > 0
+                                  ? `Still on order ${money(onOrder, currency)}`
+                                  : 'All orders received'}
+                            </Text>
+                            <Text style={[styles.categoryPercentMuted, { color: pageInstructional }]}>
+                              {receivedPercent.toFixed(1)}% received
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    </View>
+                  );
+                })()}
+                {(() => {
+                  const approvedTotal = normalizedChangeOrders.reduce((sum, co) => {
+                    if (!(co.approved || co.status === 'Approved')) return sum;
+                    return sum + (Number(co.amount) || 0);
+                  }, 0);
+                  const waitingTotal = normalizedChangeOrders.reduce((sum, co) => {
+                    if (co.status === 'Rejected') return sum;
+                    if (co.approved || co.status === 'Approved') return sum;
+                    return sum + (Number(co.amount) || 0);
+                  }, 0);
+                  const tracked = approvedTotal + waitingTotal;
+                  const approvedPercent = tracked > 0 ? (approvedTotal / tracked) * 100 : 0;
+                  return (
+                    <View style={[budgetFlowCardStyle, styles.budgetCategoryCard]}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setSelectedCategory('Change Orders')}
+                        style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.72 : 1 }]}
+                      >
+                        <View style={styles.budgetCardHeader}>
+                          <View style={styles.budgetCardHeaderMain}>
+                            <MaterialIcons name="edit-note" size={22} color={budgetIcon} style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left' }]}>
+                                Change Orders
+                              </Text>
+                              <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
+                                View transactions
+                              </Text>
+                            </View>
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
+                        </View>
+                        <View style={styles.budgetStatusRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Approved</Text>
+                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(approvedTotal) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
+                              {money(approvedTotal, currency)}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Waiting</Text>
+                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(waitingTotal) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
+                              {money(waitingTotal, currency)}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.progressBarContainer}>
+                          <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
+                            {approvedPercent > 0 ? (
+                              <View style={[styles.progressBarFill, { width: `${Math.min(approvedPercent, 100)}%`, backgroundColor: budgetAccent }]} />
+                            ) : null}
+                          </View>
+                          <View style={styles.categoryMetaRow}>
+                            <Text style={[styles.categoryRemainingEmphasis, { color: theme.text }]}>
+                              {tracked <= 0
+                                ? 'No change orders yet'
+                                : waitingTotal > 0
+                                  ? `Waiting on approval ${money(waitingTotal, currency)}`
+                                  : 'All change orders approved'}
+                            </Text>
+                            <Text style={[styles.categoryPercentMuted, { color: pageInstructional }]}>
+                              {approvedPercent.toFixed(1)}% approved
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
                     </View>
                   );
                 })()}
@@ -2061,7 +2081,14 @@ const styles = StyleSheet.create({
   },
   /** Main page title block — mirrors project-detail overviewPageHeader */
   budgetPageHeader: {
-    marginBottom: 16,
+    marginBottom: 0,
+  },
+  budgetCategoryStack: {
+    marginTop: 12,
+    gap: 12,
+  },
+  budgetCategoryCard: {
+    marginBottom: 0,
   },
   budgetPageTitle: {
     fontSize: 22,
@@ -2183,11 +2210,10 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   rowLabelMetric: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   rowSublabel: {
     fontSize: 13,

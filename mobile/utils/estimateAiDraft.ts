@@ -5806,6 +5806,57 @@ type SelectedScopePricing = {
   ruleKey: string;
 };
 
+function positiveTakeoffCount(value: unknown): number | null {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Confirm-scope device counts win over a stored quantity of 1.
+ * A priced ceiling-fan package was keeping the dollar total and writing
+ * "1 each" onto the material and labor lines.
+ */
+function electricalTakeoffBasis(
+  draft: EstimateAiDraft,
+  ruleKey: string,
+  stored: { quantity: number; unit: string } | null
+): { quantity: number; unit: string } | null {
+  const card = ELECTRICAL_CARDS.find(row => row.itemId === ruleKey);
+  if (!card || card.measurementKey === 'serviceAmperage') return null;
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const measured = positiveTakeoffCount(measurements[card.measurementKey]);
+  const quantities =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<
+          string,
+          { quantity?: unknown; unit?: unknown }
+        >)
+      : {};
+  const basisEntry = quantities[`${ruleKey}__sqft_basis`];
+  const basisUnit = String(basisEntry?.unit || '').toLowerCase();
+  const basisCount =
+    basisUnit === 'allowance' || basisUnit === 'lump_sum'
+      ? null
+      : positiveTakeoffCount(basisEntry?.quantity);
+  const itemEntry = quantities[ruleKey];
+  const itemUnit = String(itemEntry?.unit || '').toLowerCase();
+  const itemCount =
+    itemUnit === 'allowance' || itemUnit === 'lump_sum'
+      ? null
+      : positiveTakeoffCount(itemEntry?.quantity);
+  const counts = [measured, basisCount, itemCount, stored?.quantity].filter(
+    (value): value is number => value != null && value > 0
+  );
+  const quantity = counts.length ? Math.max(...counts) : null;
+  if (quantity == null) return null;
+  if (stored && stored.quantity > 1 && quantity === stored.quantity) return null;
+  if (stored && Math.abs(stored.quantity - quantity) < 0.01) return null;
+  const unit = card.unit === 'lf' ? 'lf' : 'each';
+  return { quantity, unit };
+}
+
 function selectedPricingForRuleKey(
   draft: EstimateAiDraft,
   ruleKey: string
@@ -5833,12 +5884,15 @@ function selectedPricingForRuleKey(
   // Auto national-average amounts must not rewrite packages on apply.
   if (!userSelected) return null;
 
-  const physicalBasis =
+  const storedPhysicalBasis =
     base?.quantity &&
     base.unit &&
     !['allowance', 'lump_sum'].includes(base.unit)
       ? { quantity: Number(base.quantity), unit: base.unit }
       : null;
+  const physicalBasis =
+    electricalTakeoffBasis(draft, ruleKey, storedPhysicalBasis) ??
+    storedPhysicalBasis;
 
   if (
     acceptance &&
@@ -7158,6 +7212,84 @@ function physicalQuantityFromPackage(
   return { quantity: qty, unit };
 }
 
+function electricalCardForNamedLine(item: {
+  checklistItemId?: unknown;
+  costCode?: unknown;
+  sourceItemId?: unknown;
+  name?: unknown;
+}): (typeof ELECTRICAL_CARDS)[number] | null {
+  const ids = [item.checklistItemId, item.costCode, item.sourceItemId]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+  const byId = ELECTRICAL_CARDS.find(card => ids.includes(card.itemId));
+  if (byId) return byId;
+  const name = String(item.name || '')
+    .replace(/\s—\s*(labor|materials)$/i, '')
+    .trim()
+    .toLowerCase();
+  if (!name) return null;
+  return (
+    ELECTRICAL_CARDS.find(card => card.label.toLowerCase() === name) || null
+  );
+}
+
+function physicalQuantityForAppliedPackage(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): { quantity: number; unit: string } | null {
+  const fromPackage = physicalQuantityFromPackage(pkg);
+  const card = electricalCardForNamedLine({
+    checklistItemId: pkg.checklistItemId || packageRuleKeyForApply(pkg),
+    costCode: pkg.costCode,
+    name: pkg.name,
+  });
+  if (!card) return fromPackage;
+  return (
+    electricalTakeoffBasis(draft, card.itemId, fromPackage) ?? fromPackage
+  );
+}
+
+/** Rewrite saved labor/material rows when the scope count changed after pricing. */
+export function syncElectricalScopeQuantitiesOnBidLines<
+  T extends Record<string, unknown>,
+>(
+  lines: T[] | null | undefined,
+  measurements: Record<string, unknown> | null | undefined
+): T[] | null {
+  if (!lines?.length || !measurements) return null;
+  let changed = false;
+  const next = lines.map(line => {
+    const card = electricalCardForNamedLine(line);
+    if (!card || card.measurementKey === 'serviceAmperage') return line;
+    const takeoff = electricalTakeoffBasis(
+      { scopeMeasurements: measurements } as EstimateAiDraft,
+      card.itemId,
+      {
+        quantity: Number(line.quantity || line.qty || line.hours || 0),
+        unit: String(line.unit || 'each'),
+      }
+    );
+    if (!takeoff) return line;
+    const total = Number(line.total ?? line.totalCost ?? 0);
+    const rate =
+      total > 0
+        ? Math.round((total / takeoff.quantity) * 100) / 100
+        : Number(line.rate || line.unitPrice || 0);
+    changed = true;
+    return {
+      ...line,
+      quantity: takeoff.quantity,
+      qty: takeoff.quantity,
+      hours: takeoff.quantity,
+      unit: line.unit || takeoff.unit,
+      rate,
+      ...(line.unitPrice != null ? { unitPrice: rate } : {}),
+      ...(line.cost != null && line.unitPrice == null ? { cost: rate } : {}),
+    };
+  });
+  return changed ? next : null;
+}
+
 function catalogUnitToLineItemUnit(unit: string): string {
   const u = String(unit || '').toLowerCase();
   if (u === 'sqft' || u === 'sf' || u === 'sq ft') return 'sq ft';
@@ -7199,7 +7331,7 @@ function laborLineItemsFromDraft(
         (pkg.includesLabor && pkg.includesMaterials) ||
         (packageSplitIsSuggestedOnly(pkg) && !applySuggestedSplits));
     const costCode = resolvePackageCostCode(pkg);
-    const physical = physicalQuantityFromPackage(pkg);
+    const physical = physicalQuantityForAppliedPackage(pkg, draft);
     const hours = physical ? physical.quantity : 1;
     const lineUnit = physical
       ? catalogUnitToLineItemUnit(physical.unit)
@@ -7255,7 +7387,7 @@ function materialLineItemsFromDraft(
     const splitIsSuggested =
       parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
     const costCode = resolvePackageCostCode(pkg);
-    const physical = physicalQuantityFromPackage(pkg);
+    const physical = physicalQuantityForAppliedPackage(pkg, draft);
     const qty = physical ? physical.quantity : 1;
     const unit = physical ? catalogUnitToLineItemUnit(physical.unit) : 'lot';
 

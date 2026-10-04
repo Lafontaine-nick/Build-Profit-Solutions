@@ -7502,8 +7502,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 80, 110, 0.16)",
   },
   todayBriefCardTitle: {
-    color: "rgba(148, 163, 184, 0.92)",
-    fontSize: 10,
+    color: "#d7e1f0",
+    fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 1.05,
@@ -7511,7 +7511,7 @@ const styles = StyleSheet.create({
   },
   todayBriefGreeting: {
     color: "rgba(241, 245, 249, 0.86)",
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "800",
     marginBottom: 6,
     letterSpacing: -0.4,

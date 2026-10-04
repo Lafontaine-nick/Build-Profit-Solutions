@@ -33,6 +33,7 @@ import {
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
 } from "@/utils/estimateFlowCardStyle";
 import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
+import { EXPENSE_TRADE_PLACEHOLDER, suggestedExpenseTrade } from "@/utils/expenseTradePrefill";
 
 /** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
 function alertAddTxnValidation(title: string, message: string) {
@@ -54,6 +55,15 @@ export type AddTransactionChangeOrderDraft = {
   description?: string;
 };
 
+const SOFT_COST_TYPE_OPTIONS = [
+  { id: 'permits', label: 'Permits' },
+  { id: 'plans', label: 'Plans' },
+  { id: 'engineering', label: 'Engineering' },
+  { id: 'lender', label: 'Lender fees' },
+  { id: 'interest', label: 'Interest' },
+  { id: 'other', label: 'Other' },
+] as const;
+
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -74,6 +84,7 @@ type Props = {
     scope?: string;
     expectedDelivery?: string;
     linkedLineId?: string;
+    trade?: string;
   }) => void;
   /** Pre-fill when editing a change order from Category detail (web + native). */
   initialDraft?: AddTransactionChangeOrderDraft | null;
@@ -108,10 +119,11 @@ export default function AddTransactionModal({
   const [po, setPo] = useState("");
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isPlanned, setIsPlanned] = useState<boolean>(true);
+  const [softCostType, setSoftCostType] = useState<string>('permits');
   const [projectPhase, setProjectPhase] = useState<string>('');
   const [scope, setScope] = useState<string>('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
-  const [expectedDelivery, setExpectedDelivery] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+  const [expectedDelivery, setExpectedDelivery] = useState<Date | null>(null);
   const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
 
   /** Same idea as estimate-generator materials/labor: flat total vs sq ft × $/sq ft */
@@ -142,6 +154,8 @@ export default function AddTransactionModal({
   const materialRef = useRef<TextInput>(null);
   const laborDescRef = useRef<TextInput>(null);
   const tradeRef = useRef<TextInput>(null);
+  const suggestedTradeRef = useRef("");
+  const tradeEditedRef = useRef(false);
 
   const categoryNameLower = categoryName.toLowerCase();
   const isPurchaseOrdersCategory = categoryNameLower.includes('purchase order');
@@ -161,6 +175,10 @@ export default function AddTransactionModal({
     categoryName === 'Subs' ||
     categoryNameLower.includes('labor') ||
     categoryNameLower.includes('subcontract');
+  const isSoftCostExpense =
+    categoryNameLower.includes('soft cost') ||
+    categoryNameLower.includes('soft-cost');
+  const isContingencyExpense = categoryNameLower.includes('contingency');
 
   const supportsPerSqftPricing = useMemo(() => {
     return (
@@ -219,13 +237,42 @@ export default function AddTransactionModal({
     [pricingMode]
   );
 
+  const applySuggestedTrade = useCallback(
+    (line: EstimateLineOption | null) => {
+      if (!isLaborOrSubs && !isMaterialsEquipmentExpense) return;
+      const next = suggestedExpenseTrade({
+        projectLike: projectData as unknown as Record<string, unknown>,
+        lineName: line?.name,
+        costCode: line?.costCode,
+      });
+      if (!next) return;
+      setTrade((current) => {
+        const canReplace =
+          !tradeEditedRef.current ||
+          !current.trim() ||
+          current === suggestedTradeRef.current;
+        if (!canReplace) return current;
+        suggestedTradeRef.current = next;
+        tradeEditedRef.current = false;
+        return next;
+      });
+    },
+    [isLaborOrSubs, isMaterialsEquipmentExpense, projectData]
+  );
+
+  const onTradeChange = useCallback((text: string) => {
+    tradeEditedRef.current = text !== suggestedTradeRef.current;
+    setTrade(text);
+  }, []);
+
   useEffect(() => {
     if (!visible) return;
     setReceiptUri(null);
     setIsPlanned(true);
+    setSoftCostType('permits');
     setProjectPhase('');
     setScope('');
-    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setExpectedDelivery(null);
     setPricingMode("flat");
     setSqftInput("");
     setRatePerSqftInput("");
@@ -238,6 +285,8 @@ export default function AddTransactionModal({
     setMaterial("");
     setLaborDescription("");
     setTrade("");
+    suggestedTradeRef.current = "";
+    tradeEditedRef.current = false;
     setVendor("");
     setAmount("");
     setDescription("");
@@ -255,6 +304,17 @@ export default function AddTransactionModal({
       setAmount(tot > 0 ? sanitizeDecimalMoneyInput(tot.toFixed(2)) : "");
     }
   }, [visible, initialDraftKey, initialDraft, isChangeOrdersCategory]);
+
+  useEffect(() => {
+    if (!visible || (!isLaborOrSubs && !isMaterialsEquipmentExpense)) return;
+    applySuggestedTrade(selectedEstimateLine);
+  }, [
+    visible,
+    isLaborOrSubs,
+    isMaterialsEquipmentExpense,
+    applySuggestedTrade,
+    selectedEstimateLine,
+  ]);
 
   // Per-sq-ft: keep Amount in sync. Amount state = cent digit string (phone-pad).
   useEffect(() => {
@@ -477,21 +537,33 @@ export default function AddTransactionModal({
   const vendorLabel = isChangeOrdersCategory
     ? 'Change Order Title *'
     : categoryName === 'Labor' || categoryName === 'Subs' 
-    ? 'Sub / Trade *' 
+    ? 'Sub / Trade *'
+    : isSoftCostExpense
+    ? 'Paid to *'
+    : isContingencyExpense
+    ? 'What it covered *'
     : 'Vendor / Supplier *';
   
   const vendorPlaceholder = isChangeOrdersCategory
     ? 'e.g., Extra concrete work'
+    : isSoftCostExpense
+    ? 'City, engineer, or lender'
+    : isContingencyExpense
+    ? 'e.g., Extra conduit, weather delay'
     : categoryName === 'Labor' || categoryName === 'Subs'
-    ? 'e.g., ABC Electrical, Joe\'s Plumbing'
+    ? EXPENSE_TRADE_PLACEHOLDER
     : 'e.g., Home Depot, ABC Contractors';
 
-  const descriptionPlaceholder = isChangeOrdersCategory
+  const descriptionPlaceholder = isSoftCostExpense
+    ? 'Permit number, invoice, or note'
+    : isChangeOrdersCategory
     ? 'Additional notes about this change order'
     : categoryName === 'Labor' || categoryName === 'Subs'
     ? 'What work was performed?'
     : categoryName === 'Equipment'
     ? 'What was rented or purchased?'
+    : isPurchaseOrdersCategory
+    ? 'e.g., Lumber package, conduit'
     : 'What was purchased or service provided?';
 
   const resetFormState = () => {
@@ -504,9 +576,10 @@ export default function AddTransactionModal({
     setPo("");
     setReceiptUri(null);
     setIsPlanned(true);
+    setSoftCostType('permits');
     setProjectPhase('');
     setScope('');
-    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setExpectedDelivery(null);
     setPricingMode("flat");
     setSqftInput("");
     setRatePerSqftInput("");
@@ -561,7 +634,11 @@ export default function AddTransactionModal({
         return;
       }
     } else if (!vendor.trim()) {
-      const fieldName = isChangeOrdersCategory ? "change order title" : "vendor name";
+      const fieldName = isChangeOrdersCategory
+        ? "change order title"
+        : isContingencyExpense
+          ? "note for what this contingency covered"
+          : "vendor name";
       alertAddTxnValidation("Required", `Please enter a ${fieldName}.`);
       return;
     }
@@ -615,6 +692,11 @@ export default function AddTransactionModal({
           return parseAmountFieldToNumber(amount);
         })()
       : parseAmountFieldToNumber(amount);
+    if (isPurchaseOrdersCategory && !expectedDelivery) {
+      alertAddTxnValidation("Delivery date required", "Choose an expected delivery date.");
+      return;
+    }
+
     if (isNaN(amountNum) || amountNum <= 0) {
       alertAddTxnValidation(
         "Invalid Amount",
@@ -628,6 +710,17 @@ export default function AddTransactionModal({
     let descriptionOut = isLaborOrSubs
       ? [laborDescription.trim(), description.trim()].filter(Boolean).join("\n\n")
       : description.trim();
+    const softCostLabel = isSoftCostExpense
+      ? SOFT_COST_TYPE_OPTIONS.find((option) => option.id === softCostType)?.label || ''
+      : '';
+    if (softCostLabel && softCostLabel !== 'Other') {
+      const alreadyNamed = descriptionOut.toLowerCase().includes(softCostLabel.toLowerCase());
+      descriptionOut = alreadyNamed
+        ? descriptionOut
+        : descriptionOut
+          ? `${softCostLabel}\n${descriptionOut}`
+          : softCostLabel;
+    }
     if (supportsPerSqftPricing && pricingMode === "sqft") {
       if (isChangeOrdersCategory) {
         const mSq = parseInt(digitsOnly(materialSqftInput), 10) || 0;
@@ -668,6 +761,7 @@ export default function AddTransactionModal({
       amount: amountNum,
       description: descriptionOut,
       linkedLineId: selectedEstimateLine?.id,
+      trade: (isLaborOrSubs || isMaterialsEquipmentExpense) ? trade.trim() || undefined : undefined,
       materialsAmount:
         isChangeOrdersCategory && pricingMode === "flat"
           ? materialsAmount
@@ -686,7 +780,7 @@ export default function AddTransactionModal({
       isPlanned,
       projectPhase: projectPhase || undefined,
       scope: scope || undefined,
-      expectedDelivery: isPurchaseOrdersCategory
+      expectedDelivery: isPurchaseOrdersCategory && expectedDelivery
         ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`
         : undefined,
     });
@@ -715,7 +809,11 @@ export default function AddTransactionModal({
     categoryNameLower.includes("material") ||
     categoryNameLower.includes("equipment") ||
     categoryNameLower.includes("labor") ||
-    categoryNameLower.includes("subs");
+    categoryNameLower.includes("subs") ||
+    categoryNameLower.includes("soft cost") ||
+    categoryNameLower.includes("soft-cost") ||
+    categoryNameLower.includes("allowance") ||
+    categoryNameLower.includes("contingency");
   const webBudgetExpenseShell = budgetExpenseCategory;
   const budgetExpenseWebRing = Platform.OS === "web" && webBudgetExpenseShell;
   const webPoDesktopWide =
@@ -735,7 +833,7 @@ export default function AddTransactionModal({
     if (categoryNameLower.includes("labor") || categoryNameLower.includes("subs")) {
       return "user" as const;
     }
-    if (categoryNameLower.includes("change")) {
+    if (categoryNameLower.includes("change") || categoryNameLower.includes("contingency")) {
       return "file-text" as const;
     }
     return "package" as const;
@@ -912,7 +1010,11 @@ export default function AddTransactionModal({
       animationType="slide"
       {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
-      {webBudgetExpenseShell ? (
+      {webBudgetExpenseShell &&
+      !categoryNameLower.includes("soft cost") &&
+      !categoryNameLower.includes("soft-cost") &&
+      !categoryNameLower.includes("allowance") &&
+      !categoryNameLower.includes("contingency") ? (
         <KeyboardPlainAccessory
           nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
           backgroundColor={darkMode ? "#000000" : Colors.bg}
@@ -1013,6 +1115,7 @@ export default function AddTransactionModal({
                       if (line) {
                         setLaborDescription(line.name.replace(/\s*[—–-]\s*labor\s*$/i, '').trim());
                       }
+                      applySuggestedTrade(line);
                     }}
                     darkMode={darkMode}
                     colors={{
@@ -1076,10 +1179,10 @@ export default function AddTransactionModal({
                       <TextInput
                         ref={tradeRef}
                         style={poWebChrome.materialInput}
-                        placeholder="e.g., ABC Electrical, Joe's Plumbing"
+                        placeholder={EXPENSE_TRADE_PLACEHOLDER}
                         placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                         value={trade}
-                        onChangeText={setTrade}
+                        onChangeText={onTradeChange}
                         autoCapitalize="words"
                         onSubmitEditing={focusIntoPricingOrAmount}
                         selectionColor="#22c55e"
@@ -1100,10 +1203,10 @@ export default function AddTransactionModal({
                           color: Colors.text,
                         },
                       ]}
-                      placeholder="e.g., ABC Electrical, Joe's Plumbing"
+                      placeholder={EXPENSE_TRADE_PLACEHOLDER}
                       placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                       value={trade}
-                      onChangeText={setTrade}
+                      onChangeText={onTradeChange}
                       autoCapitalize="words"
                       onSubmitEditing={focusIntoPricingOrAmount}
                       {...resolveTextInputKeyboardProps()}
@@ -1123,6 +1226,7 @@ export default function AddTransactionModal({
                   if (line) {
                     setMaterial(line.name.replace(/\s*[—–-]\s*materials?\s*$/i, '').trim());
                   }
+                  applySuggestedTrade(line);
                 }}
                 darkMode={darkMode}
                 colors={{
@@ -1136,6 +1240,62 @@ export default function AddTransactionModal({
                 }}
               />
             ) : null}
+            {isSoftCostExpense ? (
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
+                  Soft cost *
+                </Text>
+                <View style={{ gap: 8 }}>
+                  {[0, 1].map((row) => (
+                    <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
+                  {SOFT_COST_TYPE_OPTIONS.slice(row * 3, row * 3 + 3).map((option) => {
+                    const selected = softCostType === option.id;
+                    return (
+                      <TouchableOpacity
+                        key={option.id}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setSoftCostType(option.id);
+                        }}
+                        style={
+                          webBudgetExpenseShell && poWebChrome
+                            ? { ...poWebChrome.pricingOpt(selected), flex: 1, paddingHorizontal: 6 }
+                            : {
+                                flex: 1,
+                                paddingHorizontal: 6,
+                                paddingVertical: 10,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minHeight: 48,
+                                borderColor: selected ? '#2dcc9a' : Colors.line,
+                                backgroundColor: selected ? '#2dcc9a' : Colors.surface2,
+                              }
+                        }
+                      >
+                        <Text
+                          style={
+                            webBudgetExpenseShell && poWebChrome
+                              ? { ...poWebChrome.pricingText(selected), textAlign: 'center' as const, fontSize: 13 }
+                              : {
+                                  color: selected ? '#050B13' : Colors.text,
+                                  fontWeight: '600',
+                                  fontSize: 13,
+                                  textAlign: 'center',
+                                }
+                          }
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
               {webBudgetExpenseShell && poWebChrome ? (
@@ -1148,7 +1308,7 @@ export default function AddTransactionModal({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={vendor}
                     onChangeText={setVendor}
-                    autoCapitalize="words"
+                    autoCapitalize={isContingencyExpense ? "sentences" : "words"}
                     selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
                     {...resolveTextInputKeyboardProps()}
@@ -1171,7 +1331,7 @@ export default function AddTransactionModal({
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={vendor}
                 onChangeText={setVendor}
-                autoCapitalize="words"
+                autoCapitalize={isContingencyExpense ? "sentences" : "words"}
                 {...resolveTextInputKeyboardProps()}
               />
               )}
@@ -1221,6 +1381,49 @@ export default function AddTransactionModal({
                 )}
               </View>
             )}
+
+            {isMaterialsEquipmentExpense ? (
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Trade</Text>
+                {webBudgetExpenseShell && poWebChrome ? (
+                  <View style={poWebChrome.materialInputWrap}>
+                    <Feather name="briefcase" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                    <TextInput
+                      ref={tradeRef}
+                      style={poWebChrome.materialInput}
+                      placeholder={EXPENSE_TRADE_PLACEHOLDER}
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={trade}
+                      onChangeText={onTradeChange}
+                      autoCapitalize="words"
+                      selectionColor="#22c55e"
+                      underlineColorAndroid="transparent"
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  </View>
+                ) : (
+                  <TextInput
+                    ref={tradeRef}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: Colors.surface2,
+                        borderColor: Colors.line,
+                        borderWidth: 1,
+                        borderRadius: 12,
+                        color: Colors.text,
+                      },
+                    ]}
+                    placeholder={EXPENSE_TRADE_PLACEHOLDER}
+                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                    value={trade}
+                    onChangeText={onTradeChange}
+                    autoCapitalize="words"
+                    {...resolveTextInputKeyboardProps()}
+                  />
+                )}
+              </View>
+            ) : null}
 
             {supportsPerSqftPricing && (
               <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
@@ -1854,7 +2057,8 @@ export default function AddTransactionModal({
               )}
             </View>
 
-            {/* Receipt Capture */}
+            {/* Receipt Capture — a purchase order is logged before the receipt arrives */}
+            {!isPurchaseOrdersCategory ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Receipt (Optional)</Text>
               {receiptUri ? (
@@ -1913,6 +2117,7 @@ export default function AddTransactionModal({
                 </TouchableOpacity>
               )}
             </View>
+            ) : null}
 
             {/* Expected Delivery (Purchase Orders only) */}
             {isPurchaseOrdersCategory && (
@@ -1936,8 +2141,10 @@ export default function AddTransactionModal({
                   }
                 >
                   <Feather name="calendar" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
-                  <Text style={[styles.dateButtonText, { color: Colors.text }]}>
-                    {expectedDelivery.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  <Text style={[styles.dateButtonText, { color: expectedDelivery ? Colors.text : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub) }]}>
+                    {expectedDelivery
+                      ? expectedDelivery.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : 'Select a date'}
                   </Text>
                 </TouchableOpacity>
                 {showDeliveryDatePicker && (
@@ -1955,23 +2162,32 @@ export default function AddTransactionModal({
                         setExpectedDelivery(selectedDate);
                         setShowDeliveryDatePicker(false);
                       }}
-                      markedDates={{
-                        [`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`]: {
-                          selected: true,
-                          selectedColor: '#22c55e',
-                          selectedTextColor: '#000000',
-                        }
-                      }}
-                      initialDate={`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`}
+                      markedDates={
+                        expectedDelivery
+                          ? {
+                              [`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`]: {
+                                selected: true,
+                                selectedColor: '#22c55e',
+                                selectedTextColor: '#000000',
+                              },
+                            }
+                          : {}
+                      }
+                      initialDate={
+                        expectedDelivery
+                          ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`
+                          : undefined
+                      }
                     />
                   </View>
                 )}
               </View>
             )}
 
-            {/* Planned vs Unplanned Toggle — not shown for a materials receipt */}
+            {/* Planned vs Unplanned Toggle — not shown for a materials receipt or a purchase order */}
             {!isMaterialsEquipmentExpense ? (
             <>
+            {!isPurchaseOrdersCategory ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Budget Status *</Text>
               <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.pricingRow : { flexDirection: 'row', gap: 12 }}>
@@ -2056,8 +2272,11 @@ export default function AddTransactionModal({
                 </TouchableOpacity>
               </View>
             </View>
+            ) : null}
 
-            {/* Phase / Scope Link */}
+            {/* Phase / Scope Link — not used for soft costs or labor */}
+            {!isSoftCostExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
+            <>
             <View style={styles.field}>
               <Text style={[styles.label, { color: Colors.text }]}>Project Phase (Optional)</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
@@ -2109,9 +2328,14 @@ export default function AddTransactionModal({
                 {...resolveTextInputKeyboardProps()}
               />
             </View>
+            </>
+            ) : null}
 
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: Colors.text }]}>Description (Optional)</Text>
+            {!isLaborOrSubs && !isContingencyExpense ? (
+            <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+              <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
+                {isSoftCostExpense ? 'Note (Optional)' : isPurchaseOrdersCategory ? 'What was ordered' : 'Description (Optional)'}
+              </Text>
               <TextInput
                 ref={descriptionRef}
                 style={[
@@ -2140,7 +2364,9 @@ export default function AddTransactionModal({
                 {...resolveTextInputKeyboardProps({ multiline: true })}
               />
             </View>
+            ) : null}
 
+            {!isSoftCostExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
             <View style={styles.field}>
               <Text style={[styles.label, { color: Colors.text }]}>PO Number (Optional)</Text>
               <TextInput
@@ -2170,6 +2396,7 @@ export default function AddTransactionModal({
                 {...resolveTextInputKeyboardProps()}
               />
             </View>
+            ) : null}
             </>
             ) : null}
               </View>

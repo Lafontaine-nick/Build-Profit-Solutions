@@ -12,6 +12,7 @@ export type EstimateLineOption = {
   budget: number;
   quantity?: number | null;
   unit?: string | null;
+  costCode?: string | null;
 };
 
 export type EstimateLinePickerKind = 'materials' | 'labor';
@@ -44,6 +45,9 @@ export function estimateLineOptionsFor(
       budget: lineBudget(item),
       quantity: Number(item.qty ?? item.quantity) > 0 ? Number(item.qty ?? item.quantity) : null,
       unit: item.unit != null ? String(item.unit) : null,
+      costCode:
+        String(item.costCode || item.checklistItemId || item.sourceItemId || '').trim() ||
+        null,
     }))
     .filter((item) => item.budget > 0);
 }

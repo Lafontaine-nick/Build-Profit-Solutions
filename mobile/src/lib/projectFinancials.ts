@@ -167,6 +167,39 @@ export function isChangeOrderTimelineMilestone(m: { id?: unknown; type?: unknown
 }
 
 /**
+ * Billing rows (deposit, progress payments, holdback). Collected cash is not work finished,
+ * so these rows must not move schedule progress or the cost forecast.
+ */
+export function isBillingTimelineMilestone(m: {
+  id?: unknown;
+  type?: unknown;
+  title?: unknown;
+  name?: unknown;
+  description?: unknown;
+  weekNumber?: unknown;
+} | null | undefined): boolean {
+  if (!m) return false;
+  if (isChangeOrderTimelineMilestone(m)) return true;
+  const type = String(m.type || "").toLowerCase();
+  if (type === "payment" || type === "holdback" || type === "deposit" || type === "weekly") return true;
+  if (Number(m.weekNumber) === 0) return true;
+  const title = String(m.title || m.name || m.description || "").toLowerCase();
+  if (
+    title.includes("payment") ||
+    title.includes("deposit") ||
+    title.includes("holdback") ||
+    title.includes("retainage") ||
+    title.includes("invoice") ||
+    title.includes("billing") ||
+    /\bprogress\s+pay/i.test(title)
+  ) {
+    return true;
+  }
+  if (/week\s*\d/i.test(title) && (title.includes("pay") || title.includes("progress"))) return true;
+  return false;
+}
+
+/**
  * Outstanding receivables: synthetic CO payment rows count only when they match an **approved**
  * change order (same ids as {@link getApprovedChangeOrderPaymentRows}). Submitted-only or stale
  * timeline rows must not inflate receivables.
@@ -247,23 +280,33 @@ export function getContractValueBase(project: any, plannedFromBucketsFallback = 
   return Math.max(0, plannedFromBucketsFallback);
 }
 
-const COMPANY_OVERHEAD_KEYS = [
-  'insuranceOverhead',
-  'equipmentMaintenanceOverhead',
-  'facilitiesOverhead',
-  'adminOverhead',
-  'otherOverhead',
-] as const;
+function readPositiveAmount(source: any, ...keys: string[]): number {
+  if (!source) return 0;
+  for (const key of keys) {
+    const value = Number(source[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
 
 /** Allocated company overhead on the bid. Not part of the job-cost cap. */
 export function getAllocatedCompanyOverhead(project: any): number {
-  const ed = project?.estimateData || {};
-  const fromLines = COMPANY_OVERHEAD_KEYS.reduce((sum, key) => {
-    const value = Number(ed[key] ?? project?.[key] ?? 0);
-    return sum + (Number.isFinite(value) ? value : 0);
-  }, 0);
+  const sources = [project?.estimateData, project?.projectData?.estimateData, project];
+  const pick = (...keys: string[]) => {
+    for (const source of sources) {
+      const amount = readPositiveAmount(source, ...keys);
+      if (amount > 0) return amount;
+    }
+    return 0;
+  };
+  const fromLines =
+    pick('insuranceOverhead') +
+    pick('equipmentMaintenance', 'equipmentMaintenanceOverhead') +
+    pick('facilities', 'facilitiesOverhead') +
+    pick('adminOverhead') +
+    pick('otherOverhead');
   if (fromLines > 0) return fromLines;
-  const saved = Number(project?.companyOverhead ?? ed?.companyOverhead ?? 0);
+  const saved = Number(project?.companyOverhead ?? project?.estimateData?.companyOverhead ?? 0);
   return Number.isFinite(saved) && saved > 0 ? saved : 0;
 }
 

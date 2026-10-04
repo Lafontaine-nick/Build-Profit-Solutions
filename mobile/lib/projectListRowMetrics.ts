@@ -6,7 +6,7 @@
 
 import { getProjectRevenue } from '@/lib/projectRevenue';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
-import { getAllocatedCompanyOverhead } from '@/src/lib/projectFinancials';
+import { computeProjectFinancials, getAllocatedCompanyOverhead } from '@/src/lib/projectFinancials';
 
 function toFiniteNumber(value: any): number {
   if (value == null) return 0;
@@ -228,25 +228,43 @@ export function computeProjectListRowFinancials(params: {
     revenue > 0 && actualCost >= 0 ? ((revenue - actualCost) / revenue) * 100 : null;
   const currentProfit = revenue > 0 && actualCost >= 0 ? Math.round(revenue - actualCost) : null;
 
+  const jobFinancials = computeProjectFinancials(mergedProject, {
+    contractValueOverride: revenue > 0 ? revenue : undefined,
+  });
+  const costCap =
+    jobFinancials.adjustedCostBudget > 0
+      ? jobFinancials.adjustedCostBudget
+      : jobFinancials.plannedCostBudget;
+  const estimateNetProfit =
+    revenue > 0 && costCap > 0 && costCap < revenue
+      ? revenue - costCap - jobFinancials.allocatedCompanyOverhead
+      : null;
+  const estimateNetMargin =
+    estimateNetProfit != null && revenue > 0 ? (estimateNetProfit / revenue) * 100 : null;
+
   const displayProfit =
     slugForUi === 'completed' && profitForecast != null
       ? profitForecast.projectedProfit
-      : useEstimateValues && (effectiveEstimateProfit > 0 || derivedProfitFromMargin != null)
-        ? effectiveEstimateProfit > 0
-          ? effectiveEstimateProfit
-          : derivedProfitFromMargin!
-        : spendToDateMargin != null
-          ? currentProfit
-          : profitForecast?.projectedProfit ?? null;
+      : estimateNetProfit != null
+        ? estimateNetProfit
+        : useEstimateValues && (effectiveEstimateProfit > 0 || derivedProfitFromMargin != null)
+          ? effectiveEstimateProfit > 0
+            ? effectiveEstimateProfit
+            : derivedProfitFromMargin!
+          : spendToDateMargin != null
+            ? currentProfit
+            : profitForecast?.projectedProfit ?? null;
 
   const displayMargin =
     slugForUi === 'completed' && profitForecast != null
       ? profitForecast.projectedMarginPct
-      : useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
-        ? derivedMarginFromProfit ?? estimateMarginNum!
-        : spendToDateMargin ??
-          profitForecast?.projectedMarginPct ??
-          (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0);
+      : estimateNetMargin != null
+        ? estimateNetMargin
+        : useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
+          ? derivedMarginFromProfit ?? estimateMarginNum!
+          : spendToDateMargin ??
+            profitForecast?.projectedMarginPct ??
+            (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0);
 
   const displayAmount = displayStatus === 'Draft' || statusSlug === 'estimate' ? 0 : revenue;
 

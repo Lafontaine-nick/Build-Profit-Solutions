@@ -36,10 +36,13 @@ import MessagesTab from '@/components/MessagesTab';
 import {
   computeProfitForecast,
   contractCollectedPctFromMilestones,
+  sumCollectedMilestonePayments,
   computeElapsedCalendarPct,
 } from '@/src/lib/profitForecast';
 import {
   computeProjectFinancials,
+  foldEquipmentRentalIntoMaterialsBucket,
+  isBillingTimelineMilestone,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '@/src/lib/projectFinancials';
@@ -1202,7 +1205,7 @@ function ProjectDetailContent() {
         return sum;
       }, 0);
       if (!hasAllow && (allowBudget > 0 || allowSpent > 0 || allowExpCtx > 0)) {
-        const unitCost = Math.max(allowBudget, allowSpent, allowExpCtx);
+        const unitCost = allowBudget > 0 ? allowBudget : Math.max(allowSpent, allowExpCtx);
         targetLines.push({
           id: 'allowances',
           category: 'Soft costs',
@@ -1442,7 +1445,10 @@ function ProjectDetailContent() {
         description: 'Permits, cleanup, and other job soft costs',
         qty: 1,
         unit: 'lump sum',
-        unitCost: Math.max(allowancesBudget, allowancesExpensesFromContext),
+        unitCost:
+          allowancesBudget > 0
+            ? allowancesBudget
+            : Math.max(allowancesSpent, allowancesExpensesFromContext),
         markupPct: 0,
         spent: allowancesSpent,
         aiSuggested: false,
@@ -1706,16 +1712,15 @@ function ProjectDetailContent() {
         : 0;
 
     // Compute schedule progress from live timeline (exclude deposit) when available — matches Timeline tab
-    const isDeposit = (m: any) => {
-      const t = (m?.title || m?.name || "").toLowerCase();
-      return t.includes("deposit") || m?.type === "deposit";
-    };
-    const workMilestones = (liveTimelineMilestones || []).filter((m: any) => !isDeposit(m));
-    const scheduleProgress = workMilestones.length > 0
-      ? Math.round(
-          workMilestones.reduce((sum: number, m: any) => sum + Math.min(100, Math.max(0, m.progressPct || 0)), 0) /
-          workMilestones.length
-        )
+    const scheduleSource = liveTimelineMilestones || [];
+    const workMilestones = scheduleSource.filter((m: any) => !isBillingTimelineMilestone(m));
+    const scheduleProgress = scheduleSource.length > 0
+      ? (workMilestones.length > 0
+        ? Math.round(
+            workMilestones.reduce((sum: number, m: any) => sum + Math.min(100, Math.max(0, m.progressPct || 0)), 0) /
+            workMilestones.length
+          )
+        : 0)
       : (safeProjectData?.overallProgressPct ?? safeProjectData?.progress ?? 0);
     const projectStatus = String((safeProjectData as any)?.status ?? '').toLowerCase();
     const isProjectCompleted = projectStatus === 'completed';
@@ -1854,6 +1859,7 @@ function ProjectDetailContent() {
       totalBudgetDisplay: formatCurrency(costBudgetCap),
       adjustedContractValueDisplay: formatCurrency(financials.adjustedContractValue),
       spentPercentUsed: Math.min(100, Math.max(0, spentPercentUsed)),
+      paymentsReceived: sumCollectedMilestonePayments(milestonesForCollection),
       startDateDisplay: formatDate(safeProjectData?.startISO),
       endDateDisplay: formatDate(safeProjectData?.endISO),
       scheduleStatusLabel: getScheduleStatusLabel(),
@@ -1879,6 +1885,17 @@ function ProjectDetailContent() {
     [realProjectData, id, contextProjectData, safeProjectData, overviewMetrics.financials]
   );
 
+  const overviewFeedbackBuckets = useMemo(
+    () =>
+      foldEquipmentRentalIntoMaterialsBucket(
+        safeProjectData?.buckets || [],
+        safeProjectData,
+        overviewMetrics.financials.plannedCostBudget ||
+          overviewMetrics.financials.adjustedCostBudget
+      ),
+    [safeProjectData, overviewMetrics.financials]
+  );
+
   const {
     estimateFeedback: overviewEstimateFeedback,
     closeoutTipCount: overviewCloseoutTipCount,
@@ -1886,7 +1903,7 @@ function ProjectDetailContent() {
   } = useProjectEstimateFeedback({
     projectId: id,
     status: String(safeProjectData?.status ?? realProjectData?.status ?? ''),
-    buckets: safeProjectData?.buckets || [],
+    buckets: overviewFeedbackBuckets,
     expenses: safeProjectData?.expenses || [],
     changeOrders: safeProjectData?.changeOrders || [],
     plannedBudget:
@@ -1934,16 +1951,60 @@ function ProjectDetailContent() {
             );
           }
           const metrics = overviewMetrics;
-          const overviewCostStatusHeadline = metrics.spendingTrendCostStatus.text
-            .split(' ')
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ');
+          const calendarDaysFromToday = (iso: string | undefined) => {
+            if (!iso) return null;
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime())) return null;
+            const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const today = new Date();
+            const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            return Math.round((target.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+          };
+          const daysUntilStart = calendarDaysFromToday(safeProjectData?.startISO);
+          const daysUntilEnd = calendarDaysFromToday(safeProjectData?.endISO);
+          const beforeStart = daysUntilStart != null && daysUntilStart > 0;
+          const pastEnd = daysUntilEnd != null && daysUntilEnd < 0 && !metrics.isProjectCompleted;
+          const workPct = Math.round(metrics.scheduleProgress);
+          const dateRange = [metrics.startDateDisplay, metrics.endDateDisplay]
+            .filter((label) => label && label !== '—')
+            .join(' – ');
+          let statusLead = 'No schedule yet.';
+          let statusDetail = '';
+          if (metrics.isProjectCompleted) {
+            statusLead = 'This job is finished.';
+          } else if (pastEnd) {
+            statusLead = 'The end date has passed.';
+            statusDetail = workPct > 0 ? `${workPct}% of the work is done.` : 'No tasks are done yet.';
+          } else if (beforeStart) {
+            statusLead =
+              daysUntilStart === 1 ? 'Starts tomorrow.' : `Starts in ${daysUntilStart} days.`;
+          } else if (workPct > 0) {
+            statusLead = `${workPct}% of the work is done.`;
+          } else if (daysUntilStart != null) {
+            statusLead = 'Work has started.';
+            statusDetail = 'No tasks are done yet.';
+          }
+          const showWorkBar = !metrics.isProjectCompleted && !beforeStart && workPct > 0;
+          const contractValue = metrics.financials.adjustedContractValue;
+          const paymentsReceived = metrics.paymentsReceived ?? 0;
+          const formatStatusMoney = (amount: number) =>
+            `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const paymentReceivedLabel =
+            contractValue > 0 && paymentsReceived > 0.005 ? formatStatusMoney(paymentsReceived) : '';
+          const paymentRestLabel =
+            contractValue > 0
+              ? paymentsReceived > 0.005
+                ? ` of ${formatStatusMoney(contractValue)} received.`
+                : 'No payments received yet.'
+              : '';
+          const statusLeadColor = pastEnd ? '#F97316' : (darkMode ? '#F5F7FA' : Colors.text);
+          const statusSecondary = darkMode ? '#d7e1f0' : '#64748b';
           const overviewNestedCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
           const overviewNestedCardBorder = darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line;
           const overviewPageCaption = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#64748b';
           return (
             <View style={[styles.wideContainer, styles.tabFlowWide]}>
-              <View style={styles.overviewCard}>
+              <View style={[styles.overviewCard, styles.overviewCardTightBottom]}>
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project Overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
@@ -2008,126 +2069,63 @@ function ProjectDetailContent() {
 
                   {projectPerms.canViewOwnerFinancials ? (
                   <>
-                  <View style={styles.innerCardContainer}>
+                  <View style={styles.overviewStackCard}>
                     <View style={[styles.innerCard, styles.overviewSectionCard]}>
-                      <View style={styles.overviewCardHeaderRow}>
-                        <View style={styles.overviewCardHeaderTitleCluster}>
-                          <View style={styles.iconBadge}>
-                            <Feather name="bar-chart-2" size={16} color={darkMode ? '#d7e1f0' : '#64748b'} />
-                          </View>
-                          <View style={styles.overviewCardHeaderTitleWrap}>
-                            <Text
-                              style={styles.overviewSectionTitle}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              Project Status
-                            </Text>
-                          </View>
+                      <Text style={styles.overviewSectionTitle}>Project Status</Text>
+                      <Text
+                        style={{
+                          marginTop: 12,
+                          fontSize: 15,
+                          fontWeight: '700',
+                          lineHeight: 20,
+                          color: statusLeadColor,
+                        }}
+                      >
+                        {statusLead}
+                      </Text>
+                      {statusDetail ? (
+                        <Text style={{ marginTop: 6, fontSize: 14, fontWeight: '500', lineHeight: 20, color: statusSecondary }}>
+                          {statusDetail}
+                        </Text>
+                      ) : null}
+                      {showWorkBar ? (
+                        <View style={[styles.projectStatusBarTrack, { marginTop: 12 }]}>
+                          <View
+                            style={[
+                              styles.projectStatusBarFill,
+                              {
+                                width: `${Math.min(100, workPct)}%`,
+                                backgroundColor: '#2dcc9a',
+                              },
+                            ]}
+                          />
                         </View>
-                        <View
-                          style={[
-                            styles.overviewHeroStatusChip,
-                            styles.overviewHeaderStatusChip,
-                            {
-                              backgroundColor: `${metrics.spendingTrendCostStatus.color}29`,
-                              borderColor: `${metrics.spendingTrendCostStatus.color}38`,
-                            },
-                          ]}
+                      ) : null}
+                      {paymentRestLabel ? (
+                        <Text
+                          style={{
+                            marginTop: 8,
+                            fontSize: paymentsReceived > 0.005 ? 15 : 14,
+                            fontWeight: paymentsReceived > 0.005 ? '700' : '500',
+                            lineHeight: 20,
+                            color: paymentsReceived > 0.005 ? (darkMode ? '#F5F7FA' : Colors.text) : statusSecondary,
+                          }}
                         >
-                          <Text
-                            style={[styles.overviewHeroStatusChipText, { color: metrics.spendingTrendCostStatus.color }]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {overviewCostStatusHeadline}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={[styles.projectStatusMetrics, { paddingTop: 2 }]}>
-                        <View style={styles.projectStatusMetricRow}>
-                          <View style={{ flex: 1, paddingRight: 10 }}>
-                            <Text style={styles.overviewHeroMetricLabel}>Cost Budget Used</Text>
-                            <Text style={styles.overviewFhMarginHelper}>
-                              Percent of planned cost budget used (incl. committed POs)
-                            </Text>
-                          </View>
-                          <Text
-                            style={styles.overviewHeroMetricValueSecondary}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                            minimumFontScale={0.75}
-                          >
-                            {metrics.spentPercentUsed.toFixed(1)}%
-                          </Text>
-                        </View>
-                        <View style={styles.projectStatusBarTrack}>
-                          {metrics.budgetProgress > 0 ? (
-                          <View
-                            style={[
-                              styles.projectStatusBarFill,
-                              {
-                                width: `${Math.min(100, metrics.budgetProgress)}%`,
-                                backgroundColor: '#2dcc9a',
-                              },
-                            ]}
-                          />
+                          {paymentReceivedLabel ? (
+                            <Text style={{ color: '#2dcc9a' }}>{paymentReceivedLabel}</Text>
                           ) : null}
-                        </View>
-
-                        <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
-                          <Text style={styles.overviewHeroMetricLabel}>Schedule</Text>
-                          <Text
-                            style={styles.overviewHeroMetricValueSecondary}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                            minimumFontScale={0.75}
-                          >
-                            {metrics.scheduleProgress.toFixed(0)}%
-                          </Text>
-                        </View>
-                        <View style={styles.projectStatusBarTrack}>
-                          {metrics.scheduleProgress > 0 ? (
-                          <View
-                            style={[
-                              styles.projectStatusBarFill,
-                              {
-                                width: `${Math.min(100, metrics.scheduleProgress)}%`,
-                                backgroundColor: '#2dcc9a',
-                              },
-                            ]}
-                          />
-                          ) : null}
-                        </View>
-                      </View>
-
-                      <View style={styles.projectStatusDivider} />
-
-                      <View style={styles.projectStatusDates}>
-                        <View style={styles.projectStatusDateRow}>
-                          <Text style={styles.overviewHeroMetricLabel}>Start</Text>
-                          <Text
-                            style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}
-                            numberOfLines={1}
-                          >
-                            {metrics.startDateDisplay}
-                          </Text>
-                        </View>
-                        <View style={[styles.projectStatusDateRow, styles.projectStatusDateRowLast]}>
-                          <Text style={styles.overviewHeroMetricLabel}>End</Text>
-                          <Text
-                            style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}
-                            numberOfLines={1}
-                          >
-                            {metrics.endDateDisplay}
-                          </Text>
-                        </View>
-                      </View>
+                          {paymentRestLabel}
+                        </Text>
+                      ) : null}
+                      {dateRange ? (
+                        <Text style={{ marginTop: 8, fontSize: 14, fontWeight: '500', lineHeight: 20, color: statusSecondary }}>
+                          {dateRange}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
 
-                  <View style={[styles.innerCardContainer, styles.overviewSectionFill]}>
+                  <View style={[styles.overviewStackCard, styles.overviewSectionFill]}>
                       <EstimateVsActualCard
                         estimateFeedback={overviewEstimateFeedback}
                         closeoutTipCount={overviewCloseoutTipCount}
@@ -2733,6 +2731,12 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingTop: 16,
     paddingBottom: 18,
   },
+  overviewCardTightBottom: {
+    marginBottom: 0,
+  },
+  overviewStackCard: {
+    marginTop: 12,
+  },
   overviewLoadingWrap: {
     minHeight: 220,
     justifyContent: 'center',
@@ -2769,15 +2773,15 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 16,
   },
   overviewPageTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "800",
     letterSpacing: -0.4,
     color: darkMode ? "#F5F7FA" : Colors.text,
   },
   overviewPageSubtitle: {
     marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: "500",
     color: darkMode ? "#d7e1f0" : "#64748b",
   },
@@ -2835,7 +2839,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   overviewHeroMetricValueHero: {
     marginTop: 6,
-    fontSize: 21,
+    fontSize: 24,
     fontWeight: "800",
     letterSpacing: -0.3,
     color: darkMode ? "#F5F7FA" : Colors.text,

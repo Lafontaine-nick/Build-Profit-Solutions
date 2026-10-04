@@ -308,9 +308,16 @@ export default function PricingModeSection({
                 },
                 WEB_TEXT_INPUT_NO_FOCUS_RING,
               ]}
-              placeholder="0"
+              placeholder="0.00"
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-              value={amount}
+              value={
+                amount
+                  ? centsDigitsToNumber(amount).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                  : ""
+              }
               onChangeText={onFlatAmountChange}
               {...nativeNumericKeyboardProps}
               keyboardType="phone-pad"
@@ -320,11 +327,10 @@ export default function PricingModeSection({
             />
           </View>
         )}
-
         {centsDigitsToNumber(amount) > 0 &&
           pricingMode !== "sqft" &&
           flatReplacement == null && (
-            <Text style={[styles.hint, { color: Colors.sub }]}>
+            <Text style={[styles.hint, { color: "#2dcc9a", fontWeight: "600" }]}>
               {formatMoneyFull(centsDigitsToNumber(amount), { decimals: 2 })}
             </Text>
           )}
@@ -349,7 +355,7 @@ const styles = StyleSheet.create({
   dollarSign: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#22c55e",
+    color: "#2dcc9a",
     marginLeft: 12,
     marginRight: 4,
   },
