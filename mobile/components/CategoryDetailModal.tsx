@@ -4,6 +4,7 @@ import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Pla
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import { approvedChangeOrderBudgetLines } from "@/src/lib/projectFinancials";
 import { isChangeOrderMirrorExpenseId, parseChangeOrderIdFromMirrorExpenseId } from "../lib/changeOrderMirrorExpenses";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
@@ -610,16 +611,25 @@ export default function CategoryDetailModal({
     includedEquipmentRental,
   ]);
 
+  const changeOrderCategoryBudget = useMemo(() => {
+    if (!isMaterialsEquipmentCategory && !isLaborCategory) return 0;
+    const kind = isLaborCategory ? 'labor' : 'materials';
+    return approvedChangeOrderBudgetLines(projectData, kind).reduce(
+      (sum, line) => sum + line.budget,
+      0
+    );
+  }, [isMaterialsEquipmentCategory, isLaborCategory, projectData]);
+
   const categoryBudgetSummary = useMemo(
     () => {
       if (usesPlannedBudgetCard) {
         return buildCategoryBudgetSummary(plannedCategoryBudget, total);
       }
       return shouldGroupByEstimateLine && (estimateCategorySummary.hasEstimateBudget || materialsEquipmentBudget > 0)
-        ? buildCategoryBudgetSummary(materialsEquipmentBudget, total)
+        ? buildCategoryBudgetSummary(materialsEquipmentBudget + changeOrderCategoryBudget, total)
         : buildCategoryBudgetSummary(0, total);
     },
-    [usesPlannedBudgetCard, plannedCategoryBudget, shouldGroupByEstimateLine, estimateCategorySummary.hasEstimateBudget, materialsEquipmentBudget, total]
+    [usesPlannedBudgetCard, plannedCategoryBudget, shouldGroupByEstimateLine, estimateCategorySummary.hasEstimateBudget, materialsEquipmentBudget, changeOrderCategoryBudget, total]
   );
 
   // Reset add form when category modal closes (avoids stale open state on next open)
@@ -1018,11 +1028,17 @@ export default function CategoryDetailModal({
               nestedCardBorder={nestedCardBorder}
               labelColor={supportSub}
               valueColor={Colors.text}
-              budgetNote={
-                includedEquipmentRental > 0
-                  ? `Includes ${formatMoneyFull(includedEquipmentRental, { decimals: 2 })} equipment rental`
-                  : undefined
-              }
+              budgetNote={(() => {
+                const parts = [
+                  includedEquipmentRental > 0
+                    ? `${formatMoneyFull(includedEquipmentRental, { decimals: 2 })} equipment rental`
+                    : '',
+                  changeOrderCategoryBudget > 0
+                    ? `${formatMoneyFull(changeOrderCategoryBudget, { decimals: 2 })} change order`
+                    : '',
+                ].filter(Boolean);
+                return parts.length > 0 ? `Includes ${parts.join(' and ')}` : undefined;
+              })()}
             />
           ) : (
           <View style={styles.totalCardContainer}>

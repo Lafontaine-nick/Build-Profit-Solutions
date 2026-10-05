@@ -34,6 +34,7 @@ import {
   type ProfitForecastOutput,
 } from '../src/lib/profitForecast';
 import {
+  approvedChangeOrderBudgetLines,
   computeProjectFinancials,
   equipmentRentalAmount,
   foldEquipmentRentalIntoMaterialsBucket,
@@ -557,19 +558,49 @@ export default function BudgetTab({
     return total;
   }, [normalizedChangeOrders, projectData?.expenses]);
 
-  // Category cards stay on the estimate. An approved change order raises the
-  // cost cap and the Change Orders card. It does not get added again onto
-  // Materials/Equipment or Labor.
+  const approvedChangeOrderAllocations = useMemo(() => {
+    const sumLines = (kind: 'materials' | 'labor') =>
+      approvedChangeOrderBudgetLines(mergedProjectForFinancials, kind).reduce(
+        (sum, line) => sum + line.budget,
+        0
+      );
+    return {
+      materials: sumLines('materials'),
+      labor: sumLines('labor'),
+    };
+  }, [mergedProjectForFinancials]);
+
+  // Materials/Equipment is the estimate materials list, plus equipment rental,
+  // plus approved change-order materials. Labor includes approved change-order labor.
   const buckets = useMemo(() => {
-    return foldEquipmentRentalIntoMaterialsBucket(
+    const list = foldEquipmentRentalIntoMaterialsBucket(
       projectData?.buckets || [],
       mergedProjectForFinancials,
       financials.plannedCostBudget
     );
+    return list.map((bucket: any) => {
+      const bucketName = String(bucket?.name || '').toLowerCase();
+      const isLaborBucket = bucketName.includes('labor');
+      const isMaterialsBucket =
+        !isLaborBucket &&
+        (bucketName.includes('material') || bucketName.includes('equipment'));
+      const approvedCoBudget = isMaterialsBucket
+        ? approvedChangeOrderAllocations.materials
+        : isLaborBucket
+          ? approvedChangeOrderAllocations.labor
+          : 0;
+      if (!(approvedCoBudget > 0)) return bucket;
+      return {
+        ...bucket,
+        budget: safe(bucket?.budget) + approvedCoBudget,
+        bidBudget: safe(bucket?.bidBudget ?? bucket?.budget) + approvedCoBudget,
+      };
+    });
   }, [
     projectData?.buckets,
     mergedProjectForFinancials,
     financials.plannedCostBudget,
+    approvedChangeOrderAllocations,
   ]);
   
   // Memoize buckets with stable IDs to prevent unnecessary re-renders

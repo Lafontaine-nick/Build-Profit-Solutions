@@ -62,7 +62,7 @@ function coalesceChangeOrders(project: any): any[] {
   return collectUniqueChangeOrders(project);
 }
 
-function isApprovedChangeOrder(co: any): boolean {
+export function isApprovedChangeOrder(co: any): boolean {
   const a = co?.approved;
   if (a === true || a === 1 || String(a).toLowerCase() === 'true') return true;
   const st = String(co?.status || '').toLowerCase();
@@ -109,6 +109,46 @@ export type ChangeOrderPaymentRow = {
   amount: number;
   dateRaw?: string;
 };
+
+export function changeOrderBudgetLineId(
+  kind: 'materials' | 'labor',
+  changeOrderId: string
+): string {
+  const prefix = kind === 'materials' ? 'bps-co-material-' : 'bps-co-labor-';
+  return `${prefix}${changeOrderId}`;
+}
+
+export function isChangeOrderBudgetLineId(
+  lineId: string | null | undefined,
+  kind: 'materials' | 'labor'
+): boolean {
+  if (!lineId) return false;
+  const prefix = kind === 'materials' ? 'bps-co-material-' : 'bps-co-labor-';
+  return String(lineId).startsWith(prefix);
+}
+
+/** Approved change-order cost, split so materials and labor can be spent against their own lines. */
+export function approvedChangeOrderBudgetLines(
+  project: any,
+  kind: 'materials' | 'labor'
+): Array<{ id: string; name: string; budget: number }> {
+  const lines: Array<{ id: string; name: string; budget: number }> = [];
+  for (const co of collectUniqueChangeOrders(project)) {
+    if (!isApprovedChangeOrder(co)) continue;
+    const raw = kind === 'materials' ? co?.materialsAmount : co?.laborAmount;
+    const budget = Number(raw);
+    if (!(budget > 0)) continue;
+    const id = String(co?.id || '').trim();
+    if (!id) continue;
+    const title = String(co?.title || co?.name || 'Change order').trim() || 'Change order';
+    lines.push({
+      id: changeOrderBudgetLineId(kind, id),
+      name: title,
+      budget,
+    });
+  }
+  return lines;
+}
 
 /** Label for timeline / payment schedule: readable as a change order (avoids bare scope names like "Concrete"). */
 export function formatChangeOrderPaymentRowTitle(raw: string): string {

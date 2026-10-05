@@ -13,10 +13,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
+import {
+  approvedChangeOrderBudgetLines,
+  isChangeOrderBudgetLineId,
+} from '@/src/lib/projectFinancials';
 import { ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
+  getEstimateLineBudgetBadge,
   getEstimateLineSpendSummaries,
   getUnlinkedExpensesForKind,
+  EQUIPMENT_RENTAL_LINE_ID,
   resolveProjectEstimateData,
   resolveProjectExpenses,
   sortEstimateLineOptions,
@@ -69,7 +75,16 @@ function optionsFor(
   projectLike: Record<string, unknown> | null | undefined,
   kind: EstimateLinePickerKind
 ): EstimateLineOption[] {
-  return estimateLineOptionsFor(resolveProjectEstimateData(projectLike), kind);
+  const estimateLines = estimateLineOptionsFor(resolveProjectEstimateData(projectLike), kind);
+  const changeOrderLines = approvedChangeOrderBudgetLines(projectLike, kind).map((line) => ({
+    id: line.id,
+    name: line.name,
+    budget: line.budget,
+    quantity: null,
+    unit: null,
+    costCode: null,
+  }));
+  return [...estimateLines, ...changeOrderLines];
 }
 
 function displayLineName(name: string): string {
@@ -120,15 +135,53 @@ export default function EstimateLinePicker({
     () => getUnlinkedExpensesForKind(spendInput),
     [spendInput]
   );
+  const changeOrderSpend = useMemo(() => {
+    const spent: Record<string, number> = {};
+    for (const expense of resolveProjectExpenses(projectLike)) {
+      if (excludeExpenseId && expense.id === excludeExpenseId) continue;
+      const linked = expense.linkedLineId ? String(expense.linkedLineId) : '';
+      if (!isChangeOrderBudgetLineId(linked, kind)) continue;
+      const amount = Number(expense.amount);
+      if (!Number.isFinite(amount)) continue;
+      spent[linked] = (spent[linked] || 0) + amount;
+    }
+    return spent;
+  }, [projectLike, kind, excludeExpenseId]);
+
+  const summaryForLine = useCallback(
+    (lineId: string, budget: number): EstimateLineSpendSummary => {
+      const fromEstimate = spendSummaries[lineId];
+      if (fromEstimate) return fromEstimate;
+      const loggedTotal = changeOrderSpend[lineId] || 0;
+      return {
+        loggedTotal,
+        budget,
+        remaining: budget > 0 ? budget - loggedTotal : 0,
+        variancePct: null,
+        badge: getEstimateLineBudgetBadge(loggedTotal, budget),
+      };
+    },
+    [spendSummaries, changeOrderSpend]
+  );
+
   const selected = options.find((item) => item.id === selectedLineId) || null;
   const pendingLine = options.find((item) => item.id === pendingLineId) || null;
-  const sortedFiltered = useMemo(() => {
+  const { materialRows, equipmentRows, changeOrderRows } = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const base = normalized
       ? options.filter((item) => item.name.toLowerCase().includes(normalized))
       : options;
-    return sortEstimateLineOptions(base, spendSummaries);
-  }, [options, query, spendSummaries]);
+    const equipment = base.filter((item) => item.id === EQUIPMENT_RENTAL_LINE_ID);
+    const changeOrders = base.filter((item) => isChangeOrderBudgetLineId(item.id, kind));
+    const materials = sortEstimateLineOptions(
+      base.filter(
+        (item) =>
+          item.id !== EQUIPMENT_RENTAL_LINE_ID && !isChangeOrderBudgetLineId(item.id, kind)
+      ),
+      spendSummaries
+    );
+    return { materialRows: materials, equipmentRows: equipment, changeOrderRows: changeOrders };
+  }, [options, query, spendSummaries, kind]);
 
   const title = kind === 'materials' ? 'Materials & equipment' : 'Labor';
 
@@ -168,7 +221,7 @@ export default function EstimateLinePicker({
 
   const selectedDisplaySummary = selected
     ? withEditingAmount(
-        spendSummaries[selected.id],
+        summaryForLine(selected.id, selected.budget),
         selected.budget,
         excludeExpenseId ? editingAmount : null
       )
@@ -180,7 +233,11 @@ export default function EstimateLinePicker({
         {displayLineName(selected.name)}
       </Text>
       <Text style={[styles.selectorSubtitle, { color: colors.secondary }]}>
-        {lineCategoryLabel(kind)} · Budget {formatMoneyFull(selected.budget, { decimals: 0 })}
+        {isChangeOrderBudgetLineId(selected.id, kind)
+          ? 'Change order'
+          : selected.id === EQUIPMENT_RENTAL_LINE_ID
+            ? 'Equipment'
+            : lineCategoryLabel(kind)} · Budget {formatMoneyFull(selected.budget, { decimals: 0 })}
         {selected.quantity && selected.unit ? ` · ${selected.quantity} ${selected.unit}` : ''}
       </Text>
       {selectedDisplaySummary && selectedDisplaySummary.loggedTotal > 0 ? (
@@ -194,7 +251,7 @@ export default function EstimateLinePicker({
         </Text>
       ) : null}
       {!readOnly ? (
-        <Text style={[styles.linkedLabel, { color: colors.accent }]}>Linked to estimate ✓</Text>
+        <Text style={[styles.linkedLabel, { color: colors.accent }]}>Linked ✓</Text>
       ) : null}
     </>
   ) : null;
@@ -203,7 +260,7 @@ export default function EstimateLinePicker({
     <>
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.text }]}>
-          {readOnly ? 'Budget item' : 'Link to the estimate'}
+          {readOnly ? 'Budget item' : 'Link to a budget item'}
         </Text>
         {readOnly && selected ? (
           <View
@@ -232,7 +289,7 @@ export default function EstimateLinePicker({
                   },
             ]}
             accessibilityRole="button"
-            accessibilityLabel={selected ? `Selected ${selected.name}` : `Select estimate ${title}`}
+            accessibilityLabel={selected ? `Selected ${selected.name}` : 'Choose a budget item'}
           >
             <View style={styles.selectorText}>
               {selected ? (
@@ -240,12 +297,12 @@ export default function EstimateLinePicker({
               ) : (
                 <>
                   <Text style={[styles.selectorTitle, styles.chooseTitle, { color: colors.accent }]}>
-                    Choose from estimate
+                    Choose a budget item
                   </Text>
                   <Text style={[styles.selectorSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
                     {kind === 'materials'
-                      ? 'Pick a material line from this bid'
-                      : 'Pick a labor line from this bid'}
+                      ? 'Materials, equipment, and change orders'
+                      : 'Labor and change orders'}
                   </Text>
                 </>
               )}
@@ -259,7 +316,7 @@ export default function EstimateLinePicker({
         )}
         {selected && !readOnly ? (
           <Pressable onPress={() => choose(null)} accessibilityRole="button">
-            <Text style={[styles.clearText, { color: colors.accent }]}>Clear estimate link</Text>
+            <Text style={[styles.clearText, { color: colors.accent }]}>Clear link</Text>
           </Pressable>
         ) : null}
       </View>
@@ -292,9 +349,11 @@ export default function EstimateLinePicker({
               <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : colors.text} />
             </Pressable>
             <View style={styles.headerCenter}>
-              <Text style={[styles.sheetTitle, { color: colors.text }]}>Link to estimate</Text>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>Choose a budget item</Text>
               <Text style={[styles.sheetSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
-                Choose a budget item
+                {kind === 'materials'
+                  ? 'Materials, equipment, and change orders'
+                  : 'Labor and change orders'}
               </Text>
             </View>
           </View>
@@ -338,16 +397,8 @@ export default function EstimateLinePicker({
               </View>
 
               <View style={styles.optionsList}>
-                {sortedFiltered.map((line, index) => {
-                  const rawSummary =
-                    spendSummaries[line.id] ??
-                    ({
-                      loggedTotal: 0,
-                      budget: line.budget,
-                      remaining: line.budget,
-                      variancePct: null,
-                      badge: null,
-                    } satisfies EstimateLineSpendSummary);
+                {[...materialRows, ...equipmentRows, ...changeOrderRows].map((line, index, rows) => {
+                  const rawSummary = summaryForLine(line.id, line.budget);
                   const summary = withEditingAmount(
                     rawSummary,
                     line.budget,
@@ -356,10 +407,34 @@ export default function EstimateLinePicker({
                       : null
                   );
                   const isPending = line.id === pendingLineId;
-                  const isLast = index === sortedFiltered.length - 1;
+                  const isEquipment = line.id === EQUIPMENT_RENTAL_LINE_ID;
+                  const isChangeOrder = isChangeOrderBudgetLineId(line.id, kind);
+                  const isLast =
+                    index === rows.length - 1 ||
+                    (equipmentRows.length > 0 && index === materialRows.length - 1) ||
+                    (changeOrderRows.length > 0 &&
+                      index === materialRows.length + equipmentRows.length - 1);
+                  const showSectionDivider =
+                    (isEquipment && materialRows.length > 0) ||
+                    (isChangeOrder && materialRows.length + equipmentRows.length > 0);
                   return (
+                    <React.Fragment key={line.id}>
+                    {showSectionDivider ? (
+                      <View style={styles.equipmentDivider}>
+                        <View
+                          style={[
+                            styles.equipmentDividerLine,
+                            { backgroundColor: darkMode ? 'rgba(148,163,184,0.28)' : colors.border },
+                          ]}
+                        />
+                        {isEquipment || isChangeOrder ? (
+                          <Text style={[styles.sectionLabel, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
+                            {isEquipment ? 'Equipment' : 'Change orders'}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                     <Pressable
-                      key={line.id}
                       onPress={() => togglePending(line.id)}
                       style={[
                         styles.option,
@@ -380,7 +455,7 @@ export default function EstimateLinePicker({
                           ) : null}
                         </View>
                         <Text style={[styles.optionMeta, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
-                          {lineCategoryLabel(kind)} · Budget{' '}
+                          {isChangeOrder ? 'Change order' : isEquipment ? 'Equipment' : lineCategoryLabel(kind)} · Budget{' '}
                           <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>
                             {formatMoneyFull(line.budget, { decimals: 0 })}
                           </Text>
@@ -427,6 +502,7 @@ export default function EstimateLinePicker({
                         color="#2dcc9a"
                       />
                     </Pressable>
+                    </React.Fragment>
                   );
                 })}
               </View>
@@ -463,7 +539,7 @@ export default function EstimateLinePicker({
                   ))}
                 </View>
               ) : null}
-              {!sortedFiltered.length ? (
+              {materialRows.length + equipmentRows.length + changeOrderRows.length === 0 ? (
                 <Text style={[styles.empty, { color: colors.secondary }]}>
                   {options.length
                     ? 'No matching estimate items. Try a different search.'
@@ -499,7 +575,7 @@ export default function EstimateLinePicker({
               onPress={confirmSelection}
               style={({ pressed }) => [styles.selectBtnWrap, pressed && { opacity: 0.92 }]}
               accessibilityRole="button"
-              accessibilityLabel={pendingLineId ? 'Select estimate line' : 'Continue without estimate link'}
+              accessibilityLabel={pendingLineId ? 'Select budget item' : 'Continue without link'}
             >
               <View style={styles.selectBtnInner}>
                 <Text style={styles.selectBtnText}>
@@ -629,6 +705,20 @@ const styles = StyleSheet.create({
   },
   optionsList: {
     gap: 0,
+  },
+  equipmentDivider: {
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    marginTop: 10,
+  },
+  equipmentDividerLine: {
+    height: StyleSheet.hairlineWidth,
+    width: '100%',
   },
   option: {
     minHeight: 62,
