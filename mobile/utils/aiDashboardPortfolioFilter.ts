@@ -152,6 +152,16 @@ export async function recordDeletedProject(id: string, title: string): Promise<v
   await AsyncStorage.setItem(DELETED_PROJECTS_STORAGE_KEY, JSON.stringify(next));
 }
 
+/** User saved or submitted this bid again, so it may return to the project list. */
+export async function forgetDeletedProject(id: string): Promise<void> {
+  const pid = String(id || '').trim();
+  if (!pid) return;
+  const existing = await loadDeletedProjectRecords();
+  const next = existing.filter((r) => r.id !== pid);
+  if (next.length === existing.length) return;
+  await AsyncStorage.setItem(DELETED_PROJECTS_STORAGE_KEY, JSON.stringify(next));
+}
+
 function extractProjectIdFromInsightId(insightId: unknown): string {
   const id = String(insightId || '').trim();
   const patterns = [/^permit-risk-(.+)$/i, /^add-permit-fees-(.+)$/i, /^material-(?:up|down)-(.+)$/i];

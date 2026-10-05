@@ -12,6 +12,40 @@ describe('project profit and equipment buckets', () => {
     { name: 'Contingency', budget: 2000, bidBudget: 2000 },
   ];
 
+  it('keeps the estimate when a little is spent before the job has progress', () => {
+    const result = computeProfitForecast({
+      contractValue: 35880,
+      adjustedBudget: 30400,
+      estimatedCostBaseline: 30400,
+      actualExpenses: 625,
+      committedPOs: 0,
+      progressPct: 0,
+      allocatedCompanyOverhead: 400,
+    });
+
+    expect(result.forecastMethod).toBe('budget-fallback');
+    expect(result.forecastFinalCost).toBe(30400);
+    expect(result.projectedProfit).toBe(5080);
+    expect(result.profitVarianceVsEstimate).toBe(0);
+    expect(result.projectedMarginPct).toBeCloseTo(14.158, 2);
+  });
+
+  it('raises the forecast when spend is far ahead of schedule progress', () => {
+    const result = computeProfitForecast({
+      contractValue: 35880,
+      adjustedBudget: 30400,
+      estimatedCostBaseline: 30400,
+      actualExpenses: 12160,
+      committedPOs: 0,
+      progressPct: 0,
+      allocatedCompanyOverhead: 400,
+    });
+
+    expect(result.forecastMethod).toBe('run-rate');
+    expect(result.forecastFinalCost).toBeGreaterThan(30400);
+    expect(result.projectedProfit).toBeLessThan(5080);
+  });
+
   it('keeps the cost cap and shows profit after allocated company overhead', () => {
     const result = computeProfitForecast({
       contractValue: 29786,

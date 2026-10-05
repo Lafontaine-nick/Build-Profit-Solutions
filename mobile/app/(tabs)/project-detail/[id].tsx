@@ -39,10 +39,10 @@ import {
   sumCollectedMilestonePayments,
   computeElapsedCalendarPct,
 } from '@/src/lib/profitForecast';
+import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
 import {
   computeProjectFinancials,
   foldEquipmentRentalIntoMaterialsBucket,
-  isBillingTimelineMilestone,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '@/src/lib/projectFinancials';
@@ -91,6 +91,7 @@ import {
   mapApprovedCostBucketsToProjectBuckets,
 } from '@/utils/approvedCostBuckets';
 import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
+import { parseCalendarDate } from '@/utils/formatters';
 import {
   getBidSoftCostTotal,
   isAllowancesCategoryName,
@@ -259,6 +260,7 @@ function ProjectDetailContent() {
     projectData: rawContextProjectData,
     reloadFromStorage,
     isProjectDataLoaded,
+    markPOReceived,
   } = useProjectData();
   const { getProjectById, updateProject } = useProjectList();
   const realProjectData = getProjectById(id);
@@ -374,6 +376,27 @@ function ProjectDetailContent() {
     }
   }, [activeTab, projectPerms.visibleTabs]);
 
+  const openTimelineAtPayments = useCallback(() => {
+    scrollTimelineToPaymentsRef.current = true;
+    setActiveTab('Timeline');
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'Timeline' || !scrollTimelineToPaymentsRef.current) return;
+    const scrollToPayments = () => pageScrollRef.current?.scrollToEnd({ animated: true });
+    const first = setTimeout(scrollToPayments, 60);
+    const second = setTimeout(scrollToPayments, 320);
+    const done = setTimeout(() => {
+      scrollToPayments();
+      scrollTimelineToPaymentsRef.current = false;
+    }, 700);
+    return () => {
+      clearTimeout(first);
+      clearTimeout(second);
+      clearTimeout(done);
+    };
+  }, [activeTab]);
+
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
   const [showCalibrationReview, setShowCalibrationReview] = useState(
     () => openRateInsightsOnEntry.current
@@ -408,6 +431,8 @@ function ProjectDetailContent() {
   });
   const [expandedChecklistItem, setExpandedChecklistItem] = useState<string | null>(null);
   const [showActivationCelebration, setShowActivationCelebration] = useState(false);
+  const pageScrollRef = useRef<ScrollView>(null);
+  const scrollTimelineToPaymentsRef = useRef(false);
   const celebrationAnim = useRef(new Animated.Value(0)).current;
   const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [justActivatedDismissed, setJustActivatedDismissed] = useState(false);
@@ -572,25 +597,39 @@ function ProjectDetailContent() {
     return () => sub.remove();
   }, [apWtSheetVisible, skipActiveProjectWalkthrough]);
 
-  // Load live timeline milestones from AsyncStorage (this is where TimelineTabV2 saves completed statuses)
+  // Reload when the project changes and whenever the user returns to a tab.
+  // Marking a deposit received writes `bps.timeline.v2` from the Timeline tab;
+  // Overview would otherwise keep the list from the first load.
+  const liveTimelineProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!id) return;
-    setLiveTimelineMilestones([]);
+    const projectChanged = liveTimelineProjectIdRef.current !== String(id);
+    if (projectChanged) {
+      liveTimelineProjectIdRef.current = String(id);
+      setLiveTimelineMilestones([]);
+    }
+    let cancelled = false;
     const loadTimeline = async () => {
       try {
         const saved = await AsyncStorage.getItem(`bps.timeline.v2.${id}`);
+        if (cancelled) return;
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
             setLiveTimelineMilestones(parsed);
+            return;
           }
         }
+        if (!cancelled) setLiveTimelineMilestones([]);
       } catch (error) {
         console.error('Error loading live timeline:', error);
       }
     };
     loadTimeline();
-  }, [id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, activeTab]);
 
   // Load activation checklist from AsyncStorage on mount
   useEffect(() => {
@@ -1713,15 +1752,9 @@ function ProjectDetailContent() {
 
     // Compute schedule progress from live timeline (exclude deposit) when available — matches Timeline tab
     const scheduleSource = liveTimelineMilestones || [];
-    const workMilestones = scheduleSource.filter((m: any) => !isBillingTimelineMilestone(m));
     const scheduleProgress = scheduleSource.length > 0
-      ? (workMilestones.length > 0
-        ? Math.round(
-            workMilestones.reduce((sum: number, m: any) => sum + Math.min(100, Math.max(0, m.progressPct || 0)), 0) /
-            workMilestones.length
-          )
-        : 0)
-      : (safeProjectData?.overallProgressPct ?? safeProjectData?.progress ?? 0);
+      ? (workTaskProgressPct(scheduleSource) ?? 0)
+      : (workTaskProgressPct(safeProjectData?.milestones) ?? 0);
     const projectStatus = String((safeProjectData as any)?.status ?? '').toLowerCase();
     const isProjectCompleted = projectStatus === 'completed';
     const progressForForecast = isProjectCompleted ? 100 : scheduleProgress;
@@ -1741,7 +1774,7 @@ function ProjectDetailContent() {
       adjustedBudget:
         costBudgetCap > 0 ? costBudgetCap : financials.adjustedContractValue,
       estimatedCostBaseline:
-        financials.plannedCostBudget > 0 ? financials.plannedCostBudget : undefined,
+        financials.adjustedCostBudget > 0 ? financials.adjustedCostBudget : undefined,
       actualExpenses: totalSpent,
       committedPOs: committedPOsTotal,
       progressPct: progressForForecast,
@@ -1753,7 +1786,7 @@ function ProjectDetailContent() {
 
     const getDaysLeft = () => {
       if (!safeProjectData?.endISO) return 0;
-      const endDate = new Date(safeProjectData.endISO);
+      const endDate = parseCalendarDate(safeProjectData.endISO);
       const today = new Date();
       const diffTime = endDate.getTime() - today.getTime();
       return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
@@ -1808,8 +1841,8 @@ function ProjectDetailContent() {
 
     const getTimelineProgressPercent = () => {
       if (!safeProjectData?.startISO || !safeProjectData?.endISO) return 0;
-      const start = new Date(safeProjectData.startISO);
-      const end = new Date(safeProjectData.endISO);
+      const start = parseCalendarDate(safeProjectData.startISO);
+      const end = parseCalendarDate(safeProjectData.endISO);
       const today = new Date();
       const totalDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
       const elapsedDays = (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
@@ -1820,7 +1853,7 @@ function ProjectDetailContent() {
     const formatDate = (dateISO: string | undefined) => {
       if (!dateISO) return '—';
       try {
-        const date = new Date(dateISO);
+        const date = parseCalendarDate(dateISO);
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       } catch {
         return '—';
@@ -1879,8 +1912,8 @@ function ProjectDetailContent() {
       projectData: contextProjectData || safeProjectData,
       contractValue: overviewMetrics.financials.adjustedContractValue,
       budget:
-        overviewMetrics.financials.plannedCostBudget ||
-        overviewMetrics.financials.adjustedCostBudget,
+        overviewMetrics.financials.adjustedCostBudget ||
+        overviewMetrics.financials.plannedCostBudget,
     }),
     [realProjectData, id, contextProjectData, safeProjectData, overviewMetrics.financials]
   );
@@ -1906,9 +1939,10 @@ function ProjectDetailContent() {
     buckets: overviewFeedbackBuckets,
     expenses: safeProjectData?.expenses || [],
     changeOrders: safeProjectData?.changeOrders || [],
+    purchaseOrders: safeProjectData?.purchaseOrders || [],
     plannedBudget:
-      overviewMetrics.financials.plannedCostBudget ||
-      overviewMetrics.financials.adjustedCostBudget,
+      overviewMetrics.financials.adjustedCostBudget ||
+      overviewMetrics.financials.plannedCostBudget,
     finalCustomerPrice: overviewMetrics.financials.adjustedContractValue,
     calibrationProjectLike: overviewCalibrationProjectLike,
     categoryNames: overviewBucketNames,
@@ -1953,7 +1987,7 @@ function ProjectDetailContent() {
           const metrics = overviewMetrics;
           const calendarDaysFromToday = (iso: string | undefined) => {
             if (!iso) return null;
-            const date = new Date(iso);
+            const date = parseCalendarDate(iso);
             if (Number.isNaN(date.getTime())) return null;
             const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
             const today = new Date();
@@ -2006,10 +2040,10 @@ function ProjectDetailContent() {
             <View style={[styles.wideContainer, styles.tabFlowWide]}>
               <View style={[styles.overviewCard, styles.overviewCardTightBottom]}>
                   <View style={styles.overviewPageHeader}>
-                    <Text style={styles.overviewPageTitle}>Project Overview</Text>
+                    <Text style={styles.overviewPageTitle}>Project overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
                       {projectPerms.canViewOwnerFinancials
-                        ? 'Executive snapshot of contract, cost, and margin'
+                        ? 'Contract, cost, and margin'
                         : projectPerms.isManager
                           ? 'Operations snapshot — cost control without owner profit'
                           : 'Field view — schedule, tasks, and jobsite updates'}
@@ -2025,6 +2059,7 @@ function ProjectDetailContent() {
                       adjustedCostBudget={metrics.financials.adjustedCostBudget}
                       profitForecast={metrics.profitForecast}
                       jobCompleted={metrics.isProjectCompleted}
+                      beforeJobStart={beforeStart}
                       originalEstimateMarginPct={Number(
                         (realProjectData as any)?.estimateData?.marginPercent ??
                         (realProjectData as any)?.estimateData?.margin ??
@@ -2203,7 +2238,7 @@ function ProjectDetailContent() {
                   budgetAccessMode={
                     projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
                   }
-                  onRequestOpenTimeline={() => setActiveTab('Timeline')}
+                  onRequestOpenTimeline={openTimelineAtPayments}
                   initialBudgetCategory={budgetCategoryParam}
                 />
               )}
@@ -2227,6 +2262,7 @@ function ProjectDetailContent() {
               projectName={safeProjectData?.title || 'Project'}
               milestones={safeProjectData?.milestones || []}
               projectData={contextProjectData}
+              onMarkPurchaseOrderReceived={markPOReceived}
               onEventComplete={async (event) => {
                 // When a calendar event is completed, create a daily log entry
                 try {
@@ -2392,6 +2428,7 @@ function ProjectDetailContent() {
         />
 
         <ScrollView
+          ref={pageScrollRef}
           style={[
             { flex: 1 },
             darkMode ? { backgroundColor: '#000000' } : undefined,
@@ -2815,12 +2852,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 18,
   },
   overviewHeroMetricLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    letterSpacing: 0.8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    letterSpacing: 0,
     color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "#475569",
-    textTransform: "uppercase",
   },
   /** Legacy single value style — dates / misc */
   overviewHeroMetricValue: {
@@ -2887,12 +2923,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingLeft: 6,
   },
   overviewHeroFooterLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    letterSpacing: 0.45,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    letterSpacing: 0,
     color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "#64748b",
-    textTransform: "uppercase",
   },
   overviewHeroFooterLabelCentered: {
     textAlign: "center",

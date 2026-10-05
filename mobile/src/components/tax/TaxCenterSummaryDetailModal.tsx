@@ -22,10 +22,11 @@ import type {
   TaxExpense,
   TaxPayment,
 } from '@/src/lib/taxCenter';
-import { classifyRevenuePaymentSource } from '@/src/lib/taxCenter';
+import { classifyRevenuePaymentSource, formatTaxNetMarginPercent } from '@/src/lib/taxCenter';
 import type { Vendor } from '@/src/lib/vendorTypes';
 import type { Tax1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { resolveVendorForExpense } from '@/src/lib/tax1099Review';
+import { parseCalendarDate } from '@/utils/formatters';
 
 export type TaxCenterDetailKind =
   | 'revenue'
@@ -93,10 +94,11 @@ function displayLabel(raw: string, emptyLabel: string): string {
 function formatDisplayDate(raw: string): { text: string; warn: boolean } {
   const s = String(raw || '').trim();
   if (!s) return { text: 'Missing date', warn: true };
-  const t = Date.parse(s);
-  if (!Number.isFinite(t)) return { text: 'Missing date', warn: true };
+  const dateOnly = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  const date = parseCalendarDate(dateOnly ? dateOnly[1] : s);
+  if (Number.isNaN(date.getTime())) return { text: 'Missing date', warn: true };
   return {
-    text: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    text: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     warn: false,
   };
 }
@@ -145,7 +147,7 @@ function formattedFigureColor(value: string): string {
 
 function percentFromSummaryMargin(netMargin: number | null | undefined, grossIncomeCollected: number): string {
   if (grossIncomeCollected > 0 && netMargin != null && Number.isFinite(netMargin)) {
-    return `${Math.round(netMargin * 100)}%`;
+    return formatTaxNetMarginPercent(netMargin);
   }
   return 'N/A (no revenue collected in year)';
 }

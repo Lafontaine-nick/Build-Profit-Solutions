@@ -30,6 +30,7 @@ export type UseProjectEstimateFeedbackParams = {
   budgetLines?: BudgetLine[];
   expenses: unknown[];
   changeOrders: unknown[];
+  purchaseOrders?: unknown[];
   plannedBudget: number;
   finalCustomerPrice: number;
   calibrationProjectLike: Record<string, unknown>;
@@ -44,6 +45,7 @@ export function useProjectEstimateFeedback({
   budgetLines,
   expenses,
   changeOrders,
+  purchaseOrders,
   plannedBudget,
   finalCustomerPrice,
   calibrationProjectLike,
@@ -96,6 +98,14 @@ export function useProjectEstimateFeedback({
             laborAmount: row.laborAmount as number | undefined,
           };
         }),
+        purchaseOrders: (purchaseOrders || []).map((po) => {
+          const row = po as Record<string, unknown>;
+          const amount = row.amount;
+          return {
+            status: row.status as string | undefined,
+            amount: typeof amount === 'number' || typeof amount === 'string' ? amount : undefined,
+          };
+        }),
         plannedBudget,
         finalCustomerPrice,
       }),
@@ -105,6 +115,7 @@ export function useProjectEstimateFeedback({
       feedbackBudgetLines,
       expenses,
       changeOrders,
+      purchaseOrders,
       plannedBudget,
       finalCustomerPrice,
     ]

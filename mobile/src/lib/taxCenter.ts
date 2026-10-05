@@ -34,6 +34,13 @@ export type TaxCategory =
   | 'Office / Admin'
   | 'Other';
 
+/** Cash-basis net margin, one decimal, matching the estimate (88.5%, not 89%). */
+export function formatTaxNetMarginPercent(ratio: number | null | undefined): string {
+  if (ratio == null || !Number.isFinite(ratio)) return 'N/A';
+  const pct = Math.round(ratio * 1000) / 10;
+  return `${pct.toFixed(1)}%`;
+}
+
 export const TAX_CATEGORIES: TaxCategory[] = [
   'Materials',
   'Labor',
@@ -117,8 +124,8 @@ export type TaxCenterSummary = {
   outstandingReceivables: number;
   /**
    * Cash-basis expenses paid in the tax year: non-PO lines use paid date when present, otherwise
-   * paid-status + line date; POs require an explicit paid status/date.
-   * Unpaid POs are excluded and appear under `committedCosts`.
+   * paid-status + line date. A received purchase order counts as paid, matching the job budget.
+   * Pending POs are excluded and appear under `committedCosts`.
    */
   totalExpenses: number;
   /** Sum of unpaid purchase orders only; not included in cash-basis expenses. */
@@ -362,11 +369,22 @@ const expenseExplicitlyPaid = (expense: any): boolean => {
   );
 };
 
-const cashBasisPoPaidYearDate = (po: any): string | undefined =>
-  String(po?.paidAt || '').trim() ||
-  String(po?.paidDate || '').trim() ||
-  String(po?.paymentDate || '').trim() ||
-  undefined;
+const cashBasisPoPaidYearDate = (po: any): string | undefined => {
+  const explicit =
+    String(po?.paidAt || '').trim() ||
+    String(po?.paidDate || '').trim() ||
+    String(po?.paymentDate || '').trim();
+  if (explicit) return explicit;
+  if (String(po?.status || '').toLowerCase() !== 'received') return undefined;
+  return (
+    String(po?.receivedAt || '').trim() ||
+    String(po?.orderDate || '').trim() ||
+    String(po?.expectedDelivery || '').trim() ||
+    String(po?.date || '').trim() ||
+    String(po?.createdAt || '').trim() ||
+    undefined
+  );
+};
 
 const cashBasisNonPoExpensePaidYearDate = (expense: any): string | undefined => {
   // An explicit unpaid/pending marker wins over a stale paidAt or record date.
@@ -391,8 +409,8 @@ const cashBasisNonPoExpensePaidYearDate = (expense: any): string | undefined => 
 
 /**
  * Cash-basis: expense counts in a tax year when it was actually paid. Regular expense entries
- * without an explicit unpaid marker retain the app's existing transaction-date model; purchase
- * orders require an explicit paid status/date.
+ * without an explicit unpaid marker retain the app's existing transaction-date model. A received
+ * purchase order counts as paid on its receive date, or the order date when that is missing.
  */
 export function isCashBasisExpensePaidInTaxYear(expense: any, year: number, project?: any): boolean {
   if (expense?.__isPurchaseOrder) {
@@ -444,7 +462,7 @@ const isPaymentCollected = (payment: any): boolean => {
     return true;
   }
   const amt = toNumber(payment?.amount ?? payment?.paymentAmount ?? payment?.collectedAmount);
-  if (amt > 0 && (Number(payment?.progressPct) || 0) >= 99.5) return true;
+  if (!status && amt > 0 && (Number(payment?.progressPct) || 0) >= 99.5) return true;
   return false;
 };
 
@@ -473,8 +491,8 @@ const uniqueByKey = <T>(items: T[], getKey: (item: T, index: number) => string):
 
 /**
  * PO amounts that count as realized spend for tax summaries.
- * A received PO is not necessarily paid, so it remains outside cash-basis expenses until it has an
- * explicit paid status or payment date. Cancelled/Archived are excluded from both buckets.
+ * Marking an order received means the goods arrived and the cost is actual, same as the job budget.
+ * Pending orders stay committed. Cancelled and archived orders are excluded from both buckets.
  */
 export function isPoPaidForTax(po: any): boolean {
   if (po?.isPaid === true || po?.paid === true) return true;
@@ -482,6 +500,7 @@ export function isPoPaidForTax(po: any): boolean {
   if (status === 'cancelled' || status === 'archived') return false;
   return (
     status === 'paid' ||
+    status === 'received' ||
     status === 'completed' ||
     status === 'complete' ||
     status === 'cleared' ||
@@ -631,7 +650,7 @@ export function collectTaxableExpenseLines(project: any): TaxExpense[] {
   return [...regular, ...pos];
 }
 
-/** Unpaid POs — includes received-but-not-paid orders so they are not silently omitted. */
+/** Unpaid POs — pending orders only. Received orders are actual cost. */
 export function collectUnpaidPurchaseOrderLines(project: any): TaxExpense[] {
   return collectProjectPurchaseOrderLines(project).filter((po) => {
     const status = String(po?.status || '').toLowerCase();

@@ -3,8 +3,9 @@
  * Used by AI Assistant compare response and by useProjectsCompareData hook.
  */
 import { computeProfitForecast } from './profitForecast';
-import { getAllocatedCompanyOverhead } from './projectFinancials';
+import { computeProjectFinancials, getAllocatedCompanyOverhead } from './projectFinancials';
 import { getProjectRevenue } from '@/lib/projectRevenue';
+import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
 
 // Include all projects — no hardcoded name filter (was ['chris','nick','jason'])
 
@@ -87,7 +88,8 @@ export function computeProjectsCompareData(
   activeProjects: any[],
   estimates: any[],
   projectDataOverrides: Record<string, any>,
-  timelineProgress: Record<string, number>
+  timelineProgress: Record<string, number>,
+  timelineMilestones: Record<string, any[]> = {}
 ): CompareProjectItem[] {
   const all = [...activeProjects, ...estimates].filter((p) => {
     const status = (p?.status || 'draft').toString().toLowerCase();
@@ -127,7 +129,6 @@ export function computeProjectsCompareData(
     const titleSlug = t.replace(/\s+/g, '-');
     const progressPct = deriveProgress(merged, pid, timelineProgress, titleSlug);
     const finalProgress = status === 'completed' ? 100 : progressPct;
-    const rawProgress = finalProgress / 100;
 
     const pd = merged?.projectData ?? merged;
     const expenseLineTotal =
@@ -152,10 +153,26 @@ export function computeProjectsCompareData(
       ? rawPOs.filter((po: any) => String(po?.status || '').toLowerCase() === 'received').reduce((s: number, po: any) => s + toFinite(po?.amount ?? 0), 0)
       : 0;
     const actualCost = expensesTotal + receivedPOs || explicitActualCost;
-    const estimatedCost = toFinite(merged?.estimatedCost ?? merged?.projectData?.estimatedCost ?? merged?.estimateData?.totalCost ?? merged?.estimateData?.estimatedCost ?? 0);
+    const storedCost = toFinite(merged?.estimatedCost ?? merged?.projectData?.estimatedCost ?? merged?.estimateData?.totalCost ?? merged?.estimateData?.estimatedCost ?? 0);
+    const adjustedCost = computeProjectFinancials(merged).adjustedCostBudget;
+    const estimatedCost =
+      adjustedCost > 0 && (revenue <= 0 || adjustedCost < revenue) ? adjustedCost : storedCost;
     const committedPOs = Array.isArray(rawPOs)
       ? rawPOs.filter((po: any) => String(po?.status || '').toLowerCase() !== 'received').reduce((s: number, po: any) => s + toFinite(po?.amount ?? 0), 0)
       : 0;
+
+    const liveMilestones = timelineMilestones[pid];
+    const embeddedMilestones = [
+      merged?.milestones,
+      merged?.projectData?.milestones,
+      merged?.estimateData?.milestones,
+    ].find((rows) => Array.isArray(rows) && rows.length > 0);
+    const forecastProgressPct =
+      workTaskProgressPct(
+        Array.isArray(liveMilestones) && liveMilestones.length > 0
+          ? liveMilestones
+          : embeddedMilestones
+      ) ?? 0;
 
     const forecast = revenue > 0
       ? computeProfitForecast({
@@ -164,7 +181,7 @@ export function computeProjectsCompareData(
           estimatedCostBaseline: estimatedCost > 0 ? estimatedCost : undefined,
           actualExpenses: actualCost,
           committedPOs,
-          progressPct: rawProgress * 100,
+          progressPct: status === 'completed' ? 100 : forecastProgressPct,
           isCompleted: status === 'completed',
           allocatedCompanyOverhead: getAllocatedCompanyOverhead(merged),
         })

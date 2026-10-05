@@ -38,6 +38,7 @@ import {
   getCalendarTabShellStyle,
 } from '@/constants/ScreenLayout';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
+import { confirmMarkPurchaseOrderReceived } from '@/utils/markPurchaseOrderReceived';
 import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 export type CalendarEvent = {
@@ -56,6 +57,9 @@ export type CalendarEvent = {
   completedAt?: string;
   inspectionResult?: 'passed' | 'failed'; // For inspection events
   deliveryReceived?: boolean; // For delivery events — true when marked as received
+  /** Received purchase orders are paid. Pending ones are still committed. */
+  poMoneyState?: 'paid' | 'committed';
+  purchaseOrderId?: string;
   linkedMilestoneId?: string; // Link to timeline milestone
   isUserCreated?: boolean;
   isCompletedProject?: boolean;
@@ -76,6 +80,8 @@ type ProjectCalendarProps = {
   projectName?: string;
   milestones?: any[]; // For linking events to milestones
   onEventComplete?: (event: CalendarEvent) => void; // Callback when event is marked complete
+  /** Budget Received: moves a pending purchase order into actual cost. */
+  onMarkPurchaseOrderReceived?: (purchaseOrderId: string) => void;
   projectData?: any; // Full project data for syncing payments, POs, etc.
   /**
    * Project detail: flush under AI PM row. Uses dashboard-style inset width (narrower than
@@ -119,7 +125,7 @@ const CALENDAR_CATEGORY_COLORS = {
   inspection: '#f59e0b',
   phase: '#3b82f6',
   delivery: '#8b5cf6',
-  purchase_order: '#2dd4bf',
+  purchase_order: '#ec4899',
   deadline: '#ef4444',
   other: '#f97316',
 } as const;
@@ -134,7 +140,18 @@ const CALENDAR_CATEGORY_ICONS = {
   other: 'description',
 } as const;
 
-/** Human-readable badge label for calendar categories */
+/** A received purchase order is paid. A pending one is still committed. */
+export function purchaseOrderMoneyState(
+  status: unknown
+): 'paid' | 'committed' | undefined {
+  const normalized = String(status ?? '').trim().toLowerCase();
+  if (normalized === 'received' || normalized === 'paid') return 'paid';
+  if (normalized === 'pending' || normalized === 'committed' || normalized === 'open') {
+    return 'committed';
+  }
+  return undefined;
+}
+
 function formatCalendarCategoryLabel(
   cat: NonNullable<CalendarEvent['calendarCategory']> | undefined
 ): string | null {
@@ -184,6 +201,7 @@ export default function ProjectCalendar({
   projectName = 'Project',
   milestones = [],
   onEventComplete,
+  onMarkPurchaseOrderReceived,
   projectData,
   embedded = false,
 }: ProjectCalendarProps) {
@@ -403,7 +421,20 @@ export default function ProjectCalendar({
 
     const pushUnique = (event: CalendarEvent) => {
       const key = `${event.calendarCategory || 'other'}|${event.date}|${event.title}`;
-      if (seen.has(key)) return;
+      if (seen.has(key)) {
+        if (event.purchaseOrderId) {
+          const existing = result.find(
+            (row) => `${row.calendarCategory || 'other'}|${row.date}|${row.title}` === key
+          );
+          if (existing && !existing.purchaseOrderId) {
+            existing.purchaseOrderId = event.purchaseOrderId;
+            existing.poMoneyState = event.poMoneyState;
+            existing.completed = event.completed;
+            existing.deliveryReceived = event.deliveryReceived;
+          }
+        }
+        return;
+      }
       seen.add(key);
       result.push(event);
     };
@@ -514,7 +545,10 @@ export default function ProjectCalendar({
       projectData.purchaseOrders.forEach((po: any) => {
         const date = toISODate(po.expectedDelivery);
         if (!date) return;
-        const isReceived = po.status === 'Received';
+        const status = String(po.status || '').trim().toLowerCase();
+        if (status === 'cancelled' || status === 'archived') return;
+        const poMoneyState = purchaseOrderMoneyState(po.status) ?? 'committed';
+        const isReceived = poMoneyState === 'paid';
         pushUnique({
           id: `po-${po.id || `${po.poNumber || 'po'}-${date}`}`,
           title: `PO: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
@@ -524,6 +558,8 @@ export default function ProjectCalendar({
           notes: po.description || po.notes || (po.poNumber ? `PO ${po.poNumber}` : undefined),
           completed: isReceived,
           deliveryReceived: isReceived,
+          poMoneyState,
+          purchaseOrderId: po.id ? String(po.id) : undefined,
           createdAt: po.orderDate || nowIso,
           updatedAt: nowIso,
         });
@@ -901,7 +937,8 @@ export default function ProjectCalendar({
           ? CALENDAR_CATEGORY_COLORS[cat as keyof typeof CALENDAR_CATEGORY_COLORS]
           : null;
       const color = catColor ?? EVENT_TYPE_COLORS[event.type] ?? EVENT_TYPE_COLORS.other;
-      return { date: event.date, type: color, color };
+      const legendKey = catColor ? cat : event.type === 'work' ? 'phase' : event.type || 'other';
+      return { date: event.date, type: color, color, legendKey };
     });
   }, [syncedEvents]);
 
@@ -932,6 +969,7 @@ export default function ProjectCalendar({
             }}
             initialDate={selectedDate || eventDate || toLocalISODate()}
             events={calendarEvents}
+            legend={CALENDAR_LEGEND_ITEMS}
             footer={
               <CalendarUpcomingFooter
                 events={upcomingEvents}
@@ -950,33 +988,6 @@ export default function ProjectCalendar({
               />
             }
           />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ marginTop: 10, gap: 10, paddingRight: 8 }}
-          >
-            {CALENDAR_LEGEND_ITEMS.map((item) => (
-              <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: 4,
-                    backgroundColor: item.color,
-                  }}
-                />
-                <Text
-                  style={{
-                    fontSize: 11,
-                    fontWeight: '600',
-                    color: darkMode ? 'rgba(255,255,255,0.86)' : COLORS.subtext,
-                  }}
-                >
-                  {item.label}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
         </View>
     </>
   );
@@ -1079,6 +1090,11 @@ export default function ProjectCalendar({
                       const hasInspectionResult = !!event.inspectionResult;
                       const pay = isPaymentEvent(event);
                       const payDone = pay && isPaymentCompleted(event);
+                      const isPurchaseOrder = event.calendarCategory === 'purchase_order';
+                      const poPaid =
+                        isPurchaseOrder &&
+                        (event.poMoneyState === 'paid' || isDeliveryReceived(event));
+                      const poCommitted = isPurchaseOrder && !poPaid;
                       const { primary: notePrimary, showAiAttribution } = splitEventNotesForDisplay(event.notes);
                       const hidePayMeta =
                         pay && /^(payment collected|payment due)\.?$/i.test((notePrimary || '').trim());
@@ -1171,9 +1187,16 @@ export default function ProjectCalendar({
                                     </Text>
                                   </View>
                                 ) : null}
-                                {isDeliveryEvent(event) && isDeliveryReceived(event) ? (
+                                {isDeliveryEvent(event) && isDeliveryReceived(event) && !isPurchaseOrder ? (
                                   <View style={[styles.outlineBadge, { borderColor: '#2dcc9a' }]}>
                                     <Text style={[styles.outlineBadgeText, { color: '#2dcc9a' }]}>Received</Text>
+                                  </View>
+                                ) : null}
+                                {poPaid || poCommitted ? (
+                                  <View style={[styles.outlineBadge, { borderColor: poPaid ? '#2dcc9a' : '#f59e0b' }]}>
+                                    <Text style={[styles.outlineBadgeText, { color: poPaid ? '#2dcc9a' : '#f59e0b' }]}>
+                                      {poPaid ? 'Paid' : 'Committed'}
+                                    </Text>
                                   </View>
                                 ) : null}
                                 {event.completed &&
@@ -1244,7 +1267,23 @@ export default function ProjectCalendar({
                             <View style={styles.inspectionActions}>
                               <TouchableOpacity
                                 style={[styles.inspectionButton, styles.inspectionButtonPassed]}
-                                onPress={() => handleMarkDeliveryReceived(event)}
+                                onPress={() => {
+                                  if (
+                                    event.calendarCategory === 'purchase_order' &&
+                                    event.purchaseOrderId &&
+                                    onMarkPurchaseOrderReceived
+                                  ) {
+                                    const po = (projectData?.purchaseOrders || []).find(
+                                      (row: { id?: string }) => String(row?.id) === event.purchaseOrderId
+                                    );
+                                    confirmMarkPurchaseOrderReceived(
+                                      { poNumber: po?.poNumber, vendor: po?.vendor },
+                                      () => onMarkPurchaseOrderReceived(event.purchaseOrderId as string)
+                                    );
+                                    return;
+                                  }
+                                  handleMarkDeliveryReceived(event);
+                                }}
                                 activeOpacity={0.8}
                               >
                                 <Ionicons name="cube-outline" size={18} color="#050B13" />

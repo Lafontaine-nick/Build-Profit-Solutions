@@ -222,7 +222,7 @@ describe('Tax Center golden fixtures', () => {
     expect(committedRows.some((r) => r.poLabel === 'po-p')).toBe(true);
   });
 
-  it('Does not treat a received-but-unpaid purchase order as a cash expense', () => {
+  it('Treats a received purchase order as a cash expense', () => {
     const projects = [
       {
         id: 'p1',
@@ -240,8 +240,9 @@ describe('Tax Center golden fixtures', () => {
       },
     ];
     const summary = computeTaxCenterSummary(projects, [], [], [], 2026, vendors);
-    expect(summary.totalExpenses).toBe(0);
-    expect(summary.committedCosts).toBe(80);
+    expect(summary.totalExpenses).toBe(80);
+    expect(summary.committedCosts).toBe(0);
+    expect(isPoPaidForTax(projects[0].purchaseOrders[0])).toBe(true);
   });
 
   it('Fixture E: documents current revenue for collected change_order milestone (no mandated total)', () => {

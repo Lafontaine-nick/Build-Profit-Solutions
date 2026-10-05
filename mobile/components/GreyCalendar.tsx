@@ -35,11 +35,17 @@ interface GreyCalendarProps {
     date: string;
     type?: string;
     color?: string;
+    /** Matches a `legend` item key so the legend lists only categories in the visible month */
+    legendKey?: string;
   }>;
+  /** Color key shown under the grid; items without events in the visible month are hidden */
+  legend?: ReadonlyArray<{ key: string; label: string; color: string }>;
   /** Optional note rendered below the grid (e.g. job duration on end-date picker) */
   footer?: React.ReactNode;
   /** When true and activePicker is "end", shows job duration from rangeStartDate/rangeEndDate */
   showJobDurationFooter?: boolean;
+  /** Drops the calendar's own surface and border when it sits inside a bordered group */
+  embedded?: boolean;
 }
 
 const GreyCalendar: React.FC<GreyCalendarProps> = ({
@@ -51,8 +57,10 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   rangeEndDate = null,
   activePicker = null,
   events = [],
+  legend,
   footer,
   showJobDurationFooter = false,
+  embedded = false,
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -79,6 +87,17 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   ];
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const monthLegend = useMemo(() => {
+    if (!legend?.length) return [];
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+    const keysThisMonth = new Set(
+      events
+        .filter((e) => e.legendKey && e.date.startsWith(monthPrefix))
+        .map((e) => e.legendKey as string)
+    );
+    return legend.filter((item) => keysThisMonth.has(item.key));
+  }, [legend, events, year, month]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(new Date(year, month + (direction === 'next' ? 1 : -1), 1));
@@ -207,7 +226,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, embedded && styles.containerEmbedded]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -256,6 +275,17 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
         {renderDays()}
       </View>
 
+      {monthLegend.length > 0 ? (
+        <View style={styles.legendRow}>
+          {monthLegend.map((item) => (
+            <View key={item.key} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+              <Text style={styles.legendText}>{item.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {footer ? (
         <View style={styles.footer}>
           {footer}
@@ -284,6 +314,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
     width: '100%',
     alignSelf: 'stretch',
+  },
+  containerEmbedded: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    paddingTop: 4,
+    paddingBottom: 0,
   },
   header: {
     flexDirection: 'row',
@@ -423,6 +461,29 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 8,
     marginLeft: 2,
     color: darkMode ? '#ffffff' : Colors.sub,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    columnGap: 14,
+    rowGap: 6,
+    marginTop: 8,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  legendText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: darkMode ? 'rgba(255, 255, 255, 0.86)' : Colors.sub,
   },
   footer: {
     marginTop: 10,

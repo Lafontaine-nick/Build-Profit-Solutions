@@ -154,8 +154,8 @@ export default function ProjectPhotosCard({
     <>
       <View style={flowCardStyle}>
             <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148,163,184,0.1)' : lineColor }]}>
-              <MaterialIcons name="photo-library" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
-              <Text style={[styles.sectionTitle, { color: textColor, marginLeft: 12 }]}>Site Photos</Text>
+              <MaterialIcons name="photo-library" size={22} color={darkMode ? '#8eecc9' : '#0d9488'} />
+              <Text style={[styles.sectionTitle, { color: textColor, marginLeft: 12 }]}>Site photos</Text>
               {photos.length > 0 ? (
                 <Text style={[styles.countLabel, { color: mutedColor, marginRight: 10 }]}>
                   {photos.length} {photos.length === 1 ? 'photo' : 'photos'}

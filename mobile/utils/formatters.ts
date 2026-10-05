@@ -73,9 +73,25 @@ export function formatRatioAsPercent(ratio: number, fractionDigits = 1): string 
   return formatPercentDisplay(ratio * 100, fractionDigits);
 }
 
+/**
+ * Date-only strings are calendar days; `new Date('YYYY-MM-DD')` reads them as UTC
+ * midnight and shows the previous day west of UTC.
+ */
+export function parseCalendarDate(input: Date | string | number): Date {
+  if (input instanceof Date) return input;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    // A stored midnight instant such as 2026-09-08T00:00:00.000Z is still that calendar day.
+    const dateOnly = trimmed.match(
+      /^(\d{4}-\d{2}-\d{2})(?:$|T00:00:00(?:\.0+)?(?:Z|[+-]00:?00)?$)/
+    );
+    if (dateOnly) return new Date(`${dateOnly[1]}T00:00:00`);
+  }
+  return new Date(input);
+}
+
 export function formatDateShort(input: Date | string | number): string {
-  const d =
-    input instanceof Date ? input : new Date(input);
+  const d = parseCalendarDate(input);
   if (Number.isNaN(d.getTime())) return '';
   return dateShortFmt.format(d);
 }

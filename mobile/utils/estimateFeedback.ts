@@ -1320,12 +1320,24 @@ export function createRateVersionFromSuggestion(params: {
   };
 }
 
+/** Received orders are job cost. Pending orders stay committed until they arrive. */
+function receivedPurchaseOrderTotal(
+  orders: Array<{ status?: string; amount?: number | string }> | undefined
+): number {
+  return (orders || []).reduce((sum, po) => {
+    if (String(po?.status || '').toLowerCase() !== 'received') return sum;
+    const amount = typeof po.amount === 'string' ? parseFloat(po.amount) : Number(po.amount);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+}
+
 export function deriveEstimateFeedbackFromBudgetData(data: {
   projectId?: string;
   status?: string;
   lines?: Array<{ id: string; category: string; description?: string; qty?: number; unit?: string; unitCost?: number; spent?: number; markupPct?: number }>;
   expenses?: Array<{ id: string; category?: string; description?: string; vendor?: string; amount?: number; date?: string; receiptUri?: string; aiConfidence?: number; linkedLineId?: string }>;
   changeOrders?: Array<{ id: string; title?: string; amount?: number; status?: string; approved?: boolean; materialsAmount?: number; laborAmount?: number }>;
+  purchaseOrders?: Array<{ status?: string; amount?: number | string }>;
   plannedBudget?: number;
   finalCustomerPrice?: number;
 }, options: { now?: Date } = {}): EstimateFeedbackResult {
@@ -1379,7 +1391,9 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
     completionStatus: /complete|closed|done/i.test(String(data.status || '')) ? 'complete' : 'in_progress',
     scopeActuals: actualByLine,
     projectLevelActuals: {
-      totalActualCost: (data.expenses || []).reduce((sum, expense) => sum + (positive(expense.amount) || 0), 0),
+      totalActualCost:
+        (data.expenses || []).reduce((sum, expense) => sum + (positive(expense.amount) || 0), 0) +
+        receivedPurchaseOrderTotal(data.purchaseOrders),
       finalCustomerPrice: positive(data.finalCustomerPrice) ?? undefined,
     },
     changeOrders: (data.changeOrders || []).map((co) => ({

@@ -101,17 +101,31 @@ function useClerkLandingSession() {
   };
 }
 
+type LandingSessionState = "loading" | "signedIn" | "signedOut";
+
 function ClerkLandingHeroContent({
   styles,
   t,
+  onSessionStateChange,
 }: {
   styles: ReturnType<typeof getStyles>;
   t: (key: string) => string;
+  onSessionStateChange: (state: LandingSessionState) => void;
 }) {
   const router = useRouter();
   const { showGoToDashboard, clerkLoaded, clerkTimedOut, user, getToken, isSignedIn } =
     useClerkLandingSession();
   const [openingDashboard, setOpeningDashboard] = useState(false);
+
+  useEffect(() => {
+    onSessionStateChange(
+      showGoToDashboard
+        ? "signedIn"
+        : clerkLoaded || clerkTimedOut
+          ? "signedOut"
+          : "loading"
+    );
+  }, [showGoToDashboard, clerkLoaded, clerkTimedOut, onSessionStateChange]);
 
   useEffect(() => {
     if (!openingDashboard) return;
@@ -153,15 +167,17 @@ function ClerkLandingHeroContent({
     : showGoToDashboard
       ? t("landing.goToDashboardButton")
       : t("landing.getStartedButton");
+  const firstName = user?.firstName?.trim();
+  const welcomeHeadline = firstName
+    ? `${t("landing.goToDashboardHeadline")}, ${firstName}`
+    : t("landing.goToDashboardHeadline");
 
   return (
     <>
       <View style={styles.cardHeaderRow}>
         <View style={styles.cardHeaderTextBlock}>
           <Text style={styles.cardTitle}>
-            {showGoToDashboard
-              ? t("landing.goToDashboardHeadline")
-              : t("landing.getStarted")}
+            {showGoToDashboard ? welcomeHeadline : t("landing.getStarted")}
           </Text>
           <Text style={styles.cardSubtitle}>
             {showGoToDashboard
@@ -202,37 +218,39 @@ function DefaultGetStartedCTA({
   );
 }
 
-type LandingTestimonial = { quote: string; attribution: string };
+/**
+ * The quotes in `landing.testimonials` are placeholders. Fabricated testimonials can't ship
+ * (FTC 16 CFR 465), so the card only renders in dev builds until real, permissioned quotes
+ * replace them — then set this to true.
+ */
+const LANDING_REVIEWS_APPROVED_FOR_RELEASE = false;
+const SHOW_LANDING_REVIEWS = LANDING_REVIEWS_APPROVED_FOR_RELEASE || __DEV__;
 
-const TESTIMONIAL_ROTATE_MS = 5500;
-const TESTIMONIAL_FADE_MS = 350;
+type LandingReview = { quote: string; attribution: string };
 
-function getLandingTestimonials(t: TFunction): LandingTestimonial[] {
+const REVIEW_ROTATE_MS = 5500;
+const REVIEW_FADE_MS = 350;
+
+function getLandingReviews(t: TFunction): LandingReview[] {
   const raw = t("landing.testimonials", { returnObjects: true });
-  if (Array.isArray(raw)) {
-    const items = raw.filter(
-      (item): item is LandingTestimonial =>
-        !!item &&
-        typeof item === "object" &&
-        typeof (item as LandingTestimonial).quote === "string" &&
-        typeof (item as LandingTestimonial).attribution === "string"
-    );
-    if (items.length > 0) return items;
-  }
-  return [
-    {
-      quote: t("landing.testimonialQuote"),
-      attribution: t("landing.testimonialAttribution"),
-    },
-  ];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is LandingReview =>
+      !!item &&
+      typeof item === "object" &&
+      typeof (item as LandingReview).quote === "string" &&
+      typeof (item as LandingReview).attribution === "string"
+  );
 }
 
-function RotatingTestimonial({
-  testimonials,
+function LandingReviewsCard({
+  reviews,
+  title,
   styles,
   darkMode,
 }: {
-  testimonials: LandingTestimonial[];
+  reviews: LandingReview[];
+  title: string;
   styles: ReturnType<typeof getStyles>;
   darkMode: boolean;
 }) {
@@ -240,44 +258,51 @@ function RotatingTestimonial({
   const opacity = useRef(new Animated.Value(1)).current;
 
   const advance = useCallback(() => {
-    if (testimonials.length <= 1) return;
     Animated.timing(opacity, {
       toValue: 0,
-      duration: TESTIMONIAL_FADE_MS,
+      duration: REVIEW_FADE_MS,
       useNativeDriver: Platform.OS !== "web",
     }).start(({ finished }) => {
       if (!finished) return;
-      setIndex((prev) => (prev + 1) % testimonials.length);
+      setIndex((prev) => (prev + 1) % reviews.length);
       Animated.timing(opacity, {
         toValue: 1,
-        duration: TESTIMONIAL_FADE_MS,
+        duration: REVIEW_FADE_MS,
         useNativeDriver: Platform.OS !== "web",
       }).start();
     });
-  }, [opacity, testimonials.length]);
+  }, [opacity, reviews.length]);
 
   useEffect(() => {
-    if (testimonials.length <= 1) return;
-    const timer = setInterval(advance, TESTIMONIAL_ROTATE_MS);
+    if (reviews.length <= 1) return;
+    const timer = setInterval(advance, REVIEW_ROTATE_MS);
     return () => clearInterval(timer);
-  }, [advance, testimonials.length]);
+  }, [advance, reviews.length]);
 
-  const current = testimonials[index] ?? testimonials[0];
+  const current = reviews[index] ?? reviews[0];
+  if (!current) return null;
+  const quoteText = `\u201C${current.quote.trim().replace(/^["\u201C]+|["\u201D]+$/g, "")}\u201D`;
 
   return (
     <>
-      <Animated.View style={[styles.testimonialContent, { opacity }]}>
-        <Text style={styles.testimonialQuote}>{current.quote}</Text>
-        <Text style={styles.testimonialAttribution}>{current.attribution}</Text>
+      <Text style={[styles.feedbackTitle, styles.reviewCentered]}>{title}</Text>
+      <Animated.View style={[styles.reviewContent, { opacity }]}>
+        <View style={styles.reviewStars}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Ionicons key={i} name="star" size={14} color="#2dcc9a" />
+          ))}
+        </View>
+        <Text style={styles.reviewQuote}>{quoteText}</Text>
+        <Text style={styles.reviewAttribution}>{current.attribution}</Text>
       </Animated.View>
-      {testimonials.length > 1 ? (
-        <View style={styles.testimonialDots}>
-          {testimonials.map((_, i) => (
+      {reviews.length > 1 ? (
+        <View style={styles.reviewDots}>
+          {reviews.map((_, i) => (
             <View
               key={i}
               style={[
-                styles.testimonialDot,
-                i === index && styles.testimonialDotActive,
+                styles.reviewDot,
+                i === index && styles.reviewDotActive,
                 {
                   backgroundColor:
                     i === index
@@ -295,6 +320,15 @@ function RotatingTestimonial({
   );
 }
 
+const HOW_IT_WORKS_STEPS: {
+  key: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+}[] = [
+  { key: "landing.howItWorksStep1", icon: "document-text-outline" },
+  { key: "landing.howItWorksStep2", icon: "pricetags-outline" },
+  { key: "landing.howItWorksStep3", icon: "stats-chart-outline" },
+];
+
 /** Wide web: centered premium column (not full-bleed mobile layout) */
 const LANDING_WIDE_WEB_MIN_WIDTH = WEB_CENTERED_COLUMN_MIN_WIDTH;
 const LANDING_MAX_CONTENT_WIDTH = WEB_CENTERED_COLUMN_MAX_WIDTH;
@@ -304,8 +338,8 @@ export default function LandingScreen() {
   const clerkUiEnabled = useClerkUiEnabled();
   const { width: windowWidth } = useWindowDimensions();
   const { t, i18n } = useTranslation();
-  const testimonials = useMemo(
-    () => getLandingTestimonials(t),
+  const reviews = useMemo(
+    () => (SHOW_LANDING_REVIEWS ? getLandingReviews(t) : []),
     [t, i18n.language]
   );
   const { theme, darkMode } = useTheme();
@@ -317,6 +351,13 @@ export default function LandingScreen() {
   const wideWeb =
     Platform.OS === "web" && windowWidth >= LANDING_WIDE_WEB_MIN_WIDTH;
   const insets = useSafeAreaInsets();
+  const [sessionState, setSessionState] = useState<LandingSessionState>(
+    clerkUiEnabled ? "loading" : "signedOut"
+  );
+  const showIntro = sessionState === "signedOut";
+  const returningUser = sessionState === "signedIn";
+  const showReviews = sessionState !== "loading" && reviews.length > 0;
+  const cardGap = wideWeb ? 12 : 16;
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -350,7 +391,13 @@ export default function LandingScreen() {
         showsVerticalScrollIndicator={false}
         style={styles.scrollView}
       >
-        <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+        <Animated.View
+          style={[
+            styles.container,
+            returningUser && styles.containerCentered,
+            { opacity: fadeAnim },
+          ]}
+        >
           {/* HEADER / BRAND */}
           <View style={styles.wideContainer}>
             <View style={[styles.headerSection, { zIndex: 1 }]}>
@@ -401,13 +448,17 @@ export default function LandingScreen() {
             <View
               style={[
                 estimateFlowCardStyle(Colors, darkMode, {
-                  marginBottom: wideWeb ? 12 : 16,
+                  marginBottom: showIntro || showReviews ? cardGap : 0,
                 }),
                 styles.card,
               ]}
             >
               {clerkUiEnabled ? (
-                <ClerkLandingHeroContent styles={styles} t={t} />
+                <ClerkLandingHeroContent
+                  styles={styles}
+                  t={t}
+                  onSessionStateChange={setSessionState}
+                />
               ) : (
                 <>
                   <View style={styles.cardHeaderRow}>
@@ -427,8 +478,27 @@ export default function LandingScreen() {
                   <View style={styles.featureIconContainer}>
                     <Ionicons name="calculator-outline" size={22} color="#2dcc9a" />
                   </View>
-                  <Text style={styles.featureTitle}>
+                  <Text
+                    style={styles.featureTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
                     {t("landing.aiEstimates")}
+                  </Text>
+                </View>
+
+                <View style={styles.featureItem}>
+                  <View style={styles.featureIconContainer}>
+                    <Ionicons name="receipt-outline" size={22} color="#2dcc9a" />
+                  </View>
+                  <Text
+                    style={styles.featureTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
+                    {t("landing.jobCosting")}
                   </Text>
                 </View>
 
@@ -436,17 +506,27 @@ export default function LandingScreen() {
                   <View style={styles.featureIconContainer}>
                     <Ionicons name="trending-up-outline" size={22} color="#2dcc9a" />
                   </View>
-                  <Text style={styles.featureTitle}>
-                    {t("landing.profitTracking")}
+                  <Text
+                    style={styles.featureTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
+                    {t("landing.profit")}
                   </Text>
                 </View>
 
                 <View style={styles.featureItem}>
                   <View style={styles.featureIconContainer}>
-                    <Ionicons name="people-outline" size={22} color="#2dcc9a" />
+                    <Ionicons name="document-text-outline" size={22} color="#2dcc9a" />
                   </View>
-                  <Text style={styles.featureTitle}>
-                    {t("landing.teamManagement")}
+                  <Text
+                    style={styles.featureTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
+                    {t("landing.taxCenter")}
                   </Text>
                 </View>
               </View>
@@ -460,39 +540,51 @@ export default function LandingScreen() {
             </View>
           </View>
 
-                    {/* TESTIMONIAL CARD */}
-          <View style={[styles.wideContainer, styles.landingFlowFill]}>
-            <View
-              style={[
-                estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
-                styles.card,
-                styles.feedbackCard,
-                styles.landingFlowFill,
-              ]}
-            >
-              <View style={styles.feedbackCardInner}>
-                <Text style={styles.feedbackTitle}>
-                  {t("landing.whatBuildersSay")}
-                </Text>
-                <Text style={styles.feedbackSubtitle}>
-                  {t("landing.trustedBy")}
-                </Text>
-                <View
-                  style={[
-                    styles.testimonialIconCircle,
-                    { backgroundColor: "rgba(45, 204, 154, 0.14)" },
-                  ]}
-                >
-                  <Ionicons name="chatbubbles-outline" size={26} color="#2dcc9a" />
+          {/* HOW IT WORKS CARD */}
+          {showIntro ? (
+            <View style={styles.wideContainer}>
+              <View
+                style={[
+                  estimateFlowCardStyle(Colors, darkMode, {
+                    marginBottom: showReviews ? cardGap : 0,
+                  }),
+                  styles.card,
+                  styles.feedbackCard,
+                ]}
+              >
+                <Text style={styles.feedbackTitle}>{t("landing.howItWorks")}</Text>
+                <View style={styles.howItWorksList}>
+                  {HOW_IT_WORKS_STEPS.map((step) => (
+                    <View key={step.key} style={styles.howItWorksRow}>
+                      <View style={styles.howItWorksIcon}>
+                        <Ionicons name={step.icon} size={18} color="#2dcc9a" />
+                      </View>
+                      <Text style={styles.howItWorksText}>{t(step.key)}</Text>
+                    </View>
+                  ))}
                 </View>
-                <RotatingTestimonial
-                  testimonials={testimonials}
+              </View>
+            </View>
+          ) : null}
+
+          {showReviews ? (
+            <View style={styles.wideContainer}>
+              <View
+                style={[
+                  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
+                  styles.card,
+                  styles.feedbackCard,
+                ]}
+              >
+                <LandingReviewsCard
+                  reviews={reviews}
+                  title={t("landing.whatBuildersSay")}
                   styles={styles}
                   darkMode={darkMode}
                 />
               </View>
             </View>
-          </View>
+          ) : null}
         </Animated.View>
       </ScrollView>
       </SafeAreaView>
@@ -527,13 +619,14 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     paddingTop: 0,
     overflow: 'visible',
   },
-  landingFlowFill: {
-    flex: 1,
-  },
   container: {
     flex: 1,
     position: 'relative',
     overflow: 'visible',
+  },
+  containerCentered: {
+    justifyContent: "center",
+    paddingBottom: 48,
   },
   scrollView: {
     flex: 1,
@@ -661,72 +754,79 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     paddingVertical: wideWeb ? 14 : 16,
     paddingHorizontal: wideWeb ? 20 : 18,
   },
-  feedbackCardInner: {
-    alignItems: "center",
+  feedbackTitle: {
+    fontSize: wideWeb ? 17 : 18,
+    fontWeight: "700",
+    color: darkMode ? "#FFFFFF" : "#0F172A",
+    letterSpacing: 0.2,
   },
-  testimonialIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "#F1F5F9",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 14,
-    marginBottom: 12,
-  },
-  testimonialContent: {
-    width: "100%",
-    minHeight: 88,
-    justifyContent: "center",
-  },
-  testimonialQuote: {
-    fontSize: wideWeb ? 15 : 14,
-    lineHeight: 22,
-    fontStyle: "italic",
+  reviewCentered: {
     textAlign: "center",
-    color: darkMode ? "#e2e8f0" : "#334155",
-    fontWeight: "500",
-    paddingHorizontal: 8,
-    marginBottom: 10,
   },
-  testimonialDots: {
+  reviewContent: {
+    marginTop: 12,
+    minHeight: 96,
+    alignItems: "center",
+  },
+  reviewStars: {
     flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
+    gap: 2,
+    marginBottom: 8,
   },
-  testimonialDot: {
+  reviewQuote: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "500",
+    textAlign: "center",
+    paddingHorizontal: 4,
+    color: darkMode ? "#e2e8f0" : "#334155",
+  },
+  reviewAttribution: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "center",
+    color: darkMode ? "#d7e1f0" : "#64748b",
+  },
+  reviewDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 12,
+  },
+  reviewDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  testimonialDotActive: {
+  reviewDotActive: {
     width: 18,
-    borderRadius: 3,
   },
-  testimonialAttribution: {
-    fontSize: 13,
-    textAlign: "center",
-    color: darkMode ? "#d7e1f0" : "#64748b",
+  howItWorksList: {
+    marginTop: 14,
+    gap: 12,
+  },
+  howItWorksRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  howItWorksIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(45, 204, 154, 0.14)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  howItWorksText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: darkMode ? "#e2e8f0" : "#0F172A",
     fontWeight: "500",
-  },
-  feedbackTitle: {
-    fontSize: wideWeb ? 17 : 18,
-    fontWeight: "700",
-    textAlign: "center",
-    color: darkMode ? "#FFFFFF" : "#0F172A",
-    letterSpacing: 0.2,
-  },
-  feedbackSubtitle: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: "center",
-    color: darkMode ? "#d7e1f0" : "#64748b",
-    fontWeight: "500",
-    maxWidth: 440,
-    paddingHorizontal: 8,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -783,7 +883,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     flexDirection: "row",
     justifyContent: wideWeb ? "space-evenly" : "space-between",
     width: "100%",
-    gap: wideWeb ? 12 : 10,
+    gap: wideWeb ? 12 : 6,
     paddingHorizontal: wideWeb ? 4 : 0,
   },
   featureItem: {
@@ -800,7 +900,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     marginBottom: 10,
   },
   featureTitle: {
-    fontSize: wideWeb ? 14 : 13,
+    fontSize: wideWeb ? 14 : 12,
     color: darkMode ? "#e2e8f0" : "#0F172A",
     fontWeight: "600",
     textAlign: "center",

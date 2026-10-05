@@ -23,6 +23,12 @@ import {
   isBillingTimelineMilestone,
   isChangeOrderTimelineMilestone,
 } from "@/src/lib/projectFinancials";
+import { timelineScheduleProgressPct, weeklyPaymentProgress } from "@/src/lib/timelineScheduleProgress";
+import {
+  getEstimateContractValue,
+  hasDepositOnlyInOtherList,
+  reconcilePaymentRowsToContract,
+} from "@/src/lib/paymentScheduleReconcile";
 import { businessWorkspaceService } from "@/services/businessWorkspaceService";
 import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
 import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimelineProgress";
@@ -188,9 +194,7 @@ function isPaymentTimelineMilestone(m: Milestone): boolean {
 }
 
 function computeOverallPct(items: Milestone[]) {
-  const workItems = items.filter((m) => !isBillingTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  return workItems.reduce((acc, m) => acc + clampPct(m.progressPct), 0) / workItems.length;
+  return timelineScheduleProgressPct(items);
 }
 
 function safeISODate(isoLike: string) {
@@ -210,15 +214,22 @@ function safeISODate(isoLike: string) {
 function formatDate(dateString: string) {
   try {
     const d = new Date(safeISODate(dateString) + "T00:00:00");
-    return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   } catch {
     return "Invalid Date";
   }
 }
 
+function formatPaymentMoney(amount: unknown) {
+  return `$${Number(amount ?? 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function statusLabel(status?: string) {
-  if (status === "completed") return "Completed";
-  if (status === "in_progress") return "In Progress";
+  if (status === "completed") return "Received";
+  if (status === "in_progress") return "In progress";
   return "Pending";
 }
 
@@ -247,105 +258,90 @@ function sortMilestonesByPlannedDate(items: Milestone[]): Milestone[] {
 
 /* -------------------- Milestone Card (matches app design) -------------------- */
 
-function MilestoneCardV2({
+const PAYMENT_DOT_DEPOSIT = "#f97316";
+const PAYMENT_DOT_WEEKLY = "#22d3ee";
+const PAYMENT_DOT_HOLDBACK = "#c084fc";
+
+function paymentDotColor(m: Milestone): string {
+  const label = `${(m as Milestone & { type?: string }).type || ""} ${m.title || ""}`.toLowerCase();
+  if (label.includes("deposit")) return PAYMENT_DOT_DEPOSIT;
+  if (label.includes("holdback") || label.includes("retainage")) return PAYMENT_DOT_HOLDBACK;
+  return PAYMENT_DOT_WEEKLY;
+}
+
+function formatShortDate(dateString?: string) {
+  if (!dateString) return "";
+  try {
+    const d = new Date(safeISODate(dateString) + "T00:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function isPaymentOverdue(m: Milestone): boolean {
+  if (isMilestoneReceived(m)) return false;
+  const due = new Date(safeISODate(m.plannedDate) + "T23:59:59");
+  return !Number.isNaN(due.getTime()) && due.getTime() < Date.now();
+}
+
+function PaymentRowV2({
   item,
-  dependencyTitle,
   isLast = false,
   onPress,
 }: {
   item: Milestone;
-  dependencyTitle?: string;
   isLast?: boolean;
   onPress: (m: Milestone) => void;
 }) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const muted = timelineMuted(darkMode);
-  const caption = timelineCaption(darkMode);
-  const pill = statusPillStyle(item.status, darkMode);
-  const pendingPill = !darkMode && item.status !== "completed" && item.status !== "in_progress";
-  const pillBg = pendingPill ? "#CBD5E1" : pill.bg;
-  const pillText = pendingPill ? "#111827" : pill.text;
-  const hasAmount = typeof item.amount === "number" && item.amount > 0;
-  const assigneeLabel = String(item.assignee || "").trim();
-  const showAssignee = assigneeLabel.length > 0 && assigneeLabel.toLowerCase() !== "client";
-  const dependencyLabel = String(dependencyTitle || "").trim();
-  const canRecord = !isMilestoneReceived(item);
-
-  const cardPressStyle = useCallback(
-    ({ pressed }: { pressed: boolean }) => [
-      styles.mCard,
-      {
-        backgroundColor: "transparent",
-        borderWidth: 0,
-        borderRadius: 0,
-        borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
-        borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
-        paddingHorizontal: 0,
-        opacity: pressed ? 0.72 : 1,
-      },
-      Platform.OS === "web" && ({ cursor: "pointer" } as const),
-    ],
-    [Colors.line, darkMode, isLast]
-  );
+  const received = isMilestoneReceived(item);
+  const overdue = isPaymentOverdue(item);
+  const receivedOn = String(
+    (item as Milestone & { actualDate?: string; collectedAt?: string }).actualDate ||
+      (item as Milestone & { collectedAt?: string }).collectedAt ||
+      ""
+  ).trim();
+  const statusLine = received
+    ? `Received ${formatShortDate(receivedOn || item.plannedDate)}`
+    : overdue
+      ? `Overdue · was due ${formatShortDate(item.plannedDate)}`
+      : `Due ${formatShortDate(item.plannedDate)}`;
+  const statusColor = received ? "#2dcc9a" : overdue ? "#F97316" : muted;
 
   return (
-    <View style={styles.milestoneCardContainer}>
-        <Pressable
-          onPress={() => onPress(item)}
-          style={cardPressStyle}
-          accessibilityRole="button"
-          accessibilityLabel={`Edit ${item.title || "milestone"}`}
-        >
-          <View style={styles.mRow}>
-            <View style={styles.mRowBody}>
-          <Text style={[styles.mTitle, !darkMode && { color: Colors.text }]} numberOfLines={2}>
-            {item.title}
-          </Text>
-
-          <View style={styles.mAmountRow}>
-            {hasAmount ? (
-              <Text style={styles.amountText}>${Number(item.amount ?? 0).toLocaleString()}</Text>
-            ) : (
-              <View style={{ flex: 1 }} />
-            )}
-            <Text style={[styles.mDateLine, { color: muted }]}>{formatDate(item.plannedDate)}</Text>
-          </View>
-
-          <View style={styles.mStatusDateRow}>
-            <View style={[styles.statusPill, { backgroundColor: pillBg, borderWidth: 1, borderColor: pill.border || "transparent" }]}>
-              <Text style={[styles.statusText, { color: pillText }]}>{statusLabel(item.status)}</Text>
-            </View>
-          </View>
-
-          {showAssignee ? (
-            <Text style={styles.mMetaLine}>
-              <Text style={{ fontWeight: "700", color: caption }}>Assigned </Text>
-              <Text style={{ color: muted }}>{assigneeLabel}</Text>
-            </Text>
-          ) : null}
-          {canRecord && dependencyLabel ? (
-            <Text style={[styles.mMetaLine, showAssignee ? { marginTop: 4 } : null]}>
-              <Text style={{ fontWeight: "700", color: caption }}>Depends on </Text>
-              <Text style={{ color: muted }}>{dependencyLabel}</Text>
-            </Text>
-          ) : null}
-
-          {typeof item.costDelta === "number" && item.costDelta !== 0 && item.costCategory ? (
-            <Text style={styles.costImpact}>
-              Cost Impact: {item.costDelta >= 0 ? "+" : "-"}${Math.abs(item.costDelta).toLocaleString()} →{" "}
-              {String(item.costCategory).charAt(0).toUpperCase() + String(item.costCategory).slice(1)}
-            </Text>
-          ) : null}
-            </View>
-            {canRecord ? (
-              <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
-            ) : (
-              <View style={styles.mChevronSlot} />
-            )}
-          </View>
-        </Pressable>
-    </View>
+    <Pressable
+      onPress={() => onPress(item)}
+      style={({ pressed }) => [
+        styles.payRow,
+        {
+          borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+          borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+          opacity: pressed ? 0.72 : 1,
+        },
+        Platform.OS === "web" && ({ cursor: "pointer" } as const),
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.title || "Payment"}, ${formatPaymentMoney(item.amount)}, ${statusLine}`}
+    >
+      <View style={[styles.payDot, { backgroundColor: paymentDotColor(item) }]} />
+      <View style={styles.payBody}>
+        <Text style={[styles.payTitle, { color: darkMode ? "#F5F7FA" : Colors.text }]} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={[styles.payStatus, { color: statusColor }]}>{statusLine}</Text>
+      </View>
+      <Text style={[styles.payAmount, { color: received ? "#2dcc9a" : darkMode ? "#F5F7FA" : Colors.text }]}>
+        {formatPaymentMoney(item.amount)}
+      </Text>
+      {received ? (
+        <View style={styles.mChevronSlot} />
+      ) : (
+        <MaterialIcons name="chevron-right" size={22} color={darkMode ? "#d7e1f0" : "#64748b"} />
+      )}
+    </Pressable>
   );
 }
 
@@ -369,6 +365,7 @@ export default function TimelineTabV2({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const muted = timelineMuted(darkMode);
   const caption = timelineCaption(darkMode);
+  const sectionIconColor = darkMode ? "#8eecc9" : "#0d9488";
   const isWeb = Platform.OS === "web";
   const timelineFlowCardStyle = useMemo(
     () => tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 }),
@@ -717,6 +714,7 @@ export default function TimelineTabV2({
     return milestones.map((milestone, index) => {
       const existing = existingLookup.get(milestone.id);
       const fallbackTitle = `Payment ${index + 1}`;
+      const received = isMilestoneReceived(milestone);
       return {
         id: milestone.id || existing?.id || `payment-${index}`,
         name: milestone.title || existing?.name || fallbackTitle,
@@ -729,21 +727,38 @@ export default function TimelineTabV2({
         amount: milestone.amount ?? existing?.amount ?? milestone.amount ?? 0,
         percentage: existing?.percentage ?? 0,
         assignee: milestone.assignee || existing?.assignee || "Client",
-        collectedAt: (milestone as Milestone & { collectedAt?: string }).collectedAt ?? (existing as any)?.collectedAt,
-        ...((milestone as Milestone).actualDate
+        collectedAt: received
+          ? (milestone as Milestone & { collectedAt?: string }).collectedAt ?? (existing as any)?.collectedAt
+          : undefined,
+        ...(received && (milestone as Milestone).actualDate
           ? { actualDate: safeISODate(String((milestone as Milestone).actualDate)) }
           : {}),
       };
     });
   };
 
+  const scheduleContractValue = useMemo(() => {
+    const merged = mergeProjectRecordForTimelineCo(project, projectFromList, projectData);
+    const ed = (merged.estimateData || {}) as any;
+    const scheduleType = (merged as any).paymentSchedule ?? ed.paymentSchedule;
+    const weekly = liveBidPaymentData?.weeklyPayments ?? ed.weeklyPayments ?? [];
+    const paymentMs = liveBidPaymentData?.paymentMilestones ?? ed.paymentMilestones ?? [];
+    if (scheduleType === "weekly" && hasDepositOnlyInOtherList(weekly, paymentMs)) return null;
+    return getEstimateContractValue(ed);
+  }, [project, projectFromList, projectData, liveBidPaymentData]);
+  const scheduleContractValueRef = useRef(scheduleContractValue);
+  scheduleContractValueRef.current = scheduleContractValue;
+
   // Render the schedule already present on the project while storage/workspace data hydrates.
   const initialMilestones = useMemo(() => {
     const paymentMilestones = collectPaymentMilestones();
     return paymentMilestones.length
-      ? convertPaymentMilestonesToTimeline(paymentMilestones)
+      ? reconcilePaymentRowsToContract(
+          convertPaymentMilestonesToTimeline(paymentMilestones),
+          scheduleContractValue
+        )
       : [];
-  }, [collectPaymentMilestones]);
+  }, [collectPaymentMilestones, scheduleContractValue]);
 
   /* ---------- load/save ---------- */
 
@@ -965,27 +980,49 @@ export default function TimelineTabV2({
                   );
                 }
                 if (savedM) {
+                  const savedAny = savedM as Milestone & { collectedAmount?: number };
+                  const savedReceived = isMilestoneReceived(savedM.status ? savedM : newM);
+                  const receivedAmount = isMilestoneReceived(savedM)
+                    ? Number(savedAny.collectedAmount) > 0
+                      ? Number(savedAny.collectedAmount)
+                      : Number(savedM.amount) > 0
+                        ? Number(savedM.amount)
+                        : undefined
+                    : undefined;
                   return {
                     ...newM,
+                    ...(receivedAmount != null ? { amount: receivedAmount } : {}),
                     status: savedM.status || newM.status,
                     progressPct: savedM.progressPct ?? newM.progressPct,
                     assignee: savedM.assignee || newM.assignee,
                     costDelta: savedM.costDelta,
                     costCategory: savedM.costCategory,
-                    collectedAt: (savedM as Milestone & { collectedAt?: string }).collectedAt ?? (newM as Milestone & { collectedAt?: string }).collectedAt,
-                    actualDate: (savedM as Milestone).actualDate ?? (newM as Milestone).actualDate,
+                    collectedAt: savedReceived
+                      ? (savedM as Milestone & { collectedAt?: string }).collectedAt ??
+                        (newM as Milestone & { collectedAt?: string }).collectedAt
+                      : undefined,
+                    actualDate: savedReceived
+                      ? (savedM as Milestone).actualDate ?? (newM as Milestone).actualDate
+                      : undefined,
                     // Always use current schedule dates (from estimate/project) so timeline matches Estimate page; only keep status/progress from saved.
                     plannedDate: newM.plannedDate,
                   };
                 }
                 return newM;
               });
-              setMilestones(merged);
+              setMilestones(reconcilePaymentRowsToContract(merged, scheduleContractValueRef.current));
             } else {
               setMilestones(storedTimeline);
             }
         } else {
-          setMilestones(paymentMilestones?.length ? convertPaymentMilestonesToTimeline(paymentMilestones) : []);
+          setMilestones(
+            paymentMilestones?.length
+              ? reconcilePaymentRowsToContract(
+                  convertPaymentMilestonesToTimeline(paymentMilestones),
+                  scheduleContractValueRef.current
+                )
+              : []
+          );
         }
       } catch {
         if (!cancelled) setMilestones([]);
@@ -1007,8 +1044,30 @@ export default function TimelineTabV2({
   useFocusEffect(
     useCallback(() => {
       if (!project?.id) return;
+      let cancelled = false;
       console.log('🔄 Timeline tab focused - reloading milestones');
-      setReloadTrigger(prev => prev + 1);
+      (async () => {
+        try {
+          const raw = await AsyncStorage.getItem(BID_STORAGE_KEY);
+          const bid = raw ? JSON.parse(raw) : null;
+          if (cancelled) return;
+          if (bid?.id === project.id && (bid.paymentMilestones?.length || bid.weeklyPayments?.length)) {
+            setLiveBidPaymentData({
+              paymentMilestones: bid.paymentMilestones || [],
+              weeklyPayments: bid.weeklyPayments || [],
+              paymentSchedule: bid.paymentSchedule,
+            });
+          } else if (!cancelled) {
+            setLiveBidPaymentData(null);
+          }
+        } catch {
+          if (!cancelled) setLiveBidPaymentData(null);
+        }
+        if (!cancelled) setReloadTrigger((prev) => prev + 1);
+      })();
+      return () => {
+        cancelled = true;
+      };
     }, [project?.id])
   );
   
@@ -1175,15 +1234,16 @@ export default function TimelineTabV2({
   );
   const paymentScheduleHighlight = useMemo(() => {
     if (!canViewPaymentSchedule || !paymentScheduleMilestones.length) {
-      return { lastReceived: null as Milestone | null, nextUpcoming: null as Milestone | null };
+      return { lastReceived: null as Milestone | null, nextUpcoming: null as Milestone | null, receivedTotal: 0 };
     }
 
     const sorted = sortMilestonesByPlannedDate(paymentScheduleMilestones);
     const received = sorted.filter(isMilestoneReceived);
     const lastReceived = received.length ? received[received.length - 1] : null;
     const nextUpcoming = sorted.find((m) => !isMilestoneReceived(m)) ?? null;
+    const receivedTotal = received.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
-    return { lastReceived, nextUpcoming };
+    return { lastReceived, nextUpcoming, receivedTotal };
   }, [paymentScheduleMilestones, canViewPaymentSchedule]);
 
   const nextWorkMilestone = useMemo(() => {
@@ -1197,6 +1257,60 @@ export default function TimelineTabV2({
     () => computeOverallPct(canViewPaymentSchedule ? milestones : visibleMilestones),
     [milestones, visibleMilestones, canViewPaymentSchedule]
   );
+
+  const progressWorkItems = useMemo(
+    () =>
+      (canViewPaymentSchedule ? milestones : visibleMilestones).filter(
+        (m) => !isBillingTimelineMilestone(m)
+      ),
+    [milestones, visibleMilestones, canViewPaymentSchedule]
+  );
+  const progressDoneCount = progressWorkItems.filter(
+    (m) => m.status === "completed" || clampPct(m.progressPct) >= 99.5
+  ).length;
+  const weeklyProgress = useMemo(
+    () => weeklyPaymentProgress(canViewPaymentSchedule ? milestones : visibleMilestones),
+    [milestones, visibleMilestones, canViewPaymentSchedule]
+  );
+
+  const progressStartISO = String(projectData?.startISO || project?.startDate || "").slice(0, 10);
+  const progressEndISO = String(projectData?.endISO || project?.endDate || "").slice(0, 10);
+  const progressDayOffset = (iso: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const target = new Date(`${iso}T00:00:00`);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
+  };
+  const progressDaysToStart = progressDayOffset(progressStartISO);
+  const progressDaysToEnd = progressDayOffset(progressEndISO);
+  const progressJobCompleted = String(project?.status || "").toLowerCase() === "completed";
+  const progressPastEnd =
+    progressDaysToEnd != null && progressDaysToEnd < 0 && !progressJobCompleted;
+  const progressJobDays =
+    progressDaysToStart != null && progressDaysToEnd != null && progressDaysToEnd >= progressDaysToStart
+      ? progressDaysToEnd - progressDaysToStart + 1
+      : null;
+  const progressDateRange = [progressStartISO, progressEndISO]
+    .filter((iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso))
+    .map((iso) => formatShortDate(iso))
+    .join(" – ");
+  let progressScheduleLine = "";
+  if (progressJobCompleted) {
+    progressScheduleLine = "This job is finished.";
+  } else if (progressPastEnd) {
+    progressScheduleLine = "The end date has passed.";
+  } else if (progressDaysToStart != null && progressDaysToStart > 0) {
+    progressScheduleLine =
+      progressDaysToStart === 1 ? "Starts tomorrow." : `Starts in ${progressDaysToStart} days.`;
+  } else if (progressDaysToEnd != null) {
+    progressScheduleLine =
+      progressDaysToEnd === 0
+        ? "Ends today."
+        : progressDaysToEnd === 1
+          ? "1 day left."
+          : `${progressDaysToEnd} days left.`;
+  }
 
   useEffect(() => {
     if (isUpdatingRef.current || isLoadingRef.current) return;
@@ -1249,11 +1363,10 @@ export default function TimelineTabV2({
   };
 
   const renderedPaymentCards = paymentScheduleMilestones.map((item, index) => (
-    <MilestoneCardV2
+    <PaymentRowV2
       key={item.id}
       item={item}
       isLast={index === paymentScheduleMilestones.length - 1}
-      dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
       onPress={onOpenMilestone}
     />
   ));
@@ -1394,38 +1507,90 @@ export default function TimelineTabV2({
             isWeb && styles.timelineWebColumn,
           ]}
         >
-          {/* Timeline Details + Overall Progress */}
+          {/* Progress */}
           <View style={timelineFlowCardStyle}>
-              <View style={styles.timelinePageHeader}>
-                <Text style={[styles.timelinePageTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
-                  Timeline Details
-                </Text>
-                <Text style={[styles.timelinePageSubtitle, { color: muted }]}>
-                  Track milestones and project progress
+              <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
+                <MaterialIcons name="schedule" size={22} color={sectionIconColor} />
+                <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
+                  Progress
                 </Text>
               </View>
-
-              <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line, marginTop: 16 }]}>
-                  <MaterialIcons name="schedule" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
-                  <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                    Overall Progress
+              {progressWorkItems.length > 0 ? (
+                <>
+                  <View style={styles.overallPercentBlock}>
+                    <Text
+                      style={[
+                        styles.overallPercentNumber,
+                        Math.round(overall) <= 0 && { color: darkMode ? "#d7e1f0" : "#64748b" },
+                      ]}
+                    >
+                      {Math.round(overall)}%
+                    </Text>
+                    <Text style={[styles.overallPercentCaption, { color: muted }]}>
+                      {progressDoneCount} of {progressWorkItems.length} task
+                      {progressWorkItems.length === 1 ? "" : "s"} done.
+                    </Text>
+                  </View>
+                  <View style={styles.progressContent}>
+                    <ProgressBar value={overall} emphasis />
+                  </View>
+                </>
+              ) : weeklyProgress ? (
+                <>
+                  <View style={styles.overallPercentBlock}>
+                    <Text
+                      style={[
+                        styles.overallPercentNumber,
+                        weeklyProgress.pct <= 0 && { color: darkMode ? "#d7e1f0" : "#64748b" },
+                      ]}
+                    >
+                      {weeklyProgress.pct}%
+                    </Text>
+                    <Text style={[styles.overallPercentCaption, { color: muted }]}>
+                      {weeklyProgress.collectedCount} of {weeklyProgress.weekCount} weekly payment
+                      {weeklyProgress.weekCount === 1 ? "" : "s"} collected.
+                    </Text>
+                  </View>
+                  <View style={styles.progressContent}>
+                    <ProgressBar value={weeklyProgress.pct} emphasis />
+                  </View>
+                </>
+              ) : (
+                <Text style={[styles.progressEmptyText, { color: muted }]}>
+                  No work tasks yet. Add tasks to track progress.
+                </Text>
+              )}
+              {progressDateRange ? (
+                <View
+                  style={[
+                    styles.progressDatesRow,
+                    { borderTopColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)" },
+                  ]}
+                >
+                  <Text style={[styles.progressDatesText, { color: muted }]}>
+                    {progressDateRange}
+                    {progressJobDays != null ? ` · ${progressJobDays} day${progressJobDays === 1 ? "" : "s"}` : ""}
                   </Text>
+                  {progressScheduleLine ? (
+                    <Text
+                      style={[
+                        styles.progressScheduleText,
+                        { color: progressPastEnd ? "#F97316" : darkMode ? "#F5F7FA" : Colors.text },
+                      ]}
+                    >
+                      {progressScheduleLine}
+                    </Text>
+                  ) : null}
                 </View>
-                <View style={styles.overallPercentBlock}>
-                  <Text style={styles.overallPercentNumber}>{Math.round(overall)}%</Text>
-                </View>
-                <View style={[styles.timelineHairline, { backgroundColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)" }]} />
-                <View style={styles.progressContent}>
-                  <ProgressBar value={overall} emphasis />
-                </View>
+              ) : null}
           </View>
 
           {/* Daily Logs Section - At the top for recent activity */}
           <View style={timelineFlowCardStyle}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="description" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
+                  <MaterialIcons name="description" size={22} color={sectionIconColor} />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                    Daily Logs
+                    Daily logs
                   </Text>
                   {dailyLogs.length > 0 && (
                     <Text style={[styles.sectionTitle, { color: muted, marginLeft: "auto", fontSize: 14, fontWeight: "600", marginRight: 10 }]}>
@@ -1566,10 +1731,10 @@ export default function TimelineTabV2({
           />
 
           {/* Payment snapshot (last received + next due) or next work milestone for field roles */}
-          {(canViewPaymentSchedule && paymentScheduleMilestones.length > 0) || nextWorkMilestone ? (
+          {!canViewPaymentSchedule && nextWorkMilestone ? (
           <View style={timelineFlowCardStyle}>
                     <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                      <MaterialIcons name="event" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
+                      <MaterialIcons name="event" size={22} color={sectionIconColor} />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                         {canViewPaymentSchedule ? "Payments" : "Upcoming"}
                       </Text>
@@ -1578,6 +1743,14 @@ export default function TimelineTabV2({
                       {canViewPaymentSchedule ? (
                         paymentScheduleHighlight.lastReceived || paymentScheduleHighlight.nextUpcoming ? (
                           <>
+                            {paymentScheduleHighlight.receivedTotal > 0 ? (
+                              <Text style={styles.paymentReceivedSummary}>
+                                <Text style={styles.paymentReceivedSummaryAmount}>
+                                  {formatPaymentMoney(paymentScheduleHighlight.receivedTotal)}
+                                </Text>
+                                <Text style={{ color: caption }}> received so far</Text>
+                              </Text>
+                            ) : null}
                             {paymentScheduleHighlight.lastReceived ? (
                               <Pressable
                                 onPress={() => onOpenMilestone(paymentScheduleHighlight.lastReceived!)}
@@ -1595,6 +1768,9 @@ export default function TimelineTabV2({
                                     {paymentScheduleHighlight.lastReceived.title}
                                   </Text>
                                   <Text style={[styles.upcomingDateLine, { color: caption }]}>
+                                    {Number(paymentScheduleHighlight.lastReceived.amount) > 0
+                                      ? `${formatPaymentMoney(paymentScheduleHighlight.lastReceived.amount)} · `
+                                      : ""}
                                     {formatDate(paymentScheduleHighlight.lastReceived.plannedDate)}
                                   </Text>
                                 </View>
@@ -1608,12 +1784,15 @@ export default function TimelineTabV2({
                                 <View style={[styles.upcomingDot, { backgroundColor: "#d7e1f0" }]} />
                                 <View style={styles.upcomingTextCol}>
                                   <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeUpcoming]}>
-                                    <Text style={styles.paymentHighlightBadgeTextUpcoming}>Upcoming</Text>
+                                    <Text style={styles.paymentHighlightBadgeTextUpcoming}>Next</Text>
                                   </View>
                                   <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
                                     {paymentScheduleHighlight.nextUpcoming.title}
                                   </Text>
                                   <Text style={[styles.upcomingDateLine, { color: caption }]}>
+                                    {Number(paymentScheduleHighlight.nextUpcoming.amount) > 0
+                                      ? `${formatPaymentMoney(paymentScheduleHighlight.nextUpcoming.amount)} · `
+                                      : ""}
                                     {formatDate(paymentScheduleHighlight.nextUpcoming.plannedDate)}
                                   </Text>
                                 </View>
@@ -1653,18 +1832,22 @@ export default function TimelineTabV2({
           {canViewPaymentSchedule ? (
           <View style={[timelineFlowCardStyle, embedded && styles.timelineFlowCardFill]}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
-                  <MaterialIcons name="list" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
+                  <MaterialIcons name="event" size={22} color={sectionIconColor} />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                    All Payments
+                    Payments
                   </Text>
                 </View>
-                {paymentScheduleMilestones.some((item) => !isMilestoneReceived(item)) ? (
-                  <Text style={[styles.paymentRecordHint, { color: muted }]}>
-                    Tap a pending payment to record it.
-                  </Text>
-                ) : null}
                 {paymentScheduleMilestones.length > 0 ? (
-                  <View style={styles.milestonesList}>{renderedPaymentCards}</View>
+                  <>
+                    <Text style={[styles.paymentRecordHint, { color: muted }]}>
+                      {paymentScheduleHighlight.nextUpcoming
+                        ? `Next: ${paymentScheduleHighlight.nextUpcoming.title}, ${formatShortDate(
+                            paymentScheduleHighlight.nextUpcoming.plannedDate
+                          )}. Tap a payment to record it.`
+                        : "All scheduled payments have been received."}
+                    </Text>
+                    <View style={styles.milestonesList}>{renderedPaymentCards}</View>
+                  </>
                 ) : (
                     <View style={styles.emptyTimelineContainer}>
                       <Text style={[styles.emptyTimelineTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
@@ -2100,16 +2283,43 @@ const styles = StyleSheet.create({
     color: "#2dcc9a",
     fontVariant: ["tabular-nums"],
   },
+  overallPercentCaption: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18,
+  },
   timelineHairline: {
     height: StyleSheet.hairlineWidth,
     width: "100%",
     marginTop: 10,
     marginBottom: 4,
   },
-  progressContent: { 
+  progressContent: {
     padding: 0,
     marginTop: 12,
     paddingBottom: 2,
+  },
+  progressEmptyText: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 20,
+    paddingTop: 12,
+  },
+  progressDatesRow: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 4,
+  },
+  progressDatesText: {
+    fontSize: 13,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  progressScheduleText: {
+    fontSize: 14,
+    fontWeight: "700",
   },
   upcomingContent: { 
     padding: 0,
@@ -2148,18 +2358,25 @@ const styles = StyleSheet.create({
     borderColor: "rgba(148, 163, 184, 0.35)",
   },
   paymentHighlightBadgeTextReceived: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.3,
     color: "#2dcc9a",
-    textTransform: "uppercase",
   },
   paymentHighlightBadgeTextUpcoming: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.3,
     color: "#d7e1f0",
-    textTransform: "uppercase",
+  },
+  paymentReceivedSummary: {
+    fontSize: 15,
+    fontWeight: "600",
+    paddingTop: 12,
+    paddingBottom: 2,
+  },
+  paymentReceivedSummaryAmount: {
+    color: "#2dcc9a",
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
   paymentAllCollectedText: {
     fontSize: 14,
@@ -2195,6 +2412,38 @@ const styles = StyleSheet.create({
   },
   milestonesList: {
     marginTop: 4,
+  },
+  payRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  payDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+  payBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  payTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  payStatus: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  payAmount: {
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 20,
+    fontVariant: ["tabular-nums"],
   },
   paymentRecordHint: {
     fontSize: 13,

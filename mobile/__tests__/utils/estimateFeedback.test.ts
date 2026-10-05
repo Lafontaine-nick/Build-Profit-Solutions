@@ -518,6 +518,22 @@ describe('estimateFeedback', () => {
     expect(result.status).toBe('reviewed');
   });
 
+  it('adds received purchase orders to actual cost and leaves pending orders out', () => {
+    const result = deriveEstimateFeedbackFromBudgetData({
+      projectId: 'budget-1',
+      plannedBudget: 28625,
+      finalCustomerPrice: 33950,
+      lines: [{ id: 'materials', category: 'Materials', qty: 1, unit: 'lump_sum', unitCost: 6430 }],
+      expenses: [{ id: 'exp-1', category: 'Materials', amount: 2100 }],
+      purchaseOrders: [
+        { status: 'Received', amount: 1000 },
+        { status: 'Pending', amount: 500 },
+      ],
+    });
+
+    expect(result.projectSummary.actualDirectCost).toBe(3100);
+  });
+
   it('does not mutate the original estimate snapshot or saved rate metadata', () => {
     const original = snapshot();
     const before = JSON.stringify(original);

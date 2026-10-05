@@ -30,8 +30,11 @@ export function setProjectListSeed(
 ): void {
   projectListSeed = rows;
   const id = String(userId ?? '').trim();
-  if (id && Array.isArray(rows) && rows.length > 0) {
+  if (!id) return;
+  if (Array.isArray(rows) && rows.length > 0) {
     projectListSeedByUserId.set(id, rows);
+  } else {
+    projectListSeedByUserId.delete(id);
   }
 }
 

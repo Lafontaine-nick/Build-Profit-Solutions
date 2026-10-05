@@ -64,8 +64,9 @@ export function categoryBudgetProgressPercent(summary: CategoryBudgetSummary): n
 }
 
 export function formatBudgetPercentUsed(percent: number): string {
-  if (percent <= 0) return '0% used';
-  return `${Math.round(percent)}% used`;
+  if (!(percent > 0)) return '0% used';
+  const rounded = Math.round(percent * 10) / 10;
+  return `${rounded.toFixed(1)}% used`;
 }
 
 export function lineBudgetStatusVariant(

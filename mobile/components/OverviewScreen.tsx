@@ -419,7 +419,7 @@ export default function OverviewScreen({
           <Text style={styles.cardSubtitle}>Updated {lastUpdated}</Text>
 
         <View style={{ marginTop: 12 }}>
-          <Text style={styles.metricLabel}>Planned Cost Budget</Text>
+          <Text style={styles.metricLabel}>Planned cost budget</Text>
           <Text style={styles.metricValue}>
             {formatMoney(costBudgetCap)}
             </Text>
@@ -466,7 +466,7 @@ export default function OverviewScreen({
           <View style={styles.projectStatusMetrics}>
             <View style={styles.projectStatusMetricRow}>
               <View>
-                <Text style={styles.projectStatusMetricLabel}>Cost Budget Used</Text>
+                <Text style={styles.projectStatusMetricLabel}>Cost budget used</Text>
                 <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of planned cost budget used (incl. committed POs)</Text>
               </View>
               <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{budgetProgress.toFixed(0)}%</Text>
@@ -523,7 +523,7 @@ export default function OverviewScreen({
           </View>
           <View style={styles.budgetDetails}>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Contract Value</Text>
+              <Text style={styles.budgetLabel}>Contract value</Text>
               <Text style={styles.budgetValue}>{formatMoney(financials.contractValueBase)}</Text>
             </View>
             {approvedChangeOrdersTotal > 0 && (
@@ -533,11 +533,11 @@ export default function OverviewScreen({
               </View>
             )}
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Adjusted Contract Value</Text>
+              <Text style={styles.budgetLabel}>Adjusted contract value</Text>
               <Text style={styles.budgetValue}>{formatMoney(financials.adjustedContractValue)}</Text>
             </View>
             <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
-              <Text style={styles.budgetLabel}>Planned Cost Budget</Text>
+              <Text style={styles.budgetLabel}>Planned cost budget</Text>
               <Text style={styles.budgetValue}>{formatMoney(financials.adjustedCostBudget)}</Text>
             </View>
             <View style={styles.budgetRow}>
@@ -566,7 +566,7 @@ export default function OverviewScreen({
             </View>
             <View style={styles.budgetRow}>
               <View>
-                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected Margin'}</Text>
+                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected margin'}</Text>
                 <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>
                   {isProjectCompleted
                     ? 'Contract value vs actual final cost'
@@ -642,7 +642,7 @@ export default function OverviewScreen({
 
           <View style={styles.budgetDetails}>
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Contract Value</Text>
+            <Text style={styles.budgetLabel}>Contract value</Text>
             <Text style={styles.budgetValue}>
                 {formatMoney(financials.contractValueBase)}
               </Text>
@@ -658,21 +658,21 @@ export default function OverviewScreen({
             )}
 
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Adjusted Contract Value</Text>
+            <Text style={styles.budgetLabel}>Adjusted contract value</Text>
             <Text style={styles.budgetValue}>
                 {formatMoney(financials.adjustedContractValue)}
               </Text>
             </View>
 
             <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
-            <Text style={styles.budgetLabel}>Planned Cost Budget</Text>
+            <Text style={styles.budgetLabel}>Planned cost budget</Text>
             <Text style={styles.budgetValue}>
                 {formatMoney(financials.adjustedCostBudget)}
               </Text>
             </View>
 
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Actual Costs</Text>
+            <Text style={styles.budgetLabel}>Actual costs</Text>
             <Text style={[styles.budgetValue, { color: '#22c55e' }]}>
                 {formatMoney(actualSpent)}
               </Text>
@@ -713,7 +713,7 @@ export default function OverviewScreen({
             </View>
             <View style={styles.budgetRow}>
               <View>
-                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected Margin'}</Text>
+                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected margin'}</Text>
                 <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>
                   {isProjectCompleted
                     ? 'Contract value vs actual final cost'

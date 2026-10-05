@@ -324,6 +324,14 @@ export type ProjectFinancialSnapshot = {
   allocatedCompanyOverhead: number;
 };
 
+/** Equipment rental from the estimate. It is a hard cost, stored apart from the materials list. */
+export function equipmentRentalAmount(project: any): number {
+  return Math.max(
+    0,
+    Number(project?.estimateData?.equipment ?? project?.equipment ?? 0) || 0
+  );
+}
+
 /**
  * Equipment rental is a hard cost inside the planned-cost cap. Older sends stored it
  * only in the cap, not on the Materials/Equipment bucket. Add it once when that gap
@@ -333,10 +341,7 @@ export function foldEquipmentRentalIntoMaterialsBucket<
   T extends { name?: string; budget?: number; bidBudget?: number },
 >(buckets: T[] | undefined, project: any, plannedCostBudget: number): T[] {
   const list = Array.isArray(buckets) ? buckets : [];
-  const equipment = Math.max(
-    0,
-    Number(project?.estimateData?.equipment ?? project?.equipment ?? 0) || 0
-  );
+  const equipment = equipmentRentalAmount(project);
   if (!(equipment > 0) || !(plannedCostBudget > 0) || list.length === 0) return list;
   const bucketSum = list.reduce((sum, bucket) => sum + (Number(bucket?.budget) || 0), 0);
   if (Math.abs(plannedCostBudget - bucketSum - equipment) >= 1) return list;

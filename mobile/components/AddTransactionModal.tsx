@@ -160,8 +160,7 @@ export default function AddTransactionModal({
   const categoryNameLower = categoryName.toLowerCase();
   const isPurchaseOrdersCategory = categoryNameLower.includes('purchase order');
   const isChangeOrdersCategory = categoryNameLower.includes('change order');
-  /** Change Orders: left action reads "delete" per product copy (still dismisses / closes like Cancel). */
-  const budgetFooterDismissLabel = isChangeOrdersCategory ? 'delete' : 'Cancel';
+  const budgetFooterDismissLabel = 'Cancel';
   /** Budget add form for materials & equipment (not labor, subs, PO, or change order). */
   const isMaterialsEquipmentExpense =
     (categoryNameLower.includes('material') || categoryNameLower.includes('equipment')) &&
@@ -185,8 +184,7 @@ export default function AddTransactionModal({
       categoryNameLower.includes("material") ||
       categoryNameLower.includes("equipment") ||
       categoryNameLower.includes("labor") ||
-      categoryNameLower.includes("purchase order") ||
-      categoryNameLower.includes("change order")
+      categoryNameLower.includes("purchase order")
     );
   }, [categoryNameLower]);
 
@@ -354,10 +352,7 @@ export default function AddTransactionModal({
     const materials = decimalMoneyInputToNumber(materialsAmountInput);
     const labor = decimalMoneyInputToNumber(laborAmountInput);
     const total = materials + labor;
-    if (total > 0) {
-      setAmount(sanitizeDecimalMoneyInput(total.toFixed(2)));
-    }
-    /** When M+L is zero, keep `amount` (total-only CO / fallback from total field). */
+    setAmount(total > 0 ? sanitizeDecimalMoneyInput(total.toFixed(2)) : "");
   }, [isChangeOrdersCategory, pricingMode, materialsAmountInput, laborAmountInput]);
 
   // Request camera permissions
@@ -989,6 +984,13 @@ export default function AddTransactionModal({
     };
   }, [webBudgetExpenseShell, webPoFormPad, darkMode, Colors]);
 
+  const changeOrderFlatTotal =
+    decimalMoneyInputToNumber(materialsAmountInput) +
+    decimalMoneyInputToNumber(laborAmountInput);
+  const emptyMoneyColor = darkMode ? "#d7e1f0" : "#64748b";
+  const moneyPrefixColor = (raw: string) =>
+    decimalMoneyInputToNumber(raw) > 0 ? "#2dcc9a" : emptyMoneyColor;
+
   const focusIntoPricingOrAmount = () => {
     if (isChangeOrdersCategory && pricingMode !== "sqft") {
       materialsAmountRef.current?.focus();
@@ -1052,7 +1054,9 @@ export default function AddTransactionModal({
               Add {displayCategoryName}
             </Text>
             <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub, textAlign: "center" }]}>
-              {isMaterialsEquipmentExpense
+              {isChangeOrdersCategory
+                ? "Material and labor added to the job"
+                : isMaterialsEquipmentExpense
                 ? "Log your material or equipment expense"
                 : "Log your expense"}
             </Text>
@@ -1522,10 +1526,9 @@ export default function AddTransactionModal({
 
             {isChangeOrdersCategory && pricingMode !== "sqft" && (
               <View style={styles.field}>
-                <Text style={[styles.label, { color: Colors.text }]}>Change Order Cost Breakdown *</Text>
                 <View style={{ gap: 12 }}>
                   <View>
-                    <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>Material Cost</Text>
+                    <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>Material cost</Text>
                     <View
                       style={[
                         styles.amountInputContainer,
@@ -1537,7 +1540,7 @@ export default function AddTransactionModal({
                         },
                       ]}
                     >
-                      <Text style={styles.dollarSign}>$</Text>
+                      <Text style={[styles.dollarSign, { color: moneyPrefixColor(materialsAmountInput) }]}>$</Text>
                       <TextInput
                         ref={materialsAmountRef}
                         style={[
@@ -1546,11 +1549,14 @@ export default function AddTransactionModal({
                           {
                             backgroundColor: "transparent",
                             borderWidth: 0,
-                            color: Colors.text,
+                            color:
+                              decimalMoneyInputToNumber(materialsAmountInput) > 0
+                                ? Colors.text
+                                : emptyMoneyColor,
                           },
                         ]}
                         placeholder="0"
-                        placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                        placeholderTextColor={emptyMoneyColor}
                         value={materialsAmountInput}
                         onChangeText={(text) =>
                           setMaterialsAmountInput(sanitizeDecimalMoneyInput(text))
@@ -1561,7 +1567,7 @@ export default function AddTransactionModal({
                     </View>
                   </View>
                   <View>
-                    <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>Labor Cost</Text>
+                    <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>Labor cost</Text>
                     <View
                       style={[
                         styles.amountInputContainer,
@@ -1573,7 +1579,7 @@ export default function AddTransactionModal({
                         },
                       ]}
                     >
-                      <Text style={styles.dollarSign}>$</Text>
+                      <Text style={[styles.dollarSign, { color: moneyPrefixColor(laborAmountInput) }]}>$</Text>
                       <TextInput
                         ref={laborAmountRef}
                         style={[
@@ -1582,11 +1588,14 @@ export default function AddTransactionModal({
                           {
                             backgroundColor: "transparent",
                             borderWidth: 0,
-                            color: Colors.text,
+                            color:
+                              decimalMoneyInputToNumber(laborAmountInput) > 0
+                                ? Colors.text
+                                : emptyMoneyColor,
                           },
                         ]}
                         placeholder="0"
-                        placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                        placeholderTextColor={emptyMoneyColor}
                         value={laborAmountInput}
                         onChangeText={(text) =>
                           setLaborAmountInput(sanitizeDecimalMoneyInput(text))
@@ -1605,7 +1614,7 @@ export default function AddTransactionModal({
                 {supportsPerSqftPricing && pricingMode === "sqft" && isChangeOrdersCategory
                   ? "Total (calculated) *"
                   : isChangeOrdersCategory
-                    ? "Total Change Order Amount *"
+                    ? "Total"
                     : "Amount *"}
               </Text>
               {selectedEstimateLine ? (
@@ -1626,7 +1635,18 @@ export default function AddTransactionModal({
                 </Text>
               ) : null}
 
-              {supportsPerSqftPricing && pricingMode === "sqft" ? (
+              {isChangeOrdersCategory && pricingMode !== "sqft" ? (
+                <Text
+                  style={{
+                    fontSize: 20,
+                    fontWeight: "700",
+                    letterSpacing: -0.3,
+                    color: changeOrderFlatTotal > 0 ? "#2dcc9a" : emptyMoneyColor,
+                  }}
+                >
+                  {formatMoneyFull(changeOrderFlatTotal, { decimals: 2 })}
+                </Text>
+              ) : supportsPerSqftPricing && pricingMode === "sqft" ? (
                 isChangeOrdersCategory ? (
                   <>
                     <Text
@@ -2050,15 +2070,10 @@ export default function AddTransactionModal({
                   />
                 </View>
               )}
-
-              {parseAmountFieldToNumber(amount) > 0 &&
-                (!supportsPerSqftPricing || pricingMode !== "sqft") && (
-                <Text style={styles.hint}>{formatMoneyFull(parseAmountFieldToNumber(amount), { decimals: 2 })}</Text>
-              )}
             </View>
 
             {/* Receipt Capture — a purchase order is logged before the receipt arrives */}
-            {!isPurchaseOrdersCategory ? (
+            {!isPurchaseOrdersCategory && !isChangeOrdersCategory ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Receipt (Optional)</Text>
               {receiptUri ? (
@@ -2185,7 +2200,7 @@ export default function AddTransactionModal({
             )}
 
             {/* Planned vs Unplanned Toggle — not shown for a materials receipt or a purchase order */}
-            {!isMaterialsEquipmentExpense ? (
+            {!isMaterialsEquipmentExpense && !isChangeOrdersCategory ? (
             <>
             {!isPurchaseOrdersCategory ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>

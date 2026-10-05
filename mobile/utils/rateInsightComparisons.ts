@@ -131,6 +131,34 @@ const TOKEN_ALIASES: Record<string, string[]> = {
 
 type EstimateLineInput = Record<string, unknown>;
 
+/** Stable id for the estimate's equipment rental field when it is shown as a materials budget line. */
+export const EQUIPMENT_RENTAL_LINE_ID = 'bps-equipment-rental';
+
+export function equipmentRentalEstimateLine(
+  estimateData: Record<string, unknown> | null | undefined
+): EstimateLineInput | null {
+  const amount = Math.max(0, Number(estimateData?.equipment) || 0);
+  if (!(amount > 0)) return null;
+  return {
+    id: EQUIPMENT_RENTAL_LINE_ID,
+    name: 'Equipment rental',
+    total: amount,
+  };
+}
+
+function withEquipmentRentalLine(
+  materialLines: EstimateLineInput[],
+  estimateData: Record<string, unknown> | null | undefined
+): EstimateLineInput[] {
+  const rental = equipmentRentalEstimateLine(estimateData);
+  if (!rental) return materialLines;
+  const alreadyListed = materialLines.some((line) =>
+    /equipment/i.test(String(line.name || line.description || line.scopeName || ''))
+  );
+  if (alreadyListed) return materialLines;
+  return [...materialLines, rental];
+}
+
 function positive(n: unknown): number | null {
   const v = Number(n);
   return Number.isFinite(v) && v > 0 ? v : null;
@@ -551,7 +579,7 @@ export function buildRateInsightSections(input: {
     other: [],
   };
 
-  materialLines.forEach((item, index) => {
+  withEquipmentRentalLine(materialLines, estimateData).forEach((item, index) => {
     const line = parseEstimateLine(item, 'materials', index);
     if (!line) return;
     sections.materials.push(line);

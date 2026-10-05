@@ -11,7 +11,7 @@ export type BudgetProfitMixSegment = {
 
 /** Segment colors: teal (spent), blue (remaining), green (profit); shortfall stays distinct when EAC > contract. */
 const COLOR_SPENT = '#d7e1f0';
-const COLOR_REMAINING = "rgba(148, 163, 184, 0.35)";
+const COLOR_REMAINING = "rgba(148, 163, 184, 0.55)";
 const COLOR_OVERHEAD = "#94a3b8";
 const COLOR_PROFIT = "#2dcc9a";
 const COLOR_SHORTFALL = "#FB7185";
@@ -32,6 +32,8 @@ export function computeBudgetProfitMixSegments(params: {
   forecastFinalCost: number;
   /** Allocated company overhead. Subtracted from profit, not from the job-cost cap. */
   allocatedCompanyOverhead?: number;
+  /** Pending purchase orders. Held out of left to spend until they are received. */
+  committedPOs?: number;
   /** When the job is marked completed, use net / actual wording in the legend. */
   jobCompleted?: boolean;
 }): { segments: BudgetProfitMixSegment[]; contractValue: number } {
@@ -39,7 +41,9 @@ export function computeBudgetProfitMixSegments(params: {
   const s = Math.max(0, params.spentToDate);
   const eac = Math.max(0, params.forecastFinalCost);
   const overhead = Math.max(0, params.allocatedCompanyOverhead ?? 0);
-  const remaining = Math.max(0, eac - s);
+  const remainingPool = Math.max(0, eac - s);
+  const committed = Math.min(Math.max(0, params.committedPOs ?? 0), remainingPool);
+  const leftToSpend = Math.max(0, remainingPool - committed);
   const profit = cv - eac - overhead;
   const done = !!params.jobCompleted;
 
@@ -54,7 +58,10 @@ export function computeBudgetProfitMixSegments(params: {
 
   const parts = [
     { key: "spent", label: "Spent", value: s, color: COLOR_SPENT },
-    { key: "remain", label: remainLabel, value: remaining, color: COLOR_REMAINING },
+    ...(committed > 0.005
+      ? [{ key: "committed", label: "Committed POs", value: committed, color: "#f59e0b" }]
+      : []),
+    { key: "remain", label: remainLabel, value: leftToSpend, color: COLOR_REMAINING },
     ...(overhead > 0
       ? [{ key: "overhead", label: "Company overhead", value: overhead, color: COLOR_OVERHEAD }]
       : []),
@@ -99,6 +106,8 @@ type Props = {
   /** Quiet note under the Spent row, such as the share of the cost cap. */
   spentNote?: string;
   allocatedCompanyOverhead?: number;
+  /** Pending purchase orders still on order. */
+  committedPOs?: number;
   currency?: string;
   formatMoney: (n: number, curr: string) => string;
   darkMode: boolean;
@@ -113,6 +122,7 @@ export default function BudgetProfitMixDonut({
   projectedMarginPct,
   spentNote,
   allocatedCompanyOverhead = 0,
+  committedPOs = 0,
   currency = "USD",
   formatMoney,
   darkMode,
@@ -125,9 +135,10 @@ export default function BudgetProfitMixDonut({
         spentToDate,
         forecastFinalCost,
         allocatedCompanyOverhead,
+        committedPOs,
         jobCompleted,
       }),
-    [contractValue, spentToDate, forecastFinalCost, allocatedCompanyOverhead, jobCompleted]
+    [contractValue, spentToDate, forecastFinalCost, allocatedCompanyOverhead, committedPOs, jobCompleted]
   );
 
   const accessibilityLabel = useMemo(() => {
@@ -149,7 +160,7 @@ export default function BudgetProfitMixDonut({
       accessibilityLabel={accessibilityLabel}
     >
       <Text style={[styles.centerLabel, { color: labelDim }]}>
-        NET MARGIN
+        Net margin
       </Text>
       <Text style={[styles.centerValue, { color: centerPctColor }]}>
         {`${projectedMarginPct.toFixed(1)}%`}
@@ -194,9 +205,9 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   centerLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.8,
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0,
     marginBottom: 4,
   },
   centerValue: {
@@ -220,7 +231,7 @@ const styles = StyleSheet.create({
   },
   legendRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     width: "100%",
     gap: 8,
   },
@@ -229,12 +240,14 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     flexShrink: 0,
+    marginTop: 6,
   },
   legendLabelWrap: {
     flex: 1,
   },
   legendLabel: {
     fontSize: 14,
+    lineHeight: 20,
     fontWeight: "500",
   },
   legendNote: {
@@ -250,6 +263,7 @@ const styles = StyleSheet.create({
   },
   legendValue: {
     fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
     textAlign: "right",
     minWidth: 88,

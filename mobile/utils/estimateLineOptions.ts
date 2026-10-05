@@ -1,6 +1,7 @@
 import { normalizeExpenseGroupLabel } from '@/utils/groupCategoryExpenses';
 import {
   collectEstimateLineItems,
+  equipmentRentalEstimateLine,
   scoreExpenseLineMatch,
   RATE_INSIGHT_AUTO_MATCH_MIN_SCORE,
   type ExpenseInput,
@@ -38,7 +39,16 @@ export function estimateLineOptionsFor(
   kind: EstimateLinePickerKind
 ): EstimateLineOption[] {
   const { materialLines, laborLines } = collectEstimateLineItems(estimateData);
-  return (kind === 'materials' ? materialLines : laborLines)
+  const rental = kind === 'materials' ? equipmentRentalEstimateLine(estimateData) : null;
+  const sourceLines = kind === 'materials' ? materialLines : laborLines;
+  const lines =
+    rental &&
+    !sourceLines.some((item) =>
+      /equipment/i.test(String(item.name || item.description || item.scopeName || ''))
+    )
+      ? [...sourceLines, rental]
+      : sourceLines;
+  return lines
     .map((item, index) => ({
       id: String(item.id || `${kind}-${index}`),
       name: lineName(item),

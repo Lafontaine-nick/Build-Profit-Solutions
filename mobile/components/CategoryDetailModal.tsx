@@ -589,18 +589,26 @@ export default function CategoryDetailModal({
     return 0;
   }, [usesPlannedBudgetCard, projectData, isContingencyCategory]);
 
-  const materialsEquipmentBudget = useMemo(() => {
-    const lineBudget = estimateCategorySummary.totalBudget;
-    if (!isMaterialsEquipmentCategory) return lineBudget;
+  const includedEquipmentRental = useMemo(() => {
+    if (!isMaterialsEquipmentCategory) return 0;
     const estimateData = (projectData as { estimateData?: { equipment?: number } })?.estimateData;
-    const equipment = Math.max(
+    return Math.max(
       0,
       Number(estimateData?.equipment ?? (projectData as { equipment?: number })?.equipment ?? 0) || 0
     );
-    if (!(equipment > 0)) return lineBudget;
+  }, [isMaterialsEquipmentCategory, projectData]);
+
+  const materialsEquipmentBudget = useMemo(() => {
+    const lineBudget = estimateCategorySummary.totalBudget;
+    if (!isMaterialsEquipmentCategory || !(includedEquipmentRental > 0)) return lineBudget;
     const alreadyOnALine = estimateLineOptions.some((option) => /equipment/i.test(option.name));
-    return alreadyOnALine ? lineBudget : lineBudget + equipment;
-  }, [estimateCategorySummary.totalBudget, estimateLineOptions, isMaterialsEquipmentCategory, projectData]);
+    return alreadyOnALine ? lineBudget : lineBudget + includedEquipmentRental;
+  }, [
+    estimateCategorySummary.totalBudget,
+    estimateLineOptions,
+    isMaterialsEquipmentCategory,
+    includedEquipmentRental,
+  ]);
 
   const categoryBudgetSummary = useMemo(
     () => {
@@ -1010,6 +1018,11 @@ export default function CategoryDetailModal({
               nestedCardBorder={nestedCardBorder}
               labelColor={supportSub}
               valueColor={Colors.text}
+              budgetNote={
+                includedEquipmentRental > 0
+                  ? `Includes ${formatMoneyFull(includedEquipmentRental, { decimals: 2 })} equipment rental`
+                  : undefined
+              }
             />
           ) : (
           <View style={styles.totalCardContainer}>
@@ -1029,7 +1042,9 @@ export default function CategoryDetailModal({
                   <Text style={[styles.totalLabel, { color: darkMode ? '#d7e1f0' : supportSub, textTransform: 'none', fontSize: 15, fontWeight: '700', letterSpacing: 0 }]}>
                     {isPurchaseOrdersCategory
                       ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
-                      : 'Total Spent'}
+                      : isChangeOrdersCategory
+                        ? 'Change order total'
+                        : 'Total Spent'}
                   </Text>
                   <Text style={[styles.totalValue, !(total > 0) && { color: darkMode ? '#d7e1f0' : '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                 </View>
@@ -1041,7 +1056,9 @@ export default function CategoryDetailModal({
                     <Text style={[styles.totalLabel, { color: Colors.sub, textTransform: 'none', fontSize: 15, fontWeight: '700', letterSpacing: 0 }]}>
                       {isPurchaseOrdersCategory
                         ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
-                        : 'Total Spent'}
+                        : isChangeOrdersCategory
+                          ? 'Change order total'
+                          : 'Total Spent'}
                     </Text>
                     <Text style={[styles.totalValue, !(total > 0) && { color: '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                   </View>
@@ -1104,37 +1121,6 @@ export default function CategoryDetailModal({
                   {isPurchaseOrdersCategory ? '+ Add purchase order' : `+ Add ${categoryName}`}
                 </Text>
               </View>
-            </TouchableOpacity>
-          )}
-
-          {isChangeOrdersCategory && (
-            <TouchableOpacity
-              style={[
-                styles.coTimelineReminder,
-                {
-                  backgroundColor: darkMode ? "rgba(45, 204, 154, 0.08)" : "rgba(45, 204, 154, 0.1)",
-                  borderColor: darkMode ? "rgba(45, 204, 154, 0.3)" : "rgba(45, 204, 154, 0.28)",
-                },
-              ]}
-              activeOpacity={0.82}
-              accessibilityRole="button"
-              accessibilityLabel="Open Timeline to mark a change order as completed"
-              onPress={() => {
-                onClose();
-                onRequestOpenTimeline?.();
-              }}
-            >
-              <MaterialIcons name="event-available" size={22} color="#2dcc9a" style={{ marginTop: 1 }} />
-              <Text
-                style={[
-                  styles.coTimelineReminderText,
-                  { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
-                ]}
-              >
-                When payment is received, tap here to open Timeline and mark the matching line as{" "}
-                <Text style={{ fontWeight: "800", color: "#2dcc9a" }}>Completed</Text> in the
-                Timeline tab.
-              </Text>
             </TouchableOpacity>
           )}
 
@@ -2151,6 +2137,36 @@ export default function CategoryDetailModal({
               </Text>
             </View>
           )}
+
+          {isChangeOrdersCategory && hasCategoryTransactions ? (
+            <TouchableOpacity
+              style={[
+                styles.coTimelineReminder,
+                {
+                  backgroundColor: darkMode ? "rgba(45, 204, 154, 0.08)" : "rgba(45, 204, 154, 0.1)",
+                  borderColor: darkMode ? "rgba(45, 204, 154, 0.3)" : "rgba(45, 204, 154, 0.28)",
+                },
+              ]}
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel="Open Timeline to mark the change order payment as received"
+              onPress={() => {
+                onClose();
+                onRequestOpenTimeline?.();
+              }}
+            >
+              <MaterialIcons name="event-available" size={22} color="#2dcc9a" style={{ marginTop: 1 }} />
+              <Text
+                style={[
+                  styles.coTimelineReminderText,
+                  { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
+                ]}
+              >
+                Approval does not collect this payment. When the client pays, tap here and mark the Timeline line as{" "}
+                <Text style={{ fontWeight: "800", color: "#2dcc9a" }}>Received</Text>.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           
           <View style={hasCategoryTransactions ? styles.bottomSpacer : undefined} />
             </View>
@@ -2631,7 +2647,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 18,
+    marginTop: 12,
   },
   coTimelineReminderText: {
     flex: 1,

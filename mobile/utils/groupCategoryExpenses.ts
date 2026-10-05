@@ -1,4 +1,4 @@
-import { collectEstimateLineItems } from '@/utils/rateInsightComparisons';
+import { collectEstimateLineItems, equipmentRentalEstimateLine } from '@/utils/rateInsightComparisons';
 
 export type CategoryExpenseLike = {
   id: string;
@@ -104,7 +104,16 @@ export function buildEstimateLineIdToLabel(
   kind: 'materials' | 'labor'
 ): Record<string, string> {
   const { materialLines, laborLines } = collectEstimateLineItems(estimateData);
-  const lines = kind === 'materials' ? materialLines : laborLines;
+  const rental =
+    kind === 'materials' ? equipmentRentalEstimateLine(estimateData) : null;
+  const sourceLines = kind === 'materials' ? materialLines : laborLines;
+  const lines =
+    rental &&
+    !sourceLines.some((line) =>
+      /equipment/i.test(String(line.name || line.description || line.scopeName || ''))
+    )
+      ? [...sourceLines, rental]
+      : sourceLines;
   const map: Record<string, string> = {};
   lines.forEach((line, index) => {
     const id = String(line.id || `${kind}-${index}`);

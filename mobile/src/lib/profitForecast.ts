@@ -105,10 +105,13 @@ export function sumCollectedMilestonePayments(milestones: unknown[] | undefined)
     const st = String(m.status ?? '').toLowerCase();
     const done =
       m.collected === true ||
+      Boolean(String(m.collectedAt ?? '').trim()) ||
       st.includes('collected') ||
       st.includes('received') ||
       st === 'completed' ||
-      (Number(m.progressPct) || 0) >= 99.5;
+      st === 'complete' ||
+      st === 'paid' ||
+      (!st && (Number(m.progressPct) || 0) >= 99.5);
     if (done) collected += amt;
   }
   return collected;
@@ -252,18 +255,13 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
         }
       }
     } else {
-      // Blended schedule progress is still very low (<~3%). Without spend, keep the budget fallback.
-      // Once real burn exists, derive a minimum completion signal from cost vs cap so new expenses
-      // can move the forecast before milestones advance much (timeline edits alone rarely move %).
-      if (adjustedBudget > 0 && rawCostBudgetUsedPct >= 2) {
-        const impliedProgressRatio = Math.max(0.03, progressRatio, rawCostBudgetUsedPct / 100);
-        const runRateEarly = actualPlusCommitted / impliedProgressRatio;
-        forecastFinalCost = Math.max(actualPlusCommitted, runRateEarly);
-        forecastMethod = 'run-rate';
-      } else {
-        forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
-        forecastMethod = 'budget-fallback';
-      }
+      // Schedule progress is still under ~3%. A small amount of spend is not evidence the
+      // job will finish under the estimate: dividing that spend by a 3% floor made $625
+      // on a $30,400 cap look like a $20,833 job and jumped projected profit. Stay on the
+      // planned budget. Once burn is far enough ahead of the schedule, the run-rate
+      // branch above raises the forecast instead.
+      forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
+      forecastMethod = 'budget-fallback';
 
       const earlyCalendarStress =
         eacCalendar != null &&

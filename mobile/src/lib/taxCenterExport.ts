@@ -9,7 +9,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { renderHtmlPdfViaBackend } from '@/lib/pdf/renderHtmlPdfViaBackend';
 import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
-import type { TaxCategory } from '@/src/lib/taxCenter';
+import { formatTaxNetMarginPercent, type TaxCategory } from '@/src/lib/taxCenter';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
 import { SUGGESTED_ACCOUNTING_CATEGORY } from '@/src/lib/taxSuggestedAccountingCategories';
 import {
@@ -18,6 +18,7 @@ import {
   TAX_CENTER_METHODOLOGY_TITLE,
 } from '@/src/lib/taxCenterMethodologyCopy';
 import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax1099Review';
+import { parseCalendarDate } from '@/utils/formatters';
 import type { Vendor } from '@/src/lib/vendorTypes';
 
 /** Full legal notice for PDF / CSV exports (same substantive copy). */
@@ -64,8 +65,7 @@ function formatMoneyCsv(value: number | null | undefined): string {
 }
 
 function formatNetMargin(n: number | null): string {
-  if (n == null || !Number.isFinite(n)) return 'N/A';
-  return `${Math.round(n * 100)}%`;
+  return formatTaxNetMarginPercent(n);
 }
 
 function escapeHtml(s: string): string {
@@ -97,9 +97,10 @@ function csvGeneratedDateOnly(generatedAtDisplay: string): string {
 function formatReadableExpenseDate(raw: string): string {
   const s = String(raw || '').trim();
   if (!s) return '';
-  const t = Date.parse(s);
-  if (!Number.isNaN(t)) {
-    return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const dateOnly = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  const date = parseCalendarDate(dateOnly ? dateOnly[1] : s);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
   return s;
 }

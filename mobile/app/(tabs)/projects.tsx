@@ -33,7 +33,7 @@ import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProjectListRowFinancials } from '@/lib/projectListRowMetrics';
 import { pickCompletedDisplayDateRaw } from '@/lib/projectCompletedDisplayDate';
-import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
+import { timelineScheduleProgressPct } from '@/src/lib/timelineScheduleProgress';
 import {
   applyWorkspaceTimelineProgressToMaps,
   loadWorkspaceTimelineProgressByProjectId,
@@ -67,7 +67,7 @@ import {
 } from '@/components/projects/ProjectsStatusBanner';
 import { PROJECT_ACTIVATED_BANNER_BODY } from '@/utils/projectsStatusBannerCopy';
 import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
-import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
+import { formatMoneyUSD, formatMoneyCompact, formatDateShort, parseCalendarDate } from '@/utils/formatters';
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
   const s = String(raw ?? '').trim();
@@ -108,39 +108,7 @@ const toFiniteNumber = (value: any): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-// Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
-const isDepositMilestone = (m: any): boolean => {
-  const t = (m?.title || m?.name || "").toLowerCase();
-  return t.includes("deposit") || m?.type === "deposit";
-};
-
-// Helper to calculate progress from milestone items (same logic as TimelineTabV2: deposit + change-order rows excluded)
-const computeOverallPctFromItems = (items: any[]): number => {
-  if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  const sum = workItems.reduce((acc, m) => {
-    const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
-    return acc + pct;
-  }, 0);
-  return Math.round(sum / workItems.length);
-};
-
-const progressFromItems = (items: any[]): number => {
-  if (!Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  const total = workItems.reduce((sum, item) => {
-    const explicitPct = toFiniteNumber(item?.progressPct);
-    if (explicitPct > 0) return sum + Math.min(100, Math.max(0, explicitPct));
-
-    const status = String(item?.status || '').toLowerCase();
-    if (status === 'completed' || status === 'complete' || status === 'paid') return sum + 100;
-    if (status === 'in_progress' || status === 'in-progress') return sum + 50;
-    return sum;
-  }, 0);
-  return Math.round(total / workItems.length);
-};
+const computeOverallPctFromItems = (items: any[]): number => timelineScheduleProgressPct(items);
 
 /** Bids awaiting client decision have not started — no job progress yet. */
 const isPreActiveProjectStatus = (status: unknown): boolean => {
@@ -229,41 +197,37 @@ function resolveTimelineLatestPlannedMsFromMap(
   return best;
 }
 
-function collectTruthyDateStrings(...vals: unknown[]): string[] {
-  const out: string[] = [];
-  for (const v of vals) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (s) out.push(s);
+function firstCalendarDate(...vals: unknown[]): { raw: string; date: Date } | null {
+  for (const value of vals) {
+    if (value == null) continue;
+    const raw = String(value).trim();
+    if (!raw) continue;
+    const date = parseCalendarDate(raw);
+    if (Number.isNaN(date.getTime())) continue;
+    return { raw, date };
   }
-  return out;
+  return null;
 }
 
+/** Same end date Project Status shows. A later leftover field must not keep the old finish. */
 function getLatestJobEndPick(projectRecord: any): { raw: string; date: Date } | null {
   if (!projectRecord) return null;
   const est = projectRecord.estimateData || {};
   const pd = projectRecord.projectData || {};
   const ped = pd.estimateData || {};
-  const raws = collectTruthyDateStrings(
-    projectRecord.projectEndDate,
+  return firstCalendarDate(
     est.projectEndDate,
     est.endDate,
-    est.endISO,
+    projectRecord.endDate,
     ped.projectEndDate,
     ped.endDate,
+    projectRecord.projectEndDate,
+    est.endISO,
     ped.endISO,
-    projectRecord.endDate,
     projectRecord.endISO,
     pd.endDate,
     pd.endISO
   );
-  let best: { raw: string; date: Date } | null = null;
-  for (const raw of raws) {
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) continue;
-    if (!best || date.getTime() > best.date.getTime()) best = { raw, date };
-  }
-  return best;
 }
 
 function getLatestPendingSchedulePick(projectRecord: any): { raw: string; date: Date } | null {
@@ -301,23 +265,11 @@ function getLatestPendingSchedulePick(projectRecord: any): { raw: string; date: 
 
 function getEffectiveScheduleEndPick(
   projectRecord: any,
-  timelineLatestPlannedMs?: number | null
+  _timelineLatestPlannedMs?: number | null
 ): { raw: string; date: Date } | null {
   const job = getLatestJobEndPick(projectRecord);
-  const sched = getLatestPendingSchedulePick(projectRecord);
-  let chosen: { raw: string; date: Date } | null = null;
-  if (!job && !sched) chosen = null;
-  else if (!sched) chosen = job;
-  else if (!job) chosen = sched;
-  else chosen = job.date.getTime() >= sched.date.getTime() ? job : sched;
-
-  if (timelineLatestPlannedMs != null && Number.isFinite(timelineLatestPlannedMs)) {
-    const t = timelineLatestPlannedMs;
-    if (!chosen || t > chosen.date.getTime()) {
-      return { raw: new Date(t).toISOString(), date: new Date(t) };
-    }
-  }
-  return chosen;
+  if (job) return job;
+  return getLatestPendingSchedulePick(projectRecord);
 }
 
 // Palette aligned with key metric cards
@@ -494,10 +446,8 @@ export default function ProjectsScreen() {
         } catch {
           /* ignore */
         }
-        if (explicitProgress === 0 && foundProgress !== undefined && foundProgress > 0) {
-          foundProgress = 0;
-        } else if (explicitProgress !== undefined && explicitProgress > 0) {
-          foundProgress = Math.max(explicitProgress, foundProgress ?? 0);
+        if (foundProgress === undefined && explicitProgress !== undefined) {
+          foundProgress = explicitProgress;
         }
 
         if (foundProgress !== undefined) {
@@ -1097,6 +1047,7 @@ export default function ProjectsScreen() {
               }
             }}
           >
+            {activeTab === 'active' ? <Ionicons name="checkmark" size={16} color="#050B13" /> : null}
             <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
               Active
             </Text>
@@ -1113,6 +1064,7 @@ export default function ProjectsScreen() {
               }
             }}
           >
+            {activeTab === 'submitted' ? <Ionicons name="checkmark" size={16} color="#050B13" /> : null}
             <Text style={[styles.tabText, activeTab === 'submitted' && styles.tabTextActive]}>
               Submitted
             </Text>
@@ -1129,6 +1081,7 @@ export default function ProjectsScreen() {
               }
             }}
           >
+            {activeTab === 'completed' ? <Ionicons name="checkmark" size={16} color="#050B13" /> : null}
             <Text style={[styles.tabText, activeTab === 'completed' && styles.tabTextActive]}>
               Completed
             </Text>
@@ -1223,6 +1176,14 @@ export default function ProjectsScreen() {
                       >
                         {project.name}
                       </Text>
+                      {showLocation ? (
+                        <View style={styles.projectLocationRow}>
+                          <Ionicons name="location-outline" size={13} color={PROJECTS_MUTED} />
+                          <Text style={styles.projectLocationText} numberOfLines={1}>
+                            {locationLabel}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                     <View style={styles.projectTopActions}>
                       <View
@@ -1276,7 +1237,7 @@ export default function ProjectsScreen() {
                               {project.dateLabel.startsWith('Completed ')
                                 ? 'Completed'
                                 : project.dateLabel.startsWith('Schedule ')
-                                  ? 'Schedule'
+                                  ? 'Finish'
                                   : ''}
                             </Text>
                             <Text style={styles.projectMetaText} numberOfLines={1}>
@@ -1304,7 +1265,7 @@ export default function ProjectsScreen() {
                           {project.dateLabel.startsWith('Completed ')
                             ? 'Completed'
                             : project.dateLabel.startsWith('Schedule ')
-                              ? 'Schedule'
+                              ? 'Finish'
                               : ''}
                         </Text>
                         <Text style={styles.projectMetaText} numberOfLines={1}>
@@ -1321,7 +1282,14 @@ export default function ProjectsScreen() {
                     {project.projectedProfit != null && Number.isFinite(project.projectedProfit) && (
                       <Text style={styles.projectProfitLine}>
                         {isCompletedProject ? 'Net profit' : 'Est. profit'}:{' '}
-                        {formatMoneyUSD(project.projectedProfit)}
+                        <Text
+                          style={[
+                            styles.projectProfitValue,
+                            project.projectedProfit < 0 ? { color: '#fb7185' } : null,
+                          ]}
+                        >
+                          {formatMoneyUSD(project.projectedProfit)}
+                        </Text>
                       </Text>
                     )}
                     <Text style={styles.projectMarginLine}>
@@ -1332,18 +1300,6 @@ export default function ProjectsScreen() {
                   </View>
 
                   <View style={styles.projectMetaSection}>
-                    {showLocation ? (
-                    <View style={styles.projectLocationRow}>
-                      <Ionicons
-                        name="location-outline"
-                        size={14}
-                        color={PROJECTS_MUTED}
-                      />
-                      <Text style={styles.projectLocationText}>
-                        {locationLabel}
-                      </Text>
-                    </View>
-                    ) : null}
                     {(project.rawProject?.client || project.rawProject?.estimateData?.customerName || project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail) && (
                       <View style={styles.projectClientRow}>
                         {(project.rawProject?.client || project.rawProject?.estimateData?.customerName) &&
@@ -1394,19 +1350,19 @@ export default function ProjectsScreen() {
                         {Math.round(progressPct)}%
                       </Text>
                     </View>
-                    {progressPct > 0 ? (
                     <View style={styles.progressBarTrack}>
-                      <View
-                        style={[
-                          styles.progressBarFill,
-                          {
-                            width: `${progressPct}%`,
-                            backgroundColor: PROJECTS_ACCENT,
-                          },
-                        ]}
-                      />
+                      {progressPct > 0 ? (
+                        <View
+                          style={[
+                            styles.progressBarFill,
+                            {
+                              width: `${progressPct}%`,
+                              backgroundColor: PROJECTS_ACCENT,
+                            },
+                          ]}
+                        />
+                      ) : null}
                     </View>
-                    ) : null}
                   </View>
                   
                   {/* Mark as Won button for submitted projects */}
@@ -1637,8 +1593,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   projectLocationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 0,
-    gap: 6,
+    marginTop: 4,
+    gap: 4,
   },
   projectLocationText: {
     flex: 1,
@@ -1674,6 +1630,10 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontWeight: '600',
     letterSpacing: -0.2,
     color: darkMode ? PROJECTS_MUTED : '#64748b',
+  },
+  projectProfitValue: {
+    color: darkMode ? PROJECTS_ACCENT : '#0d9488',
+    fontWeight: '700',
   },
   projectMarginLine: {
     marginTop: 2,
@@ -1741,11 +1701,10 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   /** Budget rowLabelMetric */
   projectMetaLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    letterSpacing: 0,
     color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   progressSection: {
@@ -1758,11 +1717,10 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     marginBottom: 8,
   },
   progressHeaderLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    letterSpacing: 0,
     color: darkMode ? PROJECTS_MUTED : '#64748b',
   },
   progressHeaderPercent: {
@@ -1864,11 +1822,13 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    gap: 4,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: PROJECTS_ACCENT,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: PROJECTS_ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1876,7 +1836,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   tabActive: {
     backgroundColor: PROJECTS_ACCENT,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: PROJECTS_ACCENT,
   },
   tabText: {

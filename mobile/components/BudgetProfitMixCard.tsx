@@ -33,6 +33,8 @@ export type BudgetProfitMixCardProps = {
   marginTop?: number;
   /** Job status completed — donut + copy use net / closeout wording */
   jobCompleted?: boolean;
+  /** Start date is still in the future. Spend before that day is ahead of the job. */
+  beforeJobStart?: boolean;
 };
 
 export default function BudgetProfitMixCard({
@@ -43,9 +45,9 @@ export default function BudgetProfitMixCard({
   adjustedCostBudget,
   profitForecast,
   originalEstimateMarginPct,
-  onChipsPress,
   marginTop = 0,
   jobCompleted = false,
+  beforeJobStart = false,
 }: BudgetProfitMixCardProps) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -87,7 +89,7 @@ export default function BudgetProfitMixCard({
   const profitDrift = profitForecast.profitVarianceVsEstimate;
   const marginOnEstimate = Math.abs(marginDriftPts) < 0.15;
   const estimateDriftColor = marginOnEstimate
-    ? pageSubtext
+    ? '#2dcc9a'
     : marginDriftPts >= 0
       ? '#2dcc9a'
       : '#F97316';
@@ -108,8 +110,10 @@ export default function BudgetProfitMixCard({
         : `Profit is ${money(Math.abs(profitDrift), currency)} under the estimate.`;
   const paceWords = overCostCap
     ? 'Spending is over the cost cap.'
-    : schedulePct < 1 && spentToDate > 0
-      ? "The schedule hasn't started."
+    : schedulePct < 1 && spentToDate > 0 && beforeJobStart
+      ? 'Spending started before the schedule.'
+      : schedulePct < 1 && spentToDate > 0
+        ? 'Spending is inside the cost cap.'
       : Math.abs(burnVsPlanPts) < 3
         ? 'Spending is in line with the schedule.'
         : burnVsPlanPts > 0
@@ -140,7 +144,7 @@ export default function BudgetProfitMixCard({
           <View style={styles.budgetProfitMixTitleRow}>
             <View style={styles.budgetProfitMixTitleCenter}>
               <Text style={[styles.totalsTitle, { color: theme.text }]} numberOfLines={1}>
-                Budget & Profit Mix
+                Budget & profit mix
               </Text>
             </View>
           </View>
@@ -152,11 +156,9 @@ export default function BudgetProfitMixCard({
               <Text style={[styles.plainStatusBody, { color: overCostCap ? '#F97316' : pageSubtext }]}>
                 {paceWords}
               </Text>
-              <Pressable onPress={onChipsPress} disabled={!onChipsPress}>
-                <Text style={[styles.plainStatusMeta, { color: pageInstructional }]}>
-                  Contract {money(adjustedContractValue, currency)} · Cost cap {money(adjustedCostBudget, currency)}
-                </Text>
-              </Pressable>
+              <Text style={[styles.plainStatusMeta, { color: pageInstructional }]}>
+                Contract {money(adjustedContractValue, currency)} · Cost cap {money(adjustedCostBudget, currency)}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -175,9 +177,10 @@ export default function BudgetProfitMixCard({
               projectedMarginPct={profitForecast.projectedMarginPct}
               spentNote={
                 adjustedCostBudget > 0
-                  ? `${costBudgetUsedPctDisplay.toFixed(1)}% of the cost cap`
+                  ? `${((spentToDate / adjustedCostBudget) * 100).toFixed(1)}% of the cost cap`
                   : undefined
               }
+              committedPOs={committedPOsTotal}
               currency={currency}
               formatMoney={money}
               darkMode={darkMode}

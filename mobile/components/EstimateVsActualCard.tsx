@@ -116,9 +116,9 @@ export default function EstimateVsActualCard({
         ) : null}
 
         <Text style={[
-          { marginTop: 16, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, color: pageCaption },
+          { marginTop: 16, fontSize: 13, fontWeight: '600', letterSpacing: 0, color: pageCaption },
         ]}>
-          COST CAP USED
+          Cost cap used
         </Text>
         <Text style={{ marginTop: 4, fontSize: 32, fontWeight: '800', letterSpacing: -0.4, lineHeight: 38, color: '#2dcc9a' }}>
           {spendProgress.percentLabel}

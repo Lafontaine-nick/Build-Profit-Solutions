@@ -16,6 +16,7 @@ import { computeOverallPctFromTimelineItems } from '@/utils/workspaceTimelinePro
 import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
 import { mapApprovedCostBucketsToProjectBuckets } from '@/utils/approvedCostBuckets';
 import type { UnifiedProject } from '@/contexts/ProjectListContext';
+import { applyMarkPurchaseOrderReceived } from '@/utils/applyMarkPurchaseOrderReceived';
 
 export type PurchaseOrder = {
   id: string;
@@ -1267,39 +1268,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
   const markPOReceived = (poId: string) => {
     applyProjectDataUpdate(prev => {
-      const po = prev.purchaseOrders?.find(p => p.id === poId);
-      if (!po) return prev;
-
-      const updatedPOs = (prev.purchaseOrders || []).map(p =>
-        p.id === poId ? { ...p, status: 'Received' as const } : p
-      );
-
       // Do NOT add to expenses — received POs are tracked in purchaseOrders. Actual cost
       // = expenses + received POs. Adding to expenses would double-count when computing
       // forecast final cost for completed projects (Nick, Jason).
-      const updatedBuckets = prev.buckets.map(bucket => {
-        if (bucket.name.toLowerCase() === po.category.toLowerCase()) {
-          return {
-            ...bucket,
-            spent: (bucket.spent || 0) + po.amount,
-          };
-        }
-        return bucket;
-      });
-
-      const newCommittedPOs = updatedPOs
-        .filter(p => p.status === 'Pending')
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      const updated = {
-        ...prev,
-        purchaseOrders: updatedPOs,
-        buckets: updatedBuckets,
-        spent: prev.spent + po.amount,
-        committedPOs: newCommittedPOs,
-        lastUpdated: new Date().toISOString(),
-      };
-      pushBusinessResource('purchaseOrders', updatedPOs);
+      const updated = applyMarkPurchaseOrderReceived(prev, poId);
+      if (!updated) return prev;
+      pushBusinessResource('purchaseOrders', updated.purchaseOrders);
       return updated;
     });
   };

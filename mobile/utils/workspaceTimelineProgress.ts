@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
-import { isBillingTimelineMilestone } from '@/src/lib/projectFinancials';
+import { timelineScheduleProgressPct } from '@/src/lib/timelineScheduleProgress';
 import { readSyncMeta, resourceTimestamp, writeSyncMeta } from '@/utils/workspaceResourceMerge';
 
 const TIMELINE_STORAGE_PREFIX = 'bps.timeline.v2.';
@@ -19,21 +19,7 @@ let lastBulkFetchAt = 0;
 let lastBulkFetchKey = '';
 
 export function computeOverallPctFromTimelineItems(items: any[]): number {
-  if (!Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isBillingTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  const sum = workItems.reduce((acc, m) => {
-    const pct = Math.min(
-      100,
-      Math.max(
-        0,
-        m.progressPct ||
-          (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)
-      )
-    );
-    return acc + pct;
-  }, 0);
-  return Math.round(sum / workItems.length);
+  return timelineScheduleProgressPct(items);
 }
 
 export type WorkspaceTimelineProgressEntry = {

@@ -12,6 +12,12 @@ import { getColors } from "@/theme/getColors";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { estimateFlowCardStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { isBillingTimelineMilestone } from "@/src/lib/projectFinancials";
+
+function isPaymentMilestone(m: Milestone | null): boolean {
+  if (!m) return false;
+  return isBillingTimelineMilestone(m as any) || (typeof m.amount === "number" && m.amount > 0);
+}
 
 type Props = {
   visible: boolean;
@@ -53,7 +59,9 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     if (visible && milestone) {
       setTitle(milestone.title);
       setPlannedDate(new Date(milestone.plannedDate + 'T00:00:00'));
-      setStatus(milestone.status);
+      setStatus(
+        isPaymentMilestone(milestone) && milestone.status === "in_progress" ? "pending" : milestone.status
+      );
       setAssignee(milestone.assignee || "");
       setCostDelta(milestone.costDelta ? String(milestone.costDelta) : "");
       setCostCategory(milestone.costCategory || "materials");
@@ -81,11 +89,12 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       (typeof milestone.amount === 'number' && Number.isFinite(milestone.amount) ? milestone.amount : 0) ||
       0;
 
-    // Auto-set progress to 100% if completed, otherwise keep existing progress
     let finalProgress = milestone.progressPct || 0;
     if (status === 'completed') {
       finalProgress = 100;
-    } else if (status === 'in_progress' && finalProgress === 0) {
+    } else if (status === 'pending') {
+      finalProgress = 0;
+    } else if (status === 'in_progress' && (finalProgress <= 0 || finalProgress >= 99.5)) {
       finalProgress = 50;
     }
 
@@ -165,11 +174,16 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   // Don't render if not visible or no milestone
   if (!visible || !milestone) return null;
 
-  const statuses: { value: MilestoneStatus; label: string }[] = [
-    { value: 'pending', label: 'Pending' },
-    { value: 'in_progress', label: 'In Progress' },
-    { value: 'completed', label: 'Completed' },
-  ];
+  const statuses: { value: MilestoneStatus; label: string }[] = isPaymentMilestone(milestone)
+    ? [
+        { value: 'pending', label: 'Pending' },
+        { value: 'completed', label: 'Completed' },
+      ]
+    : [
+        { value: 'pending', label: 'Pending' },
+        { value: 'in_progress', label: 'In Progress' },
+        { value: 'completed', label: 'Completed' },
+      ];
   const fieldFill = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : ThemeColors.surface2;
   const fieldBorder = darkMode ? "rgba(148, 163, 184, 0.12)" : ThemeColors.line;
   const amountValue = parseFloat(String(paymentAmount).replace(/,/g, ""));
@@ -279,7 +293,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
             <View style={styles.field}>
               <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Status</Text>
               <View style={styles.statusButtons}>
-                {statuses.map(s => (
+                {statuses.map(s => {
+                  const tone =
+                    s.value === 'completed'
+                      ? { fill: 'rgba(45, 204, 154, 0.16)', border: 'rgba(45, 204, 154, 0.55)', text: '#2dcc9a' }
+                      : s.value === 'in_progress'
+                        ? { fill: 'rgba(249, 115, 22, 0.16)', border: 'rgba(249, 115, 22, 0.55)', text: '#fb923c' }
+                        : { fill: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.6)', text: darkMode ? '#e2e8f0' : '#334155' };
+                  const isSelected = status === s.value;
+                  return (
                   <TouchableOpacity
                     key={s.value}
                     onPress={() => {
@@ -290,8 +312,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     style={[
                       styles.statusButton,
                       {
-                        backgroundColor: status === s.value ? "#2dcc9a" : (darkMode ? "#3A3A3C" : ThemeColors.surface2),
-                        borderColor: status === s.value ? "#2dcc9a" : (darkMode ? "rgba(148, 163, 184, 0.35)" : ThemeColors.line),
+                        backgroundColor: isSelected ? tone.fill : (darkMode ? "#3A3A3C" : ThemeColors.surface2),
+                        borderColor: isSelected ? tone.border : (darkMode ? "rgba(148, 163, 184, 0.35)" : ThemeColors.line),
                         borderWidth: 1,
                         borderRadius: 12,
                       }
@@ -302,13 +324,14 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                       style={[
                         styles.statusButtonText,
                         !darkMode && { color: ThemeColors.sub },
-                        status === s.value && { color: "#050B13" },
+                        isSelected && { color: tone.text },
                       ]}
                     >
                       {s.label}
                     </Text>
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
               </View>
             </View>
 

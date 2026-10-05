@@ -23,11 +23,13 @@ export default function ProjectTaxSummaryList({ projects, formatMoney, formatPer
         >
             <View style={styles.projectHeader}>
               <Text style={[styles.projectName, asPage && styles.projectNamePage]}>{project.projectName}</Text>
-              <View style={asPage && project.margin > 0 ? styles.marginChip : null}>
-                <Text style={[styles.margin, asPage && styles.marginPage, { color: figureColor(project.margin) }]}>
-                  {formatPercent(project.margin)}
-                </Text>
-              </View>
+              {project.revenueCollected > 0 ? (
+                <View style={asPage && project.margin > 0 ? styles.marginChip : null}>
+                  <Text style={[styles.margin, asPage && styles.marginPage, { color: figureColor(project.margin) }]}>
+                    {formatPercent(project.margin)} margin
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <View style={asPage ? styles.gridPage : styles.grid}>
               <Metric

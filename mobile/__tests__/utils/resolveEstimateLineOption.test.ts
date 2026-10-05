@@ -1,4 +1,5 @@
-import { resolveEstimateLineOption } from '@/utils/estimateLineOptions';
+import { estimateLineOptionsFor, resolveEstimateLineOption } from '@/utils/estimateLineOptions';
+import { EQUIPMENT_RENTAL_LINE_ID, getEstimateLineSpendSummaries } from '@/utils/rateInsightComparisons';
 
 const projectLike = {
   estimateData: {
@@ -41,5 +42,51 @@ describe('resolveEstimateLineOption', () => {
     expect(
       resolveEstimateLineOption(projectLike.estimateData as Record<string, unknown>, 'materials', { material: 'Misc supplies' })
     ).toBeNull();
+  });
+
+  it('adds equipment rental as its own materials line', () => {
+    const options = estimateLineOptionsFor(
+      {
+        equipment: 600,
+        materialLineItems: [{ id: 'panel', name: 'Main panel — materials', total: 850 }],
+      },
+      'materials'
+    );
+    expect(options.map((option) => option.id)).toEqual(['panel', EQUIPMENT_RENTAL_LINE_ID]);
+    expect(options[1].name).toBe('Equipment rental');
+    expect(options[1].budget).toBe(600);
+  });
+
+  it('does not add a second equipment line when one is already listed', () => {
+    const options = estimateLineOptionsFor(
+      {
+        equipment: 600,
+        materialLineItems: [{ id: 'eq', name: 'Equipment', total: 600 }],
+      },
+      'materials'
+    );
+    expect(options).toHaveLength(1);
+  });
+
+  it('keeps a linked rental bill on the equipment line', () => {
+    const summaries = getEstimateLineSpendSummaries({
+      estimateData: {
+        equipment: 600,
+        materialLineItems: [{ id: 'panel', name: 'Main panel', total: 850 }],
+      },
+      expenses: [
+        {
+          id: 'e1',
+          amount: 600,
+          category: 'Materials/Equipment',
+          linkedLineId: EQUIPMENT_RENTAL_LINE_ID,
+          material: 'Lift',
+        },
+      ],
+      kind: 'materials',
+    });
+    expect(summaries[EQUIPMENT_RENTAL_LINE_ID].loggedTotal).toBe(600);
+    expect(summaries[EQUIPMENT_RENTAL_LINE_ID].remaining).toBe(0);
+    expect(summaries.panel.loggedTotal).toBe(0);
   });
 });

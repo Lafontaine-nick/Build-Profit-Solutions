@@ -68,6 +68,7 @@ import {
 } from "@/lib/ai/projectContextResolver";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
+import { workTaskProgressPct } from "@/src/lib/timelineScheduleProgress";
 import { getAllocatedCompanyOverhead } from "@/src/lib/projectFinancials";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
@@ -3754,13 +3755,7 @@ const AIAssistantModal: React.FC<Props> = ({
             const spendToDatePct = contractVal > 0 && mergedTotalSpent >= 0
               ? Math.round(((contractVal - mergedTotalSpent) / contractVal) * 1000) / 10
               : (ctxObj?.spendToDateMarginPct ?? null);
-            const progressPct = Number(
-              contextProject?.progress ??
-              storageProject?.overallProgressPct ??
-              storageProject?.progress ??
-              ctxObj?.progress ??
-              0
-            ) || 0;
+            const progressPct = workTaskProgressPct(mergedMilestones) ?? 0;
             const effectivePurchaseOrders = Array.isArray(contextProject?.purchaseOrders)
               ? contextProject.purchaseOrders
               : (Array.isArray(storageProject?.purchaseOrders) ? storageProject.purchaseOrders : []);

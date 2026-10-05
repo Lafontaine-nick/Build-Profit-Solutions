@@ -47,7 +47,11 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
-import type { CalendarEvent } from "@/components/ProjectCalendar";
+import { purchaseOrderMoneyState, type CalendarEvent } from "@/components/ProjectCalendar";
+import {
+  confirmMarkPurchaseOrderReceived,
+  persistMarkPurchaseOrderReceived,
+} from "@/utils/markPurchaseOrderReceived";
 import {
   ScreenLayout,
   isDesktopWebLayoutWidth,
@@ -71,6 +75,7 @@ import {
   formatMoneyCompact,
   formatDateShort,
   formatTimeShort,
+  parseCalendarDate,
 } from "@/utils/formatters";
 import { splitEventNotesForDisplay } from "@/utils/calendarEventDisplay";
 import { dashboardGreetingFromProfile, type DashboardGreeting } from "@/utils/dashboardGreeting";
@@ -102,7 +107,8 @@ import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
 import { pickCompletedDisplayDateRaw } from "@/lib/projectCompletedDisplayDate";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
-import { getAllocatedCompanyOverhead, isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
+import { computeProjectFinancials, getAllocatedCompanyOverhead } from "@/src/lib/projectFinancials";
+import { timelineScheduleProgressPct, workTaskProgressPct } from "@/src/lib/timelineScheduleProgress";
 import {
   computeProfitabilityByProjectType,
   getCompletedProjectMarginPercent,
@@ -164,40 +170,37 @@ function createEmptyAiDashboardResponse(): AiDashboardResponse {
   };
 }
 
-// Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
-const isDepositMilestone = (m: any): boolean => {
-  const t = (m?.title || m?.name || m?.description || "").toLowerCase();
-  return t.includes("deposit") || m?.type === "deposit" || m?.weekNumber === 0;
+const nonEmptyList = (value: any): any[] | null =>
+  Array.isArray(value) && value.length > 0 ? value : null;
+
+/**
+ * `bps.project.{id}` is a per-project snapshot that can lag the unified project list,
+ * so the live record wins and the snapshot only fills fields it is missing.
+ */
+const mergeLegacyProjectRecord = (project: any, override: any) => {
+  if (!override) return project;
+  return {
+    ...project,
+    milestones: nonEmptyList(project?.milestones) ?? nonEmptyList(override?.milestones) ?? [],
+    weeklyPayments: nonEmptyList(project?.weeklyPayments) ?? nonEmptyList(override?.weeklyPayments) ?? [],
+    paymentMilestones:
+      nonEmptyList(project?.paymentMilestones) ?? nonEmptyList(override?.paymentMilestones) ?? [],
+    estimateData: override?.estimateData
+      ? { ...override.estimateData, ...(project?.estimateData || {}) }
+      : project?.estimateData,
+    projectData: {
+      ...(project?.projectData || {}),
+      ...override,
+    },
+  };
 };
 
-// Helper to calculate progress from milestone items (same logic as TimelineTabV2 and projects.tsx: deposit + CO rows excluded)
-const computeOverallPctFromItems = (items: any[]): number => {
-  if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  const sum = workItems.reduce((acc, m) => {
-    const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
-    return acc + pct;
-  }, 0);
-  return Math.round(sum / workItems.length);
-};
+const computeOverallPctFromItems = (items: any[]): number => timelineScheduleProgressPct(items);
 
 const toFiniteNumber = (value: any): number => {
   if (value == null) return 0;
   const num = typeof value === 'string' ? Number(value.replace(/[$,\s]/g, '')) : Number(value);
   return Number.isFinite(num) && num >= 0 ? num : 0;
-};
-
-const progressFromItems = (items: any[]): number => {
-  if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
-  if (!workItems.length) return 0;
-  const total = workItems.reduce((sum, item) => {
-    if (item.status === 'completed') return sum + 100;
-    if (item.status === 'in_progress') return sum + 50;
-    return sum;
-  }, 0);
-  return Math.round(total / workItems.length);
 };
 
 const isPreActiveProjectStatus = (status: unknown): boolean => {
@@ -208,6 +211,22 @@ const isPreActiveProjectStatus = (status: unknown): boolean => {
     slug === 'bid_submitted' ||
     slug === 'submitted'
   );
+};
+
+const deriveForecastWorkProgressPct = (
+  project: any,
+  projectId: string,
+  workTaskProgressMap: Record<string, number>
+): number => {
+  if (projectId && workTaskProgressMap[projectId] !== undefined) {
+    return workTaskProgressMap[projectId];
+  }
+  const embedded = [
+    project?.projectData?.timelineV2Milestones,
+    project?.milestones,
+    project?.projectData?.milestones,
+  ].find((rows) => Array.isArray(rows) && rows.length > 0);
+  return workTaskProgressPct(embedded) ?? 0;
 };
 
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
@@ -470,36 +489,37 @@ function collectTruthyDateStrings(...vals: unknown[]): string[] {
   return out;
 }
 
-/**
- * Latest **job completion** instant among estimate + project fields.
- * Picks the maximum valid date so a stale `estimateData.endDate` does not override a current `endDate`.
- * Does not use top-level `dueDate` (often bid / milestone noise).
- */
+function firstCalendarDate(...vals: unknown[]): { raw: string; date: Date } | null {
+  for (const value of vals) {
+    if (value == null) continue;
+    const raw = String(value).trim();
+    if (!raw) continue;
+    const date = parseCalendarDate(raw);
+    if (Number.isNaN(date.getTime())) continue;
+    return { raw, date };
+  }
+  return null;
+}
+
+/** Same end date Project Status shows. A later leftover field must not keep the old finish. */
 function getLatestJobEndPick(projectRecord: any): { raw: string; date: Date } | null {
   if (!projectRecord) return null;
   const est = projectRecord.estimateData || {};
   const pd = projectRecord.projectData || {};
   const ped = pd.estimateData || {};
-  const raws = collectTruthyDateStrings(
-    projectRecord.projectEndDate,
+  return firstCalendarDate(
     est.projectEndDate,
     est.endDate,
-    est.endISO,
+    projectRecord.endDate,
     ped.projectEndDate,
     ped.endDate,
+    projectRecord.projectEndDate,
+    est.endISO,
     ped.endISO,
-    projectRecord.endDate,
     projectRecord.endISO,
     pd.endDate,
     pd.endISO
   );
-  let best: { raw: string; date: Date } | null = null;
-  for (const raw of raws) {
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) continue;
-    if (!best || date.getTime() > best.date.getTime()) best = { raw, date };
-  }
-  return best;
 }
 
 function milestoneRowLooksComplete(m: any): boolean {
@@ -598,23 +618,11 @@ function getLatestPendingSchedulePick(projectRecord: any): { raw: string; date: 
  */
 function getEffectiveScheduleEndPick(
   projectRecord: any,
-  timelineLatestPlannedMs?: number | null
+  _timelineLatestPlannedMs?: number | null
 ): { raw: string; date: Date } | null {
   const job = getLatestJobEndPick(projectRecord);
-  const sched = getLatestPendingSchedulePick(projectRecord);
-  let chosen: { raw: string; date: Date } | null = null;
-  if (!job && !sched) chosen = null;
-  else if (!sched) chosen = job;
-  else if (!job) chosen = sched;
-  else chosen = job.date.getTime() >= sched.date.getTime() ? job : sched;
-
-  if (timelineLatestPlannedMs != null && Number.isFinite(timelineLatestPlannedMs)) {
-    const t = timelineLatestPlannedMs;
-    if (!chosen || t > chosen.date.getTime()) {
-      return { raw: new Date(t).toISOString(), date: new Date(t) };
-    }
-  }
-  return chosen;
+  if (job) return job;
+  return getLatestPendingSchedulePick(projectRecord);
 }
 
 /** Earliest valid job start (for rejecting end < start bad pairs). */
@@ -740,18 +748,25 @@ const isOpenPipelineProjectStatus = (status: string) =>
 function estimatedCostBaselineForDashboardForecast(project: any, revenue: number): number {
   const ed = project?.estimateData || {};
   const pd = project?.projectData || {};
+  const financials = computeProjectFinancials(project);
+  // The first stored cost is often hard costs only. The cost cap is the larger
+  // figure that still sits under the contract, including approved change-order cost.
   const candidates = [
-    ed.estimatedCost,
-    ed.totalCost,
-    ed.subtotal,
+    financials.adjustedCostBudget,
+    financials.plannedCostBudget,
     project?.estimatedCost,
+    ed.estimatedCost,
     pd.estimatedCost,
-    pd.totalCost,
+    project?.subtotal,
+    ed.subtotal,
+    pd.subtotal,
   ];
+  let baseline = 0;
   for (const c of candidates) {
     const v = toFiniteDashboard(c);
-    if (v > 0 && v < revenue) return v;
+    if (v > baseline && v < revenue) baseline = v;
   }
+  if (baseline > 0) return baseline;
   const mRaw = toFiniteDashboard(project?.margin ?? ed.margin);
   const marginPct = Math.abs(mRaw) > 1 ? mRaw : mRaw * 100;
   if (revenue > 0 && marginPct > 0 && marginPct < 100) {
@@ -816,7 +831,7 @@ const computeDashboardProfitOutlook = (
   projects: any[],
   rawCompletedProfit: number,
   completedJobCount: number,
-  timelineProgress: Record<string, number>
+  workTaskProgress: Record<string, number>
 ) => {
   let pipelineProjectedNetProfit = 0;
   let activePipelineProjectCount = 0;
@@ -837,7 +852,7 @@ const computeDashboardProfitOutlook = (
 
     if (isActiveProjectStatus(st)) {
       const pid = String(p.id ?? "");
-      const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+      const progressPct = deriveForecastWorkProgressPct(p, pid, workTaskProgress);
       const baseline = estimatedCostBaselineForDashboardForecast(p, revenue);
       const adjustedBudget = baseline > 0 ? baseline : revenue;
 
@@ -889,7 +904,7 @@ const CALENDAR_CATEGORY_COLORS = {
   inspection: '#f59e0b', // yellow
   phase: '#3b82f6', // blue
   delivery: '#8b5cf6', // purple
-  purchase_order: '#2dd4bf',
+  purchase_order: '#ec4899',
   deadline: '#ef4444', // red
   other: '#f97316',
 } as const;
@@ -1263,6 +1278,39 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
   const [eventSubcontractor, setEventSubcontractor] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [refreshTrigger, setRefreshTrigger] = React.useState(0);
+  const { updateProject } = useProjectList();
+
+  const receivePurchaseOrder = React.useCallback((event: MasterCalendarEvent) => {
+    const projectId = event.projectId;
+    if (!projectId) return;
+    const project = activeProjects.find((p) => String(p?.id) === String(projectId));
+    const data = project?.projectData || project;
+    const orders = [
+      ...(Array.isArray(data?.purchaseOrders) ? data.purchaseOrders : []),
+      ...(Array.isArray(project?.purchaseOrders) ? project.purchaseOrders : []),
+    ];
+    const note = `${event.notes || ""} ${event.title || ""}`;
+    const po = orders.find((row: { id?: string; poNumber?: string; vendor?: string }) => {
+      if (event.purchaseOrderId && String(row?.id) === event.purchaseOrderId) return true;
+      return Boolean(row?.poNumber && note.includes(String(row.poNumber)));
+    });
+    const poId = po?.id ? String(po.id) : event.purchaseOrderId;
+    if (!poId) return;
+    confirmMarkPurchaseOrderReceived(
+      { poNumber: po?.poNumber, vendor: po?.vendor },
+      () => {
+        void (async () => {
+          const updated = await persistMarkPurchaseOrderReceived(projectId, poId, data);
+          if (!updated) return;
+          updateProject(projectId, {
+            projectData: updated,
+            actualCost: Number(updated.spent) || 0,
+          });
+          setRefreshTrigger((current) => current + 1);
+        })();
+      }
+    );
+  }, [activeProjects, updateProject]);
 
   const includesAny = (value: string, keywords: readonly string[]) =>
     keywords.some((k) => value.includes(k));
@@ -1308,7 +1356,20 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         }
         
         const key = `${event.projectId}|${event.calendarCategory || 'other'}|${event.date}|${event.title}`;
-        if (seen.has(key)) return;
+        if (seen.has(key)) {
+          if (event.purchaseOrderId) {
+            const existing = result.find(
+              (row) =>
+                `${row.projectId}|${row.calendarCategory || "other"}|${row.date}|${row.title}` === key
+            );
+            if (existing && !existing.purchaseOrderId) {
+              existing.purchaseOrderId = event.purchaseOrderId;
+              existing.poMoneyState = event.poMoneyState;
+              existing.completed = event.completed;
+            }
+          }
+          return;
+        }
         seen.add(key);
         result.push(event);
       };
@@ -1491,6 +1552,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           projectData.purchaseOrders.forEach((po: any) => {
             const date = toISODate(po.expectedDelivery);
             if (!date) return;
+            const status = String(po.status || "").trim().toLowerCase();
+            if (status === "cancelled" || status === "archived") return;
+            const poMoneyState = purchaseOrderMoneyState(po.status) ?? "committed";
             pushUnique({
               id: `po-${projectId}-${po.id || `${po.poNumber || 'po'}-${date}`}`,
               title: `PO: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
@@ -1498,7 +1562,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               type: "delivery",
               calendarCategory: "purchase_order",
               notes: po.description || po.notes || (po.poNumber ? `PO ${po.poNumber}` : undefined),
-              completed: po.status === 'Received',
+              completed: poMoneyState === 'paid',
+              poMoneyState,
+              purchaseOrderId: po.id ? String(po.id) : undefined,
               createdAt: po.orderDate || nowIso,
               updatedAt: nowIso,
               projectId,
@@ -1558,7 +1624,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return allEvents.map(event => {
       const hex = event.calendarCategory ? baseColor(event.calendarCategory) : '#8b5cf6';
       const color = event.isCompletedProject ? fadeHexColor(hex) : hex;
-      return { date: event.date, type: color, color };
+      return { date: event.date, type: color, color, legendKey: event.calendarCategory || undefined };
     });
   }, [allEvents]);
 
@@ -1798,6 +1864,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             }
           }}
           events={calendarEvents}
+          legend={calendarLegend}
           footer={
             <CalendarUpcomingFooter
               events={upcomingEvents}
@@ -1829,38 +1896,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             />
           }
         />
-        {allEvents.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ marginTop: 10, gap: 10, paddingRight: 8 }}
-        >
-          {calendarLegend.map((item) => (
-            <View
-              key={item.key}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-            >
-              <View
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 4,
-                  backgroundColor: item.color,
-                }}
-              />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "600",
-                  color: darkMode ? "rgba(255,255,255,0.86)" : COLORS.subtext,
-                }}
-              >
-                {item.label}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
-        ) : null}
       </View>
 
       {/* Date Events Modal */}
@@ -1992,6 +2027,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         pay &&
                         (event.completed ||
                           /collected/i.test(event.notes || ""));
+                      const isPurchaseOrder = event.calendarCategory === "purchase_order";
+                      const poPaid =
+                        isPurchaseOrder &&
+                        (event.poMoneyState === "paid" || (event.completed && event.poMoneyState !== "committed"));
+                      const poCommitted = isPurchaseOrder && !poPaid;
                       const hasInspectionResult = !!event.inspectionResult;
                       const { primary: notePrimary, showAiAttribution } =
                         splitEventNotesForDisplay(event.notes);
@@ -2005,8 +2045,18 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         formatCalendarCategoryLabel(event.calendarCategory) ||
                         (event.type ? String(event.type).replace(/-/g, " ") : null);
                       return (
-                      <Pressable
+                      <View
                         key={event.id}
+                        style={{
+                          borderRadius: 14,
+                          padding: 16,
+                          marginBottom: 10,
+                          borderWidth: 1,
+                          backgroundColor: darkMode ? '#202022' : '#FFFFFF',
+                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)',
+                        }}
+                      >
+                      <Pressable
                         onPress={() => {
                           if (me.isUserCreated && canEditCalendar) {
                             setShowDateEventsModal(false);
@@ -2025,12 +2075,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         style={{
                           flexDirection: 'row',
                           alignItems: 'flex-start',
-                          borderRadius: 14,
-                          padding: 16,
-                          marginBottom: 10,
-                          borderWidth: 1,
-                          backgroundColor: darkMode ? '#202022' : '#FFFFFF',
-                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.08)',
                         }}
                       >
                         <View style={{ flex: 1, minWidth: 0 }}>
@@ -2137,6 +2181,27 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                                   color: getEventColor(event),
                                 }}>
                                   {typeLabel}
+                                </Text>
+                              </View>
+                            ) : null}
+                            {poPaid || poCommitted ? (
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                                alignSelf: 'flex-start',
+                                borderWidth: 1,
+                                borderColor: poPaid ? DASHBOARD_ACCENT : '#f59e0b',
+                                backgroundColor: 'transparent',
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '700',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.4,
+                                  color: poPaid ? DASHBOARD_ACCENT : '#f59e0b',
+                                }}>
+                                  {poPaid ? 'Paid' : 'Committed'}
                                 </Text>
                               </View>
                             ) : null}
@@ -2255,6 +2320,25 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           </View>
                         ) : null}
                       </Pressable>
+                      {poCommitted && canEditCalendar ? (
+                        <Pressable
+                          onPress={() => receivePurchaseOrder(me)}
+                          style={{
+                            marginTop: 12,
+                            backgroundColor: DASHBOARD_ACCENT,
+                            borderRadius: 10,
+                            paddingVertical: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexDirection: 'row',
+                            gap: 6,
+                          }}
+                        >
+                          <Ionicons name="cube-outline" size={18} color="#050B13" />
+                          <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '700' }}>Received</Text>
+                        </Pressable>
+                      ) : null}
+                      </View>
                       );
                     })}
                   </>
@@ -2708,6 +2792,8 @@ const DashboardScreen: React.FC = () => {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiFetchDegraded, setAiFetchDegraded] = useState(false);
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
+  /** Work-task progress only. Payment collection stays out of the profit forecast. */
+  const [workTaskProgress, setWorkTaskProgress] = useState<Record<string, number>>({});
   /** Max planned date (ms) from live timeline storage — extends schedule anchor past stale project endDate. */
   const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
@@ -2743,6 +2829,7 @@ const DashboardScreen: React.FC = () => {
   const loadTimelineProgress = useCallback(async () => {
     const all = [...activeProjects, ...estimates];
     const progressMap: Record<string, number> = {};
+    const workMap: Record<string, number> = {};
     const latestPlannedMap: Record<string, number> = {};
     const nextOverrides: Record<string, any> = {};
     const normalizeKey = (v: string) =>
@@ -2775,6 +2862,7 @@ const DashboardScreen: React.FC = () => {
 
       // Pre-scan ALL timeline keys → suffix→progress (deposit excluded) and suffix→latest planned date
       const suffixToProgress: Record<string, number> = {};
+      const suffixToWork: Record<string, number> = {};
       const suffixToLatestPlanned: Record<string, number> = {};
       const bumpLatest = (key: string, ms: number) => {
         const prev = suffixToLatestPlanned[key];
@@ -2795,11 +2883,15 @@ const DashboardScreen: React.FC = () => {
             const milestones = JSON.parse(raw);
             if (Array.isArray(milestones) && milestones.length > 0) {
               const pct = computeOverallPctFromItems(milestones);
+              const workPct = workTaskProgressPct(milestones) ?? 0;
               const suffixLower = suffix.toLowerCase();
               const suffixNorm = normalizeKey(suffix);
               suffixToProgress[suffixLower] = pct;
               suffixToProgress[suffixNorm] = pct;
               suffixToProgress[suffix] = pct;
+              suffixToWork[suffixLower] = workPct;
+              suffixToWork[suffixNorm] = workPct;
+              suffixToWork[suffix] = workPct;
 
               const latestMs = maxPlannedMsFromMilestoneList(milestones);
               if (latestMs != null) {
@@ -2842,14 +2934,21 @@ const DashboardScreen: React.FC = () => {
         } catch {
           /* ignore */
         }
-        if (explicitProgress === 0 && foundProgress !== undefined && foundProgress > 0) {
-          foundProgress = 0;
-        } else if (explicitProgress !== undefined && explicitProgress > 0) {
-          foundProgress = Math.max(explicitProgress, foundProgress ?? 0);
+        if (foundProgress === undefined && explicitProgress !== undefined) {
+          foundProgress = explicitProgress;
         }
 
         if (foundProgress !== undefined) {
           progressMap[pid] = foundProgress;
+        }
+
+        let foundWork: number | undefined;
+        for (const c of timelineCandidates) {
+          foundWork = suffixToWork[c] ?? suffixToWork[normalizeKey(c)];
+          if (foundWork !== undefined) break;
+        }
+        if (foundWork !== undefined) {
+          workMap[pid] = foundWork;
         }
 
         let foundLatestMs: number | undefined;
@@ -2873,12 +2972,19 @@ const DashboardScreen: React.FC = () => {
         all.map((p) => String(p?.id ?? '')).filter(Boolean)
       );
       applyWorkspaceTimelineProgressToMaps(all, workspaceProgress, progressMap);
+      for (const project of all) {
+        const pid = String(project?.id ?? '');
+        const milestones = workspaceProgress[pid]?.milestones;
+        if (!pid || !Array.isArray(milestones) || milestones.length === 0) continue;
+        workMap[pid] = workTaskProgressPct(milestones) ?? 0;
+      }
     } catch {
       // Keep UI responsive if storage read fails
     }
 
     setProjectDataOverrides(nextOverrides);
     setTimelineProgress(progressMap);
+    setWorkTaskProgress(workMap);
     setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
@@ -3469,19 +3575,7 @@ const DashboardScreen: React.FC = () => {
     )
       .map((project) => {
         const pid = String(project?.id ?? "");
-        const override = projectDataOverrides[pid];
-        const merged = override
-          ? {
-              ...project,
-              estimateData: override?.estimateData
-                ? { ...(project?.estimateData || {}), ...override.estimateData }
-                : project?.estimateData,
-              projectData: {
-                ...(project?.projectData || {}),
-                ...override,
-              },
-            }
-          : project;
+        const merged = mergeLegacyProjectRecord(project, projectDataOverrides[pid]);
         return projectToPortfolioBudgetInput(merged as Record<string, unknown>);
       })
       .filter((row): row is NonNullable<typeof row> => row != null);
@@ -3516,18 +3610,7 @@ const DashboardScreen: React.FC = () => {
       .map((project) => {
         const pid = String(project?.id ?? "");
         const override = projectDataOverrides[pid];
-        const mergedProject = override
-          ? {
-              ...project,
-              estimateData: override?.estimateData
-                ? { ...(project?.estimateData || {}), ...override.estimateData }
-                : project?.estimateData,
-              projectData: {
-                ...(project?.projectData || {}),
-                ...override,
-              },
-            }
-          : project;
+        const mergedProject = mergeLegacyProjectRecord(project, override);
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
         const fin = computeProjectListRowFinancials({
           mergedProject,
@@ -3672,27 +3755,7 @@ const DashboardScreen: React.FC = () => {
         const hideFinancials =
           restrictedWorkspaceFinancials || isWorkspaceRestrictedFinancialsProject(p);
         const override = hideFinancials ? undefined : projectDataOverrides[pid];
-        const mergedProject = override
-          ? {
-              ...p,
-              milestones: Array.isArray(override?.milestones)
-                ? override.milestones
-                : (Array.isArray(p?.milestones) ? p.milestones : []),
-              weeklyPayments: Array.isArray(override?.weeklyPayments)
-                ? override.weeklyPayments
-                : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []),
-              paymentMilestones: Array.isArray(override?.paymentMilestones)
-                ? override.paymentMilestones
-                : (Array.isArray((p as any)?.paymentMilestones) ? (p as any).paymentMilestones : []),
-              estimateData: override?.estimateData
-                ? { ...(p?.estimateData || {}), ...override.estimateData }
-                : p?.estimateData,
-              projectData: {
-                ...(p?.projectData || {}),
-                ...override,
-              },
-            }
-          : p;
+        const mergedProject = mergeLegacyProjectRecord(p, override);
 
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
         const rawStatus = (p.status || "draft").toString().toLowerCase().replace(/\s+/g, "_");
@@ -3931,7 +3994,9 @@ const DashboardScreen: React.FC = () => {
                 : null;
               const statusText = aiDailyBriefEnabled
                 ? aiData
-                  ? "Insights synced"
+                  ? ruleBasedTime
+                    ? `Synced ${ruleBasedTime}`
+                    : "Insights synced"
                   : aiLoading
                     ? "Syncing insights…"
                     : "Portfolio alerts active"
@@ -3950,11 +4015,6 @@ const DashboardScreen: React.FC = () => {
                   </Text>
                   {aiDailyBriefEnabled && aiData ? (
                     <View style={styles.aiTimestampContainer}>
-                      {ruleBasedTime ? (
-                        <Text style={styles.aiTimestampText}>
-                          Data: {ruleBasedTime}
-                        </Text>
-                      ) : null}
                       {aiTime ? (
                         <Text style={styles.aiTimestampText}>
                           AI: {aiTime}
@@ -4054,7 +4114,9 @@ const DashboardScreen: React.FC = () => {
             completedCount={completedCount}
             activeProjects={activeProjects}
             estimates={estimates}
-            timelineProgress={timelineProgress}
+            workTaskProgress={workTaskProgress}
+            projectDataOverrides={projectDataOverrides}
+            portfolioFlagCount={portfolioFlagCount}
           />
         ))}
         {activeTab === "calendar" && (
@@ -4096,6 +4158,8 @@ const EnhancedMetricCard = ({
   timeframe,
   trend,
   trendDirection,
+  trendColor: trendColorOverride,
+  valueColor,
   context,
   isFirst = false,
 }: {
@@ -4104,7 +4168,11 @@ const EnhancedMetricCard = ({
   timeframe: string;
   trend: string;
   trendDirection: "up" | "down";
-  context: string;
+  /** Overrides the up/down color, e.g. amber for a flagged status */
+  trendColor?: string;
+  /** Colors the main value instead of the default white */
+  valueColor?: string;
+  context?: string;
   /** First row has no divider above it. */
   isFirst?: boolean;
   /** Unused. Call sites still pass it from the old column layout. */
@@ -4118,14 +4186,18 @@ const EnhancedMetricCard = ({
   const styles = useDashboardStyles(Colors);
   const valueIsPlaceholder = value === "—" || value === "-" || value === "";
   const trendIsPlaceholder = trend === "—" || trend === "-";
-  const trendColor = trendDirection === "up" ? DASHBOARD_ACCENT : "#fb7185";
+  const trendColor =
+    trendColorOverride ?? (trendDirection === "up" ? DASHBOARD_ACCENT : "#fb7185");
 
   return (
     <View style={[styles.overviewMetricRow, isFirst && styles.overviewMetricRowFirst]}>
       <Text style={styles.analyticsLabel}>{label}</Text>
       <View style={styles.overviewMetricAmountRow}>
         <Text
-          style={valueIsPlaceholder ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmount}
+          style={[
+            valueIsPlaceholder ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmount,
+            !valueIsPlaceholder && valueColor ? { color: valueColor } : null,
+          ]}
           numberOfLines={1}
         >
           {valueIsPlaceholder ? "—" : value}
@@ -4135,7 +4207,7 @@ const EnhancedMetricCard = ({
         )}
       </View>
       <Text style={styles.metricContext} numberOfLines={2}>
-        {timeframe} · {context}
+        {context ? `${timeframe} · ${context}` : timeframe}
       </Text>
     </View>
   );
@@ -4426,7 +4498,7 @@ const DashboardProjectSummaryCard = ({
               <Text style={[styles.projectSummarySignal, signalStyle, styles.projectSummarySignalInline]} numberOfLines={1}>
                 {op.text}
               </Text>
-              <Text style={styles.progressPercent}>{progressLabel}</Text>
+              <Text style={styles.progressPercent}>{progressLabel} complete</Text>
             </View>
           );
         }
@@ -4613,20 +4685,15 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const showPreviewPanel =
     !aiError && insightCount > 0 && (!aiLoading || aiData != null);
   const showAllProjectsLoading = !projectsReady && projects.length === 0;
-  const projectsMetricContext =
-    portfolioFlagCount > 0
-      ? `${portfolioFlagCount} job${portfolioFlagCount === 1 ? "" : "s"} flagged for review`
-      : "No flags right now";
+  const bidJobCount = projects.filter((p: any) => p.status && p.status !== "Draft").length;
 
   const overviewAlertsQuietText = useMemo(() => {
-    if (aiError) return aiError;
+    if (aiError && /sign in/i.test(aiError)) return aiError;
+    if (aiError) return "No alerts right now.";
     if (aiLoading && !aiData && insightCount === 0) return "Analyzing your projects…";
-    if (aiFetchDegraded && insightCount === 0) {
-      return "Couldn't reach AI brief. Check connection, or log costs to surface budget alerts.";
-    }
     if (insightCount === 0) return "All projects on track.";
     return "";
-  }, [aiLoading, aiData, aiError, aiFetchDegraded, insightCount]);
+  }, [aiLoading, aiData, aiError, insightCount]);
 
   return (
     <>
@@ -4641,39 +4708,50 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         <View style={styles.performanceSnapshotCard}>
           <View style={styles.cardHeaderRow}>
             <View>
-              <Text style={styles.cardTitle}>Key Metrics</Text>
-              <Text style={styles.cardSubtitle}>This month at a glance</Text>
+              <Text style={styles.cardTitle}>Key metrics</Text>
+              <Text style={styles.cardSubtitle}>Your pipeline at a glance</Text>
             </View>
           </View>
           <View style={styles.overviewMetricsList}>
             {!hideFinancialMetrics ? (
               <EnhancedMetricCard
                 isFirst
-                label="Total Bids"
+                label="Total bids"
                 value={metrics.totalBids}
-                timeframe="This Month"
-                trend="+12.5%"
+                timeframe="Submitted, active, and completed jobs"
+                trend={bidJobCount > 0 ? `${bidJobCount} job${bidJobCount === 1 ? "" : "s"}` : "—"}
                 trendDirection="up"
-                context="12% under expected at this phase"
               />
             ) : null}
             <EnhancedMetricCard
               isFirst={hideFinancialMetrics}
-              label="Projects"
+              label={hideFinancialMetrics ? "Active projects" : "Active project value"}
               value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
-              timeframe="In Progress"
-              trend={hideFinancialMetrics ? "—" : "+4.1%"}
+              timeframe="In progress"
+              trend={
+                hideFinancialMetrics || activeProjectCount === 0
+                  ? "—"
+                  : portfolioFlagCount > 0
+                    ? `${portfolioFlagCount} flagged`
+                    : "On track"
+              }
               trendDirection="up"
-              context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
+              trendColor={portfolioFlagCount > 0 ? "#f59e0b" : undefined}
+              context={hideFinancialMetrics ? "Assigned active jobs" : undefined}
             />
             {!hideFinancialMetrics ? (
               <EnhancedMetricCard
-                label="Avg Net Profit"
+                label="Avg net profit"
                 value={metrics.avgMargin}
+                valueColor={DASHBOARD_ACCENT}
                 timeframe="Completed jobs"
                 trend="—"
                 trendDirection="down"
-                context="Net profit ÷ contract on closed work (realized)"
+                context={
+                  isQuietAnalyticsValue(metrics.avgMargin)
+                    ? "Shows after your first completed job"
+                    : "Net profit as a share of the contract"
+                }
               />
             ) : null}
           </View>
@@ -4713,11 +4791,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           ]}
         >
           <View style={styles.aiPanel}>
-              {aiFetchDegraded ? (
-                <Text style={[styles.aiPanelPausedText, { marginBottom: 10 }]}>
-                  Server brief unavailable — showing alerts from your logged costs.
-                </Text>
-              ) : null}
               {overviewPreviewInsights.map((insight) => (
                 <InsightItem
                   key={insight.id}
@@ -4812,10 +4885,10 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
       {/* ALL PROJECTS */}
       <View style={styles.allProjectsContainer}>
-            <View style={styles.cardHeaderRow}>
+            <View style={[styles.cardHeaderRow, styles.allProjectsHeaderRow]}>
               <View>
-                <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
-                <Text style={styles.cardSubtitle}>
+                <Text style={styles.sectionTitle}>{t('dashboard.allProjects')}</Text>
+                <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
                   {projects.length} {t('dashboard.total')} ·{" "}
                   {projects.filter((p: any) => p.status === "Active").length} {t('dashboard.active')}
                 </Text>
@@ -4915,7 +4988,9 @@ interface AnalyticsSectionProps {
   completedCount: number;
   activeProjects: any[];
   estimates: any[];
-  timelineProgress: Record<string, number>;
+  workTaskProgress: Record<string, number>;
+  projectDataOverrides?: Record<string, any>;
+  portfolioFlagCount?: number;
 }
 
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
@@ -4925,7 +5000,9 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   completedCount,
   activeProjects,
   estimates,
-  timelineProgress,
+  workTaskProgress,
+  projectDataOverrides = {},
+  portfolioFlagCount = 0,
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -4957,42 +5034,64 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
     return Array.from(m.values());
   }, [activeProjects, estimates]);
 
+  const forecastProjects = useMemo(
+    () =>
+      deduplicatedPipelineProjects.map((project) => {
+        const pid = String(project?.id ?? "");
+        return mergeLegacyProjectRecord(project, projectDataOverrides[pid]);
+      }),
+    [deduplicatedPipelineProjects, projectDataOverrides]
+  );
+
   const profitOutlook = useMemo(
     () =>
       computeDashboardProfitOutlook(
-        deduplicatedPipelineProjects,
+        forecastProjects,
         metrics.rawCompletedProfit ?? 0,
         completedCount,
-        timelineProgress
+        workTaskProgress
       ),
-    [deduplicatedPipelineProjects, metrics.rawCompletedProfit, completedCount, timelineProgress]
+    [forecastProjects, metrics.rawCompletedProfit, completedCount, workTaskProgress]
   );
 
   return (
     <View style={styles.analyticsPageShell}>
       {/* Top snapshot card (4 mini metrics) */}
-      <View style={[styles.analyticsSection, styles.wideContainer]}>
+      <View style={[styles.analyticsSection, styles.wideContainer, { marginBottom: 0 }]}>
         <View style={styles.performanceSnapshotCard}>
             <View style={styles.cardHeaderRow}>
               <View>
-                <Text style={styles.cardTitle}>Performance Snapshot</Text>
-                <Text style={styles.cardSubtitle}>Key metrics at a glance</Text>
+                <Text style={styles.cardTitle}>Portfolio snapshot</Text>
+                <Text style={styles.cardSubtitle}>Job counts and averages</Text>
               </View>
             </View>
 
             <View style={styles.overviewMetricsList}>
-              <AnalyticsMetric isFirst label="Total Bids" value={metrics.totalBids} />
               <AnalyticsMetric
-                label="Active Projects"
+                isFirst
+                label="Active projects"
                 value={activeCount.toString()}
+                badge={
+                  activeCount === 0
+                    ? undefined
+                    : portfolioFlagCount > 0
+                      ? `${portfolioFlagCount} flagged`
+                      : "On track"
+                }
+                badgeColor={portfolioFlagCount > 0 ? "#f59e0b" : undefined}
               />
               <AnalyticsMetric
-                label="Avg Project Value"
+                label="Completed jobs"
+                value={completedCount.toString()}
+              />
+              <AnalyticsMetric
+                label="Avg project value"
                 value={avgProjectValue}
-              />
-              <AnalyticsMetric
-                label="Avg Net Profit"
-                value={metrics.avgMargin}
+                badge={
+                  activeWonCount > 0
+                    ? `across ${activeWonCount} job${activeWonCount === 1 ? "" : "s"}`
+                    : undefined
+                }
               />
             </View>
         </View>
@@ -5024,11 +5123,16 @@ const AnalyticsMetric = ({
   label,
   value,
   isFirst = false,
+  badge,
+  badgeColor = DASHBOARD_ACCENT,
 }: {
   label: string;
   value: string;
   isFirst?: boolean;
   extra?: string;
+  /** Short mint note beside the value, styled like Overview trends */
+  badge?: string;
+  badgeColor?: string;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -5038,9 +5142,19 @@ const AnalyticsMetric = ({
   return (
     <View style={[styles.overviewMetricRow, isFirst && styles.overviewMetricRowFirst]}>
       <Text style={styles.analyticsLabel}>{label}</Text>
-      <Text style={quiet ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmountLive}>
-        {value}
-      </Text>
+      <View style={styles.overviewMetricAmountRow}>
+        <Text
+          style={
+            quiet ? styles.overviewMetricAmountQuiet : [styles.overviewMetricAmount, { marginTop: 2 }]
+          }
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        {badge && !quiet ? (
+          <Text style={[styles.overviewMetricTrend, { color: badgeColor }]}>{badge}</Text>
+        ) : null}
+      </View>
     </View>
   );
 };
@@ -5612,9 +5726,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroHeadline} numberOfLines={2}>
                   {avgMargin > 80
                     ? `Completed jobs averaging ${avgMargin.toFixed(1)}% net profit`
-                    : aiFetchDegraded
-                      ? "AI brief unavailable"
-                      : "No major portfolio flags"}
+                    : "No major portfolio flags"}
                 </Text>
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>
                   {avgMargin > 80
@@ -5999,6 +6111,10 @@ const getStyles = (
     paddingHorizontal: 4,
     paddingTop: 16,
   },
+  /** Container is inset 4; section headers (Needs attention) sit at 8 */
+  allProjectsHeaderRow: {
+    paddingHorizontal: 4,
+  },
   /** Cap height when 4+ projects so the list scrolls inside the card */
   allProjectsListScroll: {
     marginTop: 12,
@@ -6104,10 +6220,9 @@ const getStyles = (
     marginBottom: 10,
   },
   insightsHeroEyebrow: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    letterSpacing: 0,
   },
   insightsHeroHeadline: {
     fontSize: 22,
@@ -6151,10 +6266,9 @@ const getStyles = (
     color: "#050B13",
   },
   insightsGroupLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    letterSpacing: 0,
     color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : Colors.sub,
     marginBottom: 10,
     marginTop: 4,
@@ -6723,11 +6837,10 @@ const getStyles = (
   },
   /** Budget rowLabelMetric */
   analyticsLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    letterSpacing: 0,
     color: Colors.bg === '#000000' ? DASHBOARD_MUTED : "#64748b",
     marginBottom: 6,
   },

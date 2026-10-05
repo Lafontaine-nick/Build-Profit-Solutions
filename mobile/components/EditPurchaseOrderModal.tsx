@@ -433,7 +433,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   form: {
-    padding: 20,
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   fieldGroup: {
     marginBottom: 18,
@@ -526,7 +528,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "column",
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
     gap: 4,

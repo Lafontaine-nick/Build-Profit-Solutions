@@ -41,6 +41,7 @@ import {
   getRevenueCollectedDetailPayments,
   getTaxCenterDataInputs,
   getTaxCenterYearBucketAnomalies,
+  formatTaxNetMarginPercent,
   getTaxYearOptions,
   getYearCollectedPayments,
   getYearExpenses,
@@ -79,10 +80,7 @@ const money = (value: number): string =>
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
 
-const percent = (value: number | null): string => {
-  if (value == null || !Number.isFinite(value)) return 'N/A';
-  return `${Math.round(value * 100)}%`;
-};
+const percent = (value: number | null): string => formatTaxNetMarginPercent(value);
 
 function previewFigureColor(value: number, tone: 'live' | 'warn'): string {
   if (!Number.isFinite(value) || value === 0) return '#d7e1f0';
@@ -372,6 +370,13 @@ export default function TaxCenterScreen() {
     () => buildRuleBasedTaxInsights(summary, categoryRows, subcontractors),
     [summary, categoryRows, subcontractors]
   );
+  const visibleInsightLines = useMemo(
+    () =>
+      categoryRows.length > 1
+        ? aiInsightLines
+        : aiInsightLines.filter((line) => !line.startsWith('Your largest recorded expense category')),
+    [aiInsightLines, categoryRows.length]
+  );
 
   const exportPayload = useMemo(
     () =>
@@ -648,10 +653,17 @@ export default function TaxCenterScreen() {
                     : tone === 'attention'
                       ? [styles.checklistLabel, styles.checklistLabelAttention]
                       : [styles.checklistLabel, styles.checklistLabelPendingGray];
+                const reason =
+                  row.id === 'revenue' && tone === 'attention'
+                    ? 'Bills are paid, but no client payments are marked received.'
+                    : null;
                 return (
                   <View key={row.id} style={styles.checklistRow}>
                     <MaterialIcons name={iconName} size={20} color={iconColor} />
-                    <Text style={labelStyle}>{row.label}</Text>
+                    <View style={styles.checklistLabelCol}>
+                      <Text style={labelStyle}>{row.label}</Text>
+                      {reason ? <Text style={styles.checklistReason}>{reason}</Text> : null}
+                    </View>
                   </View>
                 );
               })}
@@ -783,7 +795,7 @@ export default function TaxCenterScreen() {
                 label="Revenue Collected"
                 value={money(summary.grossIncomeCollected)}
                 icon="payments"
-                helper="Payments actually collected during the selected tax year."
+                helper="Payments received this year."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('revenue');
@@ -793,7 +805,7 @@ export default function TaxCenterScreen() {
                 label="Outstanding Receivables"
                 value={money(summary.outstandingReceivables)}
                 icon="account-balance-wallet"
-                helper="Unpaid invoices or scheduled payments tied to the selected tax year. Not counted as cash-basis income until collected."
+                helper="Still owed. Not income until received."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('ar');
@@ -803,7 +815,7 @@ export default function TaxCenterScreen() {
                 label="Expenses Paid"
                 value={money(summary.totalExpenses)}
                 icon="receipt-long"
-                helper="Expenses and purchase orders actually paid within the selected tax year."
+                helper="Bills paid this year."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('expenses');
@@ -813,7 +825,7 @@ export default function TaxCenterScreen() {
                 label="Committed Costs"
                 value={money(summary.committedCosts)}
                 icon="inventory"
-                helper="Unpaid purchase orders and committed costs. Shown for review only."
+                helper="Unpaid purchase orders. Not an expense yet."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('committed');
@@ -824,7 +836,7 @@ export default function TaxCenterScreen() {
                 value={money(summary.netProfit)}
                 icon="trending-up"
                 accent={summary.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
-                helper="Revenue collected minus expenses paid for the selected tax year."
+                helper="Received minus paid."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('netIncome');
@@ -832,9 +844,13 @@ export default function TaxCenterScreen() {
               />
               <TaxSummaryCard
                 label="Net Margin"
-                value={percent(summary.netMargin)}
+                value={summary.grossIncomeCollected > 0 ? percent(summary.netMargin) : '—'}
                 icon="percent"
-                helper="Cash-basis net income divided by revenue collected."
+                helper={
+                  summary.grossIncomeCollected > 0
+                    ? 'Net income ÷ revenue received.'
+                    : 'No revenue received yet.'
+                }
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('netMargin');
@@ -844,7 +860,7 @@ export default function TaxCenterScreen() {
                 label="Subcontractor Payments"
                 value={money(summary.subcontractorPayments)}
                 icon="groups"
-                helper="Subcontractor payments made during the selected tax year."
+                helper="Paid to subs this year."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('subcontractor');
@@ -854,7 +870,7 @@ export default function TaxCenterScreen() {
                 label="Receipt Count"
                 value={String(summary.receiptCount)}
                 icon="fact-check"
-                helper="Receipts attached to expenses dated within the selected tax year."
+                helper="Receipts attached this year."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('receipts');
@@ -994,22 +1010,6 @@ export default function TaxCenterScreen() {
               }}
               showTopDivider={false}
             />
-            <View style={styles.exportButton}>
-              <View style={[styles.exportIcon, styles.exportIconMuted]}>
-                <MaterialIcons name="sync-alt" size={19} color="rgba(148, 163, 184, 0.75)" />
-              </View>
-              <View style={styles.comingSoonCol}>
-                <View style={styles.comingSoonTitleRow}>
-                  <Text style={styles.exportButtonText}>Accounting Category Mapping</Text>
-                  <View style={styles.comingSoonBadge}>
-                    <Text style={styles.comingSoonBadgeText}>Coming soon</Text>
-                  </View>
-                </View>
-                <Text style={styles.comingSoonDesc}>
-                  Map BPS categories to accounting or QuickBooks-style categories in a future update.
-                </Text>
-              </View>
-            </View>
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.framePanelInner}>
@@ -1099,9 +1099,10 @@ export default function TaxCenterScreen() {
             </Pressable>
           </TaxGradientFrame>
 
+          {visibleInsightLines.length > 0 ? (
           <TaxGradientFrame innerStyle={[styles.aiInsightDisclaimerInner, styles.aiFrameInnerNoClip]}>
             <Text style={[styles.exportTitle, styles.exportTitleInInsightFrame]}>AI Tax Insight</Text>
-            {aiInsightLines.map((line) => (
+            {visibleInsightLines.map((line) => (
               <InsightLine key={line} line={line} />
             ))}
             <View style={styles.disclaimer}>
@@ -1111,6 +1112,7 @@ export default function TaxCenterScreen() {
               </Text>
             </View>
           </TaxGradientFrame>
+          ) : null}
         </ScrollView>
         </View>
       </SafeAreaView>
@@ -1515,40 +1517,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.1)',
   },
-  exportIconMuted: {
-    backgroundColor: 'rgba(148, 163, 184, 0.12)',
-  },
-  comingSoonCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  comingSoonTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  comingSoonBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: 'rgba(148, 163, 184, 0.18)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(148, 163, 184, 0.35)',
-  },
-  comingSoonBadgeText: {
-    color: 'rgba(203, 213, 225, 0.92)',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-  comingSoonDesc: {
-    color: 'rgba(148, 163, 184, 0.95)',
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 6,
-  },
   exportButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -1660,8 +1628,20 @@ const styles = StyleSheet.create({
   },
   checklistRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
+  },
+  checklistLabelCol: {
+    flex: 1,
+    minHeight: 20,
+    justifyContent: 'center',
+  },
+  checklistReason: {
+    color: '#d7e1f0',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+    marginTop: 2,
   },
   checklistLabel: {
     color: 'rgba(203, 213, 225, 0.9)',

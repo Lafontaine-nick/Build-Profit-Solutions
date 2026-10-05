@@ -20,6 +20,8 @@ type Props = {
   valueColor: string;
   /** Fallback label when no estimate budget exists. */
   spentOnlyLabel?: string;
+  /** Shown under the estimate budget, such as equipment rental inside materials. */
+  budgetNote?: string;
 };
 
 export default function CategoryEstimateBudgetCard({
@@ -30,6 +32,7 @@ export default function CategoryEstimateBudgetCard({
   labelColor,
   valueColor,
   spentOnlyLabel = 'Total Spent',
+  budgetNote,
 }: Props) {
   const isOver = summary.hasEstimateBudget && summary.remaining < 0;
   const statusVariant = categoryBudgetStatusVariant(summary);
@@ -67,6 +70,9 @@ export default function CategoryEstimateBudgetCard({
           <Text style={[styles.budgetValue, { color: valueColor }]}>
             {formatMoneyFull(summary.totalBudget, { decimals: 0 })}
           </Text>
+          {budgetNote ? (
+            <Text style={[styles.budgetNote, { color: labelColor }]}>{budgetNote}</Text>
+          ) : null}
         </View>
         <View style={[styles.statBlock, styles.statBlockRight]}>
           <Text style={[styles.label, { color: labelColor }]}>Total spent</Text>
@@ -138,6 +144,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: -0.4,
+  },
+  budgetNote: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    marginTop: 6,
+    textTransform: 'none',
+    letterSpacing: 0,
   },
   spentValue: {
     fontSize: 22,

@@ -24,6 +24,7 @@ import {
   contractCollectedPctFromMilestones,
   computeElapsedCalendarPct,
 } from '@/src/lib/profitForecast';
+import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
 
 /** Last wins per id (or title if id missing) — avoids duplicate rows inflating Command Center / compare counts. */
 function dedupeProjectsForAssistantAi(list: any[]): any[] {
@@ -241,10 +242,10 @@ export default function AssistantScreen() {
         contractValue: financials.adjustedContractValue,
         adjustedBudget: financials.adjustedCostBudget || financials.adjustedContractValue,
         estimatedCostBaseline:
-          financials.plannedCostBudget || financials.adjustedCostBudget,
+          financials.adjustedCostBudget || financials.plannedCostBudget,
         actualExpenses: actualCost,
         committedPOs,
-        progressPct: safeNum(progress),
+        progressPct: workTaskProgressPct(milestones) ?? 0,
         contractCollectedPct,
         elapsedTimePct,
         isCompleted: String(projectStatus).toLowerCase() === 'completed',

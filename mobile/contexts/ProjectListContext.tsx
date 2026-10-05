@@ -42,7 +42,11 @@ import { useClerkUiReady } from '../hooks/useClerkUiReady';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
 import { setBusinessEntitlementSnapshot } from '../utils/businessEntitlementCache';
 import { setWorkspaceClerkTokenGetter } from '../utils/workspaceAuthBridge';
-import { recordDeletedProject } from '../utils/aiDashboardPortfolioFilter';
+import {
+  forgetDeletedProject,
+  loadDeletedProjectRecords,
+  recordDeletedProject,
+} from '../utils/aiDashboardPortfolioFilter';
 import { isWorkspaceRestrictedFinancialsProject } from '../utils/workspacePermissions';
 import { purgeSavedPricingForBid } from '../utils/estimateSavedPricingCleanup';
 import {
@@ -133,7 +137,10 @@ interface ProjectListContextType {
 
   // Estimates
   estimates: UnifiedProject[];
-  addEstimate: (estimate: UnifiedProject) => Promise<void>;
+  addEstimate: (
+    estimate: UnifiedProject,
+    options?: { restoreDeleted?: boolean }
+  ) => Promise<void>;
 
   // Active Projects
   activeProjects: UnifiedProject[];
@@ -376,7 +383,15 @@ const toIsoDate = (value: any, fallback: string): string => {
   return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
 };
 
-const normalizeProjectId = (id: any): string => String(id ?? '');
+const normalizeProjectId = (id: any): string => String(id ?? '').trim();
+
+function omitDeletedProjectRows<T extends { id?: unknown }>(
+  rows: T[],
+  deletedIds: Set<string>
+): T[] {
+  if (!deletedIds.size || !Array.isArray(rows)) return rows;
+  return rows.filter((row) => !deletedIds.has(normalizeProjectId(row?.id)));
+}
 
 /** One row per non-empty project id (last wins). Empty ids kept in order — avoids corrupt duplicate ids in AsyncStorage. */
 function dedupeProjectsById(list: UnifiedProject[]): UnifiedProject[] {
@@ -1006,6 +1021,8 @@ const ProjectListProviderCore = ({
   const hasAttemptedBackendSeedRef = useRef(false);
   /** After GET /api/projects returns 429, skip refresh for a while so tab focus / dev reload does not spam the server. */
   const projectsRefreshCooldownUntilRef = useRef(0);
+  const deletedProjectIdsRef = useRef<Set<string>>(new Set());
+  const deletedIdsLoadedRef = useRef(false);
   const projectsRef = useRef<UnifiedProject[]>([]);
   const rehydrateInFlightRef = useRef(false);
   const storageKeyRef = useRef(UNIFIED_PROJECTS_STORAGE_KEY);
@@ -1022,9 +1039,28 @@ const ProjectListProviderCore = ({
     [accountUserId]
   );
 
+  const ensureDeletedIdsLoaded = useCallback(async () => {
+    if (deletedIdsLoadedRef.current) return;
+    const records = await loadDeletedProjectRecords();
+    for (const record of records) {
+      const id = normalizeProjectId(record.id);
+      if (id) deletedProjectIdsRef.current.add(id);
+    }
+    deletedIdsLoadedRef.current = true;
+  }, []);
+
+  const withoutDeletedProjects = useCallback(
+    (rows: UnifiedProject[]) => omitDeletedProjectRows(rows, deletedProjectIdsRef.current),
+    []
+  );
+
   useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
+    const visible = withoutDeletedProjects(projects);
+    projectsRef.current = visible;
+    if (visible.length !== projects.length) {
+      setProjects(visible);
+    }
+  }, [projects, withoutDeletedProjects]);
 
   useEffect(() => {
     const wsId = workspaceMemberContextRef.current?.workspaceId;
@@ -1051,7 +1087,9 @@ const ProjectListProviderCore = ({
 
       try {
         const localRows = await loadProjectListSeedForUser(accountUserId);
-        if (localRows.length === 0 || cancelled || projectsRef.current.length > 0) {
+        await ensureDeletedIdsLoaded();
+        const visibleRows = withoutDeletedProjects(localRows as UnifiedProject[]);
+        if (visibleRows.length === 0 || cancelled || projectsRef.current.length > 0) {
           return;
         }
 
@@ -1072,10 +1110,11 @@ const ProjectListProviderCore = ({
           storageKeyRef.current = getUnifiedProjectsStorageKey(accountUserId);
         }
 
-        const normalized = await hydrateProjectsList(localRows as UnifiedProject[]);
+        const normalized = await hydrateProjectsList(visibleRows);
         if (cancelled || projectsRef.current.length > 0) return;
-        setProjects(normalized);
-        setProjectListSeed(normalized, accountUserId);
+        const visible = withoutDeletedProjects(normalized);
+        setProjects(visible);
+        setProjectListSeed(visible, accountUserId);
         markPortfolioLoaded();
       } catch (error) {
         if (__DEV__) {
@@ -1089,7 +1128,7 @@ const ProjectListProviderCore = ({
     return () => {
       cancelled = true;
     };
-  }, [accountUserId]);
+  }, [accountUserId, ensureDeletedIdsLoaded, withoutDeletedProjects]);
 
   // Load when account identity is known (or legacy signed-out mode).
   useEffect(() => {
@@ -1139,6 +1178,7 @@ const ProjectListProviderCore = ({
   }, [projects, isHydrated, hasLoadedOnce, accountUserId]);
 
   const loadProjects = async () => {
+    await ensureDeletedIdsLoaded();
     const loadSeq = ++projectsLoadSeqRef.current;
     const forceBootstrap = projectsRef.current.length === 0;
 
@@ -1155,7 +1195,12 @@ const ProjectListProviderCore = ({
       ) {
         return false;
       }
-      const reconciled = pickNewerLocalProjectRows(next, projectsRef.current);
+      const reconciled = withoutDeletedProjects(
+        pickNewerLocalProjectRows(
+          withoutDeletedProjects(next),
+          withoutDeletedProjects(projectsRef.current)
+        )
+      );
       setProjects(reconciled);
       projectsRef.current = reconciled;
       if (reconciled.length > 0) setProjectListSeed(reconciled, accountUserId);
@@ -1305,10 +1350,11 @@ const ProjectListProviderCore = ({
 
       if (localParsed.length > 0 && projectsRef.current.length === 0) {
         const quickHydrate = await hydrateProjectDataFromStorageKeys(localParsed);
-        const quickNormalized = dedupeProjectsById(
-          await applyProgressAndDatesFromStorage(quickHydrate)
+        const quickNormalized = withoutDeletedProjects(
+          dedupeProjectsById(await applyProgressAndDatesFromStorage(quickHydrate))
         );
         setProjects(quickNormalized);
+        projectsRef.current = quickNormalized;
         setProjectListSeed(quickNormalized, accountUserId);
       }
 
@@ -1386,8 +1432,8 @@ const ProjectListProviderCore = ({
         const hydratedProjects = await hydrateProjectDataFromStorageKeys(
           pickNewerLocalProjectRows(localParsed, projectsRef.current)
         );
-        const normalized = dedupeProjectsById(
-          await applyProgressAndDatesFromStorage(hydratedProjects)
+        const normalized = withoutDeletedProjects(
+          dedupeProjectsById(await applyProgressAndDatesFromStorage(hydratedProjects))
         );
         if (commitProjects(normalized)) {
           setIsHydrated(true);
@@ -1493,9 +1539,31 @@ const ProjectListProviderCore = ({
   );
 
   // Add estimate from Estimates page
-  const addEstimate = async (estimate: UnifiedProject) => {
+  const addEstimate = async (
+    estimate: UnifiedProject,
+    options?: { restoreDeleted?: boolean }
+  ) => {
+    const estimateId = normalizeProjectId(estimate.id);
+    if (options?.restoreDeleted && estimateId) {
+      deletedProjectIdsRef.current.delete(estimateId);
+      void forgetDeletedProject(estimateId);
+    } else if (estimateId && deletedProjectIdsRef.current.has(estimateId)) {
+      return;
+    }
+
     let nextProjects: UnifiedProject[] = [];
+    let skippedDeleted = false;
     setProjects(prev => {
+      if (
+        !options?.restoreDeleted &&
+        estimateId &&
+        deletedProjectIdsRef.current.has(estimateId)
+      ) {
+        skippedDeleted = true;
+        nextProjects = prev.filter((p) => normalizeProjectId(p.id) !== estimateId);
+        projectsRef.current = nextProjects;
+        return nextProjects;
+      }
       // Check if estimate already exists to prevent duplicates
       const existingIndex = prev.findIndex(p => p.id === estimate.id);
       if (existingIndex !== -1) {
@@ -1526,6 +1594,14 @@ const ProjectListProviderCore = ({
       }
       return nextProjects;
     });
+    if (skippedDeleted) {
+      try {
+        await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(nextProjects));
+      } catch {
+        /* the delete path already persisted the shorter list */
+      }
+      return;
+    }
     // Await save so Projects tab refreshProjects won't overwrite with stale AsyncStorage
     try {
       await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(nextProjects));
@@ -1681,6 +1757,7 @@ const ProjectListProviderCore = ({
   // unreachable, still remove locally and persist (web often throws TypeError: Failed to fetch).
   const deleteProject = async (projectId: string) => {
     const targetId = normalizeProjectId(projectId);
+    deletedProjectIdsRef.current.add(targetId);
 
     try {
       await apiService.deleteProject(String(projectId));
@@ -1692,16 +1769,18 @@ const ProjectListProviderCore = ({
       } else if (unreachable) {
         if (__DEV__) {
           console.warn(
-            'deleteProject: backend unreachable — removed from this device only. Start the API and delete again to remove from the server, or the project may reappear after a successful sync.'
+            'deleteProject: backend unreachable — removed on this device. A later sync will not restore it.'
           );
         }
       } else {
+        deletedProjectIdsRef.current.delete(targetId);
         console.error('deleteProject: backend delete failed:', error);
         throw error;
       }
     }
 
     let filtered: UnifiedProject[] = [];
+
     setProjects((prev) => {
       const victim = prev.find((p) => normalizeProjectId(p.id) === targetId);
       if (victim) {
@@ -1711,8 +1790,10 @@ const ProjectListProviderCore = ({
         );
       }
       filtered = prev.filter((p) => normalizeProjectId(p.id) !== targetId);
+      projectsRef.current = filtered;
       return filtered;
     });
+    setProjectListSeed(filtered, accountUserId);
     try {
       await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(filtered));
       if (__DEV__) console.log(`💾 Saved deleted project state to AsyncStorage`);
@@ -1938,7 +2019,9 @@ const ProjectListProviderCore = ({
     try {
       const wsId = workspaceMemberContextRef.current?.workspaceId;
       if (wsId) {
-        const normalized = await loadWorkspaceMemberProjects(String(wsId), []);
+        const normalized = withoutDeletedProjects(
+          await loadWorkspaceMemberProjects(String(wsId), [])
+        );
         setProjects(normalized);
         const storageKey = getWorkspaceProjectsStorageKey(wsId);
         await AsyncStorage.setItem(storageKey, JSON.stringify(normalized));
@@ -1962,7 +2045,9 @@ const ProjectListProviderCore = ({
       const normalized = dedupeProjectsById(
         await applyProgressAndDatesFromStorage(hydrated)
       );
-      const reconciled = pickNewerLocalProjectRows(normalized, projectsRef.current);
+      const reconciled = withoutDeletedProjects(
+        pickNewerLocalProjectRows(normalized, projectsRef.current)
+      );
       setProjects(reconciled);
       projectsRef.current = reconciled;
     } catch (e) {
@@ -1975,6 +2060,7 @@ const ProjectListProviderCore = ({
   };
 
   const refreshProjects = async () => {
+    await ensureDeletedIdsLoaded();
     const now = Date.now();
     const hasCachedProjects = projectsRef.current.length > 0;
     const isWorkspaceMemberSession = Boolean(
@@ -2011,7 +2097,12 @@ const ProjectListProviderCore = ({
       ) {
         return false;
       }
-      const reconciled = pickNewerLocalProjectRows(next, projectsRef.current);
+      const reconciled = withoutDeletedProjects(
+        pickNewerLocalProjectRows(
+          withoutDeletedProjects(next),
+          withoutDeletedProjects(projectsRef.current)
+        )
+      );
       setProjects(reconciled);
       projectsRef.current = reconciled;
       if (reconciled.length > 0) setProjectListSeed(reconciled, accountUserId);

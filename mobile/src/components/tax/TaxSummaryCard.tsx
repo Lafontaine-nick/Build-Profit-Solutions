@@ -14,14 +14,15 @@ type Props = {
 
 /** Split $12,777,936.00 so cents stay on the same row (avoids ".00" wrapping alone on narrow cards). */
 function splitUsdValue(value: string): { dollars: string; cents: string } | null {
-  const m = /^(\$[\d,]+)(\.\d{2})$/.exec(String(value || '').trim());
+  const m = /^(-?\$[\d,]+)(\.\d{2})$/.exec(String(value || '').trim());
   if (!m) return null;
   return { dollars: m[1], cents: m[2] };
 }
 
 function taxFigureColor(value: string): string {
-  const numeric = value.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-  if (!numeric) return '#FFFFFF';
+  const raw = value.replace(/[,$\s]/g, '');
+  const numeric = raw.match(/-?\d+(?:\.\d+)?/);
+  if (!numeric) return '#d7e1f0';
   const amount = Number(numeric[0]);
   if (!Number.isFinite(amount) || amount === 0) return '#d7e1f0';
   if (amount < 0) return '#f87171';
@@ -81,15 +82,15 @@ function TaxSummaryCardValue({ value }: { value: string }) {
 export default function TaxSummaryCard({ label, value, icon, accent = '#2dcc9a', helper, onPress }: Props) {
   const inner = (
     <>
-      <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
-        <MaterialIcons name={icon} size={20} color={accent} />
+      <View style={styles.topRow}>
+        <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
+          <MaterialIcons name={icon} size={20} color={accent} />
+        </View>
+        {onPress ? <MaterialIcons name="chevron-right" size={20} color="#d7e1f0" /> : null}
       </View>
       <Text style={styles.label}>{label}</Text>
       <TaxSummaryCardValue value={value} />
       {helper ? <Text style={styles.helper}>{helper}</Text> : null}
-      {onPress ? (
-        <Text style={styles.tapHint}>Tap for detail</Text>
-      ) : null}
     </>
   );
 
@@ -118,13 +119,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.2)',
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   iconWrap: {
     width: 34,
     height: 34,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
   label: {
     color: ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
@@ -172,12 +178,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '500',
     marginTop: 6,
-  },
-  tapHint: {
-    color: '#d7e1f0',
-    fontSize: 12,
-    marginTop: 8,
-    fontWeight: '600',
+    alignSelf: 'stretch',
+    flexShrink: 1,
   },
   cardPressed: {
     opacity: 0.88,

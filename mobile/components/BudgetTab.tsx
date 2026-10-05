@@ -35,6 +35,7 @@ import {
 } from '../src/lib/profitForecast';
 import {
   computeProjectFinancials,
+  equipmentRentalAmount,
   foldEquipmentRentalIntoMaterialsBucket,
   sumPlannedCostFromBuckets,
 } from '../src/lib/projectFinancials';
@@ -457,6 +458,11 @@ export default function BudgetTab({
     [mergedProjectForFinancials, plannedFromBuckets, data?.plannedBudget, projectData?.buckets]
   );
 
+  const equipmentRental = useMemo(
+    () => equipmentRentalAmount(mergedProjectForFinancials),
+    [mergedProjectForFinancials]
+  );
+
   const normalizedChangeOrders: ChangeOrder[] = useMemo(() => {
     const rawChangeOrders = projectData?.changeOrders || [];
     
@@ -551,53 +557,17 @@ export default function BudgetTab({
     return total;
   }, [normalizedChangeOrders, projectData?.expenses]);
 
-  const approvedChangeOrderAllocations = useMemo(
-    () =>
-      normalizedChangeOrders.reduce(
-        (totals, co) => {
-          if (!(co.approved || co.status === 'Approved')) return totals;
-          return {
-            materials:
-              totals.materials + safe(co.materialsAmount ?? 0),
-            labor:
-              totals.labor + safe(co.laborAmount ?? 0),
-          };
-        },
-        { materials: 0, labor: 0 }
-      ),
-    [normalizedChangeOrders]
-  );
-
-  // Use projectData.buckets as the base estimate buckets, then apply approved CO breakdown
-  // only to the visible Material/Labor cards so approved AI change orders show up where
-  // users expect without changing the underlying financial cap calculations.
+  // Category cards stay on the estimate. An approved change order raises the
+  // cost cap and the Change Orders card. It does not get added again onto
+  // Materials/Equipment or Labor.
   const buckets = useMemo(() => {
-    const list = foldEquipmentRentalIntoMaterialsBucket(
+    return foldEquipmentRentalIntoMaterialsBucket(
       projectData?.buckets || [],
       mergedProjectForFinancials,
       financials.plannedCostBudget
     );
-    return list.map((bucket: any) => {
-      const bucketName = String(bucket?.name || '').toLowerCase();
-      const isMaterialsBucket =
-        bucketName.includes('material') || bucketName.includes('equipment');
-      const isLaborBucket = bucketName.includes('labor');
-      const approvedCoBudget =
-        isMaterialsBucket
-          ? approvedChangeOrderAllocations.materials
-          : isLaborBucket
-            ? approvedChangeOrderAllocations.labor
-            : 0;
-
-      return {
-        ...bucket,
-        budget: safe(bucket?.budget) + approvedCoBudget,
-        bidBudget: safe(bucket?.bidBudget ?? bucket?.budget) + approvedCoBudget,
-      };
-    });
   }, [
     projectData?.buckets,
-    approvedChangeOrderAllocations,
     mergedProjectForFinancials,
     financials.plannedCostBudget,
   ]);
@@ -822,7 +792,7 @@ export default function BudgetTab({
 
   const totalSpent = actual;
   const isCostControl = budgetAccessMode === 'cost_control';
-  const costSectionTitle = isCostControl ? 'Cost Control' : 'Contract & Cost';
+  const costSectionTitle = isCostControl ? 'Cost control' : 'Contract & cost';
   const budgetFlowCardStyle = tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 });
   const rowHairline = darkMode ? 'rgba(148,163,184,0.12)' : Colors.line;
 
@@ -853,7 +823,7 @@ export default function BudgetTab({
                     {!isCostControl ? (
                       <>
                         <Row
-                          label="Contract Value"
+                          label="Contract value"
                           value={money(financials.contractValueBase, currency)}
                           theme={budgetTotalsTheme}
                           variant="book"
@@ -861,32 +831,44 @@ export default function BudgetTab({
                         />
                         {financials.approvedChangeOrderRevenue > 0 && (
                           <Row
-                            label="Approved Change Orders"
+                            label="Approved change orders"
                             value={`+ ${money(financials.approvedChangeOrderRevenue, currency)}`}
                             theme={budgetTotalsTheme}
                             variant="book"
                             metricLabel
                           />
                         )}
-                        <Row
-                          label="Adjusted Contract Value"
-                          value={money(financials.adjustedContractValue, currency)}
-                          theme={budgetTotalsTheme}
-                          variant="book"
-                          metricLabel
-                        />
+                        {Math.abs(financials.adjustedContractValue - financials.contractValueBase) > 0.005 ? (
+                          <Row
+                            label="Adjusted contract value"
+                            value={money(financials.adjustedContractValue, currency)}
+                            theme={budgetTotalsTheme}
+                            variant="book"
+                            metricLabel
+                          />
+                        ) : null}
                         <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)' }]} />
                       </>
                     ) : null}
                     <Row
-                      label={isCostControl ? 'Approved cost budget' : 'Planned Cost Budget'}
+                      label={isCostControl ? 'Approved cost budget' : 'Planned cost budget'}
                       value={money(financials.adjustedCostBudget, currency)}
                       theme={budgetTotalsTheme}
                       variant="book"
                       metricLabel
                     />
+                    {equipmentRental > 0 ? (
+                      <Row
+                        label="Equipment rental"
+                        sublabel="Included in Materials/Equipment"
+                        value={money(equipmentRental, currency)}
+                        theme={budgetTotalsTheme}
+                        variant="book"
+                        metricLabel
+                      />
+                    ) : null}
                     <Row
-                      label="Actual Costs"
+                      label="Actual costs"
                       value={money(actual, currency)}
                       theme={budgetTotalsTheme}
                       variant="book"
@@ -900,13 +882,6 @@ export default function BudgetTab({
                       variant="book"
                       metricLabel
                       valueColor={quietMoneyColor(purchaseOrdersTotal)}
-                    />
-                    <Row
-                      label="Remaining Cost Budget"
-                      value={money(remaining, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
                     />
                     <View style={styles.remainingSection}>
                       <Text
@@ -934,7 +909,7 @@ export default function BudgetTab({
           <View style={styles.tabContainer}>
             <View style={styles.tabPillSlot}>
               <TabPill
-                label='Line Items'
+                label='Line items'
                 active={tab === 'lines'}
                 onPress={() => setTab('lines')}
                 theme={theme}
@@ -959,7 +934,7 @@ export default function BudgetTab({
               <View style={styles.budgetCategoryStack}>
                   <View style={styles.budgetPageHeader}>
                     <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
-                      Budget Categories
+                      Budget categories
                     </Text>
                   </View>
 
@@ -967,6 +942,7 @@ export default function BudgetTab({
                     const budgetValue = Number(item.budget ?? 0);
                     const spent = Number(item.spent ?? 0);
                     const spentPercent = Math.min(100, (spent / Math.max(budgetValue, 1)) * 100);
+                    const spentPercentLabel = (spent / Math.max(budgetValue, 1)) * 100;
                     const isOverBudget = spent > budgetValue;
                     const itemName = String(item.name || 'Unknown');
                     const categoryIconName = itemName.toLowerCase().includes('labor')
@@ -974,14 +950,16 @@ export default function BudgetTab({
                       : itemName.toLowerCase().includes('materials') ||
                           itemName.toLowerCase().includes('equipment')
                         ? 'construction'
-                        : itemName.toLowerCase().includes('allowance') ||
-                          itemName.toLowerCase().includes('soft cost') ||
-                          itemName.toLowerCase().includes('soft-cost') ||
-                          itemName.toLowerCase().includes('contingency')
-                          ? 'account-balance-wallet'
-                          : itemName.toLowerCase().includes('subs')
-                            ? 'people'
-                            : 'inventory';
+                        : itemName.toLowerCase().includes('soft cost') ||
+                            itemName.toLowerCase().includes('soft-cost')
+                          ? 'receipt-long'
+                          : itemName.toLowerCase().includes('contingency')
+                            ? 'savings'
+                            : itemName.toLowerCase().includes('allowance')
+                              ? 'account-balance-wallet'
+                              : itemName.toLowerCase().includes('subs')
+                                ? 'people'
+                                : 'inventory';
 
                     return (
                       <View
@@ -1009,7 +987,7 @@ export default function BudgetTab({
                                 },
                               ]}
                             >
-                              <Text style={[styles.warningBadgeText, { color: budgetOver }]}>Over Budget</Text>
+                              <Text style={[styles.warningBadgeText, { color: budgetOver }]}>Over budget</Text>
                             </View>
                           )}
                           <View style={styles.budgetCardHeaderMain}>
@@ -1021,6 +999,14 @@ export default function BudgetTab({
                               <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
                                 View transactions
                               </Text>
+                              {equipmentRental > 0 &&
+                              (itemName.toLowerCase().includes('material') ||
+                                itemName.toLowerCase().includes('equipment')) &&
+                              !itemName.toLowerCase().includes('labor') ? (
+                                <Text style={[styles.budgetEquipmentNote, { color: pageInstructional }]}>
+                                  Includes {money(equipmentRental, currency)} equipment rental
+                                </Text>
+                              ) : null}
                             </View>
                           </View>
                           <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
@@ -1084,8 +1070,13 @@ export default function BudgetTab({
                                 Remaining {money(budgetValue - spent, currency)}
                               </Text>
                             )}
-                            <Text style={[styles.categoryPercentMuted, { color: pageInstructional }]}>
-                              {spentPercent.toFixed(1)}% used
+                            <Text
+                              style={[
+                                styles.categoryPercentMuted,
+                                { color: isOverBudget ? budgetOver : pageInstructional },
+                              ]}
+                            >
+                              {spentPercentLabel.toFixed(1)}% used
                             </Text>
                           </View>
                         </View>
@@ -1496,7 +1487,7 @@ export default function BudgetTab({
           >
             {/* Total Spent Card */}
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryCardLabel}>Total Change Order Amount</Text>
+              <Text style={styles.summaryCardLabel}>Total change order amount</Text>
               <Text style={styles.summaryCardAmount}>
                 ${(editingChangeOrder ? parseFloat(editingChangeOrder.amount || '0') : parseFloat(newChangeOrder.amount || '0')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
@@ -2252,10 +2243,9 @@ const styles = StyleSheet.create({
   remainingSection: { marginTop: 12 },
   remainingLabel: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
   remainingLabelMetric: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0,
     marginBottom: 4,
   },
   remainingBarHint: {
@@ -2380,6 +2370,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginTop: 3,
+  },
+  budgetEquipmentNote: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    marginTop: 4,
   },
   /** Category / PO / CO card titles — matches project overview overviewHeroProjectName */
   budgetCardTitle: {
@@ -2836,10 +2832,9 @@ const styles = StyleSheet.create({
   },
   summaryCardLabel: {
     color: 'rgba(226, 232, 240, 0.72)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   summaryCardAmount: {
     color: '#22c55e',

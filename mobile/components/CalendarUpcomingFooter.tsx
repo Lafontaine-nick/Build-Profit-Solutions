@@ -34,7 +34,19 @@ export function CalendarUpcomingFooter({
 
   return (
     <View>
-      <Text style={[confirmScopeSectionLabelStyle(), { color: subColor, marginBottom: 6 }]}>
+      <Text
+        style={[
+          confirmScopeSectionLabelStyle(),
+          {
+            color: subColor,
+            marginBottom: 6,
+            fontSize: 13,
+            fontWeight: '700',
+            letterSpacing: 0,
+            textTransform: 'none',
+          },
+        ]}
+      >
         Upcoming events · next {UPCOMING_CALENDAR_WINDOW_DAYS} days
       </Text>
       {visible.length === 0 ? (

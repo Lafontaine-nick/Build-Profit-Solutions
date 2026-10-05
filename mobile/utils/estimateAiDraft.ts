@@ -7479,6 +7479,28 @@ function cartItemFromMaterialLine(
   };
 }
 
+/** Material and labor totals the Estimate derives from line items (matches `calc` in estimate-generator). */
+export function sumEstimateLineTotals(
+  materialLineItems: unknown,
+  laborLineItems: unknown
+): { material: number; labor: number } {
+  const rows = (value: unknown) =>
+    (Array.isArray(value) ? value : []) as Record<string, unknown>[];
+  const material = rows(materialLineItems).reduce((sum, item) => {
+    const total = Number(item.total);
+    if (!Number.isNaN(total) && total > 0) return sum + total;
+    return (
+      sum +
+      Number(item.quantity || item.qty || 0) * Number(item.unitPrice || item.cost || 0)
+    );
+  }, 0);
+  const labor = rows(laborLineItems).reduce(
+    (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
+    0
+  );
+  return { material, labor };
+}
+
 export function applyDraftToEstimate(
   bid: Record<string, unknown>,
   draft: EstimateAiDraft,
@@ -7542,6 +7564,7 @@ export function applyDraftToEstimate(
       savedAt: new Date().toISOString(),
       builderMode: draftForApply.builderMode || 'organize_calculate',
       draft: draftForApply,
+      lineTotalsAtApply: sumEstimateLineTotals(materialLineItems, laborLineItems),
     },
   };
 
