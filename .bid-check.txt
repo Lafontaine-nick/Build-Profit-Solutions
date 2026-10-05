@@ -1,0 +1,26 @@
+CART
+  Main panel — materials 1 1200 1200 
+  Standard receptacles — materials 94 16.6 1560 
+  GFCI receptacles — materials 12 35 420 
+  Single-pole switch — materials 51 6.18 315 
+  Recessed / canless / wafer light — materials 31 45 1395 
+  Ceiling fan — materials 7 71.43 500 
+  Bathroom exhaust fan electrical install — materials 1 150 150 
+cart sum 5540.0
+LINES
+  Main panel — materials 1 None 1200
+  Standard receptacles — materials 94 None 1560
+  GFCI receptacles — materials 12 None 420
+  Single-pole switch — materials 51 None 315
+  Recessed / canless / wafer light — materials 31 None 1395
+  Ceiling fan — materials 7 None 500
+  Bathroom exhaust fan electrical install — materials 1 None 150
+lines sum 5540.0
+snapshot keys ['savedAt', 'builderMode', 'draft', 'lineTotalsAtApply']
+lineTotalsAtApply {'material': 5190, 'labor': 16060} applyMode None
+bid grand 35880 prev 35880 equip None 500
+  pay deposit 5382
+  pay weekly 9568
+  pay weekly 9568
+  pay weekly 9568
+  pay holdback 1794

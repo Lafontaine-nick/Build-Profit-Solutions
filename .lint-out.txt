@@ -1,0 +1,6 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm.
+/Users/nicholas/Documents/Build-Profit-Solutions/mobile/components/AddTransactionModal.tsx:30:3: 'ESTIMATE_FLOW_CHIP_GREEN' is defined but never used. [Warning/@typescript-eslint/no-unused-vars]
+/Users/nicholas/Documents/Build-Profit-Solutions/mobile/components/AddTransactionModal.tsx:31:3: 'ESTIMATE_FLOW_CHIP_GREEN_BG' is defined but never used. [Warning/@typescript-eslint/no-unused-vars]
+/Users/nicholas/Documents/Build-Profit-Solutions/mobile/components/AddTransactionModal.tsx:526:9: 'categoryIcon' is assigned a value but never used. [Warning/@typescript-eslint/no-unused-vars]
+
+3 problems
