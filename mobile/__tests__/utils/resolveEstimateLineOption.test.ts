@@ -1,4 +1,13 @@
-import { estimateLineOptionsFor, resolveEstimateLineOption } from '@/utils/estimateLineOptions';
+import {
+  budgetLineSpendForKind,
+  CONTINGENCY_LINE_ID,
+  estimateLineOptionsFor,
+  OVERHEAD_LINE_IDS,
+  overheadEstimateLines,
+  resolveEstimateLineOption,
+  SOFT_COST_LINE_IDS,
+  softCostEstimateLines,
+} from '@/utils/estimateLineOptions';
 import { EQUIPMENT_RENTAL_LINE_ID, getEstimateLineSpendSummaries } from '@/utils/rateInsightComparisons';
 
 const projectLike = {
@@ -88,5 +97,77 @@ describe('resolveEstimateLineOption', () => {
     expect(summaries[EQUIPMENT_RENTAL_LINE_ID].loggedTotal).toBe(600);
     expect(summaries[EQUIPMENT_RENTAL_LINE_ID].remaining).toBe(0);
     expect(summaries.panel.loggedTotal).toBe(0);
+  });
+});
+
+describe('soft cost and contingency budget lines', () => {
+  const estimateData = {
+    engineeringCost: 300,
+    planCost: 500,
+    permitCost: 1000,
+    financingFees: 300,
+    interestCost: 200,
+    contingencyAllowance: 2000,
+    allowanceLineItems: [{ id: 'cleanup', name: 'Cleanup', amount: 150 }],
+  };
+
+  it('lists the estimate soft-cost lines in bid order', () => {
+    expect(softCostEstimateLines(estimateData).map((line) => [line.name, line.budget])).toEqual([
+      ['Engineering', 300],
+      ['Plans', 500],
+      ['Permits', 1000],
+      ['Lender fees', 300],
+      ['Interest', 200],
+      ['Cleanup', 150],
+    ]);
+    expect(estimateLineOptionsFor(estimateData, 'contingency')).toEqual([
+      expect.objectContaining({ id: CONTINGENCY_LINE_ID, name: 'Contingency', budget: 2000 }),
+    ]);
+  });
+
+  it('puts a permits bill on Permits and a contingency bill on the one contingency line', () => {
+    const soft = budgetLineSpendForKind({
+      options: softCostEstimateLines(estimateData),
+      kind: 'soft',
+      expenses: [
+        { id: 'city', amount: 200, category: 'Soft costs', vendor: 'City', description: 'Permits' },
+      ],
+    });
+    expect(soft.summaries[SOFT_COST_LINE_IDS.permits].loggedTotal).toBe(200);
+    expect(soft.summaries[SOFT_COST_LINE_IDS.permits].remaining).toBe(800);
+    expect(soft.unlinked).toHaveLength(0);
+
+    const contingency = budgetLineSpendForKind({
+      options: estimateLineOptionsFor(estimateData, 'contingency'),
+      kind: 'contingency',
+      expenses: [{ id: 'extra', amount: 500, category: 'Contingency', vendor: 'Labor' }],
+    });
+    expect(contingency.summaries[CONTINGENCY_LINE_ID].loggedTotal).toBe(500);
+    expect(contingency.summaries[CONTINGENCY_LINE_ID].remaining).toBe(1500);
+  });
+
+  it('lists overhead lines that have an amount and keeps a logged insurance bill on that line', () => {
+    expect(overheadEstimateLines({
+      insuranceOverhead: 200,
+      equipmentMaintenance: 0,
+      facilities: 100,
+      adminOverhead: 0,
+      overheadLineItems: [{ id: 'software', name: 'Software', amount: 50 }],
+    }).map((line) => [line.name, line.budget])).toEqual([
+      ['Insurance overhead', 200],
+      ['Facilities', 100],
+      ['Software', 50],
+    ]);
+
+    const spend = budgetLineSpendForKind({
+      options: overheadEstimateLines({ insuranceOverhead: 200, facilities: 100 }),
+      kind: 'overhead',
+      expenses: [
+        { id: 'ins', amount: 200, category: 'Company overhead', vendor: 'State Farm', description: 'Insurance overhead' },
+      ],
+    });
+    expect(spend.summaries[OVERHEAD_LINE_IDS.insurance].loggedTotal).toBe(200);
+    expect(spend.summaries[OVERHEAD_LINE_IDS.insurance].remaining).toBe(0);
+    expect(spend.summaries[OVERHEAD_LINE_IDS.facilities].loggedTotal).toBe(0);
   });
 });

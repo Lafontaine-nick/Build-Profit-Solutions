@@ -22,7 +22,7 @@ import type {
   TaxExpense,
   TaxPayment,
 } from '@/src/lib/taxCenter';
-import { classifyRevenuePaymentSource, formatTaxNetMarginPercent } from '@/src/lib/taxCenter';
+import { classifyRevenuePaymentSource, formatTaxNetMarginPercent, sortTaxExpensesForDisplay, taxExpenseRecordLabel } from '@/src/lib/taxCenter';
 import type { Vendor } from '@/src/lib/vendorTypes';
 import type { Tax1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { resolveVendorForExpense } from '@/src/lib/tax1099Review';
@@ -598,10 +598,11 @@ export default function TaxCenterSummaryDetailModal({
     }
 
     if (kind === 'expenses') {
-      return expenseRows.length === 0 ? (
+      const orderedExpenses = sortTaxExpensesForDisplay(expenseRows);
+      return orderedExpenses.length === 0 ? (
         <Text style={styles.empty}>No expenses paid in this tax year.</Text>
       ) : (
-        expenseRows.map((e, idx) => {
+        orderedExpenses.map((e, idx) => {
           const uri = String(e.receiptUri ?? '').trim();
           const missingReceipt = !uri;
           const amt =
@@ -612,11 +613,13 @@ export default function TaxCenterSummaryDetailModal({
           const paidRaw = String(e.paidAt || e.date || '').trim();
           const paidFmt = formatDisplayDate(paidRaw);
           const project = displayLabel(String(e.projectName || '').trim(), 'Not added');
+          const recordLabel = taxExpenseRecordLabel(e);
+          const title = recordLabel ? `${recordLabel} · ${primary}` : primary;
           return (
             <View key={`${String(e.projectId)}-${String(e.id || idx)}`} style={styles.rowCard}>
               <View style={styles.rowTop}>
                 <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
-                  {primary}
+                  {title}
                 </Text>
                 <Text style={[styles.rowPrimaryRight, { color: moneyColor(amt) }]}>{formatMoney(amt)}</Text>
               </View>
@@ -629,7 +632,7 @@ export default function TaxCenterSummaryDetailModal({
               </Text>
               <Text style={styles.rowDetailMuted}>
                 Vendor: {vendor} · Category: {category} · Source:{' '}
-                {e.__isPurchaseOrder ? 'Purchase order' : 'Expense'}
+                {recordLabel || 'Expense'}
               </Text>
             </View>
           );

@@ -60,6 +60,17 @@ describe('approvedChangeOrderBudgetLines', () => {
     expect(summaries[id].badge).toBeNull();
   });
 
+  it('keeps a spend bar for a change-order bill whose order was removed', () => {
+    const id = changeOrderBudgetLineId('labor', 'co-deleted');
+    const summaries = changeOrderLineSpendSummaries(project, 'labor', [
+      { linkedLineId: id, amount: 1000 },
+    ]);
+    expect(summaries[id].loggedTotal).toBe(1000);
+    expect(summaries[id].budget).toBe(0);
+    expect(summaries[id].remaining).toBe(-1000);
+    expect(summaries[id].badge).toBe('over');
+  });
+
   it('lists approved change-order labor on its own line', () => {
     const lines = approvedChangeOrderBudgetLines(project, 'labor');
     expect(lines).toEqual([

@@ -3,14 +3,19 @@ import type { EstimateLineSpendSummary } from '@/utils/rateInsightComparisons';
 
 export function lineSpendColor(summary: EstimateLineSpendSummary): string {
   if (summary.loggedTotal <= 0) return '#d7e1f0';
-  if (summary.budget <= 0) return '#22c55e';
+  if (summary.budget <= 0) return summary.remaining < 0 ? '#f87171' : '#22c55e';
   if (summary.remaining < 0) return '#f87171';
   return '#22c55e';
 }
 
 export function formatSpendDetail(summary: EstimateLineSpendSummary): string {
   const spent = formatMoneyFull(summary.loggedTotal, { decimals: 0 });
-  if (summary.budget <= 0) return `Total spent ${spent}`;
+  if (summary.budget <= 0) {
+    if (summary.remaining < 0) {
+      return `Total spent ${spent} · ${formatMoneyFull(Math.abs(summary.remaining), { decimals: 0 })} over`;
+    }
+    return `Total spent ${spent}`;
+  }
   if (summary.remaining >= 0) {
     return `Total spent ${spent} · ${formatMoneyFull(summary.remaining, { decimals: 0 })} remaining`;
   }
@@ -18,7 +23,8 @@ export function formatSpendDetail(summary: EstimateLineSpendSummary): string {
 }
 
 export function progressFillPercent(summary: EstimateLineSpendSummary): number {
-  if (summary.budget <= 0 || summary.loggedTotal <= 0) return 0;
+  if (summary.loggedTotal <= 0) return 0;
+  if (summary.budget <= 0) return summary.remaining < 0 ? 100 : 0;
   return Math.min(100, (summary.loggedTotal / summary.budget) * 100);
 }
 
@@ -72,7 +78,8 @@ export function formatBudgetPercentUsed(percent: number): string {
 export function lineBudgetStatusVariant(
   summary: EstimateLineSpendSummary
 ): 'over' | 'onTrack' | 'neutral' {
-  if (summary.budget <= 0 || summary.loggedTotal <= 0) return 'neutral';
+  if (summary.loggedTotal <= 0) return 'neutral';
+  if (summary.budget <= 0) return summary.remaining < 0 ? 'over' : 'neutral';
   return summary.remaining < 0 ? 'over' : 'onTrack';
 }
 

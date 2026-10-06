@@ -5,7 +5,11 @@
  */
 
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
-import { getBidSoftCostTotal } from '@/utils/estimateAllowances';
+import {
+  getBidOverheadLineItemsTotal,
+  getBidSoftCostTotal,
+  isCompanyOverheadCategory,
+} from '@/utils/estimateAllowances';
 
 const safeNum = (value: unknown) => {
   const n = Number(value || 0);
@@ -257,6 +261,22 @@ export function approvedChangeOrderBudgetLines(
   return lines;
 }
 
+function changeOrderSpendSummary(loggedTotal: number, budget: number) {
+  const logged = Math.round(loggedTotal * 100) / 100;
+  const remaining = Math.round((budget - logged) * 100) / 100;
+  const over = (budget > 0 && logged > budget) || (budget <= 0 && logged > 0);
+  return {
+    loggedTotal: logged,
+    budget,
+    remaining,
+    variancePct:
+      budget > 0 && logged > 0
+        ? Math.round(((logged - budget) / budget) * 10000) / 100
+        : null,
+    badge: over ? ('over' as const) : null,
+  };
+}
+
 /** Spent and remaining for each approved change-order materials or labor line. */
 export function changeOrderLineSpendSummaries(
   project: any,
@@ -264,25 +284,27 @@ export function changeOrderLineSpendSummaries(
   expenses: Array<{ linkedLineId?: string | null; amount?: number | null }> | undefined
 ): Record<string, { loggedTotal: number; budget: number; remaining: number; variancePct: number | null; badge: 'over' | null }> {
   const summaries: Record<string, { loggedTotal: number; budget: number; remaining: number; variancePct: number | null; badge: 'over' | null }> = {};
+  const approvedIds = new Set<string>();
   for (const line of approvedChangeOrderBudgetLines(project, kind)) {
+    approvedIds.add(line.id);
     let loggedTotal = 0;
     for (const expense of expenses || []) {
       if (String(expense?.linkedLineId || '') !== line.id) continue;
       const amount = Number(expense?.amount);
       if (Number.isFinite(amount)) loggedTotal += amount;
     }
-    loggedTotal = Math.round(loggedTotal * 100) / 100;
-    const remaining = Math.round((line.budget - loggedTotal) * 100) / 100;
-    summaries[line.id] = {
-      loggedTotal,
-      budget: line.budget,
-      remaining,
-      variancePct:
-        line.budget > 0 && loggedTotal > 0
-          ? Math.round(((loggedTotal - line.budget) / line.budget) * 10000) / 100
-          : null,
-      badge: line.budget > 0 && loggedTotal > line.budget ? 'over' : null,
-    };
+    summaries[line.id] = changeOrderSpendSummary(loggedTotal, line.budget);
+  }
+  const orphanTotals = new Map<string, number>();
+  for (const expense of expenses || []) {
+    const lineId = String(expense?.linkedLineId || '');
+    if (!isChangeOrderBudgetLineId(lineId, kind) || approvedIds.has(lineId)) continue;
+    const amount = Number(expense?.amount);
+    if (!Number.isFinite(amount) || !(amount > 0)) continue;
+    orphanTotals.set(lineId, (orphanTotals.get(lineId) || 0) + amount);
+  }
+  for (const [lineId, loggedTotal] of orphanTotals) {
+    summaries[lineId] = changeOrderSpendSummary(loggedTotal, 0);
   }
   return summaries;
 }
@@ -605,12 +627,17 @@ export function getAllocatedCompanyOverhead(project: any): number {
     }
     return 0;
   };
+  const overheadLines = sources.reduce((sum, source) => {
+    const total = getBidOverheadLineItemsTotal(source);
+    return total > sum ? total : sum;
+  }, 0);
   const fromLines =
     pick('insuranceOverhead') +
     pick('equipmentMaintenance', 'equipmentMaintenanceOverhead') +
     pick('facilities', 'facilitiesOverhead') +
     pick('adminOverhead') +
-    pick('otherOverhead');
+    pick('otherOverhead') +
+    overheadLines;
   if (fromLines > 0) return fromLines;
   const saved = Number(project?.companyOverhead ?? project?.estimateData?.companyOverhead ?? 0);
   return Number.isFinite(saved) && saved > 0 ? saved : 0;
@@ -649,7 +676,10 @@ export function foldEquipmentRentalIntoMaterialsBucket<
   const list = Array.isArray(buckets) ? buckets : [];
   const equipment = equipmentRentalAmount(project);
   if (!(equipment > 0) || !(plannedCostBudget > 0) || list.length === 0) return list;
-  const bucketSum = list.reduce((sum, bucket) => sum + (Number(bucket?.budget) || 0), 0);
+  const bucketSum = list.reduce((sum, bucket) => {
+    if (isCompanyOverheadCategory(bucket?.name)) return sum;
+    return sum + (Number(bucket?.budget) || 0);
+  }, 0);
   if (Math.abs(plannedCostBudget - bucketSum - equipment) >= 1) return list;
   const materialsIndex = list.findIndex((bucket) =>
     String(bucket?.name || '').toLowerCase().includes('material')
@@ -673,6 +703,8 @@ export function sumPlannedCostFromBuckets(buckets: unknown[] | undefined): numbe
     const name = String(b?.name || "").toLowerCase();
     if (
       name.includes("markup") ||
+      name.includes("company overhead") ||
+      name === "overhead" ||
       name.includes("revenue") ||
       name.includes("contract value") ||
       name.includes("sell price") ||

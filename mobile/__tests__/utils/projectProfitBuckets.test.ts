@@ -2,6 +2,7 @@ import { computeProfitForecast } from '../../src/lib/profitForecast';
 import {
   foldEquipmentRentalIntoMaterialsBucket,
   getAllocatedCompanyOverhead,
+  sumPlannedCostFromBuckets,
 } from '../../src/lib/projectFinancials';
 
 describe('project profit and equipment buckets', () => {
@@ -75,6 +76,25 @@ describe('project profit and equipment buckets', () => {
     expect(folded.reduce((sum, bucket) => sum + bucket.budget, 0)).toBe(25155);
   });
 
+  it('still adds equipment when a company overhead bucket sits beside the job buckets', () => {
+    const withOverhead = [
+      { name: 'Materials/Equipment', budget: 5830, bidBudget: 5830 },
+      { name: 'Labor', budget: 19895, bidBudget: 19895 },
+      { name: 'Soft costs', budget: 2300, bidBudget: 2300 },
+      { name: 'Contingency', budget: 2000, bidBudget: 2000 },
+      { name: 'Company overhead', budget: 300, bidBudget: 300 },
+    ];
+    const folded = foldEquipmentRentalIntoMaterialsBucket(
+      withOverhead,
+      { estimateData: { equipment: 600 } },
+      30625
+    );
+
+    expect(folded[0].budget).toBe(6430);
+    expect(folded[0].bidBudget).toBe(6430);
+    expect(folded[4].budget).toBe(300);
+  });
+
   it('does not add equipment twice when the materials bucket already includes it', () => {
     const alreadyIncluded = buckets.map((bucket, index) =>
       index === 0 ? { ...bucket, budget: 5905, bidBudget: 5905 } : bucket
@@ -104,5 +124,26 @@ describe('project profit and equipment buckets', () => {
         estimateData: { facilities: 50, adminOverhead: 25 },
       })
     ).toBe(75);
+    expect(
+      getAllocatedCompanyOverhead({
+        estimateData: {
+          insuranceOverhead: 200,
+          facilities: 100,
+          overheadLineItems: [{ name: 'Software', amount: 50 }],
+        },
+      })
+    ).toBe(350);
+  });
+
+  it('keeps company overhead out of the job cost cap', () => {
+    expect(
+      sumPlannedCostFromBuckets([
+        { name: 'Materials/Equipment', budget: 6930 },
+        { name: 'Labor', budget: 20395 },
+        { name: 'Soft costs', budget: 2300 },
+        { name: 'Contingency', budget: 2000 },
+        { name: 'Company overhead', budget: 300 },
+      ])
+    ).toBe(31625);
   });
 });

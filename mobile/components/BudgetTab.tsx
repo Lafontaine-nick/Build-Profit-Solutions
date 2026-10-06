@@ -25,6 +25,7 @@ import { getColors } from '../theme/getColors';
 import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { mapApprovedCostBucketsToProjectBuckets } from '../utils/approvedCostBuckets';
+import { isCompanyOverheadCategory } from '../utils/estimateAllowances';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
 import {
@@ -378,7 +379,9 @@ export default function BudgetTab({
               (expCategory.includes('allowance') ||
                 expCategory.includes('soft cost') ||
                 expCategory.includes('soft-cost'))) ||
-            (lineCategory.includes('contingency') && expCategory.includes('contingency'))
+            (lineCategory.includes('contingency') && expCategory.includes('contingency')) ||
+            (lineCategory.includes('company overhead') &&
+              (expCategory.includes('company overhead') || expCategory === 'overhead'))
           );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
@@ -435,8 +438,7 @@ export default function BudgetTab({
         n.includes('allowance') ||
         n.includes('soft cost') ||
         n.includes('soft-cost') ||
-        n.includes('contingency') ||
-        n.includes('overhead')
+        n.includes('contingency')
       );
     });
     return relevantBuckets.reduce((s, l) => s + safe(l.budget), 0);
@@ -649,7 +651,10 @@ export default function BudgetTab({
   // Actual Expenses = sum(expenses) + received POs. For Nick: 6500 materials + 1500 POs = 8000.
   // Use sum(expenses) + receivedPOsTotal (not spent) so received POs are always included.
   const actual = useMemo(() => {
-    const expensesTotal = (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0);
+    const expensesTotal = (projectData?.expenses || []).reduce(
+      (s, e) => (isCompanyOverheadCategory(e?.category) ? s : s + safe(e.amount)),
+      0
+    );
     return expensesTotal + receivedPOsTotal;
   }, [projectData?.expenses, receivedPOsTotal]);
   const committed = safe(projectData?.committedPOs || 0);
@@ -997,7 +1002,9 @@ export default function BudgetTab({
                         : itemName.toLowerCase().includes('soft cost') ||
                             itemName.toLowerCase().includes('soft-cost')
                           ? 'receipt-long'
-                          : itemName.toLowerCase().includes('contingency')
+                          : itemName.toLowerCase().includes('company overhead')
+                            ? 'business'
+                            : itemName.toLowerCase().includes('contingency')
                             ? 'savings'
                             : itemName.toLowerCase().includes('allowance')
                               ? 'account-balance-wallet'

@@ -534,6 +534,25 @@ describe('estimateFeedback', () => {
     expect(result.projectSummary.actualDirectCost).toBe(3100);
   });
 
+  it('leaves company overhead bills out of the job cost comparison', () => {
+    const result = deriveEstimateFeedbackFromBudgetData({
+      projectId: 'budget-1',
+      plannedBudget: 31625,
+      lines: [
+        { id: 'materials', category: 'Materials', qty: 1, unit: 'lump_sum', unitCost: 6930 },
+        { id: 'overhead', category: 'Company overhead', qty: 1, unit: 'lump_sum', unitCost: 300 },
+      ],
+      expenses: [
+        { id: 'job', category: 'Materials', amount: 5600 },
+        { id: 'farmers', category: 'Company overhead', vendor: 'Farmers', amount: 100 },
+      ],
+    });
+
+    expect(result.projectSummary.actualDirectCost).toBe(5600);
+    expect(result.projectSummary.estimatedDirectCost).toBe(31625);
+    expect(result.scopeComparisons.some((row) => row.scopeItemKey === 'overhead')).toBe(false);
+  });
+
   it('does not mutate the original estimate snapshot or saved rate metadata', () => {
     const original = snapshot();
     const before = JSON.stringify(original);

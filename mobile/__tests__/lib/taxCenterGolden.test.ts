@@ -13,6 +13,8 @@ import {
   getYearExpenses,
   isCurrentTaxProject,
   isPoPaidForTax,
+  taxExpenseRecordLabel,
+  sortTaxExpensesForDisplay,
 } from '@/src/lib/taxCenter';
 import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
 
@@ -402,5 +404,37 @@ describe('Tax Center golden fixtures', () => {
     });
     expect(review.potential1099VendorCount).toBe(1);
     expect(review.rows[0]?.totalPaid).toBe(800);
+  });
+});
+
+describe('tax expense card labels', () => {
+  it('labels change orders, purchase orders, and contingency without relabeling ordinary bills', () => {
+    expect(taxExpenseRecordLabel({ category: 'Materials/Equipment', vendor: 'Home Depot', linkedLineId: 'bps-co-material-co-1' })).toBe('Change order');
+    expect(taxExpenseRecordLabel({ category: 'Labor', vendor: 'Concrete', linkedLineId: 'bps-co-labor-co-1' })).toBe('Change order');
+    expect(taxExpenseRecordLabel({ category: 'Materials', vendor: 'Home Depot', __isPurchaseOrder: true })).toBe('Purchase order');
+    expect(taxExpenseRecordLabel({ category: 'Contingency', vendor: 'Labor' })).toBe('Contingency');
+    expect(taxExpenseRecordLabel({ category: 'Materials/Equipment', vendor: 'Home Depot' })).toBeNull();
+    expect(taxExpenseRecordLabel({ category: 'Labor', vendor: 'Electrical' })).toBeNull();
+  });
+
+  it('lists regular materials and labor before change orders, purchase orders, soft costs, and contingency', () => {
+    const ordered = sortTaxExpensesForDisplay([
+      { category: 'Contingency', vendor: 'Labor', date: '2026-10-04', amount: 500 },
+      { category: 'Soft costs', vendor: 'City', date: '2026-10-04', amount: 200 },
+      { category: 'Materials', vendor: 'Home Depot', date: '2026-10-04', amount: 1000, __isPurchaseOrder: true },
+      { category: 'Materials/Equipment', vendor: 'Home Depot', date: '2026-10-06', amount: 500, linkedLineId: 'bps-co-material-co-1' },
+      { category: 'Materials/Equipment', vendor: 'Home Depot', date: '2026-10-04', amount: 400 },
+      { category: 'Labor', vendor: 'Electrical', date: '2026-10-04', amount: 1000 },
+      { category: 'Labor', vendor: 'Concrete', date: '2026-10-05', amount: 1000, linkedLineId: 'bps-co-labor-co-1' },
+    ]);
+    expect(ordered.map((row) => `${row.vendor}:${row.amount}`)).toEqual([
+      'Home Depot:400',
+      'Electrical:1000',
+      'Concrete:1000',
+      'Home Depot:500',
+      'Home Depot:1000',
+      'City:200',
+      'Labor:500',
+    ]);
   });
 });

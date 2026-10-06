@@ -34,9 +34,11 @@ import {
   type EstimateLineSpendSummary,
 } from '@/utils/rateInsightComparisons';
 import {
+  budgetLineSpendForKind,
   displayEstimateLineName,
   estimateLineOptionsFor,
   type EstimateLineOption,
+  type EstimateLinePickerKind,
 } from '@/utils/estimateLineOptions';
 import BudgetStatusBadge from '@/components/BudgetStatusBadge';
 import {
@@ -48,9 +50,7 @@ import {
 } from '@/utils/estimateLineBudgetDisplay';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
-export type EstimateLinePickerKind = 'materials' | 'labor';
-
-export type { EstimateLineOption } from '@/utils/estimateLineOptions';
+export type { EstimateLineOption, EstimateLinePickerKind } from '@/utils/estimateLineOptions';
 export { resolveEstimateLineOption } from '@/utils/estimateLineOptions';
 
 type Props = {
@@ -80,11 +80,16 @@ type Props = {
   };
 };
 
+function tracksChangeOrders(kind: EstimateLinePickerKind): kind is 'materials' | 'labor' {
+  return kind === 'materials' || kind === 'labor';
+}
+
 function optionsFor(
   projectLike: Record<string, unknown> | null | undefined,
   kind: EstimateLinePickerKind
 ): EstimateLineOption[] {
   const estimateLines = estimateLineOptionsFor(resolveProjectEstimateData(projectLike), kind);
+  if (!tracksChangeOrders(kind)) return estimateLines;
   const changeOrderLines = approvedChangeOrderBudgetLines(projectLike, kind).map((line) => ({
     id: line.id,
     name: line.name,
@@ -102,7 +107,27 @@ function displayLineName(name: string): string {
 }
 
 function lineCategoryLabel(kind: EstimateLinePickerKind): string {
-  return kind === 'materials' ? 'Materials' : 'Labor';
+  if (kind === 'materials') return 'Materials';
+  if (kind === 'labor') return 'Labor';
+  if (kind === 'soft') return 'Soft cost';
+  if (kind === 'overhead') return 'Overhead';
+  return 'Contingency';
+}
+
+function pickerTitle(kind: EstimateLinePickerKind): string {
+  if (kind === 'materials') return 'Materials & equipment';
+  if (kind === 'labor') return 'Labor';
+  if (kind === 'soft') return 'Soft costs';
+  if (kind === 'overhead') return 'Company overhead';
+  return 'Contingency';
+}
+
+function pickerSubtitle(kind: EstimateLinePickerKind): string {
+  if (kind === 'materials') return 'Materials, equipment, and change orders';
+  if (kind === 'labor') return 'Labor and change orders';
+  if (kind === 'soft') return 'Soft costs';
+  if (kind === 'overhead') return 'Company overhead';
+  return 'Contingency';
 }
 
 function spendTone(summary: EstimateLineSpendSummary): string {
@@ -133,6 +158,7 @@ export default function EstimateLinePicker({
   /** Change order ids whose Timeline payment is Received. Null until the timeline load finishes. */
   const [receivedChangeOrderIds, setReceivedChangeOrderIds] = useState<Set<string> | null>(null);
   const options = useMemo(() => optionsFor(projectLike, kind), [projectLike, kind]);
+  const namedBudgetKind = kind === 'soft' || kind === 'contingency' || kind === 'overhead';
   const spendInput = useMemo(
     () => ({
       estimateData: resolveProjectEstimateData(projectLike),
@@ -142,16 +168,28 @@ export default function EstimateLinePicker({
     }),
     [projectLike, kind, excludeExpenseId]
   );
-  const spendSummaries = useMemo(
-    () => getEstimateLineSpendSummaries(spendInput),
-    [spendInput]
-  );
-  const unlinkedExpenses = useMemo(
-    () => getUnlinkedExpensesForKind(spendInput),
-    [spendInput]
-  );
+  const namedSpend = useMemo(() => {
+    if (kind !== 'soft' && kind !== 'contingency' && kind !== 'overhead') return null;
+    return budgetLineSpendForKind({
+      options,
+      expenses: resolveProjectExpenses(projectLike),
+      kind,
+      excludeExpenseId,
+    });
+  }, [options, projectLike, kind, excludeExpenseId]);
+  const spendSummaries = useMemo(() => {
+    if (namedSpend) return namedSpend.summaries;
+    if (kind !== 'materials' && kind !== 'labor') return {};
+    return getEstimateLineSpendSummaries({ ...spendInput, kind });
+  }, [namedSpend, spendInput, kind]);
+  const unlinkedExpenses = useMemo(() => {
+    if (namedSpend) return namedSpend.unlinked;
+    if (kind !== 'materials' && kind !== 'labor') return [];
+    return getUnlinkedExpensesForKind({ ...spendInput, kind });
+  }, [namedSpend, spendInput, kind]);
   const changeOrderSpend = useMemo(() => {
     const spent: Record<string, number> = {};
+    if (!tracksChangeOrders(kind)) return spent;
     for (const expense of resolveProjectExpenses(projectLike)) {
       if (excludeExpenseId && expense.id === excludeExpenseId) continue;
       const linked = expense.linkedLineId ? String(expense.linkedLineId) : '';
@@ -225,19 +263,20 @@ export default function EstimateLinePicker({
     const base = normalized
       ? options.filter((item) => item.name.toLowerCase().includes(normalized))
       : options;
-    const equipment = base.filter((item) => item.id === EQUIPMENT_RENTAL_LINE_ID);
-    const changeOrders = base.filter((item) => isChangeOrderBudgetLineId(item.id, kind));
-    const materials = sortEstimateLineOptions(
-      base.filter(
-        (item) =>
-          item.id !== EQUIPMENT_RENTAL_LINE_ID && !isChangeOrderBudgetLineId(item.id, kind)
-      ),
-      spendSummaries
+    const equipment = tracksChangeOrders(kind)
+      ? base.filter((item) => item.id === EQUIPMENT_RENTAL_LINE_ID)
+      : [];
+    const changeOrders = tracksChangeOrders(kind)
+      ? base.filter((item) => isChangeOrderBudgetLineId(item.id, kind))
+      : [];
+    const bidLines = base.filter(
+      (item) => item.id !== EQUIPMENT_RENTAL_LINE_ID && !changeOrders.some((row) => row.id === item.id)
     );
+    const materials = namedBudgetKind ? bidLines : sortEstimateLineOptions(bidLines, spendSummaries);
     return { materialRows: materials, equipmentRows: equipment, changeOrderRows: changeOrders };
-  }, [options, query, spendSummaries, kind]);
+  }, [options, query, spendSummaries, kind, namedBudgetKind]);
 
-  const title = kind === 'materials' ? 'Materials & equipment' : 'Labor';
+  const title = pickerTitle(kind);
 
   const close = useCallback(() => {
     setModalAnimation('slide');
@@ -332,7 +371,7 @@ export default function EstimateLinePicker({
         {displayLineName(selected.name)}
       </Text>
       <Text style={[styles.selectorSubtitle, { color: colors.secondary }]}>
-        {isChangeOrderBudgetLineId(selected.id, kind)
+        {tracksChangeOrders(kind) && isChangeOrderBudgetLineId(selected.id, kind)
           ? 'Change order'
           : selected.id === EQUIPMENT_RENTAL_LINE_ID
             ? 'Equipment'
@@ -399,9 +438,7 @@ export default function EstimateLinePicker({
                     Choose a budget item
                   </Text>
                   <Text style={[styles.selectorSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
-                    {kind === 'materials'
-                      ? 'Materials, equipment, and change orders'
-                      : 'Labor and change orders'}
+                    {pickerSubtitle(kind)}
                   </Text>
                 </>
               )}
@@ -451,9 +488,7 @@ export default function EstimateLinePicker({
             <View style={styles.headerCenter}>
               <Text style={[styles.sheetTitle, { color: colors.text }]}>Choose a budget item</Text>
               <Text style={[styles.sheetSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
-                {kind === 'materials'
-                  ? 'Materials, equipment, and change orders'
-                  : 'Labor and change orders'}
+                {pickerSubtitle(kind)}
               </Text>
             </View>
           </View>
@@ -508,7 +543,7 @@ export default function EstimateLinePicker({
                   );
                   const isPending = line.id === pendingLineId;
                   const isEquipment = line.id === EQUIPMENT_RENTAL_LINE_ID;
-                  const isChangeOrder = isChangeOrderBudgetLineId(line.id, kind);
+                  const isChangeOrder = tracksChangeOrders(kind) && isChangeOrderBudgetLineId(line.id, kind);
                   const isLast =
                     index === rows.length - 1 ||
                     (equipmentRows.length > 0 && index === materialRows.length - 1) ||

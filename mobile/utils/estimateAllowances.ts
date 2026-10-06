@@ -23,6 +23,19 @@ export function getBidAllowanceLineItemsTotal(bid: {
   return getAllowanceLineItemsTotal(bid?.allowanceLineItems);
 }
 
+/** Budget card for insurance, facilities, admin, and added overhead. Not job cost. */
+export function isCompanyOverheadCategory(name: string | null | undefined): boolean {
+  const normalized = String(name || '').trim().toLowerCase();
+  return normalized.includes('company overhead') || normalized === 'overhead';
+}
+
+/** Named company-overhead lines added beside insurance, facilities, and admin. */
+export function getBidOverheadLineItemsTotal(bid: {
+  overheadLineItems?: AllowanceLineLike[] | null;
+} | null | undefined): number {
+  return getAllowanceLineItemsTotal(bid?.overheadLineItems);
+}
+
 /** Named soft-cost lines, plus plans, permits, engineering, lender fees, and interest. */
 export function getBidSoftCostTotal(bid: {
   allowanceLineItems?: AllowanceLineLike[] | null;

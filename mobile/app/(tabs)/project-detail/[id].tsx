@@ -43,6 +43,7 @@ import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
 import {
   computeProjectFinancials,
   foldEquipmentRentalIntoMaterialsBucket,
+  getAllocatedCompanyOverhead,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '@/src/lib/projectFinancials';
@@ -95,6 +96,7 @@ import { parseCalendarDate } from '@/utils/formatters';
 import {
   getBidSoftCostTotal,
   isAllowancesCategoryName,
+  isCompanyOverheadCategory,
 } from '@/utils/estimateAllowances';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 import {
@@ -1535,8 +1537,22 @@ function ProjectDetailContent() {
       });
     }
 
-    // Note: Overhead and Markup cards removed from BudgetTab as requested
-    // These categories are still included in the OverviewScreen for complete budget visibility
+    const companyOverheadBudget = getAllocatedCompanyOverhead({ ...project, estimateData: estimate });
+    if (companyOverheadBudget > 0) {
+      lines.push({
+        id: 'company-overhead',
+        category: 'Company overhead',
+        description: 'Insurance, facilities, and other overhead this bid recovers',
+        qty: 1,
+        unit: 'lump sum',
+        unitCost: companyOverheadBudget,
+        markupPct: 0,
+        spent: 0,
+        aiSuggested: false,
+      });
+    }
+
+    // Markup stays off the budget cards. Company overhead is logged here and kept out of the cost cap.
 
     if (lines.length === 0) {
       console.log('⚠️ Estimate path produced no category lines — applying bucket fallback');
@@ -1697,7 +1713,8 @@ function ProjectDetailContent() {
   // Calculate project metrics for Overview tab
   const overviewMetrics = useMemo(() => {
     const expensesTotal = (safeProjectData?.expenses || []).reduce(
-      (sum: number, expense: any) => sum + Number(expense.amount || 0),
+      (sum: number, expense: any) =>
+        isCompanyOverheadCategory(expense?.category) ? sum : sum + Number(expense.amount || 0),
       0
     );
     const bucketSpentTotal = (safeProjectData?.buckets || []).reduce(
@@ -1747,7 +1764,6 @@ function ProjectDetailContent() {
           n.includes('soft cost') ||
           n.includes('soft-cost') ||
           n.includes('contingency') ||
-          n.includes('overhead') ||
           n.includes('permit')
         ) {
           return sum + Number(bucket?.budget || 0);

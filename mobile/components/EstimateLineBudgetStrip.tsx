@@ -28,7 +28,8 @@ export default function EstimateLineBudgetStrip({
 }: Props) {
   if (summary.budget <= 0 && summary.loggedTotal <= 0) return null;
 
-  const showProgress = summary.budget > 0 && summary.loggedTotal > 0;
+  const showProgress =
+    summary.loggedTotal > 0 && (summary.budget > 0 || summary.remaining < 0);
   const showDetail = summary.loggedTotal > 0 || summary.budget > 0;
   if (!showDetail) return null;
 

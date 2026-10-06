@@ -594,6 +594,50 @@ export function mapExpenseToTaxCategory(expense: Partial<TaxExpense> | string | 
   return 'Other';
 }
 
+/** Card label for a paid bill that came from a change order, purchase order, or contingency. Ordinary materials and labor stay unlabeled. */
+export function taxExpenseRecordLabel(
+  expense: (Partial<TaxExpense> & { linkedLineId?: string | null }) | null | undefined
+): 'Change order' | 'Purchase order' | 'Contingency' | null {
+  if (!expense) return null;
+  const lineId = String(expense.linkedLineId || '');
+  const category = String(expense.category || '').toLowerCase();
+  if (lineId.startsWith('bps-co-') || category.includes('change order')) return 'Change order';
+  if (expense.__isPurchaseOrder) return 'Purchase order';
+  if (category.includes('contingenc')) return 'Contingency';
+  return null;
+}
+
+/** Expenses Paid order: regular materials and labor, change orders, purchase orders, soft costs, then contingency. */
+export function taxExpenseListRank(
+  expense: (Partial<TaxExpense> & { linkedLineId?: string | null }) | null | undefined
+): number {
+  const category = String(expense?.category || '').toLowerCase();
+  if (category.includes('contingenc')) return 4;
+  if (category.includes('soft')) return 3;
+  const label = taxExpenseRecordLabel(expense);
+  if (label === 'Purchase order') return 2;
+  if (label === 'Change order') return 1;
+  return 0;
+}
+
+export function sortTaxExpensesForDisplay<T extends Partial<TaxExpense> & { linkedLineId?: string | null }>(
+  rows: T[]
+): T[] {
+  const dateKey = (expense: T) =>
+    String(expense?.paidAt || expense?.date || expenseRecordDateForTaxYear(expense) || '');
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const rank = taxExpenseListRank(a.row) - taxExpenseListRank(b.row);
+      if (rank !== 0) return rank;
+      const dateA = dateKey(a.row);
+      const dateB = dateKey(b.row);
+      if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map((item) => item.row);
+}
+
 function collectProjectExpenseLinesOnly(project: any): TaxExpense[] {
   const projectId = String(project?.id || '');
   const projectName = normalizeProjectName(project);

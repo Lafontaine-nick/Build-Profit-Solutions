@@ -107,8 +107,27 @@ export default function EditTransactionModal({
     categoryLower.includes("material") || categoryLower.includes("equipment");
   const isLaborCategory =
     categoryLower.includes("labor") || categoryLower.includes("subs");
-  const showEstimateLinePicker = isMaterialsEquipment || isLaborCategory;
-  const estimatePickerKind = isLaborCategory ? ("labor" as const) : ("materials" as const);
+  const isSoftCostCategory =
+    categoryLower.includes("soft cost") ||
+    categoryLower.includes("soft-cost") ||
+    categoryLower.includes("allowance");
+  const isContingencyCategory = categoryLower.includes("contingenc");
+  const isCompanyOverheadCategory = categoryLower.includes("company overhead");
+  const showEstimateLinePicker =
+    isMaterialsEquipment ||
+    isLaborCategory ||
+    isSoftCostCategory ||
+    isContingencyCategory ||
+    isCompanyOverheadCategory;
+  const estimatePickerKind = isLaborCategory
+    ? ("labor" as const)
+    : isSoftCostCategory
+      ? ("soft" as const)
+      : isContingencyCategory
+        ? ("contingency" as const)
+        : isCompanyOverheadCategory
+          ? ("overhead" as const)
+          : ("materials" as const);
 
   const amountRef = useRef<TextInput>(null);
   const materialRef = useRef<TextInput>(null);
@@ -271,10 +290,13 @@ export default function EditTransactionModal({
     [Colors, darkMode, formPad.footer, formPad.header],
   );
 
-  const vendorLabel =
-    categoryName === "Labor" || categoryName === "Subs"
-      ? "Sub / Trade *"
-      : "Vendor / Supplier *";
+  const vendorLabel = isContingencyCategory
+    ? "What it covered *"
+    : isSoftCostCategory || isCompanyOverheadCategory
+      ? "Paid to *"
+      : categoryName === "Labor" || categoryName === "Subs"
+        ? "Sub / Trade *"
+        : "Vendor / Supplier *";
 
   const displayLineName = (name: string) =>
     name.replace(/\s*[—–-]\s*(materials?|labor)\s*$/i, "").trim() || name;

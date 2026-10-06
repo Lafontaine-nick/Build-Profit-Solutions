@@ -147,7 +147,7 @@ import {
   appliedAiSnapshotCostTotals,
   lineTotalsAtApply,
 } from '../../utils/aiSnapshotCostTotals';
-import { getBidAllowanceLineItemsTotal, getBidSoftCostTotal, isAllowancesCategoryName } from '../../utils/estimateAllowances';
+import { getBidAllowanceLineItemsTotal, getBidOverheadLineItemsTotal, getBidSoftCostTotal, isAllowancesCategoryName } from '../../utils/estimateAllowances';
 import { getEstimateStep5MarginTargetFeedback } from '../../utils/estimateStep5MarginTarget';
 import {
   confirmScopeSectionLabelStyle,
@@ -3588,7 +3588,8 @@ function getEstimateCompanyOverheadTotal(bid) {
     (Number(bid?.equipmentMaintenance) || 0) +
     (Number(bid?.facilities) || 0) +
     (Number(bid?.adminOverhead) || 0) +
-    (Number(bid?.otherOverhead) || 0)
+    (Number(bid?.otherOverhead) || 0) +
+    getBidOverheadLineItemsTotal(bid)
   );
 }
 
@@ -3696,6 +3697,7 @@ const blankState = () => ({
   facilities: 0,
   adminOverhead: 0,
   otherOverhead: 0,
+  overheadLineItems: [],
   
   // Percentages
   contingencyPct: 7,
@@ -7872,6 +7874,9 @@ export default function EstimateGeneratorScreen() {
   const [editingAllowanceId, setEditingAllowanceId] = useState(null);
   const [allowanceDraftName, setAllowanceDraftName] = useState('');
   const [allowanceDraftAmount, setAllowanceDraftAmount] = useState('');
+  const [editingOverheadId, setEditingOverheadId] = useState(null);
+  const [overheadDraftName, setOverheadDraftName] = useState('');
+  const [overheadDraftAmount, setOverheadDraftAmount] = useState('');
   const markupInputRef = useRef(null);
   const isMarkupFocused = useRef(false);
 
@@ -10010,6 +10015,10 @@ export default function EstimateGeneratorScreen() {
           const contingencySpent = projectData?.buckets?.find(b =>
             String(b?.name || '').toLowerCase().includes('contingency')
           )?.spent || 0;
+          const companyOverheadBudget = getEstimateCompanyOverheadTotal(snapshotBid);
+          const companyOverheadSpent = projectData?.buckets?.find(b =>
+            String(b?.name || '').toLowerCase().includes('company overhead')
+          )?.spent || 0;
           
           // Update or create projectData with correct buckets
           const updatedProjectData = {
@@ -10055,12 +10064,24 @@ export default function EstimateGeneratorScreen() {
                     },
                   ]
                 : []),
+              ...(companyOverheadBudget > 0 || companyOverheadSpent > 0
+                ? [
+                    {
+                      id: '5',
+                      name: 'Company overhead',
+                      spent: companyOverheadSpent,
+                      budget: companyOverheadBudget,
+                      bidBudget: companyOverheadBudget,
+                    },
+                  ]
+                : []),
               ...(projectData?.buckets?.filter(b => 
                 b.name !== 'Labor' && 
                 b.name !== 'Materials/Equipment' && 
                 b.name !== 'Materials' &&
                 !isAllowancesCategoryName(b?.name) &&
-                !String(b?.name || '').toLowerCase().includes('contingency')
+                !String(b?.name || '').toLowerCase().includes('contingency') &&
+                !String(b?.name || '').toLowerCase().includes('company overhead')
               ) || []),
             ],
             expenses: projectData?.expenses || [],
@@ -12633,7 +12654,7 @@ export default function EstimateGeneratorScreen() {
         overheadPct: overheadPct
       }));
     }
-  }, [bid.contractorType, bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.adminOverhead, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, bid.engineeringCost, bid.financingFees, bid.interestCost, bid.contingencyAllowance, bid.allowanceLineItems, calc.materials, calc.labor]);
+  }, [bid.contractorType, bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.adminOverhead, bid.otherOverhead, bid.overheadLineItems, bid.planCost, bid.permitCost, bid.otherDirectCost, bid.engineeringCost, bid.financingFees, bid.interestCost, bid.contingencyAllowance, bid.allowanceLineItems, calc.materials, calc.labor]);
 
   
   // Enhanced materials helpers
@@ -16047,7 +16068,7 @@ export default function EstimateGeneratorScreen() {
                   <View style={{ flex: 1, marginRight: 12 }}>
                     <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Soft costs</Text>
                     <Text style={step5SectionSubtitleStyle}>
-                      Engineering, lender fees, interest, and any other job soft cost
+                      Plans, permits, engineering, lender fees, interest, and any other job soft cost
                     </Text>
                   </View>
                   <Text style={{ color: getEstimateSoftCostTotal(bid) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800', marginTop: 2 }}>
@@ -16069,6 +16090,48 @@ export default function EstimateGeneratorScreen() {
                           const num = parseFloat(cleaned);
                           if (!isNaN(num)) {
                             updateBid('engineeringCost', num);
+                          }
+                        }
+                      },
+                    }
+                  )}
+                </View>
+
+                <View style={step5FieldWrapStyle}>
+                  <Text style={step5FieldLabelStyle}>Plans</Text>
+                  {step5DollarField(
+                    bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : '',
+                    {
+                      value: bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : '',
+                      onChangeText: (text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('planCost', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('planCost', num);
+                          }
+                        }
+                      },
+                    }
+                  )}
+                </View>
+
+                <View style={step5FieldWrapStyle}>
+                  <Text style={step5FieldLabelStyle}>Permits</Text>
+                  {step5DollarField(
+                    bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : '',
+                    {
+                      value: bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : '',
+                      onChangeText: (text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('permitCost', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('permitCost', num);
                           }
                         }
                       },
@@ -16153,7 +16216,7 @@ export default function EstimateGeneratorScreen() {
                                   marginBottom: 0,
                                 },
                               ]}
-                              placeholder="Permits, plans, cleanup"
+                              placeholder="Cleanup, survey, utility fees"
                               placeholderTextColor={estimateStepMutedInputColor}
                               value={allowanceDraftName}
                               onChangeText={setAllowanceDraftName}
@@ -16406,10 +16469,15 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
-              <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
-                <Text style={step5SectionSubtitleStyle}>
-                  The share of company overhead this bid should recover
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
+                  <Text style={step5SectionSubtitleStyle}>
+                    The share of company overhead this bid should recover
+                  </Text>
+                </View>
+                <Text style={{ color: getEstimateCompanyOverheadTotal(bid) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800', marginTop: 2 }}>
+                  {money(getEstimateCompanyOverheadTotal(bid))}
                 </Text>
               </View>
 
@@ -16497,7 +16565,8 @@ export default function EstimateGeneratorScreen() {
                 )}
               </View>
 
-              <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
+              {(Number(bid.otherOverhead) || 0) > 0 ? (
+              <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Other overhead</Text>
                 {step5DollarField(
                   bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : '',
@@ -16517,6 +16586,262 @@ export default function EstimateGeneratorScreen() {
                   }
                 )}
               </View>
+              ) : null}
+
+              {(Array.isArray(bid.overheadLineItems) ? bid.overheadLineItems : []).length === 0 ? null : (
+                <View style={{ marginTop: 12, gap: 10 }}>
+                  {(bid.overheadLineItems || []).map((line, index) => {
+                    const lineId = String(line?.id || `${line?.name || 'overhead'}-${index}`);
+                    const isEditing = editingOverheadId === lineId;
+                    const amountValue = Number(line?.amount ?? line?.total ?? 0);
+                    const nameText = String(line?.name || '').trim();
+
+                    if (isEditing) {
+                      return (
+                        <View
+                          key={lineId}
+                          style={{
+                            marginTop: 16,
+                            paddingTop: 16,
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: estimateFlowDividerColor(darkMode),
+                          }}
+                        >
+                          <Text style={step5FieldLabelStyle}>What for?</Text>
+                          <TextInput
+                            autoCorrect={false}
+                            spellCheck={false}
+                            autoFocus
+                            style={[
+                              ...step5InputBaseStyle,
+                              {
+                                color: getStepFieldTextColor(overheadDraftName),
+                                marginBottom: 0,
+                              },
+                            ]}
+                            placeholder="Software, vehicles, phones"
+                            placeholderTextColor={estimateStepMutedInputColor}
+                            value={overheadDraftName}
+                            onChangeText={setOverheadDraftName}
+                            {...resolveTextInputKeyboardProps()}
+                          />
+
+                          <Text style={[step5FieldLabelStyle, { marginTop: 14 }]}>Amount</Text>
+                          {step5DollarField(overheadDraftAmount, {
+                            value: overheadDraftAmount,
+                            onChangeText: (text) => {
+                              setOverheadDraftAmount(formatStep5NumericInput(sanitizeStep5NumericInput(text)));
+                            },
+                          })}
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 }}>
+                            <TouchableOpacity
+                              activeOpacity={0.8}
+                              onPress={() => {
+                                const existingName = String(line?.name || '').trim();
+                                const existingAmount = Number(line?.amount ?? line?.total ?? 0);
+                                if (!existingName && !(existingAmount > 0)) {
+                                  updateBid(
+                                    'overheadLineItems',
+                                    (bid.overheadLineItems || []).filter((item, itemIndex) => {
+                                      const itemId = String(
+                                        item?.id || `${item?.name || 'overhead'}-${itemIndex}`
+                                      );
+                                      return itemId !== lineId;
+                                    })
+                                  );
+                                }
+                                setEditingOverheadId(null);
+                                setOverheadDraftName('');
+                                setOverheadDraftAmount('');
+                                Keyboard.dismiss();
+                              }}
+                              style={{
+                                flex: 1,
+                                minHeight: 42,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: 'rgba(148, 163, 184, 0.35)',
+                                backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.88}
+                              onPress={() => {
+                                const cleanedName = String(overheadDraftName || '').trim();
+                                const cleanedAmount = sanitizeStep5NumericInput(overheadDraftAmount);
+                                const num =
+                                  cleanedAmount === '' || cleanedAmount === '.'
+                                    ? 0
+                                    : parseFloat(cleanedAmount);
+                                if (!cleanedName) {
+                                  Alert.alert('Name required', 'Enter what this overhead is for.');
+                                  return;
+                                }
+                                if (!Number.isFinite(num) || num <= 0) {
+                                  Alert.alert('Amount required', 'Enter an amount greater than 0.');
+                                  return;
+                                }
+                                updateBid(
+                                  'overheadLineItems',
+                                  (bid.overheadLineItems || []).map((item, itemIndex) => {
+                                    const itemId = String(item?.id || `${item?.name || 'overhead'}-${itemIndex}`);
+                                    if (itemId !== lineId) return item;
+                                    return {
+                                      ...item,
+                                      name: cleanedName,
+                                      amount: num,
+                                      total: num,
+                                      totalCost: num,
+                                    };
+                                  })
+                                );
+                                setEditingOverheadId(null);
+                                setOverheadDraftName('');
+                                setOverheadDraftAmount('');
+                                Keyboard.dismiss();
+                              }}
+                              style={[
+                                estimateFlowPrimaryButtonStyle(),
+                                { flex: 1, width: undefined, minHeight: 42, paddingVertical: 11, backgroundColor: '#2dcc9a' },
+                              ]}
+                            >
+                              <Text style={estimateFlowPrimaryButtonTextStyle()}>Save</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View
+                        key={lineId}
+                        style={{
+                          marginTop: 14,
+                          paddingTop: 12,
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderTopColor: estimateFlowDividerColor(darkMode),
+                          opacity: editingOverheadId ? 0.45 : 1,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                          <Text
+                            style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700', flex: 1 }}
+                            numberOfLines={1}
+                          >
+                            {nameText || 'Untitled overhead'}
+                          </Text>
+                          <Text style={{ color: amountValue > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800' }}>
+                            {money(amountValue)}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 6 }}>
+                        <TouchableOpacity
+                          activeOpacity={0.75}
+                          disabled={Boolean(editingOverheadId)}
+                          onPress={() => {
+                            setEditingOverheadId(lineId);
+                            setOverheadDraftName(nameText);
+                            setOverheadDraftAmount(
+                              amountValue > 0 ? formatStep5NumericInput(String(amountValue)) : ''
+                            );
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: editingOverheadId ? step5MutedSoft : '#2dcc9a',
+                              fontSize: ew(13, 14),
+                              fontWeight: '700',
+                            }}
+                          >
+                            Edit
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.75}
+                          disabled={Boolean(editingOverheadId)}
+                          onPress={() => {
+                            Alert.alert(
+                              'Delete overhead?',
+                              nameText ? `Remove “${nameText}”?` : 'Remove this overhead?',
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: () => {
+                                    updateBid(
+                                      'overheadLineItems',
+                                      (bid.overheadLineItems || []).filter((item, itemIndex) => {
+                                        const itemId = String(
+                                          item?.id || `${item?.name || 'overhead'}-${itemIndex}`
+                                        );
+                                        return itemId !== lineId;
+                                      })
+                                    );
+                                  },
+                                },
+                              ]
+                            );
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: editingOverheadId ? step5MutedSoft : '#f87171',
+                              fontSize: ew(13, 14),
+                              fontWeight: '700',
+                            }}
+                          >
+                            Delete
+                          </Text>
+                        </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {editingOverheadId ? null : (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  const newId = `overhead-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                  updateBid('overheadLineItems', [
+                    ...(Array.isArray(bid.overheadLineItems) ? bid.overheadLineItems : []),
+                    {
+                      id: newId,
+                      name: '',
+                      description: 'Manual overhead',
+                      amount: 0,
+                      total: 0,
+                      totalCost: 0,
+                      category: 'Overhead',
+                      source: 'manual',
+                    },
+                  ]);
+                  setEditingOverheadId(newId);
+                  setOverheadDraftName('');
+                  setOverheadDraftAmount('');
+                }}
+                style={{
+                  alignSelf: 'flex-start',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: 14,
+                  marginBottom: 4,
+                  paddingVertical: 4,
+                }}
+              >
+                <Ionicons name="add" size={16} color="#2dcc9a" />
+                <Text style={{ color: '#2dcc9a', fontSize: 15, fontWeight: '700' }}>Add overhead</Text>
+              </TouchableOpacity>
+              )}
 
               </View>
 

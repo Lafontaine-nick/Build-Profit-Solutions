@@ -64,15 +64,6 @@ function formatMarkupPctInput(pct: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-const SOFT_COST_TYPE_OPTIONS = [
-  { id: 'permits', label: 'Permits' },
-  { id: 'plans', label: 'Plans' },
-  { id: 'engineering', label: 'Engineering' },
-  { id: 'lender', label: 'Lender fees' },
-  { id: 'interest', label: 'Interest' },
-  { id: 'other', label: 'Other' },
-] as const;
-
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -144,7 +135,6 @@ export default function AddTransactionModal({
   const [po, setPo] = useState("");
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isPlanned, setIsPlanned] = useState<boolean>(true);
-  const [softCostType, setSoftCostType] = useState<string>('permits');
   const [projectPhase, setProjectPhase] = useState<string>('');
   const [scope, setScope] = useState<string>('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
@@ -205,6 +195,7 @@ export default function AddTransactionModal({
     categoryNameLower.includes('soft cost') ||
     categoryNameLower.includes('soft-cost');
   const isContingencyExpense = categoryNameLower.includes('contingency');
+  const isCompanyOverheadExpense = categoryNameLower.includes('company overhead');
 
   const supportsPerSqftPricing = useMemo(() => {
     return (
@@ -294,7 +285,6 @@ export default function AddTransactionModal({
     if (!visible) return;
     setReceiptUri(null);
     setIsPlanned(true);
-    setSoftCostType('permits');
     setProjectPhase('');
     setScope('');
     setExpectedDelivery(null);
@@ -587,7 +577,7 @@ export default function AddTransactionModal({
     ? 'Change order title *'
     : categoryName === 'Labor' || categoryName === 'Subs' 
     ? 'Sub / Trade *'
-    : isSoftCostExpense
+    : isSoftCostExpense || isCompanyOverheadExpense
     ? 'Paid to *'
     : isContingencyExpense
     ? 'What it covered *'
@@ -595,7 +585,7 @@ export default function AddTransactionModal({
   
   const vendorPlaceholder = isChangeOrdersCategory
     ? 'e.g., Extra concrete work'
-    : isSoftCostExpense
+    : isSoftCostExpense || isCompanyOverheadExpense
     ? 'City, engineer, or lender'
     : isContingencyExpense
     ? 'e.g., Extra conduit, weather delay'
@@ -603,7 +593,9 @@ export default function AddTransactionModal({
     ? EXPENSE_TRADE_PLACEHOLDER
     : 'e.g., Home Depot, ABC Contractors';
 
-  const descriptionPlaceholder = isSoftCostExpense
+  const descriptionPlaceholder = isCompanyOverheadExpense
+    ? 'Policy, invoice, or note'
+    : isSoftCostExpense
     ? 'Permit number, invoice, or note'
     : isChangeOrdersCategory
     ? 'Additional notes about this change order'
@@ -625,7 +617,6 @@ export default function AddTransactionModal({
     setPo("");
     setReceiptUri(null);
     setIsPlanned(true);
-    setSoftCostType('permits');
     setProjectPhase('');
     setScope('');
     setExpectedDelivery(null);
@@ -760,9 +751,10 @@ export default function AddTransactionModal({
     let descriptionOut = isLaborOrSubs
       ? [laborDescription.trim(), description.trim()].filter(Boolean).join("\n\n")
       : description.trim();
-    const softCostLabel = isSoftCostExpense
-      ? SOFT_COST_TYPE_OPTIONS.find((option) => option.id === softCostType)?.label || ''
-      : '';
+    const softCostLabel =
+      isSoftCostExpense || isCompanyOverheadExpense
+        ? String(selectedEstimateLine?.name || '').trim()
+        : '';
     if (softCostLabel && softCostLabel !== 'Other') {
       const alreadyNamed = descriptionOut.toLowerCase().includes(softCostLabel.toLowerCase());
       descriptionOut = alreadyNamed
@@ -879,7 +871,8 @@ export default function AddTransactionModal({
     categoryNameLower.includes("soft cost") ||
     categoryNameLower.includes("soft-cost") ||
     categoryNameLower.includes("allowance") ||
-    categoryNameLower.includes("contingency");
+    categoryNameLower.includes("contingency") ||
+    categoryNameLower.includes("company overhead");
   const webBudgetExpenseShell = budgetExpenseCategory;
   const budgetExpenseWebRing = Platform.OS === "web" && webBudgetExpenseShell;
   const webPoDesktopWide =
@@ -1223,7 +1216,8 @@ export default function AddTransactionModal({
       !categoryNameLower.includes("soft cost") &&
       !categoryNameLower.includes("soft-cost") &&
       !categoryNameLower.includes("allowance") &&
-      !categoryNameLower.includes("contingency") ? (
+      !categoryNameLower.includes("contingency") &&
+      !categoryNameLower.includes("company overhead") ? (
         <KeyboardPlainAccessory
           nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
           backgroundColor={darkMode ? "#000000" : Colors.bg}
@@ -1455,61 +1449,23 @@ export default function AddTransactionModal({
                 onDidDismiss={onChangeOrderPickerDismissed}
               />
             ) : null}
-            {isSoftCostExpense ? (
-              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
-                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
-                  Soft cost *
-                </Text>
-                <View style={{ gap: 8 }}>
-                  {[0, 1].map((row) => (
-                    <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
-                  {SOFT_COST_TYPE_OPTIONS.slice(row * 3, row * 3 + 3).map((option) => {
-                    const selected = softCostType === option.id;
-                    return (
-                      <TouchableOpacity
-                        key={option.id}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          setSoftCostType(option.id);
-                        }}
-                        style={
-                          webBudgetExpenseShell && poWebChrome
-                            ? { ...poWebChrome.pricingOpt(selected), flex: 1, paddingHorizontal: 6 }
-                            : {
-                                flex: 1,
-                                paddingHorizontal: 6,
-                                paddingVertical: 10,
-                                borderRadius: 12,
-                                borderWidth: 1,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minHeight: 48,
-                                borderColor: selected ? '#2dcc9a' : Colors.line,
-                                backgroundColor: selected ? '#2dcc9a' : Colors.surface2,
-                              }
-                        }
-                      >
-                        <Text
-                          style={
-                            webBudgetExpenseShell && poWebChrome
-                              ? { ...poWebChrome.pricingText(selected), textAlign: 'center' as const, fontSize: 13 }
-                              : {
-                                  color: selected ? '#050B13' : Colors.text,
-                                  fontWeight: '600',
-                                  fontSize: 13,
-                                  textAlign: 'center',
-                                }
-                          }
-                        >
-                          {option.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                    </View>
-                  ))}
-                </View>
-              </View>
+            {isSoftCostExpense || isContingencyExpense || isCompanyOverheadExpense ? (
+              <EstimateLinePicker
+                kind={isCompanyOverheadExpense ? 'overhead' : isContingencyExpense ? 'contingency' : 'soft'}
+                projectLike={projectData as unknown as Record<string, unknown>}
+                selectedLineId={selectedEstimateLine?.id}
+                onSelect={(line) => setSelectedEstimateLine(line)}
+                darkMode={darkMode}
+                colors={{
+                  background: darkMode ? '#000000' : Colors.bg,
+                  card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                  text: Colors.text,
+                  secondary: Colors.sub,
+                  border: Colors.line,
+                  nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
+                  accent: '#2dcc9a',
+                }}
+              />
             ) : null}
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
@@ -2443,7 +2399,7 @@ export default function AddTransactionModal({
             ) : null}
 
             {/* Phase / Scope Link — not used for soft costs or labor */}
-            {!isSoftCostExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
+            {!isSoftCostExpense && !isCompanyOverheadExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
             <>
             <View style={styles.field}>
               <Text style={[styles.label, { color: Colors.text }]}>Project Phase (Optional)</Text>
@@ -2502,7 +2458,7 @@ export default function AddTransactionModal({
             {!isLaborOrSubs && !isContingencyExpense ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
-                {isSoftCostExpense ? 'Note (Optional)' : isPurchaseOrdersCategory ? 'What was ordered' : 'Description (Optional)'}
+                {isSoftCostExpense || isCompanyOverheadExpense ? 'Note (Optional)' : isPurchaseOrdersCategory ? 'What was ordered' : 'Description (Optional)'}
               </Text>
               <TextInput
                 ref={descriptionRef}
@@ -2534,7 +2490,7 @@ export default function AddTransactionModal({
             </View>
             ) : null}
 
-            {!isSoftCostExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
+            {!isSoftCostExpense && !isCompanyOverheadExpense && !isLaborOrSubs && !isContingencyExpense && !isPurchaseOrdersCategory ? (
             <View style={styles.field}>
               <Text style={[styles.label, { color: Colors.text }]}>PO Number (Optional)</Text>
               <TextInput

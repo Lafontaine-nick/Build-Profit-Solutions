@@ -1,3 +1,4 @@
+import { isCompanyOverheadCategory } from '@/utils/estimateAllowances';
 import type { EstimateReadinessSnapshot } from '@/utils/estimateReadiness';
 import type { RateMetadata } from '@/utils/scopePricingIntelligence';
 import type { PricingSourceKind, UnitCode } from '@/utils/scopeIntelligence';
@@ -1341,7 +1342,8 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
   plannedBudget?: number;
   finalCustomerPrice?: number;
 }, options: { now?: Date } = {}): EstimateFeedbackResult {
-  const lines = data.lines || [];
+  const lines = (data.lines || []).filter((line) => !isCompanyOverheadCategory(line.category));
+  const jobExpenses = (data.expenses || []).filter((expense) => !isCompanyOverheadCategory(expense.category));
   const estimateSnapshot: EstimateSnapshot = {
     estimateId: data.projectId || 'budget-tab-estimate',
     createdAt: (options.now || new Date()).toISOString(),
@@ -1364,7 +1366,7 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
     },
   };
   const actualByLine = lines.map((line) => {
-    const matched = (data.expenses || []).filter((expense) => {
+    const matched = jobExpenses.filter((expense) => {
       if (expense.linkedLineId === line.id) return true;
       return budgetCategoriesMatch(expense.category, line.category);
     });
@@ -1392,7 +1394,7 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
     scopeActuals: actualByLine,
     projectLevelActuals: {
       totalActualCost:
-        (data.expenses || []).reduce((sum, expense) => sum + (positive(expense.amount) || 0), 0) +
+        jobExpenses.reduce((sum, expense) => sum + (positive(expense.amount) || 0), 0) +
         receivedPurchaseOrderTotal(data.purchaseOrders),
       finalCustomerPrice: positive(data.finalCustomerPrice) ?? undefined,
     },
@@ -1405,7 +1407,7 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
       classification: 'scope_change',
       excludeFromCalibration: true,
     })),
-    dataSources: (data.expenses || []).map((expense) => ({
+    dataSources: jobExpenses.map((expense) => ({
       sourceType: expense.receiptUri ? 'supplier_receipt' : 'manual_entry',
       sourceId: expense.id,
       date: expense.date,

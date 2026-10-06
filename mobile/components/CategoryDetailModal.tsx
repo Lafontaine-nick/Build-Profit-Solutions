@@ -4,7 +4,7 @@ import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Pla
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
-import { approvedChangeOrderBudgetLines, changeOrderCardTitle, isChangeOrderBudgetLineId } from "@/src/lib/projectFinancials";
+import { approvedChangeOrderBudgetLines, changeOrderCardTitle, getAllocatedCompanyOverhead, isChangeOrderBudgetLineId } from "@/src/lib/projectFinancials";
 import { isChangeOrderMirrorExpenseId, parseChangeOrderIdFromMirrorExpenseId } from "../lib/changeOrderMirrorExpenses";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
@@ -33,6 +33,11 @@ import {
 import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
 import { useEstimateLineBudgets, lookupSpendSummary } from "@/hooks/useEstimateLineBudgets";
 import { resolveExpenseLineId } from "@/utils/resolveExpenseLineId";
+import {
+  budgetLineSpendForKind,
+  estimateLineOptionsFor,
+  resolveEstimateLineOption,
+} from "@/utils/estimateLineOptions";
 import { buildCategoryBudgetSummary } from "@/utils/estimateLineBudgetDisplay";
 import { expenseSubtitleLines } from "@/utils/expenseCardDisplay";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
@@ -267,7 +272,15 @@ export default function CategoryDetailModal({
     categoryLower.includes('soft-cost') ||
     categoryLower.includes('allowance');
   const isContingencyCategory = categoryLower.includes('contingency');
-  const usesPlannedBudgetCard = isSoftCostCategory || isContingencyCategory;
+  const isCompanyOverheadCategory = categoryLower.includes('company overhead');
+  const usesPlannedBudgetCard = isSoftCostCategory || isContingencyCategory || isCompanyOverheadCategory;
+  const plannedBudgetKind = isSoftCostCategory
+    ? 'soft'
+    : isContingencyCategory
+      ? 'contingency'
+      : isCompanyOverheadCategory
+        ? 'overhead'
+        : null;
   const shouldGroupByEstimateLine =
     isMaterialsEquipmentCategory || isLaborCategory;
   const usesWideDarkCardLayout =
@@ -598,6 +611,17 @@ export default function CategoryDetailModal({
     return filtered;
   }, [projectData.expenses, projectData.changeOrders, projectData.purchaseOrders, categoryName, isChangeOrdersCategory, isPurchaseOrdersCategory, showArchived, activePOTab]);
 
+  const plannedLineSpend = useMemo(() => {
+    if (!plannedBudgetKind) return {};
+    const estimateData = resolveProjectEstimateData(projectData as unknown as Record<string, unknown>);
+    const options = estimateLineOptionsFor(estimateData, plannedBudgetKind);
+    return budgetLineSpendForKind({
+      options,
+      expenses: projectData?.expenses,
+      kind: plannedBudgetKind,
+    }).summaries;
+  }, [plannedBudgetKind, projectData]);
+
   const estimateLineIdToLabel = useMemo(() => {
     if (!shouldGroupByEstimateLine) return {};
     return buildEstimateLineIdToLabel(
@@ -639,16 +663,18 @@ export default function CategoryDetailModal({
     const bucket = buckets.find((entry: { name?: string }) => {
       const name = String(entry?.name || '').toLowerCase();
       if (isContingencyCategory) return name.includes('contingency');
+      if (isCompanyOverheadCategory) return name.includes('company overhead');
       return name.includes('soft') || name.includes('allowance');
     });
     const fromBucket = Number(bucket?.budget ?? bucket?.bidBudget ?? 0);
     if (fromBucket > 0) return fromBucket;
     const estimateData = (projectData as { estimateData?: Record<string, unknown> })?.estimateData;
+    if (isCompanyOverheadCategory) return getAllocatedCompanyOverhead(projectData);
     if (isContingencyCategory) {
       return Number(estimateData?.contingencyAllowance ?? (projectData as { contingencyAllowance?: number })?.contingencyAllowance ?? 0) || 0;
     }
     return 0;
-  }, [usesPlannedBudgetCard, projectData, isContingencyCategory]);
+  }, [usesPlannedBudgetCard, projectData, isContingencyCategory, isCompanyOverheadCategory]);
 
   const includedEquipmentRental = useMemo(() => {
     if (!isMaterialsEquipmentCategory) return 0;
@@ -1247,9 +1273,24 @@ export default function CategoryDetailModal({
                       lineIdToLabel: estimateLineIdToLabel,
                     })
                   : null;
+                const plannedLine = plannedBudgetKind
+                  ? resolveEstimateLineOption(
+                      resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
+                      plannedBudgetKind,
+                      {
+                        linkedLineId: item.linkedLineId,
+                        material: item.material,
+                        vendor: item.vendor,
+                        description: item.description,
+                      }
+                    )
+                  : null;
+                const plannedSummary = plannedLine ? plannedLineSpend[plannedLine.id] : null;
                 const itemBudgetSummary = shouldGroupByEstimateLine
                   ? lookupSpendSummary(spendSummaries, itemLineId)
-                  : null;
+                  : plannedSummary && plannedSummary.loggedTotal > 0
+                    ? plannedSummary
+                    : null;
                 const rawSubtitles = expenseSubtitleLines({
                   vendor: item.vendor,
                   material: item.material,
