@@ -1,5 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
+import {
+  isChangeOrderPaymentReceivedInMilestones,
+  isChangeOrderTimelineMilestone,
+} from "@/src/lib/projectFinancials";
 
 const TIMELINE_V2_PREFIX = "bps.timeline.v2.";
 const LEGACY_TIMELINE_PREFIX = "timeline_";
@@ -163,4 +166,21 @@ export async function applyMarkPaymentCollectedFromAction(
   await AsyncStorage.setItem(legacyKey, JSON.stringify(updatedMilestones));
 
   return { matched, updatedMilestones };
+}
+
+/** True when the Timeline payment for this change order is marked Received. */
+export async function isChangeOrderPaymentReceived(
+  projectId: string,
+  changeOrderId: string
+): Promise<boolean> {
+  const id = String(projectId || '').trim();
+  const changeOrder = String(changeOrderId || '').trim();
+  if (!id || !changeOrder) return false;
+  try {
+    const raw = await AsyncStorage.getItem(`${TIMELINE_V2_PREFIX}${id}`);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return isChangeOrderPaymentReceivedInMilestones(Array.isArray(parsed) ? parsed : [], changeOrder);
+  } catch {
+    return false;
+  }
 }

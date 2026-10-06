@@ -69,6 +69,8 @@ interface ProjectDataContextType {
     notes?: string;
     materialsAmount?: number;
     laborAmount?: number;
+    markupPct?: number;
+    clientPrice?: number;
     status?: string;
   }) => void;
   updateChangeOrder: (changeOrder: {
@@ -79,6 +81,8 @@ interface ProjectDataContextType {
     notes?: string;
     materialsAmount?: number;
     laborAmount?: number;
+    markupPct?: number;
+    clientPrice?: number;
     status?: string;
   }) => void;
   deleteChangeOrder: (changeOrderId: string) => void;
@@ -1383,6 +1387,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     notes?: string;
     materialsAmount?: number;
     laborAmount?: number;
+    markupPct?: number;
+    clientPrice?: number;
     status?: string;
   }) => {
     console.log('➕ Adding change order:', {
@@ -1485,6 +1491,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     notes?: string;
     materialsAmount?: number;
     laborAmount?: number;
+    markupPct?: number;
+    clientPrice?: number;
     status?: string;
   }) => {
     // Reuse addChangeOrder logic since it handles updates

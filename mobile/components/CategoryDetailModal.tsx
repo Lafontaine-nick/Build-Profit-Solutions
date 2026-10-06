@@ -4,7 +4,7 @@ import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Pla
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
-import { approvedChangeOrderBudgetLines } from "@/src/lib/projectFinancials";
+import { approvedChangeOrderBudgetLines, changeOrderCardTitle, isChangeOrderBudgetLineId } from "@/src/lib/projectFinancials";
 import { isChangeOrderMirrorExpenseId, parseChangeOrderIdFromMirrorExpenseId } from "../lib/changeOrderMirrorExpenses";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
@@ -143,8 +143,30 @@ type Props = {
   openChangeOrderEditId?: string | null;
   onConsumedOpenChangeOrderEditId?: () => void;
   onRequestOpenChangeOrder?: (changeOrderId: string) => void;
-  onRequestOpenTimeline?: () => void;
+  onRequestOpenTimeline?: (changeOrderId?: string, categoryName?: string) => void;
+  /** Budget sheets are gone; the hidden Budget tree can unmount. */
+  onTimelineJumpFinished?: () => void;
+  /** Open the add-bill form with this budget line already chosen. */
+  startAddBillLineId?: string | null;
+  onConsumedStartAddBill?: () => void;
 };
+
+function changeOrderMarkupCaption(item: {
+  isChangeOrder?: boolean;
+  materialsAmount?: number;
+  laborAmount?: number;
+  markupPct?: number;
+  amount?: number;
+}): string | null {
+  if (!item?.isChangeOrder) return null;
+  const cost = Math.round(((Number(item.materialsAmount) || 0) + (Number(item.laborAmount) || 0)) * 100) / 100;
+  const pct = Number(item.markupPct);
+  if (!(cost > 0) || !(pct > 0)) return null;
+  const price = Number(item.amount) > 0 ? Number(item.amount) : cost;
+  const profit = Math.round((price - cost) * 100) / 100;
+  const pctLabel = Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 10) / 10);
+  return `Cost ${formatMoneyFull(cost, { decimals: 2 })} · ${pctLabel}% markup · ${formatMoneyFull(profit, { decimals: 2 })} profit`;
+}
 
 export default function CategoryDetailModal({
   visible,
@@ -155,7 +177,33 @@ export default function CategoryDetailModal({
   onConsumedOpenChangeOrderEditId,
   onRequestOpenChangeOrder,
   onRequestOpenTimeline,
+  onTimelineJumpFinished,
+  startAddBillLineId = null,
+  onConsumedStartAddBill,
 }: Props) {
+  const timelineJumpIdRef = useRef<string | null>(null);
+  const openChangeOrderOnTimeline = (changeOrderId: string) => {
+    timelineJumpIdRef.current = changeOrderId;
+    onRequestOpenTimeline?.(changeOrderId, categoryName);
+  };
+  const handlePickerDismissed = () => {
+    if (!timelineJumpIdRef.current) return;
+    setSheetAnimation('none');
+    setShowAddForm(false);
+    setEditingChangeOrderId(null);
+    setEditingTransaction(null);
+    onClose();
+  };
+  const handleBillSheetDismissed = () => {
+    if (!timelineJumpIdRef.current) return;
+    onClose();
+  };
+  const handleCategoryDismissed = () => {
+    if (!timelineJumpIdRef.current) return;
+    timelineJumpIdRef.current = null;
+    setSheetAnimation('slide');
+    onTimelineJumpFinished?.();
+  };
   const DEBUG_MODAL = false;
   const debugLog = (...args: any[]) => { if (DEBUG_MODAL) console.log(...args); };
   const { theme: appTheme, darkMode } = useTheme();
@@ -183,6 +231,14 @@ export default function CategoryDetailModal({
     [useNativeBudgetBleed]
   );
   const [showAddForm, setShowAddForm] = useState(false);
+  const [queuedBillLineId, setQueuedBillLineId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible || !startAddBillLineId) return;
+    setQueuedBillLineId(startAddBillLineId);
+    setShowAddForm(true);
+    onConsumedStartAddBill?.();
+  }, [visible, startAddBillLineId]);
+  const [sheetAnimation, setSheetAnimation] = useState<'slide' | 'none'>('slide');
   const [editingChangeOrderId, setEditingChangeOrderId] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
@@ -290,11 +346,13 @@ export default function CategoryDetailModal({
     const mat = Number(raw.materialsAmount) || 0;
     const lab = Number(raw.laborAmount) || 0;
     const total = Number(raw.amount) || mat + lab;
+    const storedMarkup = Number(raw.markupPct);
     return {
       vendor: String(raw.title ?? ''),
       amount: total,
       materialsAmount: mat,
       laborAmount: lab,
+      markupPct: Number.isFinite(storedMarkup) ? storedMarkup : undefined,
       description: String(raw.notes ?? ''),
     };
   }, [editingChangeOrderId, isChangeOrdersCategory, projectData.changeOrders]);
@@ -399,7 +457,7 @@ export default function CategoryDetailModal({
         return {
           id: co.id,
           date: co.date || new Date().toISOString(),
-          vendor: co.title || 'Change Order',
+          vendor: changeOrderCardTitle(co, changeOrders),
           amount: co.amount || 0,
           description: co.notes || '',
           receiptUri: undefined,
@@ -413,6 +471,7 @@ export default function CategoryDetailModal({
           approved: co.approved || status === 'Approved',
           materialsAmount: co.materialsAmount,
           laborAmount: co.laborAmount,
+          markupPct: co.markupPct,
         };
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -543,7 +602,8 @@ export default function CategoryDetailModal({
     if (!shouldGroupByEstimateLine) return {};
     return buildEstimateLineIdToLabel(
       resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
-      isLaborCategory ? 'labor' : 'materials'
+      isLaborCategory ? 'labor' : 'materials',
+      projectData as unknown as Record<string, unknown>
     );
   }, [projectData, shouldGroupByEstimateLine, isLaborCategory]);
 
@@ -611,14 +671,14 @@ export default function CategoryDetailModal({
     includedEquipmentRental,
   ]);
 
-  const changeOrderCategoryBudget = useMemo(() => {
-    if (!isMaterialsEquipmentCategory && !isLaborCategory) return 0;
-    const kind = isLaborCategory ? 'labor' : 'materials';
-    return approvedChangeOrderBudgetLines(projectData, kind).reduce(
-      (sum, line) => sum + line.budget,
-      0
-    );
+  const changeOrderCategoryLines = useMemo(() => {
+    if (!isMaterialsEquipmentCategory && !isLaborCategory) return [];
+    return approvedChangeOrderBudgetLines(projectData, isLaborCategory ? 'labor' : 'materials');
   }, [isMaterialsEquipmentCategory, isLaborCategory, projectData]);
+  const changeOrderCategoryBudget = useMemo(
+    () => changeOrderCategoryLines.reduce((sum, line) => sum + line.budget, 0),
+    [changeOrderCategoryLines]
+  );
 
   const categoryBudgetSummary = useMemo(
     () => {
@@ -722,6 +782,8 @@ export default function CategoryDetailModal({
       const amount = Number(transaction.amount || 0);
       const materialsAmount = Number(transaction.materialsAmount || 0);
       const laborAmount = Number(transaction.laborAmount || 0);
+      const markupPct = Number(transaction.markupPct) || 0;
+      const clientPrice = amount;
       if (!transaction.vendor || amount <= 0) {
         categoryDetailWebAlert(
           "Error",
@@ -741,9 +803,11 @@ export default function CategoryDetailModal({
         addChangeOrder({
           id: editingChangeOrderId,
           title: transaction.vendor,
-          amount: amount,
+          amount: clientPrice,
           materialsAmount,
           laborAmount,
+          markupPct,
+          clientPrice,
           notes: transaction.description || "",
           approved: wasApproved,
           status: existing.status || (wasApproved ? "Approved" : "Submitted"),
@@ -757,9 +821,11 @@ export default function CategoryDetailModal({
       addChangeOrder({
         id: `co-${Date.now()}`,
         title: transaction.vendor,
-        amount: amount,
+        amount: clientPrice,
         materialsAmount,
         laborAmount,
+        markupPct,
+        clientPrice,
         notes: transaction.description || "",
         approved: false,
         status: "Submitted",
@@ -867,8 +933,9 @@ export default function CategoryDetailModal({
               !scannerFlowActive
           : visible && !scannerFlowActive
       }
-      animationType="slide"
-      presentationStyle="fullScreen"
+      animationType={sheetAnimation}
+      presentationStyle="overFullScreen"
+      onDismiss={handleCategoryDismissed}
     >
       <View
         style={[
@@ -1034,7 +1101,7 @@ export default function CategoryDetailModal({
                     ? `${formatMoneyFull(includedEquipmentRental, { decimals: 2 })} equipment rental`
                     : '',
                   changeOrderCategoryBudget > 0
-                    ? `${formatMoneyFull(changeOrderCategoryBudget, { decimals: 2 })} change order`
+                    ? `${formatMoneyFull(changeOrderCategoryBudget, { decimals: 2 })} ${changeOrderCategoryLines.length === 1 ? 'change order' : 'change orders'}`
                     : '',
                 ].filter(Boolean);
                 return parts.length > 0 ? `Includes ${parts.join(' and ')}` : undefined;
@@ -1150,10 +1217,16 @@ export default function CategoryDetailModal({
                     expense: entry.items[0],
                     lineIdToLabel: estimateLineIdToLabel,
                   });
+                  const groupedLineName = isChangeOrderBudgetLineId(
+                    lineId,
+                    isLaborCategory ? 'labor' : 'materials'
+                  )
+                    ? `Change order · ${entry.lineName}`
+                    : entry.lineName;
                   return (
                     <EstimateLineExpenseGroupCard
                       key={entry.groupKey}
-                      lineName={entry.lineName}
+                      lineName={groupedLineName}
                       items={entry.items}
                       darkMode={darkMode}
                       nestedCardBg={cardBg}
@@ -1177,11 +1250,23 @@ export default function CategoryDetailModal({
                 const itemBudgetSummary = shouldGroupByEstimateLine
                   ? lookupSpendSummary(spendSummaries, itemLineId)
                   : null;
-                const itemSubtitles = expenseSubtitleLines({
+                const rawSubtitles = expenseSubtitleLines({
                   vendor: item.vendor,
                   material: item.material,
                   description: item.description,
                 });
+                const isChangeOrderSpendLine = isChangeOrderBudgetLineId(
+                  itemLineId,
+                  isLaborCategory ? 'labor' : 'materials'
+                );
+                const itemSubtitles =
+                  rawSubtitles.material && isChangeOrderSpendLine
+                    ? { ...rawSubtitles, material: `Change order · ${rawSubtitles.material}` }
+                    : rawSubtitles;
+                const cardTitle =
+                  isChangeOrderSpendLine && !item.isChangeOrder && !itemSubtitles.material
+                    ? `Change order · ${item.vendor || estimateLineIdToLabel[itemLineId || ''] || 'Change order'}`
+                    : item.vendor;
                 const isItemDeleting = deletingId === item.id;
                 
                 // For Purchase Orders, use the BudgetTab card design
@@ -1600,7 +1685,7 @@ export default function CategoryDetailModal({
                           marginBottom: item.isPurchaseOrder ? 8 : 4,
                           flexWrap: 'wrap'
                         }}>
-                          <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }]}>{item.vendor}</Text>
+                          <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }]}>{cardTitle}</Text>
                           {/* Change Order Status Badge */}
                           {item.isChangeOrder && item.status && (
                             <View style={{
@@ -1725,6 +1810,11 @@ export default function CategoryDetailModal({
                           </View>
                         ) : (
                           <>
+                            {changeOrderMarkupCaption(item) ? (
+                              <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
+                                {changeOrderMarkupCaption(item)}
+                              </Text>
+                            ) : null}
                             {!!itemSubtitles.material && (
                               <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
                                 {itemSubtitles.material}
@@ -1993,7 +2083,7 @@ export default function CategoryDetailModal({
                           <View style={styles.transactionHeader}>
                             <View style={{ flex: 1 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                <Text style={[styles.vendor, { color: Colors.text }]}>{item.vendor}</Text>
+                                <Text style={[styles.vendor, { color: Colors.text }]}>{cardTitle}</Text>
                                 {/* Change Order Status Badge */}
                                 {item.isChangeOrder && item.status && (
                                   <View style={{
@@ -2038,6 +2128,11 @@ export default function CategoryDetailModal({
                                   </View>
                                 )}
                               </View>
+                              {changeOrderMarkupCaption(item) ? (
+                                <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
+                                  {changeOrderMarkupCaption(item)}
+                                </Text>
+                              ) : null}
                               {!!itemSubtitles.material && (
                                 <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
                                   {itemSubtitles.material}
@@ -2196,6 +2291,9 @@ export default function CategoryDetailModal({
         <AddTransactionModal
           key={isChangeOrdersCategory ? `co-draft-${editingChangeOrderId ?? "new"}` : "txn"}
           visible={showAddForm}
+          initialLinkedLineId={queuedBillLineId}
+          instantDismiss={sheetAnimation === "none"}
+          onDismiss={handleBillSheetDismissed}
           categoryName={categoryName}
           initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
           initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
@@ -2204,9 +2302,12 @@ export default function CategoryDetailModal({
           }
           onClose={() => {
             setShowAddForm(false);
+            setQueuedBillLineId(null);
             setEditingChangeOrderId(null);
           }}
           onSave={handleAddTransaction}
+          onOpenChangeOrderPayment={openChangeOrderOnTimeline}
+          onChangeOrderPickerDismissed={handlePickerDismissed}
         />
       )}
 
@@ -2232,8 +2333,12 @@ export default function CategoryDetailModal({
           />
           <EditTransactionModal
             visible={editingTransaction !== null && categoryName !== 'Purchase Orders'}
+            instantDismiss={sheetAnimation === "none"}
+            onDismiss={handleBillSheetDismissed}
             transaction={editingTransaction}
             categoryName={categoryName}
+            onOpenChangeOrderPayment={openChangeOrderOnTimeline}
+          onChangeOrderPickerDismissed={handlePickerDismissed}
             onClose={() => setEditingTransaction(null)}
             onSave={(updated) => {
               updateExpense({
@@ -2287,6 +2392,9 @@ export default function CategoryDetailModal({
         <AddTransactionModal
           key={isChangeOrdersCategory ? `co-draft-${editingChangeOrderId ?? "new"}` : "txn"}
           visible={visible && showAddForm}
+          initialLinkedLineId={queuedBillLineId}
+          instantDismiss={sheetAnimation === "none"}
+          onDismiss={handleBillSheetDismissed}
           categoryName={categoryName}
           initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
           initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
@@ -2295,9 +2403,12 @@ export default function CategoryDetailModal({
           }
           onClose={() => {
             setShowAddForm(false);
+            setQueuedBillLineId(null);
             setEditingChangeOrderId(null);
           }}
           onSave={handleAddTransaction}
+          onOpenChangeOrderPayment={openChangeOrderOnTimeline}
+          onChangeOrderPickerDismissed={handlePickerDismissed}
         />
         <EditPurchaseOrderModal
           visible={visible && isPurchaseOrdersCategory && editingPurchaseOrder !== null}
@@ -2326,8 +2437,12 @@ export default function CategoryDetailModal({
         />
         <EditTransactionModal
           visible={visible && editingTransaction !== null && categoryName !== 'Purchase Orders'}
+          instantDismiss={sheetAnimation === "none"}
+          onDismiss={handleBillSheetDismissed}
           transaction={editingTransaction}
           categoryName={categoryName}
+          onOpenChangeOrderPayment={openChangeOrderOnTimeline}
+          onChangeOrderPickerDismissed={handlePickerDismissed}
           onClose={() => setEditingTransaction(null)}
           onSave={(updated) => {
             updateExpense({

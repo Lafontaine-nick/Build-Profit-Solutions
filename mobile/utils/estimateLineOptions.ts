@@ -14,6 +14,8 @@ export type EstimateLineOption = {
   quantity?: number | null;
   unit?: string | null;
   costCode?: string | null;
+  /** Client price of the change order this materials or labor line belongs to. */
+  clientPrice?: number | null;
 };
 
 export type EstimateLinePickerKind = 'materials' | 'labor';

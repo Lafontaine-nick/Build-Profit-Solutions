@@ -376,22 +376,40 @@ function ProjectDetailContent() {
     }
   }, [activeTab, projectPerms.visibleTabs]);
 
-  const openTimelineAtPayments = useCallback(() => {
+  const [keepBudgetMounted, setKeepBudgetMounted] = useState(false);
+  const [changeOrderBillCategory, setChangeOrderBillCategory] = useState<string | null>(null);
+  const [pendingChangeOrderBillId, setPendingChangeOrderBillId] = useState<string | null>(null);
+  const [paymentsArrival, setPaymentsArrival] = useState(0);
+  const [resumeChangeOrderBill, setResumeChangeOrderBill] = useState<{
+    categoryName: string;
+    lineId: string;
+  } | null>(null);
+  const openTimelineAtPayments = useCallback((changeOrderId?: string, categoryName?: string) => {
+    if (changeOrderId && categoryName) {
+      setChangeOrderBillCategory(categoryName);
+      setPendingChangeOrderBillId(changeOrderId);
+    } else {
+      setChangeOrderBillCategory(null);
+      setPendingChangeOrderBillId(null);
+    }
+    setPaymentsArrival((current) => current + 1);
     scrollTimelineToPaymentsRef.current = true;
+    setKeepBudgetMounted(true);
     setActiveTab('Timeline');
+  }, []);
+  const finishTimelineJump = useCallback(() => {
+    setKeepBudgetMounted(false);
   }, []);
 
   useEffect(() => {
     if (activeTab !== 'Timeline' || !scrollTimelineToPaymentsRef.current) return;
-    const scrollToPayments = () => pageScrollRef.current?.scrollToEnd({ animated: true });
-    const first = setTimeout(scrollToPayments, 60);
-    const second = setTimeout(scrollToPayments, 320);
+    const scrollToPayments = () => pageScrollRef.current?.scrollToEnd({ animated: false });
+    scrollToPayments();
+    const second = setTimeout(scrollToPayments, 80);
     const done = setTimeout(() => {
-      scrollToPayments();
       scrollTimelineToPaymentsRef.current = false;
-    }, 700);
+    }, 160);
     return () => {
-      clearTimeout(first);
       clearTimeout(second);
       clearTimeout(done);
     };
@@ -1968,6 +1986,69 @@ function ProjectDetailContent() {
   );
 
   const renderTabContent = () => {
+    const budgetSection = (
+      <View
+        key="project-budget-host"
+        pointerEvents={activeTab === 'Budget' ? 'auto' : 'none'}
+        style={[
+          styles.wideContainer,
+          styles.tabFlowWide,
+          activeTab !== 'Budget' && {
+            position: 'absolute',
+            width: 0,
+            height: 0,
+            overflow: 'hidden',
+          },
+        ]}
+      >
+        {projectPerms.budgetAccessMode === 'hidden' ? (
+          <FinancialAccessLocked
+            colors={Colors}
+            onBackToProject={() => setActiveTab('Overview')}
+          />
+        ) : (
+          <BudgetTab
+            data={budgetData}
+            embedded
+            profitForecastOverride={overviewMetrics.profitForecast}
+            budgetAccessMode={
+              projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
+            }
+            onRequestOpenTimeline={openTimelineAtPayments}
+            onTimelineJumpFinished={finishTimelineJump}
+            resumeChangeOrderBill={resumeChangeOrderBill}
+            onConsumedResumeChangeOrderBill={() => setResumeChangeOrderBill(null)}
+            initialBudgetCategory={budgetCategoryParam}
+          />
+        )}
+      </View>
+    );
+    const timelineSection = (
+      <View
+        style={[
+          styles.wideContainer,
+          styles.tabFlowWide,
+          keepBudgetMounted && activeTab === 'Timeline' && { zIndex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg },
+        ]}
+      >
+        <TimelineTabV2
+          embedded
+          project={{ ...safeProjectData, id: id as string }}
+          changeOrderBillCategory={changeOrderBillCategory}
+          pendingChangeOrderBillId={pendingChangeOrderBillId}
+          paymentsArrival={paymentsArrival}
+          onChangeOrderBillPromptConsumed={() => {
+            setPendingChangeOrderBillId(null);
+            setChangeOrderBillCategory(null);
+          }}
+          onLogChangeOrderBill={(request) => {
+            setResumeChangeOrderBill(request);
+            setKeepBudgetMounted(false);
+            setActiveTab('Budget');
+          }}
+        />
+      </View>
+    );
     try {
       console.log('🔍 Rendering tab:', activeTab);
       console.log('🔍 Safe project data:', safeProjectData);
@@ -2223,35 +2304,12 @@ function ProjectDetailContent() {
           );
         }
         case 'Budget':
-          return (
-            <View style={[styles.wideContainer, styles.tabFlowWide]}>
-              {projectPerms.budgetAccessMode === 'hidden' ? (
-                <FinancialAccessLocked
-                  colors={Colors}
-                  onBackToProject={() => setActiveTab('Overview')}
-                />
-              ) : (
-                <BudgetTab
-                  data={budgetData}
-                  embedded
-                  profitForecastOverride={overviewMetrics.profitForecast}
-                  budgetAccessMode={
-                    projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
-                  }
-                  onRequestOpenTimeline={openTimelineAtPayments}
-                  initialBudgetCategory={budgetCategoryParam}
-                />
-              )}
-            </View>
-          );
         case 'Timeline':
           return (
-            <View style={[styles.wideContainer, styles.tabFlowWide]}>
-              <TimelineTabV2
-                embedded
-                project={{ ...safeProjectData, id: id as string }}
-              />
-            </View>
+            <>
+              {activeTab === 'Budget' || keepBudgetMounted ? budgetSection : null}
+              {activeTab === 'Timeline' ? timelineSection : null}
+            </>
           );
         case 'Calendar':
           return (
@@ -2318,6 +2376,10 @@ function ProjectDetailContent() {
   const handleTabPress = useCallback(
     (tab: TabKey) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (tab === 'Timeline') {
+        setPendingChangeOrderBillId(null);
+        setChangeOrderBillCategory(null);
+      }
       setActiveTab(tab);
       if (apWtWalkthroughEligible) {
         const idx = apWtSteps.findIndex((s) => s.tab === tab);

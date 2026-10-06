@@ -39,6 +39,8 @@ import { useProjectData } from "@/contexts/ProjectDataContext";
 import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
 import { resolveEstimateLineOption } from "@/utils/estimateLineOptions";
 import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
+import { changeOrderIdFromBudgetLineId } from "@/src/lib/projectFinancials";
+import { isChangeOrderPaymentReceived } from "@/lib/markPaymentCollected";
 
 /** Web: space below browser tabs / address bar so the card does not touch the chrome */
 const WEB_MODAL_TOP_INSET = 52;
@@ -61,6 +63,13 @@ type Props = {
   onClose: () => void;
   onSave: (transaction: Transaction) => void;
   onDelete: (id: string) => void;
+  onOpenChangeOrderPayment?: (changeOrderId: string) => void;
+  /** Hide without the slide animation when jumping straight to Timeline. */
+  instantDismiss?: boolean;
+  /** Fires after this sheet has fully closed (iOS). */
+  onDismiss?: () => void;
+  /** Fires after the budget-item picker has fully closed. */
+  onChangeOrderPickerDismissed?: () => void;
 };
 
 export default function EditTransactionModal({
@@ -70,6 +79,10 @@ export default function EditTransactionModal({
   onClose,
   onSave,
   onDelete,
+  onOpenChangeOrderPayment,
+  instantDismiss = false,
+  onDismiss,
+  onChangeOrderPickerDismissed,
 }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -303,7 +316,7 @@ export default function EditTransactionModal({
     Alert.alert(title, message);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!transaction) return;
 
     if (!vendor.trim()) {
@@ -317,6 +330,22 @@ export default function EditTransactionModal({
       return;
     }
 
+    const linkedLineId = selectedEstimateLine?.id ?? resolvedEstimateLine?.id ?? null;
+    const linkedChangeOrderId = changeOrderIdFromBudgetLineId(linkedLineId);
+    if (linkedChangeOrderId) {
+      const received = await isChangeOrderPaymentReceived(
+        String((projectData as { id?: string })?.id || ""),
+        linkedChangeOrderId
+      );
+      if (!received) {
+        webAlert(
+          "Payment not received",
+          `Mark ${selectedEstimateLine?.name || resolvedEstimateLine?.name || "this change order"} as Received on the Timeline before logging this bill.`
+        );
+        return;
+      }
+    }
+
     onSave({
       ...transaction,
       vendor: vendor.trim(),
@@ -328,7 +357,7 @@ export default function EditTransactionModal({
         : selectedEstimateLine
           ? displayLineName(selectedEstimateLine.name)
           : transaction.material,
-      linkedLineId: selectedEstimateLine?.id ?? resolvedEstimateLine?.id ?? null,
+      linkedLineId: linkedLineId,
     });
   };
 
@@ -386,7 +415,12 @@ export default function EditTransactionModal({
       : undefined;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <Modal
+      visible={visible}
+      animationType={instantDismiss ? "none" : "slide"}
+      presentationStyle="overFullScreen"
+      onDismiss={onDismiss}
+    >
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
         behavior={Platform.OS === "android" ? "padding" : undefined}
@@ -453,6 +487,8 @@ export default function EditTransactionModal({
                     }
                   }}
                   darkMode={darkMode}
+                  onOpenChangeOrderPayment={onOpenChangeOrderPayment}
+                  onDidDismiss={onChangeOrderPickerDismissed}
                   colors={{
                     background: darkMode ? "#000000" : Colors.bg,
                     card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,

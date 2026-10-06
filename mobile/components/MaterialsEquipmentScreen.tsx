@@ -130,7 +130,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     () =>
       buildEstimateLineIdToLabel(
         resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
-        'materials'
+        'materials',
+        projectData as unknown as Record<string, unknown>
       ),
     [projectData]
   );

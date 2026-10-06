@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { changeOrderLineSpendSummaries } from '@/src/lib/projectFinancials';
 import { estimateLineOptionsFor } from '@/utils/estimateLineOptions';
 import {
   getEstimateLineSpendSummaries,
@@ -18,7 +19,10 @@ export function useEstimateLineBudgets(
   return useMemo(() => {
     const estimateData = resolveProjectEstimateData(projectLike);
     const expenses = resolveProjectExpenses(projectLike);
-    const spendSummaries = getEstimateLineSpendSummaries({ estimateData, expenses, kind });
+    const spendSummaries = {
+      ...getEstimateLineSpendSummaries({ estimateData, expenses, kind }),
+      ...changeOrderLineSpendSummaries(projectLike, kind, expenses),
+    };
     const options = estimateLineOptionsFor(estimateData, kind);
     const totalBudget = options.reduce((sum, option) => sum + option.budget, 0);
     const totalLogged = Object.values(spendSummaries).reduce(

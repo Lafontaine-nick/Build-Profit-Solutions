@@ -22,7 +22,13 @@ import {
   formatChangeOrderPaymentRowTitle,
   isBillingTimelineMilestone,
   isChangeOrderTimelineMilestone,
+  findSavedTimelineMilestone,
+  mergeTimelineMilestoneWithSaved,
+  isChangeOrderPaymentMilestoneReceived,
+  changeOrderUnspentBillAmounts,
+  changeOrderBudgetLineId,
 } from "@/src/lib/projectFinancials";
+import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { timelineScheduleProgressPct, weeklyPaymentProgress } from "@/src/lib/timelineScheduleProgress";
 import {
   getEstimateContractValue,
@@ -351,11 +357,26 @@ interface TimelineTabProps {
   project: any;
   theme?: "dark" | "light";
   embedded?: boolean;
+  /** Category the user was billing when they jumped here to mark a change order Received. */
+  changeOrderBillCategory?: string | null;
+  /** Set only after the materials or labor bill was blocked. A Timeline visit on its own leaves this empty. */
+  pendingChangeOrderBillId?: string | null;
+  /** Bumps when Go to Timeline opens this list. Presses are ignored briefly so that tap cannot open a payment. */
+  paymentsArrival?: number;
+  /** Open that budget category so the remaining change-order bill can be logged. */
+  onLogChangeOrderBill?: (request: { categoryName: string; lineId: string }) => void;
+  /** The return-to-budget card was shown, so a later Timeline edit should not show it again. */
+  onChangeOrderBillPromptConsumed?: () => void;
 }
 
 export default function TimelineTabV2({
   project,
   embedded = false,
+  changeOrderBillCategory = null,
+  pendingChangeOrderBillId = null,
+  paymentsArrival = 0,
+  onLogChangeOrderBill,
+  onChangeOrderBillPromptConsumed,
 }: TimelineTabProps) {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
@@ -970,46 +991,12 @@ export default function TimelineTabV2({
             // Start with estimate data as source of truth, merge saved status/progress
             if (paymentMilestones?.length) {
               const converted = convertPaymentMilestonesToTimeline(paymentMilestones);
-              const norm = (s: string) => (s || "").toLowerCase().trim().replace(/\s+/g, " ");
-              // Merge saved data (status, progress, etc.) into converted milestones
-              const merged = converted.map((newM: Milestone) => {
-                let savedM = storedTimeline.find((m: Milestone) => m.id === newM.id);
-                if (!savedM) {
-                  savedM = storedTimeline.find(
-                    (m: Milestone) => norm(m.title || "") === norm(newM.title || "")
-                  );
-                }
-                if (savedM) {
-                  const savedAny = savedM as Milestone & { collectedAmount?: number };
-                  const savedReceived = isMilestoneReceived(savedM.status ? savedM : newM);
-                  const receivedAmount = isMilestoneReceived(savedM)
-                    ? Number(savedAny.collectedAmount) > 0
-                      ? Number(savedAny.collectedAmount)
-                      : Number(savedM.amount) > 0
-                        ? Number(savedM.amount)
-                        : undefined
-                    : undefined;
-                  return {
-                    ...newM,
-                    ...(receivedAmount != null ? { amount: receivedAmount } : {}),
-                    status: savedM.status || newM.status,
-                    progressPct: savedM.progressPct ?? newM.progressPct,
-                    assignee: savedM.assignee || newM.assignee,
-                    costDelta: savedM.costDelta,
-                    costCategory: savedM.costCategory,
-                    collectedAt: savedReceived
-                      ? (savedM as Milestone & { collectedAt?: string }).collectedAt ??
-                        (newM as Milestone & { collectedAt?: string }).collectedAt
-                      : undefined,
-                    actualDate: savedReceived
-                      ? (savedM as Milestone).actualDate ?? (newM as Milestone).actualDate
-                      : undefined,
-                    // Always use current schedule dates (from estimate/project) so timeline matches Estimate page; only keep status/progress from saved.
-                    plannedDate: newM.plannedDate,
-                  };
-                }
-                return newM;
-              });
+              const merged = converted.map((newM: Milestone) =>
+                mergeTimelineMilestoneWithSaved(
+                  newM,
+                  findSavedTimelineMilestone(storedTimeline, newM)
+                )
+              );
               setMilestones(reconcilePaymentRowsToContract(merged, scheduleContractValueRef.current));
             } else {
               setMilestones(storedTimeline);
@@ -1347,7 +1334,14 @@ export default function TimelineTabV2({
 
   /* ---------- actions ---------- */
 
+  const ignorePaymentPressUntilRef = useRef(0);
+  useEffect(() => {
+    if (!paymentsArrival) return;
+    ignorePaymentPressUntilRef.current = Date.now() + 800;
+  }, [paymentsArrival]);
+
   const onOpenMilestone = (m: Milestone) => {
+    if (Date.now() < ignorePaymentPressUntilRef.current) return;
     if (isPaymentTimelineMilestone(m) && !canCollectPayments) {
       Alert.alert(
         'Payment updates',
@@ -1424,31 +1418,12 @@ export default function TimelineTabV2({
     if (Platform.OS === 'ios') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    // Reload milestones
-    if (project?.id) {
-      const key = getStorageKey(project.id);
-      try {
-        const saved = await AsyncStorage.getItem(key);
-        const paymentMilestones = collectPaymentMilestones();
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length) {
-            setMilestones(parsed);
-          } else if (paymentMilestones?.length) {
-            setMilestones(convertPaymentMilestonesToTimeline(paymentMilestones));
-          }
-        } else if (paymentMilestones?.length) {
-          setMilestones(convertPaymentMilestonesToTimeline(paymentMilestones));
-        }
-      } catch (error) {
-        console.error('Error refreshing milestones:', error);
-      }
-    }
+    if (project?.id) setReloadTrigger((prev) => prev + 1);
     // Reload daily logs
     await loadDailyLogs();
     await loadProjectPhotos();
     setTimeout(() => setRefreshing(false), 500);
-  }, [project?.id, collectPaymentMilestones, loadDailyLogs, loadProjectPhotos]);
+  }, [project?.id, loadDailyLogs, loadProjectPhotos]);
 
   const syncWithEstimate = () => {
     if (Platform.OS === 'ios') {
@@ -1459,20 +1434,12 @@ export default function TimelineTabV2({
     if (paymentMilestones?.length) {
       const timelineMilestones = convertPaymentMilestonesToTimeline(paymentMilestones);
 
-      const merged = timelineMilestones.map((newM) => {
-        const existing = milestones.find((m) => m.id === newM.id);
-        if (!existing) return newM;
-        return {
-          ...newM,
-          status: existing.status,
-          progressPct: existing.progressPct,
-          assignee: existing.assignee || newM.assignee,
-          costDelta: existing.costDelta,
-          costCategory: existing.costCategory,
-          collectedAt: (existing as Milestone & { collectedAt?: string }).collectedAt,
-          actualDate: (existing as Milestone).actualDate ?? (newM as Milestone).actualDate,
-        };
-      });
+      const merged = timelineMilestones.map((newM) =>
+        mergeTimelineMilestoneWithSaved(
+          newM,
+          milestones.find((m) => m.id === newM.id)
+        )
+      );
 
       setMilestones(merged);
       if (Platform.OS === 'ios') {
@@ -2176,6 +2143,72 @@ export default function TimelineTabV2({
             return updatedMilestones;
           });
           setEditingMilestone(null);
+          const justReceivedChangeOrderId =
+            String(updated.id || "").startsWith("bps-co-") &&
+            updated.status === "completed" &&
+            !isChangeOrderPaymentMilestoneReceived(
+              milestones.find((milestone) => milestone.id === updated.id)
+            )
+              ? String(updated.id).slice("bps-co-".length)
+              : "";
+          if (
+            justReceivedChangeOrderId &&
+            pendingChangeOrderBillId &&
+            justReceivedChangeOrderId === pendingChangeOrderBillId
+          ) {
+            const merged = mergeProjectRecordForTimelineCo(project, projectFromList, projectData);
+            const unspent = changeOrderUnspentBillAmounts(
+              merged,
+              projectData?.expenses,
+              justReceivedChangeOrderId
+            );
+            if (unspent) {
+              const money = (amount: number) =>
+                formatMoneyFull(amount, { decimals: Number.isInteger(amount) ? 0 : 2 });
+              const origin = String(changeOrderBillCategory || "").toLowerCase();
+              const kind: "materials" | "labor" =
+                origin.includes("labor") && unspent.laborRemaining > 0
+                  ? "labor"
+                  : unspent.materialsRemaining > 0
+                    ? "materials"
+                    : "labor";
+              const categoryName =
+                kind === "labor"
+                  ? origin.includes("labor")
+                    ? String(changeOrderBillCategory)
+                    : "Labor"
+                  : origin.includes("material")
+                    ? String(changeOrderBillCategory)
+                    : "Materials/Equipment";
+              const recordLine =
+                kind === "labor"
+                  ? `Go back to Budget to record the ${money(unspent.laborRemaining)} labor${
+                      unspent.materialsRemaining > 0
+                        ? ` and ${money(unspent.materialsRemaining)} materials`
+                        : ""
+                    }.`
+                  : `Go back to Budget to record the ${money(unspent.materialsRemaining)} materials${
+                      unspent.laborRemaining > 0
+                        ? ` and ${money(unspent.laborRemaining)} labor`
+                        : ""
+                    }.`;
+              setTimeout(() => {
+                onChangeOrderBillPromptConsumed?.();
+                Alert.alert("Payment received", recordLine, [
+                  { text: "Not now", style: "cancel" },
+                  {
+                    text: "Go to Budget",
+                    onPress: () =>
+                      onLogChangeOrderBill?.({
+                        categoryName,
+                        lineId: changeOrderBudgetLineId(kind, justReceivedChangeOrderId),
+                      }),
+                  },
+                ]);
+              }, 120);
+              return "bill-prompt";
+            }
+          }
         }}
         onDelete={deleteMilestone}
       />

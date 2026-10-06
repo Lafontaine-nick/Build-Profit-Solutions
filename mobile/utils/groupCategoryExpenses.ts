@@ -1,3 +1,4 @@
+import { approvedChangeOrderBudgetLines } from '@/src/lib/projectFinancials';
 import { collectEstimateLineItems, equipmentRentalEstimateLine } from '@/utils/rateInsightComparisons';
 
 export type CategoryExpenseLike = {
@@ -101,7 +102,8 @@ export function buildGroupedCategoryExpenseList<T extends CategoryExpenseLike>(
 
 export function buildEstimateLineIdToLabel(
   estimateData: Record<string, unknown> | null | undefined,
-  kind: 'materials' | 'labor'
+  kind: 'materials' | 'labor',
+  projectLike?: Record<string, unknown> | null
 ): Record<string, string> {
   const { materialLines, laborLines } = collectEstimateLineItems(estimateData);
   const rental =
@@ -120,5 +122,8 @@ export function buildEstimateLineIdToLabel(
     const name = String(line.name || line.description || line.scopeName || '').trim();
     if (name) map[id] = name;
   });
+  for (const line of approvedChangeOrderBudgetLines(projectLike, kind)) {
+    map[line.id] = line.name;
+  }
   return map;
 }

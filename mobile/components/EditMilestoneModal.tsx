@@ -25,7 +25,7 @@ type Props = {
   projectBudget?: number;
   paymentMilestones?: any[]; // Estimate payment milestones for reference
   onClose: () => void;
-  onSave: (milestone: Milestone) => void | boolean | Promise<unknown>;
+  onSave: (milestone: Milestone) => void | boolean | "bill-prompt" | Promise<unknown>;
   onDelete?: (id: string) => void;
 };
 
@@ -148,6 +148,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       
       // Check if onSave returned a value indicating it's handling the save (like a promise or boolean)
       // If it did, don't close the modal - let the confirmation dialog handle it
+      if (result === "bill-prompt") {
+        onClose();
+        return;
+      }
       if (result === false || (result && typeof result === 'object' && 'then' in result)) {
         console.log('⏸️ onSave is handling the save flow - not closing modal');
         return; // Don't close modal, let the confirmation dialog handle it
@@ -165,7 +169,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     setTimeout(() => {
       Alert.alert(
         '✅ Saved!',
-        `${title} status updated to ${status === 'completed' ? 'Completed' : status === 'in_progress' ? 'In Progress' : 'Pending'}\n\nChanges are automatically saved.`,
+        `${title} status updated to ${status === 'completed' ? (isPaymentMilestone(milestone) ? 'Received' : 'Completed') : status === 'in_progress' ? 'In Progress' : 'Pending'}\n\nChanges are automatically saved.`,
         [{ text: 'OK' }]
       );
     }, 100);
@@ -177,7 +181,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   const statuses: { value: MilestoneStatus; label: string }[] = isPaymentMilestone(milestone)
     ? [
         { value: 'pending', label: 'Pending' },
-        { value: 'completed', label: 'Completed' },
+        { value: 'completed', label: 'Received' },
       ]
     : [
         { value: 'pending', label: 'Pending' },

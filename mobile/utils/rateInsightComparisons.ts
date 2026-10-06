@@ -690,7 +690,13 @@ export function getUnlinkedExpensesForKind(input: {
     estimateData: input.estimateData,
     expenses,
   });
-  return sections.find((s) => s.key === input.kind)?.unlinkedExpenses ?? [];
+  const changeOrderLinkedIds = new Set(
+    expenses
+      .filter((expense) => String(expense?.linkedLineId || '').startsWith('bps-co-'))
+      .map((expense) => String(expense?.id || ''))
+  );
+  const unlinked = sections.find((s) => s.key === input.kind)?.unlinkedExpenses ?? [];
+  return unlinked.filter((expense) => !changeOrderLinkedIds.has(String(expense.id)));
 }
 
 export function sortEstimateLineOptions<T extends { id: string; name: string }>(

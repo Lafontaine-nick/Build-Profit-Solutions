@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, Switch, useWindowDimensions } from "react-native";
 import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import { bidMarkupPercent, changeOrderClientPrice, changeOrderIdFromBudgetLineId, approvedChangeOrderBudgetLines } from "@/src/lib/projectFinancials";
+import { isChangeOrderPaymentReceived } from "@/lib/markPaymentCollected";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
@@ -22,7 +24,7 @@ import {
 } from "@/src/lib/keyboardMoney";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
-import { projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { nativeNumericKeyboardProps, projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
 import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import {
@@ -52,8 +54,15 @@ export type AddTransactionChangeOrderDraft = {
   amount?: number;
   materialsAmount?: number;
   laborAmount?: number;
+  markupPct?: number;
   description?: string;
 };
+
+function formatMarkupPctInput(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return "0";
+  const rounded = Math.round(pct * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
 
 const SOFT_COST_TYPE_OPTIONS = [
   { id: 'permits', label: 'Permits' },
@@ -76,6 +85,7 @@ type Props = {
     description: string; 
     materialsAmount?: number;
     laborAmount?: number;
+    markupPct?: number;
     po?: string; 
     date: string;
     receiptUri?: string;
@@ -92,6 +102,16 @@ type Props = {
   initialDraftKey?: string;
   /** Change orders: delete persisted CO when user confirms footer "delete" while editing (`initialDraftKey` !== `"new"`). */
   onRequestDeleteChangeOrder?: (changeOrderId: string) => void;
+  /** Opens the Timeline on this change order's payment row. */
+  onOpenChangeOrderPayment?: (changeOrderId: string) => void;
+  /** Hide without the slide animation when jumping straight to Timeline. */
+  instantDismiss?: boolean;
+  /** Fires after this sheet has fully closed (iOS). */
+  onDismiss?: () => void;
+  /** Fires after the budget-item picker has fully closed. */
+  onChangeOrderPickerDismissed?: () => void;
+  /** Pre-select this estimate or change-order budget line when the form opens. */
+  initialLinkedLineId?: string | null;
 };
 
 export default function AddTransactionModal({
@@ -102,6 +122,11 @@ export default function AddTransactionModal({
   initialDraft = null,
   initialDraftKey = "",
   onRequestDeleteChangeOrder,
+  onOpenChangeOrderPayment,
+  instantDismiss = false,
+  onDismiss,
+  onChangeOrderPickerDismissed,
+  initialLinkedLineId = null,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -137,6 +162,8 @@ export default function AddTransactionModal({
   const [laborRatePerSqftInput, setLaborRatePerSqftInput] = useState("");
   const [materialsAmountInput, setMaterialsAmountInput] = useState("");
   const [laborAmountInput, setLaborAmountInput] = useState("");
+  const [markupPctInput, setMarkupPctInput] = useState("");
+  const [includeMarkup, setIncludeMarkup] = useState(true);
 
   // Input refs for keyboard navigation
   const vendorRef = useRef<TextInput>(null);
@@ -280,6 +307,8 @@ export default function AddTransactionModal({
     setLaborRatePerSqftInput("");
     setMaterialsAmountInput("");
     setLaborAmountInput("");
+    setMarkupPctInput("");
+    setIncludeMarkup(true);
     setMaterial("");
     setLaborDescription("");
     setTrade("");
@@ -291,17 +320,42 @@ export default function AddTransactionModal({
     setSelectedEstimateLine(null);
     setPo("");
 
-    if (initialDraft && isChangeOrdersCategory) {
-      const mat = Number(initialDraft.materialsAmount) || 0;
-      const lab = Number(initialDraft.laborAmount) || 0;
-      const tot = Number(initialDraft.amount) || mat + lab;
-      setVendor(initialDraft.vendor ?? "");
-      setDescription(initialDraft.description ?? "");
-      setMaterialsAmountInput(mat > 0 ? String(mat) : "");
-      setLaborAmountInput(lab > 0 ? String(lab) : "");
-      setAmount(tot > 0 ? sanitizeDecimalMoneyInput(tot.toFixed(2)) : "");
+    if (isChangeOrdersCategory) {
+      if (initialDraft) {
+        const mat = Number(initialDraft.materialsAmount) || 0;
+        const lab = Number(initialDraft.laborAmount) || 0;
+        const tot = Number(initialDraft.amount) || mat + lab;
+        const storedMarkup = Number(initialDraft.markupPct);
+        const impliedMarkup =
+          Number.isFinite(storedMarkup)
+            ? storedMarkup
+            : mat + lab > 0 && tot > mat + lab + 0.009
+              ? ((tot / (mat + lab)) - 1) * 100
+              : 0;
+        const bidMarkup = bidMarkupPercent(projectData);
+        setVendor(initialDraft.vendor ?? "");
+        setDescription(initialDraft.description ?? "");
+        setMaterialsAmountInput(mat > 0 ? String(mat) : "");
+        setLaborAmountInput(lab > 0 ? String(lab) : "");
+        setIncludeMarkup(impliedMarkup > 0);
+        setMarkupPctInput(formatMarkupPctInput(impliedMarkup > 0 ? impliedMarkup : bidMarkup));
+        setAmount(tot > 0 ? sanitizeDecimalMoneyInput(tot.toFixed(2)) : "");
+      } else {
+        setIncludeMarkup(true);
+        setMarkupPctInput(formatMarkupPctInput(bidMarkupPercent(projectData)));
+      }
     }
   }, [visible, initialDraftKey, initialDraft, isChangeOrdersCategory]);
+
+  useEffect(() => {
+    if (!visible || !initialLinkedLineId) return;
+    const kind = initialLinkedLineId.startsWith("bps-co-labor-") ? "labor" : "materials";
+    const match = approvedChangeOrderBudgetLines(projectData, kind).find(
+      (line) => line.id === initialLinkedLineId
+    );
+    if (!match) return;
+    setSelectedEstimateLine({ id: match.id, name: match.name, budget: match.budget });
+  }, [visible, initialLinkedLineId, projectData]);
 
   useEffect(() => {
     if (!visible || (!isLaborOrSubs && !isMaterialsEquipmentExpense)) return;
@@ -530,7 +584,7 @@ export default function AddTransactionModal({
 
   // Customize labels based on category
   const vendorLabel = isChangeOrdersCategory
-    ? 'Change Order Title *'
+    ? 'Change order title *'
     : categoryName === 'Labor' || categoryName === 'Subs' 
     ? 'Sub / Trade *'
     : isSoftCostExpense
@@ -584,6 +638,8 @@ export default function AddTransactionModal({
     setLaborRatePerSqftInput("");
     setMaterialsAmountInput("");
     setLaborAmountInput("");
+    setMarkupPctInput("");
+    setIncludeMarkup(true);
   };
 
   const dismissModal = () => {
@@ -622,7 +678,7 @@ export default function AddTransactionModal({
     dismissModal();
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (isLaborOrSubs) {
       if (!laborDescription.trim()) {
         alertAddTxnValidation("Required", "Please enter a labor description.");
@@ -680,12 +736,11 @@ export default function AddTransactionModal({
       laborAmount = lSq > 0 && lRate > 0 ? lSq * lRate : 0;
     }
 
+    const changeOrderMarkupPct = isChangeOrdersCategory && includeMarkup
+      ? decimalMoneyInputToNumber(markupPctInput)
+      : 0;
     const amountNum = isChangeOrdersCategory
-      ? (() => {
-          const sum = materialsAmount + laborAmount;
-          if (sum > 0) return sum;
-          return parseAmountFieldToNumber(amount);
-        })()
+      ? changeOrderClientPrice(materialsAmount + laborAmount, changeOrderMarkupPct)
       : parseAmountFieldToNumber(amount);
     if (isPurchaseOrdersCategory && !expectedDelivery) {
       alertAddTxnValidation("Delivery date required", "Choose an expected delivery date.");
@@ -749,6 +804,21 @@ export default function AddTransactionModal({
 
     const vendorOut = isLaborOrSubs ? trade.trim() || laborDescription.trim() : vendor.trim();
 
+    const linkedChangeOrderId = changeOrderIdFromBudgetLineId(selectedEstimateLine?.id);
+    if (linkedChangeOrderId) {
+      const received = await isChangeOrderPaymentReceived(
+        String((projectData as { id?: string })?.id || ""),
+        linkedChangeOrderId
+      );
+      if (!received) {
+        alertAddTxnValidation(
+          "Payment not received",
+          `Mark ${selectedEstimateLine?.name || "this change order"} as Received on the Timeline before logging this bill.`
+        );
+        return;
+      }
+    }
+
     onSave({
       id: `txn-${Date.now()}`,
       vendor: vendorOut,
@@ -769,6 +839,7 @@ export default function AddTransactionModal({
           : isChangeOrdersCategory && pricingMode === "sqft" && laborAmount > 0
             ? laborAmount
             : undefined,
+      markupPct: isChangeOrdersCategory ? changeOrderMarkupPct : undefined,
       po: po.trim() || undefined,
       date: new Date().toISOString(),
       receiptUri: receiptUri || undefined,
@@ -987,9 +1058,144 @@ export default function AddTransactionModal({
   const changeOrderFlatTotal =
     decimalMoneyInputToNumber(materialsAmountInput) +
     decimalMoneyInputToNumber(laborAmountInput);
+  const changeOrderSqftCost = (() => {
+    const mSq = parseInt(digitsOnly(materialSqftInput), 10) || 0;
+    const mRate = decimalMoneyInputToNumber(materialRatePerSqftInput);
+    const lSq = parseInt(digitsOnly(laborSqftInput), 10) || 0;
+    const lRate = decimalMoneyInputToNumber(laborRatePerSqftInput);
+    const materials = mSq > 0 && mRate > 0 ? mSq * mRate : 0;
+    const labor = lSq > 0 && lRate > 0 ? lSq * lRate : 0;
+    return Math.round((materials + labor) * 100) / 100;
+  })();
+  const changeOrderMarkupValue = includeMarkup ? decimalMoneyInputToNumber(markupPctInput) : 0;
+  const changeOrderCostShown = pricingMode === "sqft" ? changeOrderSqftCost : changeOrderFlatTotal;
+  const changeOrderPriceShown = changeOrderClientPrice(changeOrderCostShown, changeOrderMarkupValue);
+  const changeOrderProfitShown = Math.round((changeOrderPriceShown - changeOrderCostShown) * 100) / 100;
   const emptyMoneyColor = darkMode ? "#d7e1f0" : "#64748b";
   const moneyPrefixColor = (raw: string) =>
     decimalMoneyInputToNumber(raw) > 0 ? "#2dcc9a" : emptyMoneyColor;
+
+  const changeOrderMarkupField = !isChangeOrdersCategory ? null : (
+    <View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.label, { color: Colors.text, marginBottom: 4 }]}>Include markup</Text>
+          <Text style={{ color: emptyMoneyColor, fontSize: 13, lineHeight: 18 }}>
+            {includeMarkup ? "This markup is profit." : "Client price matches cost."}
+          </Text>
+        </View>
+        {includeMarkup ? (
+          <View
+            style={[
+              styles.amountInputContainer,
+              {
+                width: 80,
+                height: 31,
+                backgroundColor: Colors.surface2,
+                borderColor: Colors.line,
+                borderWidth: 1,
+                borderRadius: 15.5,
+              },
+            ]}
+          >
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  flex: 1,
+                  height: 29,
+                  paddingVertical: 0,
+                  backgroundColor: "transparent",
+                  borderWidth: 0,
+                  paddingLeft: 12,
+                  paddingRight: 2,
+                  fontSize: 15,
+                  fontWeight: "600",
+                  textAlign: "right",
+                  color: decimalMoneyInputToNumber(markupPctInput) > 0 ? Colors.text : emptyMoneyColor,
+                },
+              ]}
+              placeholder="0"
+              placeholderTextColor={emptyMoneyColor}
+              value={markupPctInput}
+              onChangeText={(text) => setMarkupPctInput(sanitizeDecimalMoneyInput(text))}
+              keyboardType="decimal-pad"
+              {...nativeNumericKeyboardProps}
+            />
+            <Text
+              style={{
+                color: decimalMoneyInputToNumber(markupPctInput) > 0 ? "#2dcc9a" : emptyMoneyColor,
+                fontSize: 15,
+                fontWeight: "700",
+                paddingRight: 12,
+              }}
+            >
+              %
+            </Text>
+          </View>
+        ) : null}
+        <Switch
+          value={includeMarkup}
+          onValueChange={(on) => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setIncludeMarkup(on);
+            if (on && decimalMoneyInputToNumber(markupPctInput) <= 0) {
+              const bidMarkup = bidMarkupPercent(projectData);
+              if (bidMarkup > 0) setMarkupPctInput(formatMarkupPctInput(bidMarkup));
+            }
+          }}
+          trackColor={{ false: darkMode ? "#3A3A3C" : Colors.line, true: "#2dcc9a" }}
+          thumbColor={includeMarkup ? "#050B13" : "#f4f3f4"}
+          ios_backgroundColor={darkMode ? "#3A3A3C" : Colors.line}
+        />
+      </View>
+    </View>
+  );
+
+  const changeOrderMarkupPctLabel = formatMarkupPctInput(changeOrderMarkupValue);
+  const changeOrderSummaryRowLabel = { color: emptyMoneyColor, fontSize: 14, fontWeight: "500" as const };
+  const changeOrderSummaryRowValue = { color: Colors.text, fontSize: 15, fontWeight: "600" as const };
+  const changeOrderSummary = !isChangeOrdersCategory ? null : (
+    <View
+      style={{
+        backgroundColor: Colors.surface2,
+        borderColor: Colors.line,
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 14,
+        gap: 10,
+      }}
+    >
+      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text style={changeOrderSummaryRowLabel}>Cost</Text>
+        <Text style={changeOrderSummaryRowValue}>
+          {formatMoneyFull(changeOrderCostShown, { decimals: 2 })}
+        </Text>
+      </View>
+      {changeOrderMarkupValue > 0 ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <Text style={changeOrderSummaryRowLabel}>Markup ({changeOrderMarkupPctLabel}%)</Text>
+          <Text style={changeOrderSummaryRowValue}>
+            {formatMoneyFull(changeOrderProfitShown, { decimals: 2 })}
+          </Text>
+        </View>
+      ) : null}
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: Colors.line }} />
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: "700" }}>Client price</Text>
+        <Text
+          style={{
+            color: changeOrderPriceShown > 0 ? "#2dcc9a" : emptyMoneyColor,
+            fontSize: 20,
+            fontWeight: "700",
+            letterSpacing: -0.3,
+          }}
+        >
+          {formatMoneyFull(changeOrderPriceShown, { decimals: 2 })}
+        </Text>
+      </View>
+    </View>
+  );
 
   const focusIntoPricingOrAmount = () => {
     if (isChangeOrdersCategory && pricingMode !== "sqft") {
@@ -1009,8 +1215,9 @@ export default function AddTransactionModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
+      animationType={instantDismiss ? "none" : "slide"}
+      onDismiss={onDismiss}
+      {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "overFullScreen" as const, statusBarTranslucent: true })}
     >
       {webBudgetExpenseShell &&
       !categoryNameLower.includes("soft cost") &&
@@ -1055,7 +1262,7 @@ export default function AddTransactionModal({
             </Text>
             <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub, textAlign: "center" }]}>
               {isChangeOrdersCategory
-                ? "Material and labor added to the job"
+                ? "Cost plus markup billed to the client"
                 : isMaterialsEquipmentExpense
                 ? "Log your material or equipment expense"
                 : "Log your expense"}
@@ -1131,6 +1338,8 @@ export default function AddTransactionModal({
                       nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
                       accent: '#2dcc9a',
                     }}
+                    onOpenChangeOrderPayment={onOpenChangeOrderPayment}
+                    onDidDismiss={onChangeOrderPickerDismissed}
                   />
                 ) : null}
                 <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
@@ -1242,6 +1451,8 @@ export default function AddTransactionModal({
                   nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
                   accent: '#2dcc9a',
                 }}
+                onOpenChangeOrderPayment={onOpenChangeOrderPayment}
+                onDidDismiss={onChangeOrderPickerDismissed}
               />
             ) : null}
             {isSoftCostExpense ? (
@@ -1605,18 +1816,19 @@ export default function AddTransactionModal({
                       />
                     </View>
                   </View>
+                  {changeOrderMarkupField}
                 </View>
               </View>
             )}
 
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+              {isChangeOrdersCategory && pricingMode !== "sqft" ? null : (
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
                 {supportsPerSqftPricing && pricingMode === "sqft" && isChangeOrdersCategory
                   ? "Total (calculated) *"
-                  : isChangeOrdersCategory
-                    ? "Total"
-                    : "Amount *"}
+                  : "Amount *"}
               </Text>
+              )}
               {selectedEstimateLine ? (
                 <Text style={styles.linkedBudgetHint}>
                   Budget{" "}
@@ -1636,16 +1848,7 @@ export default function AddTransactionModal({
               ) : null}
 
               {isChangeOrdersCategory && pricingMode !== "sqft" ? (
-                <Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: "700",
-                    letterSpacing: -0.3,
-                    color: changeOrderFlatTotal > 0 ? "#2dcc9a" : emptyMoneyColor,
-                  }}
-                >
-                  {formatMoneyFull(changeOrderFlatTotal, { decimals: 2 })}
-                </Text>
+                changeOrderSummary
               ) : supportsPerSqftPricing && pricingMode === "sqft" ? (
                 isChangeOrdersCategory ? (
                   <>
@@ -1864,58 +2067,8 @@ export default function AddTransactionModal({
                         </View>
                       </View>
                     </View>
-                    <View
-                      style={{
-                        marginTop: 12,
-                        backgroundColor: "rgba(34, 197, 94, 0.12)",
-                        borderRadius: 12,
-                        padding: 16,
-                        borderWidth: 1,
-                        borderColor: "rgba(34, 197, 94, 0.35)",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: "#22c55e",
-                          fontSize: 14,
-                          fontWeight: "600",
-                          textAlign: "center",
-                          marginBottom: 4,
-                        }}
-                      >
-                        {(() => {
-                          const mSq = parseInt(digitsOnly(materialSqftInput), 10) || 0;
-                          const mRate = decimalMoneyInputToNumber(materialRatePerSqftInput);
-                          const lSq = parseInt(digitsOnly(laborSqftInput), 10) || 0;
-                          const lRate = decimalMoneyInputToNumber(laborRatePerSqftInput);
-                          const mTot = mSq > 0 && mRate > 0 ? mSq * mRate : 0;
-                          const lTot = lSq > 0 && lRate > 0 ? lSq * lRate : 0;
-                          const parts: string[] = [];
-                          if (mTot > 0) parts.push(`Materials ${formatMoneyFull(mTot, { decimals: 2 })}`);
-                          if (lTot > 0) parts.push(`Labor ${formatMoneyFull(lTot, { decimals: 2 })}`);
-                          return parts.length ? parts.join(" · ") : "—";
-                        })()}
-                      </Text>
-                      <Text
-                        style={{
-                          color: "#22c55e",
-                          fontSize: 18,
-                          fontWeight: "700",
-                          textAlign: "center",
-                        }}
-                      >
-                        Total:{" "}
-                        {(() => {
-                          const mSq = parseInt(digitsOnly(materialSqftInput), 10) || 0;
-                          const mRate = decimalMoneyInputToNumber(materialRatePerSqftInput);
-                          const lSq = parseInt(digitsOnly(laborSqftInput), 10) || 0;
-                          const lRate = decimalMoneyInputToNumber(laborRatePerSqftInput);
-                          const mTot = mSq > 0 && mRate > 0 ? mSq * mRate : 0;
-                          const lTot = lSq > 0 && lRate > 0 ? lSq * lRate : 0;
-                          return formatMoneyFull(mTot + lTot, { decimals: 2 });
-                        })()}
-                      </Text>
-                    </View>
+                    <View style={{ marginTop: 16 }}>{changeOrderMarkupField}</View>
+                    <View style={{ marginTop: 16 }}>{changeOrderSummary}</View>
                   </>
                 ) : (
                   <>

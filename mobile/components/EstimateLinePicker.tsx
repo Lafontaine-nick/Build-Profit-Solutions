@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
+  Alert,
   Modal,
   Platform,
   Pressable,
@@ -10,13 +11,17 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import {
   approvedChangeOrderBudgetLines,
+  changeOrderIdFromBudgetLineId,
   isChangeOrderBudgetLineId,
+  isChangeOrderPaymentMilestoneReceived,
 } from '@/src/lib/projectFinancials';
+import { isChangeOrderPaymentReceived } from '@/lib/markPaymentCollected';
 import { ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
   getEstimateLineBudgetBadge,
@@ -60,6 +65,10 @@ type Props = {
   editingAmount?: number | null;
   /** Show linked line as a read-only summary (no picker, no clear). */
   readOnly?: boolean;
+  /** Close the picker and open this change order's Timeline payment. */
+  onOpenChangeOrderPayment?: (changeOrderId: string) => void;
+  /** Fires after this sheet has fully closed. */
+  onDidDismiss?: () => void;
   colors: {
     background: string;
     card: string;
@@ -83,6 +92,7 @@ function optionsFor(
     quantity: null,
     unit: null,
     costCode: null,
+    clientPrice: line.clientPrice,
   }));
   return [...estimateLines, ...changeOrderLines];
 }
@@ -109,14 +119,19 @@ export default function EstimateLinePicker({
   excludeExpenseId,
   editingAmount,
   readOnly = false,
+  onOpenChangeOrderPayment,
+  onDidDismiss,
   colors,
 }: Props) {
   const insets = useSafeAreaInsets();
   const pageInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
   const [visible, setVisible] = useState(false);
+  const [modalAnimation, setModalAnimation] = useState<'slide' | 'none'>('slide');
   const [query, setQuery] = useState('');
   /** Draft highlight inside the modal; committed via footer Select. */
   const [pendingLineId, setPendingLineId] = useState<string | null>(null);
+  /** Change order ids whose Timeline payment is Received. Null until the timeline load finishes. */
+  const [receivedChangeOrderIds, setReceivedChangeOrderIds] = useState<Set<string> | null>(null);
   const options = useMemo(() => optionsFor(projectLike, kind), [projectLike, kind]);
   const spendInput = useMemo(
     () => ({
@@ -166,6 +181,45 @@ export default function EstimateLinePicker({
 
   const selected = options.find((item) => item.id === selectedLineId) || null;
   const pendingLine = options.find((item) => item.id === pendingLineId) || null;
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    const projectId = String(
+      (projectLike as { id?: string; projectId?: string } | null)?.id ||
+        (projectLike as { projectId?: string } | null)?.projectId ||
+        ''
+    );
+    void (async () => {
+      try {
+        const raw = projectId ? await AsyncStorage.getItem(`bps.timeline.v2.${projectId}`) : null;
+        const parsed = raw ? JSON.parse(raw) : [];
+        const ids = new Set<string>();
+        if (Array.isArray(parsed)) {
+          for (const milestone of parsed) {
+            const milestoneId = String(milestone?.id || '');
+            if (
+              !milestoneId.startsWith('bps-co-') ||
+              milestoneId.startsWith('bps-co-material-') ||
+              milestoneId.startsWith('bps-co-labor-')
+            ) {
+              continue;
+            }
+            const changeOrderId = milestoneId.slice('bps-co-'.length);
+            if (changeOrderId && isChangeOrderPaymentMilestoneReceived(milestone)) {
+              ids.add(changeOrderId);
+            }
+          }
+        }
+        if (!cancelled) setReceivedChangeOrderIds(ids);
+      } catch {
+        if (!cancelled) setReceivedChangeOrderIds(new Set());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, projectLike]);
   const { materialRows, equipmentRows, changeOrderRows } = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const base = normalized
@@ -186,21 +240,66 @@ export default function EstimateLinePicker({
   const title = kind === 'materials' ? 'Materials & equipment' : 'Labor';
 
   const close = useCallback(() => {
+    setModalAnimation('slide');
+    setVisible(false);
+    setQuery('');
+    setPendingLineId(null);
+  }, []);
+
+  const closeImmediately = useCallback(() => {
+    setModalAnimation('none');
     setVisible(false);
     setQuery('');
     setPendingLineId(null);
   }, []);
 
   const open = useCallback(() => {
+    setModalAnimation('slide');
     setPendingLineId(selectedLineId ?? null);
     setQuery('');
     setVisible(true);
   }, [selectedLineId]);
 
   const confirmSelection = useCallback(() => {
-    onSelect(pendingLine);
-    close();
-  }, [close, onSelect, pendingLine]);
+    void (async () => {
+      const changeOrderId = changeOrderIdFromBudgetLineId(pendingLine?.id);
+      if (changeOrderId) {
+        const projectId = String(
+          (projectLike as { id?: string; projectId?: string } | null)?.id ||
+            (projectLike as { projectId?: string } | null)?.projectId ||
+            ''
+        );
+        const received = await isChangeOrderPaymentReceived(projectId, changeOrderId);
+        if (!received) {
+          const name = pendingLine?.name?.trim() || 'this change order';
+          Alert.alert(
+            'Payment not received',
+            `Mark ${name} as Received on the Timeline before logging this bill.`,
+            onOpenChangeOrderPayment
+              ? [
+                  { text: 'Not now', style: 'cancel' },
+                  {
+                    text: 'Go to Timeline',
+                    onPress: () => {
+                      setTimeout(() => {
+                        onOpenChangeOrderPayment(changeOrderId);
+                        setTimeout(() => {
+                          closeImmediately();
+                          onDidDismiss?.();
+                        }, 50);
+                      }, 200);
+                    },
+                  },
+                ]
+              : undefined
+          );
+          return;
+        }
+      }
+      onSelect(pendingLine);
+      close();
+    })();
+  }, [close, closeImmediately, onDidDismiss, onOpenChangeOrderPayment, onSelect, pendingLine, projectLike]);
 
   const choose = (line: EstimateLineOption | null) => {
     onSelect(line);
@@ -324,9 +423,10 @@ export default function EstimateLinePicker({
       {!readOnly ? (
       <Modal
         visible={visible}
-        animationType="slide"
-        presentationStyle="fullScreen"
+        animationType={modalAnimation}
+        presentationStyle="overFullScreen"
         onRequestClose={close}
+        onDismiss={onDidDismiss}
       >
         <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
           <View
@@ -414,9 +514,12 @@ export default function EstimateLinePicker({
                     (equipmentRows.length > 0 && index === materialRows.length - 1) ||
                     (changeOrderRows.length > 0 &&
                       index === materialRows.length + equipmentRows.length - 1);
+                  const isFirstEquipment = isEquipment && index === materialRows.length;
+                  const isFirstChangeOrder =
+                    isChangeOrder && index === materialRows.length + equipmentRows.length;
                   const showSectionDivider =
-                    (isEquipment && materialRows.length > 0) ||
-                    (isChangeOrder && materialRows.length + equipmentRows.length > 0);
+                    (isFirstEquipment && materialRows.length > 0) ||
+                    (isFirstChangeOrder && materialRows.length + equipmentRows.length > 0);
                   return (
                     <React.Fragment key={line.id}>
                     {showSectionDivider ? (
@@ -455,12 +558,20 @@ export default function EstimateLinePicker({
                           ) : null}
                         </View>
                         <Text style={[styles.optionMeta, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>
-                          {isChangeOrder ? 'Change order' : isEquipment ? 'Equipment' : lineCategoryLabel(kind)} · Budget{' '}
+                          {isChangeOrder ? 'Change order' : isEquipment ? 'Equipment' : lineCategoryLabel(kind)}
+                          {' · Budget '}
                           <Text style={{ color: '#2dcc9a', fontWeight: '700' }}>
                             {formatMoneyFull(line.budget, { decimals: 0 })}
                           </Text>
                           {line.quantity && line.unit ? ` · ${line.quantity} ${line.unit}` : ''}
                         </Text>
+                        {isChangeOrder &&
+                        receivedChangeOrderIds != null &&
+                        !receivedChangeOrderIds.has(changeOrderIdFromBudgetLineId(line.id) || '') ? (
+                          <Text style={{ color: '#f59e0b', fontSize: 14, fontWeight: '700', marginTop: 8 }}>
+                            Mark Received on the Timeline
+                          </Text>
+                        ) : null}
                         {summary.loggedTotal > 0 ? (
                           <>
                             <Text

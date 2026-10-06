@@ -4,6 +4,7 @@
  * Planned cost matches the estimate: hard costs + soft costs + contingency. Company overhead is not job cost.
  */
 
+import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import { getBidSoftCostTotal } from '@/utils/estimateAllowances';
 
 const safeNum = (value: unknown) => {
@@ -69,6 +70,39 @@ export function isApprovedChangeOrder(co: any): boolean {
   return st === 'approved';
 }
 
+function roundChangeOrderMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Bid markup percent (20 means 20%). Company overhead is separate and is not added here. */
+export function bidMarkupPercent(project: any): number {
+  const ed = project?.estimateData || project?.projectData?.estimateData || {};
+  const raw = Number(ed?.markupPct ?? project?.markupPct);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.round(raw * 10) / 10;
+}
+
+export function changeOrderDirectCost(materialsAmount: unknown, laborAmount: unknown): number {
+  const mat = Number(materialsAmount);
+  const lab = Number(laborAmount);
+  return roundChangeOrderMoney((Number.isFinite(mat) ? Math.max(0, mat) : 0) + (Number.isFinite(lab) ? Math.max(0, lab) : 0));
+}
+
+/** Blank or 0 means the entered material and labor price already includes markup. */
+export function changeOrderMarkupPercent(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 10) / 10;
+}
+
+/** Client price. Markup is profit on top of material and labor cost. */
+export function changeOrderClientPrice(cost: number, markupPct: unknown): number {
+  const base = Math.max(0, Number(cost) || 0);
+  if (!(base > 0)) return 0;
+  const pct = changeOrderMarkupPercent(markupPct);
+  return roundChangeOrderMoney(base * (1 + pct / 100));
+}
+
 function resolveApprovedChangeOrderRevenue(co: any, fallbackMarkupPct = 0): number {
   const clientPrice = safeNum(co?.clientPrice ?? 0);
   if (clientPrice > 0) return clientPrice;
@@ -127,27 +161,160 @@ export function isChangeOrderBudgetLineId(
   return String(lineId).startsWith(prefix);
 }
 
+/** Change order id stored on a materials or labor budget line (`bps-co-material-…` / `bps-co-labor-…`). */
+export function changeOrderIdFromBudgetLineId(lineId: string | null | undefined): string | null {
+  const id = String(lineId || '');
+  const materialPrefix = 'bps-co-material-';
+  const laborPrefix = 'bps-co-labor-';
+  if (id.startsWith(materialPrefix)) return id.slice(materialPrefix.length) || null;
+  if (id.startsWith(laborPrefix)) return id.slice(laborPrefix.length) || null;
+  return null;
+}
+
+export function isChangeOrderPaymentMilestoneReceived(milestone: {
+  status?: unknown;
+  collectedAt?: unknown;
+} | null | undefined): boolean {
+  const status = String(milestone?.status || '').toLowerCase();
+  if (status === 'completed' || status === 'complete' || status === 'paid' || status === 'received') {
+    return true;
+  }
+  return Boolean(milestone?.collectedAt);
+}
+
+/** Timeline payment row `bps-co-{changeOrderId}` has been marked Received. */
+export function isChangeOrderPaymentReceivedInMilestones(
+  milestones: Array<{ id?: unknown; status?: unknown; collectedAt?: unknown }> | null | undefined,
+  changeOrderId: string
+): boolean {
+  const paymentId = `bps-co-${changeOrderId}`;
+  return (milestones || []).some(
+    (milestone) =>
+      String(milestone?.id || '') === paymentId && isChangeOrderPaymentMilestoneReceived(milestone)
+  );
+}
+
+const changeOrderNameKey = (raw: unknown) =>
+  String(raw ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+
+/** True when another change order uses this title. The client price then belongs in the name. */
+export function changeOrderTitleIsShared(orders: any[] | null | undefined, title: unknown): boolean {
+  const key = changeOrderNameKey(title);
+  if (!key) return false;
+  let count = 0;
+  for (const order of orders || []) {
+    if (changeOrderNameKey(order?.title ?? order?.name) !== key) continue;
+    count += 1;
+    if (count > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * Title used on the change order, its materials line, its labor line, and its Timeline payment.
+ * A repeated title keeps the client price so two Concrete orders stay the $1,700 order and the $1,200 order.
+ */
+export function changeOrderIdentityName(
+  title: unknown,
+  clientPrice: number,
+  options?: { duplicate?: boolean }
+): string {
+  const name = String(title ?? "").trim() || "Change order";
+  if (!options?.duplicate || !(clientPrice > 0)) return name;
+  return `${name} · ${formatMoneyFull(clientPrice)}`;
+}
+
+export function changeOrderCardTitle(order: any, orders: any[] | null | undefined): string {
+  const title = String(order?.title ?? order?.name ?? "").trim() || "Change order";
+  const price = resolveApprovedChangeOrderRevenue(order, 0);
+  return changeOrderIdentityName(title, price, {
+    duplicate: changeOrderTitleIsShared(orders, title),
+  });
+}
+
 /** Approved change-order cost, split so materials and labor can be spent against their own lines. */
 export function approvedChangeOrderBudgetLines(
   project: any,
   kind: 'materials' | 'labor'
-): Array<{ id: string; name: string; budget: number }> {
-  const lines: Array<{ id: string; name: string; budget: number }> = [];
-  for (const co of collectUniqueChangeOrders(project)) {
+): Array<{ id: string; name: string; budget: number; clientPrice: number }> {
+  const orders = collectUniqueChangeOrders(project);
+  const lines: Array<{ id: string; name: string; budget: number; clientPrice: number }> = [];
+  for (const co of orders) {
     if (!isApprovedChangeOrder(co)) continue;
     const raw = kind === 'materials' ? co?.materialsAmount : co?.laborAmount;
     const budget = Number(raw);
     if (!(budget > 0)) continue;
     const id = String(co?.id || '').trim();
     if (!id) continue;
-    const title = String(co?.title || co?.name || 'Change order').trim() || 'Change order';
+    const clientPrice = resolveApprovedChangeOrderRevenue(co, 0);
     lines.push({
       id: changeOrderBudgetLineId(kind, id),
-      name: title,
+      name: changeOrderCardTitle(co, orders),
       budget,
+      clientPrice,
     });
   }
   return lines;
+}
+
+/** Spent and remaining for each approved change-order materials or labor line. */
+export function changeOrderLineSpendSummaries(
+  project: any,
+  kind: 'materials' | 'labor',
+  expenses: Array<{ linkedLineId?: string | null; amount?: number | null }> | undefined
+): Record<string, { loggedTotal: number; budget: number; remaining: number; variancePct: number | null; badge: 'over' | null }> {
+  const summaries: Record<string, { loggedTotal: number; budget: number; remaining: number; variancePct: number | null; badge: 'over' | null }> = {};
+  for (const line of approvedChangeOrderBudgetLines(project, kind)) {
+    let loggedTotal = 0;
+    for (const expense of expenses || []) {
+      if (String(expense?.linkedLineId || '') !== line.id) continue;
+      const amount = Number(expense?.amount);
+      if (Number.isFinite(amount)) loggedTotal += amount;
+    }
+    loggedTotal = Math.round(loggedTotal * 100) / 100;
+    const remaining = Math.round((line.budget - loggedTotal) * 100) / 100;
+    summaries[line.id] = {
+      loggedTotal,
+      budget: line.budget,
+      remaining,
+      variancePct:
+        line.budget > 0 && loggedTotal > 0
+          ? Math.round(((loggedTotal - line.budget) / line.budget) * 10000) / 100
+          : null,
+      badge: line.budget > 0 && loggedTotal > line.budget ? 'over' : null,
+    };
+  }
+  return summaries;
+}
+
+/** Unspent materials and labor still left to bill on one approved change order. */
+export function changeOrderUnspentBillAmounts(
+  project: any,
+  expenses: Array<{ linkedLineId?: string | null; amount?: number | null }> | undefined,
+  changeOrderId: string
+): { name: string; materialsRemaining: number; laborRemaining: number } | null {
+  const id = String(changeOrderId || '').trim();
+  if (!id) return null;
+  const materialsLine = approvedChangeOrderBudgetLines(project, 'materials').find(
+    (line) => changeOrderIdFromBudgetLineId(line.id) === id
+  );
+  const laborLine = approvedChangeOrderBudgetLines(project, 'labor').find(
+    (line) => changeOrderIdFromBudgetLineId(line.id) === id
+  );
+  const materialsSpend = changeOrderLineSpendSummaries(project, 'materials', expenses);
+  const laborSpend = changeOrderLineSpendSummaries(project, 'labor', expenses);
+  const materialsRemaining = materialsLine
+    ? Math.max(0, materialsSpend[materialsLine.id]?.remaining ?? materialsLine.budget)
+    : 0;
+  const laborRemaining = laborLine
+    ? Math.max(0, laborSpend[laborLine.id]?.remaining ?? laborLine.budget)
+    : 0;
+  if (!(materialsRemaining > 0) && !(laborRemaining > 0)) return null;
+  return {
+    name: materialsLine?.name || laborLine?.name || 'Change order',
+    materialsRemaining,
+    laborRemaining,
+  };
 }
 
 /** Label for timeline / payment schedule: readable as a change order (avoids bare scope names like "Concrete"). */
@@ -176,7 +343,7 @@ export function getApprovedChangeOrderPaymentRows(project: any): ChangeOrderPaym
     const cid = co?.id != null ? String(co.id) : "";
     rows.push({
       id: cid ? `bps-co-${cid}` : `bps-co-idx-${rows.length}`,
-      title: formatChangeOrderPaymentRowTitle(String(co.title ?? co.name ?? "").trim() || "Change order"),
+      title: formatChangeOrderPaymentRowTitle(changeOrderCardTitle(co, changeOrders)),
       amount,
       dateRaw: co.date ?? co.createdAt ?? co.updatedAt,
     });
@@ -204,6 +371,105 @@ export function isChangeOrderTimelineMilestone(m: { id?: unknown; type?: unknown
   if (!m) return false;
   if (String((m as { type?: unknown }).type || "").toLowerCase() === "change_order") return true;
   return String(m.id ?? "").startsWith("bps-co-");
+}
+
+/**
+ * Saved Timeline status applies to the row with the same id.
+ * Change orders also match by title only when that title belongs to one order.
+ * Two approved orders can share a name, and title matching would copy the first order's amount and Received status onto the second.
+ */
+export function findSavedTimelineMilestone<T extends { id?: unknown; title?: unknown }>(
+  saved: T[] | null | undefined,
+  next: { id?: unknown; title?: unknown }
+): T | undefined {
+  const nextId = String(next?.id ?? "").trim();
+  const list = saved || [];
+  if (nextId) {
+    const byId = list.find((milestone) => String(milestone?.id ?? "").trim() === nextId);
+    if (byId) return byId;
+  }
+  if (nextId.startsWith("bps-co-")) {
+    const norm = (value: unknown) => String(value ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+    const title = norm(next?.title);
+    if (!title) return undefined;
+    const legacy = list.filter((milestone) => {
+      const savedId = String(milestone?.id ?? "").trim();
+      return !savedId.startsWith("bps-co-") && norm(milestone?.title) === title;
+    });
+    return legacy.length === 1 ? legacy[0] : undefined;
+  }
+  const norm = (value: unknown) => String(value ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+  const title = norm(next?.title);
+  if (!title) return undefined;
+  return list.find((milestone) => norm(milestone?.title) === title);
+}
+
+type TimelineStatusRow = {
+  id?: unknown;
+  amount?: unknown;
+  status?: unknown;
+  progressPct?: unknown;
+  assignee?: unknown;
+  costDelta?: unknown;
+  costCategory?: unknown;
+  collectedAt?: unknown;
+  actualDate?: unknown;
+  collectedAmount?: unknown;
+  plannedDate?: unknown;
+};
+
+function timelineMoney(value: unknown): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+/**
+ * Saved status belongs to this row. A change-order receipt is kept only when the saved
+ * amount is still this order's client price. A same-titled order used to copy the first
+ * order's Received amount into the second, and that copy is stored until it is rejected here.
+ */
+export function mergeTimelineMilestoneWithSaved<T extends TimelineStatusRow>(
+  next: T,
+  saved: T | null | undefined
+): T {
+  if (!saved) return next;
+  const changeOrder = String(next.id ?? "").startsWith("bps-co-");
+  const savedAmount = timelineMoney(
+    timelineMoney(saved.collectedAmount) > 0 ? saved.collectedAmount : saved.amount
+  );
+  const nextAmount = timelineMoney(next.amount);
+  if (changeOrder && savedAmount > 0 && Math.abs(savedAmount - nextAmount) >= 0.02) {
+    return next;
+  }
+
+  const status = String(saved.status || "").toLowerCase();
+  const savedReceived =
+    status === "completed" ||
+    status === "complete" ||
+    status === "paid" ||
+    status === "received" ||
+    Boolean(saved.collectedAt);
+  const receivedAmount =
+    !changeOrder && savedReceived
+      ? timelineMoney(saved.collectedAmount) > 0
+        ? timelineMoney(saved.collectedAmount)
+        : timelineMoney(saved.amount) > 0
+          ? timelineMoney(saved.amount)
+          : undefined
+      : undefined;
+
+  return {
+    ...next,
+    ...(receivedAmount != null ? { amount: receivedAmount } : {}),
+    status: (saved.status as T["status"]) || next.status,
+    progressPct: (saved.progressPct as T["progressPct"]) ?? next.progressPct,
+    assignee: saved.assignee || next.assignee,
+    costDelta: saved.costDelta,
+    costCategory: saved.costCategory,
+    collectedAt: savedReceived ? saved.collectedAt ?? next.collectedAt : undefined,
+    actualDate: savedReceived ? saved.actualDate ?? next.actualDate : undefined,
+    plannedDate: next.plannedDate,
+  };
 }
 
 /**

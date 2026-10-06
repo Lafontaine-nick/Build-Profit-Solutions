@@ -212,6 +212,9 @@ export default function BudgetTab({
   budgetAccessMode = 'owner',
   initialBudgetCategory = null,
   onRequestOpenTimeline,
+  onTimelineJumpFinished,
+  resumeChangeOrderBill = null,
+  onConsumedResumeChangeOrderBill,
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
@@ -223,7 +226,10 @@ export default function BudgetTab({
   /** Deep-link from dashboard insights — opens category detail on mount */
   initialBudgetCategory?: string | null;
   /** Opens the project's Timeline tab from the Change Orders guidance card. */
-  onRequestOpenTimeline?: () => void;
+  onRequestOpenTimeline?: (changeOrderId?: string, categoryName?: string) => void;
+  onTimelineJumpFinished?: () => void;
+  resumeChangeOrderBill?: { categoryName: string; lineId: string } | null;
+  onConsumedResumeChangeOrderBill?: () => void;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -273,6 +279,12 @@ export default function BudgetTab({
       setSelectedCategory(initialBudgetCategory);
     }
   }, [initialBudgetCategory]);
+
+  useEffect(() => {
+    if (!resumeChangeOrderBill?.categoryName) return;
+    setTab('lines');
+    setSelectedCategory(resumeChangeOrderBill.categoryName);
+  }, [resumeChangeOrderBill]);
 
   useEffect(() => {
     if (!showChangeOrderModal || changeOrderPricingMode !== 'sqft') return;
@@ -559,14 +571,15 @@ export default function BudgetTab({
   }, [normalizedChangeOrders, projectData?.expenses]);
 
   const approvedChangeOrderAllocations = useMemo(() => {
-    const sumLines = (kind: 'materials' | 'labor') =>
-      approvedChangeOrderBudgetLines(mergedProjectForFinancials, kind).reduce(
-        (sum, line) => sum + line.budget,
-        0
-      );
+    const materialLines = approvedChangeOrderBudgetLines(mergedProjectForFinancials, 'materials');
+    const laborLines = approvedChangeOrderBudgetLines(mergedProjectForFinancials, 'labor');
+    const sumLines = (lines: Array<{ budget: number }>) =>
+      lines.reduce((sum, line) => sum + line.budget, 0);
     return {
-      materials: sumLines('materials'),
-      labor: sumLines('labor'),
+      materials: sumLines(materialLines),
+      labor: sumLines(laborLines),
+      materialsCount: materialLines.length,
+      laborCount: laborLines.length,
     };
   }, [mergedProjectForFinancials]);
 
@@ -1030,14 +1043,34 @@ export default function BudgetTab({
                               <Text style={[styles.budgetTapHint, { color: budgetAccent }]}>
                                 View transactions
                               </Text>
-                              {equipmentRental > 0 &&
-                              (itemName.toLowerCase().includes('material') ||
-                                itemName.toLowerCase().includes('equipment')) &&
-                              !itemName.toLowerCase().includes('labor') ? (
-                                <Text style={[styles.budgetEquipmentNote, { color: pageInstructional }]}>
-                                  Includes {money(equipmentRental, currency)} equipment rental
-                                </Text>
-                              ) : null}
+                              {(() => {
+                                const lowerName = itemName.toLowerCase();
+                                const isLaborCard = lowerName.includes('labor');
+                                const isMaterialsCard =
+                                  !isLaborCard &&
+                                  (lowerName.includes('material') || lowerName.includes('equipment'));
+                                if (!isLaborCard && !isMaterialsCard) return null;
+                                const coAmount = isLaborCard
+                                  ? approvedChangeOrderAllocations.labor
+                                  : approvedChangeOrderAllocations.materials;
+                                const coCount = isLaborCard
+                                  ? approvedChangeOrderAllocations.laborCount
+                                  : approvedChangeOrderAllocations.materialsCount;
+                                const parts = [
+                                  isMaterialsCard && equipmentRental > 0
+                                    ? `${money(equipmentRental, currency)} equipment rental`
+                                    : '',
+                                  coAmount > 0
+                                    ? `${money(coAmount, currency)} ${coCount === 1 ? 'change order' : 'change orders'}`
+                                    : '',
+                                ].filter(Boolean);
+                                if (parts.length === 0) return null;
+                                return (
+                                  <Text style={[styles.budgetEquipmentNote, { color: pageInstructional }]}>
+                                    Includes {parts.join(' and ')}
+                                  </Text>
+                                );
+                              })()}
                             </View>
                           </View>
                           <Ionicons name="chevron-forward" size={20} color={budgetAccent} style={{ marginTop: 2 }} />
@@ -1224,12 +1257,14 @@ export default function BudgetTab({
                               {money(approvedTotal, currency)}
                             </Text>
                           </View>
-                          <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Waiting</Text>
-                            <Text style={[styles.rowValueMetric, { color: quietMoneyColor(waitingTotal) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
-                              {money(waitingTotal, currency)}
-                            </Text>
-                          </View>
+                          {waitingTotal > 0 ? (
+                            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                              <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Waiting</Text>
+                              <Text style={[styles.rowValueMetric, { color: quietMoneyColor(waitingTotal) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
+                                {money(waitingTotal, currency)}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
                         <View style={styles.progressBarContainer}>
                           <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
@@ -1826,6 +1861,13 @@ export default function BudgetTab({
           setSelectedCategory("Change Orders");
         }}
         onRequestOpenTimeline={onRequestOpenTimeline}
+        onTimelineJumpFinished={onTimelineJumpFinished}
+        startAddBillLineId={
+          resumeChangeOrderBill && selectedCategory === resumeChangeOrderBill.categoryName
+            ? resumeChangeOrderBill.lineId
+            : null
+        }
+        onConsumedStartAddBill={onConsumedResumeChangeOrderBill}
         theme={theme}
       />
 
