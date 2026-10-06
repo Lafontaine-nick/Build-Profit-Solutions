@@ -187,13 +187,22 @@ const toNumber = (value: unknown): number => {
 
 const asArray = <T = any>(value: unknown): T[] => (Array.isArray(value) ? value : []);
 
-/** Tax Center includes only current jobs, matching the Projects screen's Active tab. */
+/** In-progress and finished jobs. Cash already collected stays in the tax year. */
 export const isCurrentTaxProject = (project: any): boolean => {
   const status = String(project?.status || '')
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '_');
-  return status === 'won' || status === 'in_progress' || status === 'active';
+    .replace(/[\s-]+/g, '_');
+  return (
+    status === 'won' ||
+    status === 'in_progress' ||
+    status === 'active' ||
+    status === 'completed' ||
+    status === 'complete' ||
+    status === 'closed' ||
+    status === 'done' ||
+    status === 'finished'
+  );
 };
 
 const parseDate = (value: unknown): Date | null => {

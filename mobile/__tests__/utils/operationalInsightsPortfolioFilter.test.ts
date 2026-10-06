@@ -1,4 +1,6 @@
 import {
+  buildAiPortfolioFilterContext,
+  filterClientGeneratedPortfolioInsight,
   filterProjectsForOperationalInsights,
   isCurrentlyWorkingEstimate,
   isEligibleEstimateInsightProject,
@@ -22,6 +24,37 @@ describe('operational insights portfolio filter', () => {
     ]);
 
     expect(filtered.map((p) => p.id)).toEqual(['active-1']);
+  });
+
+  it('keeps an in-progress job that reused a deleted bid title', () => {
+    const filtered = filterProjectsForOperationalInsights(
+      [{ id: 'live', title: 'Electrical Estimate Draft', status: 'in_progress' }],
+      [{ id: 'old', title: 'Electrical Estimate Draft', status: 'estimate' }],
+      [{ id: 'old', title: 'Electrical Estimate Draft', deletedAt: '2026-10-04T00:00:00.000Z' }]
+    );
+
+    expect(filtered.map((p) => p.id)).toEqual(['live']);
+
+    const ctx = buildAiPortfolioFilterContext(
+      [{ id: 'live', title: 'Electrical Estimate Draft', status: 'in_progress' }],
+      [],
+      {},
+      [{ id: 'old', title: 'Electrical Estimate Draft', deletedAt: '2026-10-04T00:00:00.000Z' }]
+    );
+    expect(
+      filterClientGeneratedPortfolioInsight(
+        {
+          id: 'client-ops-live-project_status',
+          type: 'info',
+          title: 'Electrical Estimate Draft is on the estimate',
+          body: 'Projected profit is $5,625 (15%).',
+          projectId: 'live',
+          impactScore: 4,
+          leakType: 'project_status',
+        },
+        ctx
+      )
+    ).toBe(true);
   });
 
   it('prefers active status over a stale estimate copy', () => {

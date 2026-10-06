@@ -2,6 +2,11 @@ import type { AiInsight, AiNextStep } from '@/types/aiDashboard';
 import { isPreActivePortfolioStatus } from '@/utils/aiDashboardPortfolioFilter';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
+import { computeProjectFinancials } from '@/src/lib/projectFinancials';
+import {
+  weeklyPaymentProgress,
+  workTaskProgressPct,
+} from '@/src/lib/timelineScheduleProgress';
 
 export type PortfolioOperationalProjectInput = {
   id: string;
@@ -16,6 +21,8 @@ export type PortfolioOperationalProjectInput = {
   progress: number;
   amount: number;
   rawProject: Record<string, unknown>;
+  /** Live timeline rows, when the dashboard has them. Payments and work tasks. */
+  timelineItems?: any[] | null;
 };
 
 export type PortfolioOperationalInsightsResult = {
@@ -144,6 +151,219 @@ function isPipelineProject(slugForUi: string, displayStatus: string): boolean {
   return true;
 }
 
+function isActiveJob(project: PortfolioOperationalProjectInput): boolean {
+  if (project.slugForUi === 'completed' || project.slugForUi === 'lost') return false;
+  const status = String(project.portfolioStatus || '').toLowerCase().replace(/-/g, '_');
+  const slug = String(project.slugForUi || '').toLowerCase().replace(/-/g, '_');
+  return status === 'won' || status === 'in_progress' || status === 'active' || slug === 'won' || slug === 'in_progress' || slug === 'active';
+}
+
+function finiteAmount(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(String(value ?? '').replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function firstArray(...sources: unknown[]): any[] {
+  for (const source of sources) {
+    if (Array.isArray(source) && source.length > 0) return source;
+  }
+  return [];
+}
+
+function ledgerActualCost(raw: Record<string, unknown>): number {
+  const pd =
+    raw.projectData && typeof raw.projectData === 'object'
+      ? (raw.projectData as Record<string, unknown>)
+      : raw;
+  const expenses = firstArray(pd.expenses, raw.expenses);
+  const expenseSum = expenses.reduce((sum, row) => sum + finiteAmount(row?.amount), 0);
+  const purchaseOrders = firstArray(pd.purchaseOrders, raw.purchaseOrders);
+  const received = purchaseOrders
+    .filter((row) => String(row?.status || '').toLowerCase() === 'received')
+    .reduce((sum, row) => sum + finiteAmount(row?.amount), 0);
+  if (expenseSum > 0 || received > 0) return expenseSum + received;
+  return 0;
+}
+
+function money(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Math.round(amount));
+}
+
+function formatPct(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded.toFixed(0)}%` : `${rounded.toFixed(1)}%`;
+}
+
+function formatBriefDate(raw: unknown): string {
+  const day = String(raw || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return '';
+  const date = new Date(`${day}T12:00:00`);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function paymentDate(row: any): string {
+  return String(row?.plannedDate || row?.scheduledDate || row?.dueDate || row?.date || '').slice(0, 10);
+}
+
+function isCollectedPayment(row: any): boolean {
+  const status = String(row?.status || '').toLowerCase();
+  if (status === 'completed' || status === 'complete' || status === 'paid' || status === 'received') {
+    return true;
+  }
+  if (row?.collected === true) return true;
+  if (String(row?.collectedAt || '').trim()) return true;
+  return status.includes('collected');
+}
+
+function looksLikePayment(row: any): boolean {
+  const type = String(row?.type || '').toLowerCase();
+  if (type === 'weekly' || type === 'payment' || type === 'deposit' || type === 'holdback') return true;
+  const title = String(row?.title || row?.name || row?.description || '');
+  return /payment|deposit|holdback|week\s*\d/i.test(title);
+}
+
+function briefPaymentLabel(raw: string): string {
+  const week = raw.match(/week\s*(\d+)/i);
+  if (week) return `Week ${week[1]}`;
+  return raw.replace(/\s+payment$/i, '').trim() || 'Payment';
+}
+
+function nextOpenPayment(items: any[]): { title: string; amount: number; date: string } | null {
+  const open = items
+    .filter((row) => {
+      if (!row || !looksLikePayment(row) || isCollectedPayment(row)) return false;
+      return finiteAmount(row.amount ?? row.paymentAmount) > 0;
+    })
+    .sort((a, b) => (paymentDate(a) || '9999-99-99').localeCompare(paymentDate(b) || '9999-99-99'));
+  const row = open[0];
+  if (!row) return null;
+  return {
+    title: briefPaymentLabel(String(row.title || row.name || 'Payment')),
+    amount: finiteAmount(row.amount ?? row.paymentAmount),
+    date: paymentDate(row),
+  };
+}
+
+function scheduleSentences(items: any[] | null | undefined): { text: string; paymentsAheadOfWork: boolean } {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { text: '', paymentsAheadOfWork: false };
+  }
+  const work = workTaskProgressPct(items);
+  const weeks = weeklyPaymentProgress(items);
+  const paymentsAheadOfWork = (work == null || work < 3) && Boolean(weeks && weeks.collectedCount > 0);
+  const parts: string[] = [];
+  if (paymentsAheadOfWork && weeks) {
+    const verb = weeks.collectedCount === 1 ? 'is' : 'are';
+    parts.push(
+      `${weeks.collectedCount} of ${weeks.weekCount} weekly payments ${verb} in, and no work tasks are done.`
+    );
+  }
+  const next = nextOpenPayment(items);
+  if (next) {
+    const due = next.date ? `, due ${formatBriefDate(next.date)}` : '';
+    parts.push(`Next payment is ${next.title}, ${money(next.amount)}${due}.`);
+  }
+  return { text: parts.join(' '), paymentsAheadOfWork };
+}
+
+type ActiveJobSnapshot = {
+  cap: number;
+  actual: number;
+  profit: number;
+  marginPct: number;
+};
+
+function readActiveJobSnapshot(raw: Record<string, unknown>): ActiveJobSnapshot | null {
+  const fin = computeProjectFinancials(raw);
+  const contract = fin.adjustedContractValue;
+  const cap = fin.adjustedCostBudget;
+  if (!(contract > 0) || !(cap > 0) || !(cap < contract)) return null;
+  const profit = contract - cap;
+  return {
+    cap,
+    actual: ledgerActualCost(raw),
+    profit,
+    marginPct: (profit / contract) * 100,
+  };
+}
+
+/** One project-manager line for an active job: on the estimate, nearing the cap, or over it. */
+function buildActiveJobBrief(project: PortfolioOperationalProjectInput): {
+  insight: AiInsight;
+  step: AiNextStep | null;
+} | null {
+  const snapshot = readActiveJobSnapshot(project.rawProject);
+  if (!snapshot) return null;
+  const schedule = scheduleSentences(project.timelineItems);
+  const left = Math.max(0, snapshot.cap - snapshot.actual);
+  const spentPct = snapshot.cap > 0 ? (snapshot.actual / snapshot.cap) * 100 : 0;
+  const profitLine = `Projected profit is ${money(snapshot.profit)} (${formatPct(snapshot.marginPct)}).`;
+
+  if (snapshot.actual > snapshot.cap + 0.5) {
+    return {
+      insight: projectInsight(project, {
+        type: 'alert',
+        title: `${project.title}: costs are over the cap`,
+        body: `Logged costs are ${money(snapshot.actual)} against the ${money(snapshot.cap)} cost cap. ${profitLine}`,
+        impactScore: 9,
+        leakType: 'cost_overrun_risk',
+        actionTarget: { kind: 'budget_tab' },
+      }),
+      step: projectNextStep(project, {
+        label: `Review ${project.title} budget`,
+        chip: 'Budget',
+        priority: 'high',
+        leakType: 'cost_overrun_risk',
+        actionTarget: { kind: 'budget_tab' },
+      }),
+    };
+  }
+
+  if (snapshot.actual >= snapshot.cap * 0.9 && snapshot.actual > 0) {
+    return {
+      insight: projectInsight(project, {
+        type: 'alert',
+        title: `${project.title}: spend is nearing the cost cap`,
+        body: `${money(snapshot.actual)} of the ${money(snapshot.cap)} cost cap is spent (${formatPct(spentPct)}). ${money(left)} is left. ${profitLine}`,
+        impactScore: 7,
+        leakType: 'spend_nearing_budget',
+        actionTarget: { kind: 'budget_tab' },
+      }),
+      step: projectNextStep(project, {
+        label: `Review ${project.title} budget`,
+        chip: 'Budget',
+        priority: 'medium',
+        leakType: 'spend_nearing_budget',
+        actionTarget: { kind: 'budget_tab' },
+      }),
+    };
+  }
+
+  const spendLine =
+    snapshot.actual > 0
+      ? `${money(snapshot.actual)} of the ${money(snapshot.cap)} cost cap is spent, with ${money(left)} left.`
+      : `The cost cap is ${money(snapshot.cap)}. Nothing is logged yet.`;
+  return {
+    insight: projectInsight(project, {
+      type: 'info',
+      title:
+        snapshot.actual > 0
+          ? `${project.title} is on the estimate`
+          : `${project.title} has no costs logged yet`,
+      body: [profitLine, spendLine, schedule.text].filter(Boolean).join(' '),
+      impactScore: schedule.paymentsAheadOfWork ? 6 : 4,
+      leakType: 'project_status',
+      actionTarget: { kind: 'project_overview' },
+    }),
+    step: null,
+  };
+}
+
 /** Rule-based portfolio flags — margin, spend, and estimate review (no AI brief). */
 export function buildPortfolioOperationalInsights(
   projects: PortfolioOperationalProjectInput[]
@@ -154,15 +374,23 @@ export function buildPortfolioOperationalInsights(
   for (const project of projects) {
     if (!isPipelineProject(project.slugForUi, project.displayStatus)) continue;
 
-    const signal = getDashboardProjectOperationalSignal({
-      rawProject: project.rawProject,
-      margin: project.margin,
-      progress: project.progress,
-      status: project.displayStatus,
-      amount: project.amount,
-    });
+    const activeBrief = isActiveJob(project) ? buildActiveJobBrief(project) : null;
+    if (activeBrief) {
+      insights.push(activeBrief.insight);
+      if (activeBrief.step) nextSteps.push(activeBrief.step);
+    }
 
-    if (signal.variant === 'risk' && signal.text === 'Cost overrun risk') {
+    const signal = activeBrief
+      ? null
+      : getDashboardProjectOperationalSignal({
+          rawProject: project.rawProject,
+          margin: project.margin,
+          progress: project.progress,
+          status: project.displayStatus,
+          amount: project.amount,
+        });
+
+    if (signal?.variant === 'risk' && signal.text === 'Cost overrun risk') {
       insights.push(
         projectInsight(project, {
           type: 'alert',
@@ -182,7 +410,7 @@ export function buildPortfolioOperationalInsights(
           actionTarget: { kind: 'budget_tab' },
         })
       );
-    } else if (signal.variant === 'watch' && signal.text === 'Spend nearing budget') {
+    } else if (signal?.variant === 'watch' && signal.text === 'Spend nearing budget') {
       insights.push(
         projectInsight(project, {
           type: 'alert',
@@ -193,7 +421,7 @@ export function buildPortfolioOperationalInsights(
           actionTarget: { kind: 'budget_tab' },
         })
       );
-    } else if (signal.text === 'Low margin risk') {
+    } else if (signal?.text === 'Low margin risk') {
       insights.push(
         projectInsight(project, {
           type: 'alert',
@@ -213,7 +441,7 @@ export function buildPortfolioOperationalInsights(
           actionTarget: { kind: 'project_overview' },
         })
       );
-    } else if (signal.text === 'Margin watch') {
+    } else if (signal?.text === 'Margin watch') {
       insights.push(
         projectInsight(project, {
           type: 'opportunity',

@@ -95,7 +95,6 @@ import {
   humanizeNextStepLabel,
   inferCtaFromStep,
   isCompletedProjectStatus,
-  pickOverviewInsightPreview,
   portfolioPatternBullets,
   resolveInsightImpactDollars,
   sortNextStepsForControlCenter,
@@ -128,7 +127,7 @@ import {
   loadEstimateInsightContext,
   reconcileDeletedProjectsFromInsights,
   resolvePortfolioProjectStatus,
-  isPreActivePortfolioStatus,
+  isActivePortfolioJobStatus,
   type DeletedProjectRecord,
   type EstimateInsightContext,
   EMPTY_ESTIMATE_INSIGHT_CONTEXT,
@@ -691,24 +690,7 @@ const computePipelineTotals = (projects: any[]) => {
     }
 
     if (status === "completed" && revenue > 0) {
-      // Try to get actual cost first (most accurate)
-      const actualCost = 
-        project.actualCost ||
-        project.projectData?.actualCost ||
-        project.projectData?.spent ||
-        project.projectData?.totalSpent ||
-        project.totalSpent ||
-        0;
-      
-      if (actualCost > 0) {
-        // Use actual cost if available (revenue - actual cost = profit)
-        completedProfit += revenue - actualCost;
-      } else {
-        // Fall back to margin-based calculation if no actual cost
-        const margin = project.margin || 0;
-        const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
-        completedProfit += revenue * marginRatio;
-      }
+      completedProfit += getCompletedProjectProfit(project);
     }
   });
 
@@ -2792,6 +2774,7 @@ const DashboardScreen: React.FC = () => {
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
   /** Work-task progress only. Payment collection stays out of the profit forecast. */
   const [workTaskProgress, setWorkTaskProgress] = useState<Record<string, number>>({});
+  const [timelineItemsByProject, setTimelineItemsByProject] = useState<Record<string, any[]>>({});
   /** Max planned date (ms) from live timeline storage — extends schedule anchor past stale project endDate. */
   const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
@@ -2829,6 +2812,7 @@ const DashboardScreen: React.FC = () => {
     const progressMap: Record<string, number> = {};
     const workMap: Record<string, number> = {};
     const latestPlannedMap: Record<string, number> = {};
+    const timelineItemsMap: Record<string, any[]> = {};
     const nextOverrides: Record<string, any> = {};
     const normalizeKey = (v: string) =>
       String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
@@ -2861,6 +2845,7 @@ const DashboardScreen: React.FC = () => {
       // Pre-scan ALL timeline keys → suffix→progress (deposit excluded) and suffix→latest planned date
       const suffixToProgress: Record<string, number> = {};
       const suffixToWork: Record<string, number> = {};
+      const suffixToItems: Record<string, any[]> = {};
       const suffixToLatestPlanned: Record<string, number> = {};
       const bumpLatest = (key: string, ms: number) => {
         const prev = suffixToLatestPlanned[key];
@@ -2890,6 +2875,9 @@ const DashboardScreen: React.FC = () => {
               suffixToWork[suffixLower] = workPct;
               suffixToWork[suffixNorm] = workPct;
               suffixToWork[suffix] = workPct;
+              suffixToItems[suffixLower] = milestones;
+              suffixToItems[suffixNorm] = milestones;
+              suffixToItems[suffix] = milestones;
 
               const latestMs = maxPlannedMsFromMilestoneList(milestones);
               if (latestMs != null) {
@@ -2949,6 +2937,15 @@ const DashboardScreen: React.FC = () => {
           workMap[pid] = foundWork;
         }
 
+        let foundItems: any[] | undefined;
+        for (const c of timelineCandidates) {
+          foundItems = suffixToItems[c] ?? suffixToItems[normalizeKey(c)];
+          if (foundItems) break;
+        }
+        if (foundItems) {
+          timelineItemsMap[pid] = foundItems;
+        }
+
         let foundLatestMs: number | undefined;
         for (const c of scheduleCandidates) {
           const ms = suffixToLatestPlanned[c] ?? suffixToLatestPlanned[normalizeKey(c)];
@@ -2975,6 +2972,7 @@ const DashboardScreen: React.FC = () => {
         const milestones = workspaceProgress[pid]?.milestones;
         if (!pid || !Array.isArray(milestones) || milestones.length === 0) continue;
         workMap[pid] = workTaskProgressPct(milestones) ?? 0;
+        timelineItemsMap[pid] = milestones;
       }
     } catch {
       // Keep UI responsive if storage read fails
@@ -2983,6 +2981,7 @@ const DashboardScreen: React.FC = () => {
     setProjectDataOverrides(nextOverrides);
     setTimelineProgress(progressMap);
     setWorkTaskProgress(workMap);
+    setTimelineItemsByProject(timelineItemsMap);
     setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
@@ -3589,55 +3588,60 @@ const DashboardScreen: React.FC = () => {
       estimates,
       deletedProjectRecords
     )
-      .filter((project) => {
-        const status = resolvePortfolioProjectStatus(project);
-        if (
-          isPreActivePortfolioStatus(status) &&
-          !isEligibleEstimateInsightProject(project, estimateInsightCtx)
-        ) {
-          return false;
-        }
-        return (
-          status !== "completed" &&
-          status !== "complete" &&
-          status !== "closed" &&
-          status !== "done" &&
-          status !== "finished"
-        );
-      })
       .map((project) => {
         const pid = String(project?.id ?? "");
         const override = projectDataOverrides[pid];
         const mergedProject = mergeLegacyProjectRecord(project, override);
+        const portfolioStatus = resolvePortfolioProjectStatus(mergedProject);
+        if (!isActivePortfolioJobStatus(portfolioStatus)) return null;
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
         const fin = computeProjectListRowFinancials({
           mergedProject,
           originalRow: project,
           progressPct,
         });
+        if (fin.slugForUi === "completed" || fin.slugForUi === "lost") return null;
         return {
           id: pid,
           title: String(mergedProject.title || mergedProject.name || "Untitled Project"),
           displayStatus: fin.displayStatus,
           slugForUi: fin.slugForUi,
-          portfolioStatus: resolvePortfolioProjectStatus(mergedProject),
+          portfolioStatus,
           isWorkingEstimate: isEligibleEstimateInsightProject(mergedProject, estimateInsightCtx),
           margin: fin.margin,
           progress: fin.finalProgress,
           amount: fin.displayAmount,
           rawProject: mergedProject as Record<string, unknown>,
+          timelineItems: timelineItemsByProject[pid] ?? null,
         };
-      });
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
     return buildPortfolioOperationalInsights(rows);
   }, [
     activeProjects,
     estimates,
     projectDataOverrides,
     timelineProgress,
+    timelineItemsByProject,
     restrictedWorkspaceFinancials,
     deletedProjectRecords,
     estimateInsightCtx,
   ]);
+
+  const activeJobIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const project of filterProjectsForOperationalInsights(
+      activeProjects,
+      estimates,
+      deletedProjectRecords
+    )) {
+      const pid = String(project?.id ?? "");
+      if (!pid) continue;
+      const merged = mergeLegacyProjectRecord(project, projectDataOverrides[pid]);
+      if (isActivePortfolioJobStatus(resolvePortfolioProjectStatus(merged))) ids.add(pid);
+    }
+    return ids;
+  }, [activeProjects, estimates, deletedProjectRecords, projectDataOverrides]);
 
   const portfolioFlagCount = useMemo(
     () => countPortfolioOperationalFlags(portfolioOperationalInsights),
@@ -3670,7 +3674,10 @@ const DashboardScreen: React.FC = () => {
       ...portfolioOperationalInsights.insights.filter((insight) =>
         filterClientGeneratedPortfolioInsight(insight, portfolioFilterCtx)
       ),
-    ]);
+    ]).filter((insight) => {
+      const pid = String(insight.projectId || "").trim();
+      return pid.length > 0 && activeJobIds.has(pid);
+    });
     return merged.map((insight) =>
       frameInsightForDisplay(
         insight,
@@ -3683,6 +3690,7 @@ const DashboardScreen: React.FC = () => {
     portfolioOperationalInsights.insights,
     completedProjectIds,
     portfolioFilterCtx,
+    activeJobIds,
   ]);
 
   const apiFilteredNextSteps = useMemo(() => {
@@ -3701,7 +3709,10 @@ const DashboardScreen: React.FC = () => {
       ...portfolioOperationalInsights.nextSteps.filter((step) =>
         filterClientGeneratedPortfolioNextStep(step, portfolioFilterCtx)
       ),
-    ]);
+    ]).filter((step) => {
+      const pid = String(step.projectId || "").trim();
+      return pid.length > 0 && activeJobIds.has(pid);
+    });
     return merged.map((step) =>
       frameNextStepForDisplay(
         step,
@@ -3714,6 +3725,7 @@ const DashboardScreen: React.FC = () => {
     portfolioOperationalInsights.nextSteps,
     completedProjectIds,
     portfolioFilterCtx,
+    activeJobIds,
   ]);
 
   const insightsAlertCount = useMemo(
@@ -4089,11 +4101,7 @@ const DashboardScreen: React.FC = () => {
             aiLoading={aiLoading}
             aiError={aiError}
             aiFetchDegraded={aiFetchDegraded}
-            filteredInsights={filteredInsights}
-            filteredNextSteps={filteredNextSteps}
-            attentionInsightCount={insightsAlertCount}
             portfolioFlagCount={portfolioFlagCount}
-            onInsightPress={handleInsightPress}
             onOpenInsights={() => handleTabPress("insights")}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
             hideFinancialMetrics={restrictedWorkspaceFinancials}
@@ -4314,6 +4322,50 @@ const InsightsActionRow = ({
 
 /* ----------------- AI INSIGHT ITEM ----------------- */
 
+const BRIEF_MINT = "#2dcc9a";
+const BRIEF_AMBER = "#f59e0b";
+const BRIEF_HELPER = "#d7e1f0";
+
+function briefSentenceColor(sentence: string, fallback: string): string {
+  if (/no work tasks|next payment/i.test(sentence)) return BRIEF_AMBER;
+  if (/projected profit|costs are over|nearing the cost cap/i.test(sentence)) return BRIEF_MINT;
+  if (/cost cap|logged costs/i.test(sentence)) return BRIEF_HELPER;
+  return fallback;
+}
+
+function ColoredBriefText({
+  text,
+  style,
+  numberOfLines,
+}: {
+  text: string;
+  style: any;
+  numberOfLines?: number;
+}) {
+  const sentences = String(text || "")
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .filter(Boolean);
+  const fallback = BRIEF_HELPER;
+  const isBrief = /projected profit|cost cap|next payment|logged costs/i.test(text);
+  if (!isBrief) {
+    return (
+      <Text style={style} numberOfLines={numberOfLines}>
+        {text}
+      </Text>
+    );
+  }
+  return (
+    <Text style={style} numberOfLines={numberOfLines}>
+      {sentences.map((sentence, index) => (
+        <Text key={`${index}-${sentence.slice(0, 12)}`} style={{ color: briefSentenceColor(sentence, fallback) }}>
+          {index > 0 ? ` ${sentence}` : sentence}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
 const InsightItem = ({
   type,
   title,
@@ -4335,10 +4387,12 @@ const InsightItem = ({
     opportunity: "star",
     info: "information-circle",
   };
+  const scheduleWatch = /no work tasks|next payment/i.test(body);
+  const onEstimate = /projected profit|cost cap/i.test(body);
   const colorMap: Record<typeof type, string> = {
     alert: "#f97316",
     opportunity: DASHBOARD_ACCENT,
-    info: DASHBOARD_MUTED,
+    info: scheduleWatch ? BRIEF_AMBER : onEstimate ? BRIEF_MINT : DASHBOARD_MUTED,
   };
 
   // Transform body text to use less certain language
@@ -4410,7 +4464,7 @@ const InsightItem = ({
             </Text>
           </View>
         )}
-        <Text style={styles.insightBody}>{transformedBody}</Text>
+        <ColoredBriefText text={transformedBody} style={styles.insightBody} />
       </View>
     </Pressable>
   );
@@ -4543,12 +4597,7 @@ interface OverviewSectionProps {
   aiLoading: boolean;
   aiError: string | null;
   aiFetchDegraded?: boolean;
-  filteredInsights: any[];
-  filteredNextSteps: any[];
-  /** Budget + operational alerts — matches Insights tab badge. */
-  attentionInsightCount: number;
   portfolioFlagCount?: number;
-  onInsightPress: (insight: AiInsight) => void;
   onOpenInsights: () => void;
   timelineLatestPlannedMs: Record<string, number>;
   hideFinancialMetrics?: boolean;
@@ -4574,14 +4623,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   openProjectsTab,
   onCreateEstimate,
   aiData,
-  aiLoading,
-  aiError,
-  aiFetchDegraded = false,
-  filteredInsights,
-  filteredNextSteps,
-  attentionInsightCount,
   portfolioFlagCount = 0,
-  onInsightPress,
   onOpenInsights,
   timelineLatestPlannedMs,
   hideFinancialMetrics = false,
@@ -4595,7 +4637,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   const router = useRouter();
-  const OVERVIEW_INSIGHT_PREVIEW_COUNT = 2;
   const [localScheduleItems, setLocalScheduleItems] = useState<DailyBriefUpcomingScheduleItem[]>([]);
   useFocusEffect(
     useCallback(() => {
@@ -4664,34 +4705,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
       .slice(0, 3);
   }, [aiData?.dailyBrief?.upcomingPayments, aiData?.dailyBrief?.upcomingScheduleItems, localScheduleItems]);
-  const overviewInsightsSorted = useMemo(
-    () => sortInsightsForOverview(filteredInsights),
-    [filteredInsights],
-  );
-  const insightCount = overviewInsightsSorted.length;
-  /** Needs-attention preview is budget alerts; exclude hidden closeout profit summaries. */
-  const openInsightsCount =
-    attentionInsightCount > 0 ? attentionInsightCount : insightCount;
-  const overviewPreviewInsights = useMemo(
-    () =>
-      pickOverviewInsightPreview(
-        overviewInsightsSorted,
-        OVERVIEW_INSIGHT_PREVIEW_COUNT
-      ),
-    [overviewInsightsSorted]
-  );
-  const showPreviewPanel =
-    !aiError && insightCount > 0 && (!aiLoading || aiData != null);
   const showAllProjectsLoading = !projectsReady && projects.length === 0;
   const bidJobCount = projects.filter((p: any) => p.status && p.status !== "Draft").length;
-
-  const overviewAlertsQuietText = useMemo(() => {
-    if (aiError && /sign in/i.test(aiError)) return aiError;
-    if (aiError) return "No alerts right now.";
-    if (aiLoading && !aiData && insightCount === 0) return "Analyzing your projects…";
-    if (insightCount === 0) return "All projects on track.";
-    return "";
-  }, [aiLoading, aiData, aiError, insightCount]);
 
   return (
     <>
@@ -4755,77 +4770,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           </View>
         </View>
       </View>
-
-      {!hideFinancialMetrics ? (
-      <>
-      {/* BUDGET ALERTS PREVIEW — full list lives on Insights tab */}
-      <View
-        style={[styles.sectionHeaderRow, styles.aiInsightsHeaderTopSpacing]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.sectionTitle}>Needs attention</Text>
-          <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
-            Margin, estimate review, and budget alerts
-          </Text>
-        </View>
-      </View>
-
-      {overviewAlertsQuietText ? (
-        <View
-          style={[
-            styles.wideContainer,
-            styles.aiInsightsSectionBottomSpacing,
-          ]}
-        >
-          <Text style={styles.aiInsightsCollapsedHint}>{overviewAlertsQuietText}</Text>
-        </View>
-      ) : null}
-
-      {showPreviewPanel && (
-        <View
-          style={[
-            styles.wideContainer,
-            styles.aiInsightsSectionBottomSpacing,
-          ]}
-        >
-          <View style={styles.aiPanel}>
-              {overviewPreviewInsights.map((insight) => (
-                <InsightItem
-                  key={insight.id}
-                  type={insight.type}
-                  title={insight.title}
-                  body={compactInsightBody(insight)}
-                  onPress={
-                    insight.projectId
-                      ? () => onInsightPress(insight)
-                      : undefined
-                  }
-                />
-              ))}
-              <Pressable
-                onPress={onOpenInsights}
-                style={({ pressed }) => [
-                  styles.aiInsightsOpenTabRow,
-                  pressed && { opacity: 0.85 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Open Insights, ${openInsightsCount} alert${openInsightsCount === 1 ? "" : "s"}`}
-              >
-                <Text style={styles.linkText}>
-                  Open Insights ({openInsightsCount})
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={"#e2e8f0"}
-                />
-              </Pressable>
-          </View>
-        </View>
-      )}
-
-      </>
-      ) : null}
 
       {overviewScheduleItems.length > 0 ? (
         <>
@@ -5175,7 +5119,6 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   filteredInsights,
   aiLoading,
   aiError,
-  aiFetchDegraded = false,
   aiData,
 }) => {
   const { theme, darkMode } = useTheme();
@@ -5342,7 +5285,19 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     () => aiData?.dailyBrief || buildFallbackDailyBrief(filteredInsights, filteredNextSteps, projects),
     [aiData?.dailyBrief, filteredInsights, filteredNextSteps, projects]
   );
-  const dailyRisk = dailyBrief?.topProfitRisks?.[0];
+  const dailyRiskCandidate = dailyBrief?.topProfitRisks?.[0];
+  const dailyRisk =
+    dailyRiskCandidate?.projectId &&
+    filteredInsights.some(
+      (insight) => String(insight.projectId) === String(dailyRiskCandidate.projectId)
+    )
+      ? dailyRiskCandidate
+      : undefined;
+  const otherActiveJobInsights = sortedInsights.filter((insight) =>
+    dailyRisk
+      ? String(insight.id) !== String(dailyRisk.id)
+      : insight.id !== primaryInsight?.id
+  );
   const dailyAction = dailyBrief?.topActions?.[0];
   const nextPayment = dailyBrief?.upcomingPayments?.[0];
   const upcomingSchedule = useMemo(() => {
@@ -5521,7 +5476,14 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     );
   }, [patterns, dailyRisk]);
 
-  const heroAccent = dailyRisk
+  const heroBriefBody = String(dailyRisk?.body || primaryInsight?.body || "");
+  const heroScheduleWatch = /no work tasks|next payment/i.test(heroBriefBody);
+  const heroIsStatus = dailyRisk?.type === "project_status" || primaryInsight?.leakType === "project_status";
+  const heroAccent = heroIsStatus
+    ? heroScheduleWatch
+      ? BRIEF_AMBER
+      : BRIEF_MINT
+    : dailyRisk
     ? dailyRisk.severity === "high"
       ? "#f97316"
       : dailyRisk.severity === "medium"
@@ -5533,9 +5495,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       : primaryInsight.type === "opportunity"
         ? BPS_BRAND_GREEN
         : BPS_BRAND_TEAL
-    : avgMargin > 80
-        ? BPS_BRAND_GREEN
-        : BPS_BRAND_TEAL;
+    : BRIEF_MINT;
 
   const openProject = (
     projectId?: string | null,
@@ -5600,11 +5560,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                   ? heroKickerForLeakType(primaryInsight.leakType, {
                       projectCompleted: primaryInsightCompleted,
                     })
-                  : avgMargin > 80
-                      ? "Margin strength"
-                      : aiFetchDegraded
-                        ? "Logged-cost alerts"
-                        : "Insights"}
+                  : "Active jobs"}
               </Text>
             </View>
 
@@ -5626,7 +5582,13 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
                   {heroHeadline}
                 </Text>
-                {heroRateFacts ? (
+                {dailyRisk.type === "project_status" && dailyRisk.body ? (
+                  <ColoredBriefText
+                    text={dailyRisk.body}
+                    style={styles.insightsHeroSupport}
+                    numberOfLines={8}
+                  />
+                ) : heroRateFacts ? (
                   <View style={styles.insightsHeroFacts}>
                     {heroRateFacts.estimated ? (
                       <Text style={[styles.insightsHeroSupport, { marginTop: 0 }]}>
@@ -5692,9 +5654,15 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
                   {primaryInsight.title}
                 </Text>
-                <Text style={styles.insightsHeroSupport} numberOfLines={3}>
-                  {firstSupportingSentence(primaryInsight.body)}
-                </Text>
+                <ColoredBriefText
+                  text={
+                    primaryInsight.leakType === "project_status"
+                      ? primaryInsight.body
+                      : firstSupportingSentence(primaryInsight.body)
+                  }
+                  style={styles.insightsHeroSupport}
+                  numberOfLines={primaryInsight.leakType === "project_status" ? 8 : 3}
+                />
                 <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                   <Pressable
                     style={({ pressed }) => [
@@ -5722,16 +5690,10 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             {!aiLoading && !aiError && !dailyRisk && !primaryInsight && (
               <>
                 <Text style={styles.insightsHeroHeadline} numberOfLines={2}>
-                  {avgMargin > 80
-                    ? `Completed jobs averaging ${avgMargin.toFixed(1)}% net profit`
-                    : "No major portfolio flags"}
+                  No active jobs to brief
                 </Text>
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>
-                  {avgMargin > 80
-                    ? "Strong spreads—tighten markup discipline on new bids."
-                    : aiFetchDegraded
-                      ? "Budget alerts from logged costs still appear below when costs exceed estimate."
-                      : "Add live costs to sharpen risk and next actions."}
+                  Status for jobs in progress shows here, including ones that are on track.
                 </Text>
                 <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                   <Pressable
@@ -5751,6 +5713,38 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
           </View>
         </View>
       </View>
+
+      {!aiLoading && !aiError && otherActiveJobInsights.length > 0 ? (
+        <>
+          <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Active jobs</Text>
+              <Text style={styles.sectionSubtitle}>Every job in progress</Text>
+            </View>
+          </View>
+          <View style={styles.wideContainer}>
+            <View style={styles.aiPanel}>
+              {otherActiveJobInsights.map((insight) => (
+                <InsightItem
+                  key={insight.id}
+                  type={insight.type}
+                  title={insight.title}
+                  body={compactInsightBody(insight)}
+                  onPress={
+                    insight.projectId
+                      ? () =>
+                          openProject(
+                            insight.projectId,
+                            resolveInsightActionTarget(insight)
+                          )
+                      : undefined
+                  }
+                />
+              ))}
+            </View>
+          </View>
+        </>
+      ) : null}
 
       {/* Prioritized actions — hidden when nothing is queued */}
       {aiLoading || sortedSteps.length > 0 || (filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0) ? (
@@ -6202,7 +6196,7 @@ const getStyles = (
     marginBottom: 4,
   },
   insightsHeroAccent: {
-    width: 4,
+    width: 6,
     alignSelf: "stretch",
   },
   insightsHeroBody: {

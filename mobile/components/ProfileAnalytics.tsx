@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
+import { getCompletedProjectProfit } from "@/lib/completedProjectProfitability";
 import { getColors } from "@/theme/getColors";
 import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
@@ -176,37 +177,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
       );
 
       if (monthData) {
-        // Calculate profit for this project
-        const revenue = 
-          project.bidPrice ||
-          project.projectData?.bidPrice ||
-          project.projectData?.totalBidPrice ||
-          project.estimateData?.bidPrice ||
-          project.estimateData?.grandTotal ||
-          project.total ||
-          project.totalRevenue ||
-          project.contractValue ||
-          project.estimatedCost ||
-          0;
-
-        const actualCost = 
-          project.actualCost ||
-          project.projectData?.actualCost ||
-          project.projectData?.spent ||
-          project.projectData?.totalSpent ||
-          project.totalSpent ||
-          0;
-
-        let profit = 0;
-        if (actualCost > 0) {
-          profit = revenue - actualCost;
-        } else {
-          // Fall back to margin-based calculation
-          const margin = project.margin || 0;
-          const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
-          profit = revenue * marginRatio;
-        }
-
+        const profit = getCompletedProjectProfit(project);
         monthData.value += profit;
 
         // Debug logging

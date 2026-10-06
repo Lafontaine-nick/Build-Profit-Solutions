@@ -11,21 +11,58 @@ export type ProjectTypeProfitStat = {
   percent: number;
 };
 
-/** Same profit rules as dashboard computePipelineTotals for completed projects. */
+function amount(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Bills plus received purchase orders. A stored actualCost can be bills only. */
+export function completedJobActualCost(project: any): number {
+  const projectData =
+    project?.projectData && typeof project.projectData === "object" ? project.projectData : {};
+  const expenses =
+    Array.isArray(projectData.expenses) && projectData.expenses.length > 0
+      ? projectData.expenses
+      : Array.isArray(project?.expenses) && project.expenses.length > 0
+        ? project.expenses
+        : [];
+  const expenseSum = expenses.reduce((sum: number, row: any) => sum + amount(row?.amount), 0);
+  const purchaseOrders =
+    Array.isArray(projectData.purchaseOrders) && projectData.purchaseOrders.length > 0
+      ? projectData.purchaseOrders
+      : Array.isArray(project?.purchaseOrders)
+        ? project.purchaseOrders
+        : [];
+  const receivedOrders = purchaseOrders
+    .filter((row: any) => String(row?.status || "").toLowerCase() === "received")
+    .reduce((sum: number, row: any) => sum + amount(row?.amount), 0);
+  if (expenseSum > 0 || receivedOrders > 0) return expenseSum + receivedOrders;
+
+  const stored = [
+    project?.actualCost,
+    projectData.actualCost,
+    projectData.spent,
+    projectData.totalSpent,
+    project?.totalSpent,
+    project?.spent,
+  ];
+  for (const candidate of stored) {
+    const value = amount(candidate);
+    if (value > 0) return value;
+  }
+  return 0;
+}
+
+/** Contract minus bills and received purchase orders. */
 export function getCompletedProjectProfit(project: any): number {
   const revenue = getProjectRevenue(project);
   if (revenue <= 0) return 0;
 
-  const actualCost =
-    project.actualCost ||
-    project.projectData?.actualCost ||
-    project.projectData?.spent ||
-    project.projectData?.totalSpent ||
-    project.totalSpent ||
-    0;
+  const actualCost = completedJobActualCost(project);
 
   if (actualCost > 0) {
-    return revenue - Number(actualCost);
+    return revenue - actualCost;
   }
 
   const margin = project.margin || 0;

@@ -190,8 +190,13 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
    * Base completion for run-rate.
    * Use the stronger of schedule progress or budget-burn progress,
    * but do not let burn progress run infinitely ahead and distort forecast.
+   * No finished work stays on the cost cap. Treating 0% schedule progress as
+   * 25% complete multiplied early spend by four and showed a false shortfall.
    */
-  const effectiveBurnPct = Math.min(rawCostBudgetUsedPct, scheduleProgressPct + 25);
+  const scheduleHasWorkSignal = scheduleProgressPct >= 3;
+  const effectiveBurnPct = scheduleHasWorkSignal
+    ? Math.min(rawCostBudgetUsedPct, scheduleProgressPct + 25)
+    : scheduleProgressPct;
   const blendedProgressPct = clamp(
     Math.max(scheduleProgressPct, effectiveBurnPct),
     0,
@@ -264,6 +269,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
       forecastMethod = 'budget-fallback';
 
       const earlyCalendarStress =
+        scheduleHasWorkSignal &&
         eacCalendar != null &&
         elapsedTimePct != null &&
         elapsedTimePct >= 15 &&

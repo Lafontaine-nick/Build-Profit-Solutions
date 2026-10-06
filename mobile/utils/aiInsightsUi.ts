@@ -60,6 +60,12 @@ export function heroKickerForLeakType(
       return "Budget alert";
     case "over_budget":
       return "Over budget";
+    case "cost_overrun_risk":
+      return "Over the cost cap";
+    case "spend_nearing_budget":
+      return "Nearing the cost cap";
+    case "project_status":
+      return "Active job";
     case "margin_erosion":
     case "spend_ahead_of_progress":
       return "Biggest risk";
@@ -255,6 +261,10 @@ export function compactInsightBody(insight: AiInsight): string {
   if (insight.leakType === "category_over_budget") {
     return firstSupportingSentence(insight.body, 110);
   }
+  if (insight.leakType === "project_status") {
+    const text = String(insight.body || "").trim().replace(/\s+/g, " ");
+    return text.length > 280 ? `${text.slice(0, 279).trim()}…` : text;
+  }
   return firstSupportingSentence(insight.body, 120);
 }
 
@@ -395,6 +405,10 @@ export function portfolioPatternBullets(
       `${projectOverCount} project${projectOverCount === 1 ? "" : "s"} over total cost budget`
     );
   }
+
+  const statusOnly =
+    insights.length > 0 && insights.every((insight) => insight.leakType === "project_status");
+  if (statusOnly) return lines.slice(0, 3);
 
   const blob = [...insights.map((i) => `${i.title} ${i.body}`), ...steps.map((s) => s.label)]
     .join(" ")

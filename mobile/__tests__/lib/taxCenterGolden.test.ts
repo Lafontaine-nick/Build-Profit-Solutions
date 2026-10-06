@@ -145,10 +145,10 @@ describe('Tax Center golden fixtures', () => {
     );
   });
 
-  it('Includes only current projects in Tax Center scope', () => {
+  it('Includes in-progress and finished jobs in Tax Center scope', () => {
     expect(isCurrentTaxProject({ status: 'active' })).toBe(true);
     expect(isCurrentTaxProject({ status: 'in_progress' })).toBe(true);
-    expect(isCurrentTaxProject({ status: 'completed' })).toBe(false);
+    expect(isCurrentTaxProject({ status: 'completed' })).toBe(true);
     expect(isCurrentTaxProject({ status: 'bid_submitted' })).toBe(false);
   });
 

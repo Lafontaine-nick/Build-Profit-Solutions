@@ -495,10 +495,13 @@ export function filterAiInsightForPortfolio(
   const blob = `${insight.title || ''} ${insight.body || ''}`;
   const retrospective = isRetrospectiveInsight(insight);
 
+  const refIdEarly = pid || embeddedId;
   if (
     (pid && ctx.deletedProjectIds.has(pid)) ||
     (embeddedId && ctx.deletedProjectIds.has(embeddedId)) ||
-    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(blob, ctx.deletedTitles))
+    (!refIdEarly &&
+      ctx.deletedTitles.length > 0 &&
+      aiTextReferencesJobTitle(blob, ctx.deletedTitles))
   ) {
     return false;
   }
@@ -584,9 +587,11 @@ export function filterClientGeneratedPortfolioInsight(
   const refId = pid || embeddedId;
   const blob = `${insight.title || ''} ${insight.body || ''}`;
 
+  if (refId && ctx.deletedProjectIds.has(refId)) return false;
   if (
-    (refId && ctx.deletedProjectIds.has(refId)) ||
-    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(blob, ctx.deletedTitles))
+    !refId &&
+    ctx.deletedTitles.length > 0 &&
+    aiTextReferencesJobTitle(blob, ctx.deletedTitles)
   ) {
     return false;
   }
@@ -618,9 +623,11 @@ export function filterClientGeneratedPortfolioNextStep(
   const refId = pid || embeddedId;
   const stepBlob = `${step.label || ''} ${step.chip || ''}`;
 
+  if (refId && ctx.deletedProjectIds.has(refId)) return false;
   if (
-    (refId && ctx.deletedProjectIds.has(refId)) ||
-    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles))
+    !refId &&
+    ctx.deletedTitles.length > 0 &&
+    aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles)
   ) {
     return false;
   }
@@ -652,9 +659,11 @@ export function filterAiNextStepForPortfolio(
   const embeddedId = extractProjectIdFromInsightId(step.id);
   const refId = pid || embeddedId;
   const stepBlob = `${step.label || ''} ${step.chip || ''}`;
+  if (refId && ctx.deletedProjectIds.has(refId)) return false;
   if (
-    (refId && ctx.deletedProjectIds.has(refId)) ||
-    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles))
+    !refId &&
+    ctx.deletedTitles.length > 0 &&
+    aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles)
   ) {
     return false;
   }
@@ -698,6 +707,12 @@ const OPERATIONAL_INSIGHT_ELIGIBLE_STATUSES = new Set([
   'done',
   'finished',
 ]);
+
+/** Won or in progress. Estimates, submitted bids, and completed jobs are not active. */
+export function isActivePortfolioJobStatus(status: unknown): boolean {
+  const s = normalizePortfolioStatus(status);
+  return s === 'won' || s === 'in_progress' || s === 'active';
+}
 
 /** Draft / estimate / submitted bid — not yet won or in progress. */
 export function isPreActivePortfolioStatus(status: unknown): boolean {
@@ -757,9 +772,16 @@ export function filterProjectsForOperationalInsights(
     if (id && deletedIds.has(id)) return false;
 
     const title = String(p?.title || p?.name || '').toLowerCase().trim();
-    if (title.length >= 3 && deletedTitleSet.has(title)) return false;
-
     const status = resolvePortfolioProjectStatus(p);
+    // A new in-progress job can reuse a deleted bid's title. Only the old id is gone.
+    if (
+      title.length >= 3 &&
+      deletedTitleSet.has(title) &&
+      !isActivePortfolioJobStatus(status)
+    ) {
+      return false;
+    }
+
     if (!OPERATIONAL_INSIGHT_ELIGIBLE_STATUSES.has(status)) return false;
     if (status === 'lost' || status === 'cancelled' || status === 'canceled') return false;
     return true;
