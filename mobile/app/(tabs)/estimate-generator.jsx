@@ -147,7 +147,7 @@ import {
   appliedAiSnapshotCostTotals,
   lineTotalsAtApply,
 } from '../../utils/aiSnapshotCostTotals';
-import { getBidAllowanceLineItemsTotal, getBidOverheadLineItemsTotal, getBidSoftCostTotal, isAllowancesCategoryName } from '../../utils/estimateAllowances';
+import { getBidAllowanceLineItemsTotal, getBidOverheadLineItemsTotal, getBidSoftCostTotal, isAllowancesCategoryName, isCompanyOverheadCategory } from '../../utils/estimateAllowances';
 import { getEstimateStep5MarginTargetFeedback } from '../../utils/estimateStep5MarginTarget';
 import {
   confirmScopeSectionLabelStyle,
@@ -10017,7 +10017,7 @@ export default function EstimateGeneratorScreen() {
           )?.spent || 0;
           const companyOverheadBudget = getEstimateCompanyOverheadTotal(snapshotBid);
           const companyOverheadSpent = projectData?.buckets?.find(b =>
-            String(b?.name || '').toLowerCase().includes('company overhead')
+            isCompanyOverheadCategory(b?.name)
           )?.spent || 0;
           
           // Update or create projectData with correct buckets
@@ -10068,7 +10068,7 @@ export default function EstimateGeneratorScreen() {
                 ? [
                     {
                       id: '5',
-                      name: 'Company overhead',
+                      name: 'Project overhead',
                       spent: companyOverheadSpent,
                       budget: companyOverheadBudget,
                       bidBudget: companyOverheadBudget,
@@ -10081,7 +10081,7 @@ export default function EstimateGeneratorScreen() {
                 b.name !== 'Materials' &&
                 !isAllowancesCategoryName(b?.name) &&
                 !String(b?.name || '').toLowerCase().includes('contingency') &&
-                !String(b?.name || '').toLowerCase().includes('company overhead')
+                !isCompanyOverheadCategory(b?.name)
               ) || []),
             ],
             expenses: projectData?.expenses || [],
@@ -13600,7 +13600,7 @@ export default function EstimateGeneratorScreen() {
                       ...((calc.softCosts || 0) > 0 ? [{ label: 'Soft costs', value: money(calc.softCosts) }] : []),
                       ...((calc.contingency || 0) > 0 ? [{ label: 'Contingency', value: money(calc.contingency) }] : []),
                       { label: `Builder margin (${bid.markupPct || 0}%)`, value: money(calc.profit) },
-                      ...(companyOverheadAmount > 0 ? [{ label: 'Allocated company overhead', value: `-${money(companyOverheadAmount)}` }] : []),
+                      ...(companyOverheadAmount > 0 ? [{ label: 'Project overhead', value: `-${money(companyOverheadAmount)}` }] : []),
                     ].map((row) => (
                       <View
                         key={row.label}
@@ -15946,7 +15946,7 @@ export default function EstimateGeneratorScreen() {
                           Suggested starting targets
                         </Text>
                         {[
-                          ['Company overhead', recommendationInfo.overheadRange],
+                          ['Overhead', recommendationInfo.overheadRange],
                           ['Profit', recommendationInfo.profitRange],
                           ['Markup equivalent', recommendationInfo.markupEquivalentRange],
                         ].map(([label, range]) => (
@@ -15998,7 +15998,7 @@ export default function EstimateGeneratorScreen() {
                             fontWeight: '500',
                           }}
                         >
-                          Set your own company overhead, profit, and markup targets.
+                          Set your own overhead, profit, and markup targets.
                         </Text>
                       </>
                     )}
@@ -16471,9 +16471,9 @@ export default function EstimateGeneratorScreen() {
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                 <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Allocated company overhead</Text>
+                  <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Project overhead</Text>
                   <Text style={step5SectionSubtitleStyle}>
-                    The share of company overhead this bid should recover
+                    Insurance, facilities, admin, and other overhead on this job. Counted as job cost, not marked up.
                   </Text>
                 </View>
                 <Text style={{ color: getEstimateCompanyOverheadTotal(bid) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(16, 18), fontWeight: '800', marginTop: 2 }}>
@@ -16849,7 +16849,7 @@ export default function EstimateGeneratorScreen() {
               <View style={{ marginBottom: 12 }}>
                 <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Markup, overhead & profit</Text>
                 <Text style={step5SectionSubtitleStyle}>
-                  Markup helps cover allocated company overhead and generate profit
+                  Markup covers project overhead and your profit
                 </Text>
               </View>
 
@@ -17035,9 +17035,9 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={{ color: '#f97316', fontSize: ew(13, 15), fontWeight: '700' }}>− Allocated company overhead</Text>
+                      <Text style={{ color: '#f97316', fontSize: ew(13, 15), fontWeight: '700' }}>− Project overhead</Text>
                       <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
-                        Portion of company overhead this estimate should recover — not added to the client bid.
+                        Overhead on this job. Paid from the builder margin, not added to the client bid.
                       </Text>
                     </View>
                     <Text style={{
@@ -23050,7 +23050,7 @@ export default function EstimateGeneratorScreen() {
           : step === 4
             ? 'Add crew labor or subcontractor costs so the estimate reflects the real cost of the job.'
             : step === 5
-              ? 'Job costs and allowances cover this project, company overhead covers business costs, and markup protects your profit.'
+              ? 'Job costs, allowances, and project overhead cover this job, and markup protects your profit.'
               : step === 6
                 ? 'Check margin, risk, and likely job outcomes before sending the bid.'
                 : step === 7

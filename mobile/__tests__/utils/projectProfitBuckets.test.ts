@@ -1,5 +1,6 @@
 import { computeProfitForecast } from '../../src/lib/profitForecast';
 import {
+  computeProjectFinancials,
   foldEquipmentRentalIntoMaterialsBucket,
   getAllocatedCompanyOverhead,
   sumPlannedCostFromBuckets,
@@ -76,18 +77,18 @@ describe('project profit and equipment buckets', () => {
     expect(folded.reduce((sum, bucket) => sum + bucket.budget, 0)).toBe(25155);
   });
 
-  it('still adds equipment when a company overhead bucket sits beside the job buckets', () => {
+  it('still adds equipment when a project overhead bucket sits beside the job buckets', () => {
     const withOverhead = [
       { name: 'Materials/Equipment', budget: 5830, bidBudget: 5830 },
       { name: 'Labor', budget: 19895, bidBudget: 19895 },
       { name: 'Soft costs', budget: 2300, bidBudget: 2300 },
       { name: 'Contingency', budget: 2000, bidBudget: 2000 },
-      { name: 'Company overhead', budget: 300, bidBudget: 300 },
+      { name: 'Project overhead', budget: 300, bidBudget: 300 },
     ];
     const folded = foldEquipmentRentalIntoMaterialsBucket(
       withOverhead,
-      { estimateData: { equipment: 600 } },
-      30625
+      { estimateData: { equipment: 600, insuranceOverhead: 200, facilities: 100 } },
+      30925
     );
 
     expect(folded[0].budget).toBe(6430);
@@ -135,7 +136,7 @@ describe('project profit and equipment buckets', () => {
     ).toBe(350);
   });
 
-  it('keeps company overhead out of the job cost cap', () => {
+  it('leaves the overhead bucket out of the bucket sum, since overhead is added from the bid', () => {
     expect(
       sumPlannedCostFromBuckets([
         { name: 'Materials/Equipment', budget: 6930 },
@@ -145,5 +146,29 @@ describe('project profit and equipment buckets', () => {
         { name: 'Company overhead', budget: 300 },
       ])
     ).toBe(31625);
+  });
+
+  it('puts project overhead in the cost cap without changing profit', () => {
+    const financials = computeProjectFinancials({
+      estimateData: {
+        grandTotal: 36350,
+        materials: 5830,
+        labor: 19895,
+        equipment: 600,
+        engineeringCost: 300,
+        planCost: 500,
+        permitCost: 1000,
+        financingFees: 300,
+        interestCost: 200,
+        contingencyAllowance: 2000,
+        insuranceOverhead: 200,
+        facilities: 100,
+      },
+    });
+
+    expect(financials.projectOverhead).toBe(300);
+    expect(financials.plannedCostBudget).toBe(30925);
+    expect(financials.allocatedCompanyOverhead).toBe(0);
+    expect(financials.adjustedContractValue - financials.adjustedCostBudget).toBe(5425);
   });
 });

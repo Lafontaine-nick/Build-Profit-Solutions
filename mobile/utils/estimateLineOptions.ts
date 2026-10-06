@@ -1,4 +1,5 @@
 import { normalizeExpenseGroupLabel } from '@/utils/groupCategoryExpenses';
+import { isCompanyOverheadCategory } from '@/utils/estimateAllowances';
 import {
   collectEstimateLineItems,
   equipmentRentalEstimateLine,
@@ -206,7 +207,7 @@ export function budgetLineSpendForKind(input: {
   const unlinked: { id: string; label: string; amount: number }[] = [];
   const categoryMatches = (category: string) => {
     if (input.kind === 'contingency') return category.includes('contingenc');
-    if (input.kind === 'overhead') return category.includes('company overhead') || category === 'overhead';
+    if (input.kind === 'overhead') return isCompanyOverheadCategory(category);
     return category.includes('soft') || category.includes('allowance');
   };
 

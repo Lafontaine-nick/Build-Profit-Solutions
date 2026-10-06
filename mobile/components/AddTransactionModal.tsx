@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, Switch, useWindowDimensions } from "react-native";
 import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
@@ -34,7 +34,11 @@ import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
 } from "@/utils/estimateFlowCardStyle";
-import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
+import EstimateLinePicker, {
+  hasEstimateLineOptions,
+  type EstimateLineOption,
+  type EstimateLinePickerKind,
+} from "@/components/EstimateLinePicker";
 import { EXPENSE_TRADE_PLACEHOLDER, suggestedExpenseTrade } from "@/utils/expenseTradePrefill";
 
 /** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
@@ -132,6 +136,8 @@ export default function AddTransactionModal({
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [selectedEstimateLine, setSelectedEstimateLine] = useState<EstimateLineOption | null>(null);
+  /** Budget categories open on the budget list first; the form follows Select or Enter manually. */
+  const [step, setStep] = useState<"pick" | "form">("form");
   const [po, setPo] = useState("");
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isPlanned, setIsPlanned] = useState<boolean>(true);
@@ -195,7 +201,8 @@ export default function AddTransactionModal({
     categoryNameLower.includes('soft cost') ||
     categoryNameLower.includes('soft-cost');
   const isContingencyExpense = categoryNameLower.includes('contingency');
-  const isCompanyOverheadExpense = categoryNameLower.includes('company overhead');
+  const isCompanyOverheadExpense =
+    categoryNameLower.includes('project overhead') || categoryNameLower.includes('company overhead');
 
   const supportsPerSqftPricing = useMemo(() => {
     return (
@@ -280,6 +287,49 @@ export default function AddTransactionModal({
     tradeEditedRef.current = text !== suggestedTradeRef.current;
     setTrade(text);
   }, []);
+
+  const budgetPickerKind: EstimateLinePickerKind | null =
+    isChangeOrdersCategory || isPurchaseOrdersCategory
+      ? null
+      : isLaborOrSubs
+        ? categoryNameLower.includes("labor")
+          ? "labor"
+          : null
+        : isMaterialsEquipmentExpense
+          ? "materials"
+          : isCompanyOverheadExpense
+            ? "overhead"
+            : isContingencyExpense
+              ? "contingency"
+              : isSoftCostExpense
+                ? "soft"
+                : null;
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const startOnList =
+      budgetPickerKind != null &&
+      !initialLinkedLineId &&
+      hasEstimateLineOptions(projectData as unknown as Record<string, unknown>, budgetPickerKind);
+    setStep(startOnList ? "pick" : "form");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const handleFirstStepLine = useCallback(
+    (line: EstimateLineOption | null) => {
+      setSelectedEstimateLine(line);
+      if (line && budgetPickerKind === "labor") {
+        setLaborDescription(line.name.replace(/\s*[—–-]\s*labor\s*$/i, "").trim());
+      } else if (line && budgetPickerKind === "materials") {
+        setMaterial(line.name.replace(/\s*[—–-]\s*materials?\s*$/i, "").trim());
+      }
+      if (budgetPickerKind === "labor" || budgetPickerKind === "materials") {
+        applySuggestedTrade(line);
+      }
+      setStep("form");
+    },
+    [applySuggestedTrade, budgetPickerKind]
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -872,6 +922,7 @@ export default function AddTransactionModal({
     categoryNameLower.includes("soft-cost") ||
     categoryNameLower.includes("allowance") ||
     categoryNameLower.includes("contingency") ||
+    categoryNameLower.includes("project overhead") ||
     categoryNameLower.includes("company overhead");
   const webBudgetExpenseShell = budgetExpenseCategory;
   const budgetExpenseWebRing = Platform.OS === "web" && webBudgetExpenseShell;
@@ -1217,12 +1268,37 @@ export default function AddTransactionModal({
       !categoryNameLower.includes("soft-cost") &&
       !categoryNameLower.includes("allowance") &&
       !categoryNameLower.includes("contingency") &&
+      !categoryNameLower.includes("project overhead") &&
       !categoryNameLower.includes("company overhead") ? (
         <KeyboardPlainAccessory
           nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
           backgroundColor={darkMode ? "#000000" : Colors.bg}
         />
       ) : null}
+      {step === "pick" && budgetPickerKind ? (
+        <View style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
+          <EstimateLinePicker
+            inline
+            kind={budgetPickerKind}
+            projectLike={projectData as unknown as Record<string, unknown>}
+            selectedLineId={null}
+            onSelect={handleFirstStepLine}
+            onBack={dismissModal}
+            darkMode={darkMode}
+            colors={{
+              background: darkMode ? '#000000' : Colors.bg,
+              card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+              text: Colors.text,
+              secondary: Colors.sub,
+              border: Colors.line,
+              nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
+              accent: '#2dcc9a',
+            }}
+            onOpenChangeOrderPayment={onOpenChangeOrderPayment}
+            onDidDismiss={onChangeOrderPickerDismissed}
+          />
+        </View>
+      ) : (
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
@@ -2602,6 +2678,7 @@ export default function AddTransactionModal({
           )}
       </View>
       </KeyboardAvoidingView>
+      )}
     </Modal>
   );
 }

@@ -72,7 +72,6 @@ import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
 import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import {
   formatMoneyUSD,
-  formatMoneyCompact,
   formatDateShort,
   formatTimeShort,
   parseCalendarDate,
@@ -107,7 +106,7 @@ import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
 import { pickCompletedDisplayDateRaw } from "@/lib/projectCompletedDisplayDate";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
-import { computeProjectFinancials, getAllocatedCompanyOverhead } from "@/src/lib/projectFinancials";
+import { computeProjectFinancials } from "@/src/lib/projectFinancials";
 import { timelineScheduleProgressPct, workTaskProgressPct } from "@/src/lib/timelineScheduleProgress";
 import {
   computeProfitabilityByProjectType,
@@ -864,7 +863,6 @@ const computeDashboardProfitOutlook = (
         committedPOs: committedPoTotalForDashboardForecast(p),
         progressPct,
         isCompleted: false,
-        allocatedCompanyOverhead: getAllocatedCompanyOverhead(p),
       });
       pipelineProjectedNetProfit += pf.projectedProfit;
       activePipelineProjectCount += 1;
@@ -3883,8 +3881,8 @@ const DashboardScreen: React.FC = () => {
         : null;
 
     const result = {
-      totalBids: formatMoneyCompact(totalBids),
-      activeProjects: formatMoneyCompact(activeProjectsValue),
+      totalBids: formatMoneyUSD(totalBids),
+      activeProjects: formatMoneyUSD(activeProjectsValue),
       avgMargin:
         avgCompletedNetProfitPct !== null
           ? `${avgCompletedNetProfitPct.toFixed(1)}%`
@@ -5007,7 +5005,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
-  // Simple avg project value for the snapshot card (use raw total — display string may be $12.8M / $123.5M)
+  // Same dollar format as the projects list, so $37,550.00 does not round to $38K.
   const avgProjectValue = useMemo(() => {
     const rawTotal = (metrics as { _rawTotalBids?: number })._rawTotalBids;
     if (
@@ -5018,7 +5016,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
     ) {
       return "$0";
     }
-    return formatMoneyCompact(rawTotal / activeWonCount);
+    return formatMoneyUSD(rawTotal / activeWonCount);
   }, [metrics, activeWonCount]);
 
   const deduplicatedPipelineProjects = useMemo(() => {

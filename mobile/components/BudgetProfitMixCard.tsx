@@ -44,7 +44,6 @@ export default function BudgetProfitMixCard({
   committedPOsTotal,
   adjustedCostBudget,
   profitForecast,
-  originalEstimateMarginPct,
   marginTop = 0,
   jobCompleted = false,
   beforeJobStart = false,
@@ -52,14 +51,6 @@ export default function BudgetProfitMixCard({
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
   const [footerExpanded, setFooterExpanded] = useState(false);
-
-  const theme = darkMode
-    ? {
-        text: '#f1f5f9',
-      }
-    : {
-        text: '#1e293b',
-      };
 
   const pageSubtext = darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748b';
   const pageCaption = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#64748b';
@@ -75,13 +66,6 @@ export default function BudgetProfitMixCard({
   /** True margin stress vs contract (rare once run-rate is capped while under cost budget). */
   const showNegativeMarginNote =
     hasContractForMix && profitForecast.projectedMarginPct < 0;
-  const originalEstimateMarginPctResolved = useMemo(() => {
-    if (typeof originalEstimateMarginPct === 'number' && Number.isFinite(originalEstimateMarginPct)) {
-      return originalEstimateMarginPct;
-    }
-    if (!(adjustedContractValue > 0)) return 0;
-    return (profitForecast.estimatedProfit / adjustedContractValue) * 100;
-  }, [adjustedContractValue, originalEstimateMarginPct, profitForecast.estimatedProfit]);
   // Pill tracks net margin vs the estimate net margin. The Est. chip stays the builder-margin
   // percent, so the planned overhead gap is not shown as a miss before any spend.
   const marginDriftPts =
@@ -141,13 +125,6 @@ export default function BudgetProfitMixCard({
             { borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : Colors.line },
           ]}
         >
-          <View style={styles.budgetProfitMixTitleRow}>
-            <View style={styles.budgetProfitMixTitleCenter}>
-              <Text style={[styles.totalsTitle, { color: theme.text }]} numberOfLines={1}>
-                Budget & profit mix
-              </Text>
-            </View>
-          </View>
           {hasContractForMix ? (
             <View style={styles.plainStatusBlock}>
               <Text style={[styles.plainStatusLead, { color: estimateDriftColor }]}>
@@ -217,10 +194,10 @@ export default function BudgetProfitMixCard({
           {footerExpanded ? (
             <View style={styles.footerDetailBlock}>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                The {profitForecast.projectedMarginPct.toFixed(1)}% is net profit. Before the {money(profitForecast.allocatedCompanyOverhead, currency)} company overhead, the builder margin on this bid is {originalEstimateMarginPctResolved.toFixed(1)}%.
+                The {profitForecast.projectedMarginPct.toFixed(1)}% is net profit after every job cost, including project overhead.
               </Text>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                The bar splits the contract into money spent, cost still left, company overhead, and your profit. {estimateDriftDetail}.
+                The bar splits the contract into money spent, cost still left, and your profit. {estimateDriftDetail}.
               </Text>
               {showNegativeMarginNote ? (
                 <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
@@ -270,7 +247,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   plainStatusBlock: {
-    marginTop: 12,
+    marginTop: 4,
     gap: 6,
   },
   plainStatusLead: {

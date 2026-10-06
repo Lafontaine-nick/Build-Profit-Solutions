@@ -417,8 +417,9 @@ describe('tax expense card labels', () => {
     expect(taxExpenseRecordLabel({ category: 'Labor', vendor: 'Electrical' })).toBeNull();
   });
 
-  it('lists regular materials and labor before change orders, purchase orders, soft costs, and contingency', () => {
+  it('lists regular materials and labor before change orders, purchase orders, soft costs, contingency, and overhead', () => {
     const ordered = sortTaxExpensesForDisplay([
+      { category: 'Company overhead', vendor: 'Farmers', date: '2026-10-06', amount: 100 },
       { category: 'Contingency', vendor: 'Labor', date: '2026-10-04', amount: 500 },
       { category: 'Soft costs', vendor: 'City', date: '2026-10-04', amount: 200 },
       { category: 'Materials', vendor: 'Home Depot', date: '2026-10-04', amount: 1000, __isPurchaseOrder: true },
@@ -435,6 +436,7 @@ describe('tax expense card labels', () => {
       'Home Depot:1000',
       'City:200',
       'Labor:500',
+      'Farmers:100',
     ]);
   });
 });

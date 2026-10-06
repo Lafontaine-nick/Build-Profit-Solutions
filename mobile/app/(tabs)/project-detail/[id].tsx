@@ -96,7 +96,6 @@ import { parseCalendarDate } from '@/utils/formatters';
 import {
   getBidSoftCostTotal,
   isAllowancesCategoryName,
-  isCompanyOverheadCategory,
 } from '@/utils/estimateAllowances';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 import {
@@ -1541,8 +1540,8 @@ function ProjectDetailContent() {
     if (companyOverheadBudget > 0) {
       lines.push({
         id: 'company-overhead',
-        category: 'Company overhead',
-        description: 'Insurance, facilities, and other overhead this bid recovers',
+        category: 'Project overhead',
+        description: 'Insurance, facilities, admin, and other overhead on this job',
         qty: 1,
         unit: 'lump sum',
         unitCost: companyOverheadBudget,
@@ -1552,7 +1551,7 @@ function ProjectDetailContent() {
       });
     }
 
-    // Markup stays off the budget cards. Company overhead is logged here and kept out of the cost cap.
+    // Markup stays off the budget cards. Project overhead is job cost and sits inside the cost cap.
 
     if (lines.length === 0) {
       console.log('⚠️ Estimate path produced no category lines — applying bucket fallback');
@@ -1713,8 +1712,7 @@ function ProjectDetailContent() {
   // Calculate project metrics for Overview tab
   const overviewMetrics = useMemo(() => {
     const expensesTotal = (safeProjectData?.expenses || []).reduce(
-      (sum: number, expense: any) =>
-        isCompanyOverheadCategory(expense?.category) ? sum : sum + Number(expense.amount || 0),
+      (sum: number, expense: any) => sum + Number(expense.amount || 0),
       0
     );
     const bucketSpentTotal = (safeProjectData?.buckets || []).reduce(
@@ -2138,13 +2136,13 @@ function ProjectDetailContent() {
               <View style={[styles.overviewCard, styles.overviewCardTightBottom]}>
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project overview</Text>
-                    <Text style={styles.overviewPageSubtitle}>
-                      {projectPerms.canViewOwnerFinancials
-                        ? 'Contract, cost, and margin'
-                        : projectPerms.isManager
+                    {!projectPerms.canViewOwnerFinancials ? (
+                      <Text style={styles.overviewPageSubtitle}>
+                        {projectPerms.isManager
                           ? 'Operations snapshot — cost control without owner profit'
                           : 'Field view — schedule, tasks, and jobsite updates'}
-                    </Text>
+                      </Text>
+                    ) : null}
                   </View>
 
                   {projectPerms.canViewOwnerFinancials ? (

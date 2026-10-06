@@ -534,13 +534,13 @@ describe('estimateFeedback', () => {
     expect(result.projectSummary.actualDirectCost).toBe(3100);
   });
 
-  it('leaves company overhead bills out of the job cost comparison', () => {
+  it('counts project overhead bills as job cost', () => {
     const result = deriveEstimateFeedbackFromBudgetData({
       projectId: 'budget-1',
-      plannedBudget: 31625,
+      plannedBudget: 31925,
       lines: [
         { id: 'materials', category: 'Materials', qty: 1, unit: 'lump_sum', unitCost: 6930 },
-        { id: 'overhead', category: 'Company overhead', qty: 1, unit: 'lump_sum', unitCost: 300 },
+        { id: 'overhead', category: 'Project overhead', qty: 1, unit: 'lump_sum', unitCost: 300 },
       ],
       expenses: [
         { id: 'job', category: 'Materials', amount: 5600 },
@@ -548,9 +548,8 @@ describe('estimateFeedback', () => {
       ],
     });
 
-    expect(result.projectSummary.actualDirectCost).toBe(5600);
-    expect(result.projectSummary.estimatedDirectCost).toBe(31625);
-    expect(result.scopeComparisons.some((row) => row.scopeItemKey === 'overhead')).toBe(false);
+    expect(result.projectSummary.actualDirectCost).toBe(5700);
+    expect(result.projectSummary.estimatedDirectCost).toBe(31925);
   });
 
   it('does not mutate the original estimate snapshot or saved rate metadata', () => {

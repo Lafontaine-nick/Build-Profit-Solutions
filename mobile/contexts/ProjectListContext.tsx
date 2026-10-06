@@ -828,6 +828,39 @@ function pickNewerLocalProjectRows(...sources: UnifiedProject[][]): UnifiedProje
   return dedupeProjectsById(Array.from(byId.values()));
 }
 
+/**
+ * A newer project snapshot can still carry an old payment schedule. The Timeline file
+ * (`bps.timeline.v2`) is loaded during hydration and must win, or Tax Center outstanding
+ * stays on the previous weekly amounts.
+ */
+function keepStoredTimelineMilestones(
+  chosen: UnifiedProject[],
+  hydrated: UnifiedProject[]
+): UnifiedProject[] {
+  const stored = new Map<string, unknown[]>();
+  for (const project of hydrated) {
+    const id = normalizeProjectId(project.id);
+    const milestones = (project.projectData as { timelineV2Milestones?: unknown[] } | undefined)
+      ?.timelineV2Milestones;
+    if (id && Array.isArray(milestones) && milestones.length > 0) {
+      stored.set(id, milestones);
+    }
+  }
+  if (stored.size === 0) return chosen;
+  return chosen.map((project) => {
+    const id = normalizeProjectId(project.id);
+    const milestones = id ? stored.get(id) : undefined;
+    if (!milestones) return project;
+    return {
+      ...project,
+      projectData: {
+        ...(project.projectData || {}),
+        timelineV2Milestones: milestones,
+      },
+    };
+  });
+}
+
 /** Merge server rows with local-only drafts and preserve completed status from the app. */
 const mergeLocalAndBackend = (
   local: UnifiedProject[],
@@ -2046,7 +2079,10 @@ const ProjectListProviderCore = ({
         await applyProgressAndDatesFromStorage(hydrated)
       );
       const reconciled = withoutDeletedProjects(
-        pickNewerLocalProjectRows(normalized, projectsRef.current)
+        keepStoredTimelineMilestones(
+          pickNewerLocalProjectRows(normalized, projectsRef.current),
+          normalized
+        )
       );
       setProjects(reconciled);
       projectsRef.current = reconciled;

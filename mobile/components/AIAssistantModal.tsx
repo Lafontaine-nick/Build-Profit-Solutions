@@ -69,7 +69,6 @@ import {
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { workTaskProgressPct } from "@/src/lib/timelineScheduleProgress";
-import { getAllocatedCompanyOverhead } from "@/src/lib/projectFinancials";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
@@ -3780,11 +3779,6 @@ const AIAssistantModal: React.FC<Props> = ({
               committedPOs,
               progressPct,
               isCompleted: progressPct >= 100,
-              allocatedCompanyOverhead: getAllocatedCompanyOverhead({
-                ...storageProject,
-                ...contextProject,
-                estimateData: mergedEstimateData,
-              }),
             }) : null;
             const hydratedContext = {
               ...ctxObj,

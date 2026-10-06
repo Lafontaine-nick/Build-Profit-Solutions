@@ -25,7 +25,7 @@ import { getColors } from '../theme/getColors';
 import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { mapApprovedCostBucketsToProjectBuckets } from '../utils/approvedCostBuckets';
-import { isCompanyOverheadCategory } from '../utils/estimateAllowances';
+import { getBidSoftCostTotal, isCompanyOverheadCategory } from '../utils/estimateAllowances';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
 import {
@@ -36,6 +36,7 @@ import {
 } from '../src/lib/profitForecast';
 import {
   approvedChangeOrderBudgetLines,
+  bidMarkupPercent,
   computeProjectFinancials,
   equipmentRentalAmount,
   foldEquipmentRentalIntoMaterialsBucket,
@@ -49,7 +50,7 @@ import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from './GradientRingBackInner';
-import { ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK, estimateFlowDividerColor, estimateSummaryHeroAmountStyle } from '@/utils/estimateFlowCardStyle';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 
 /**
@@ -380,8 +381,7 @@ export default function BudgetTab({
                 expCategory.includes('soft cost') ||
                 expCategory.includes('soft-cost'))) ||
             (lineCategory.includes('contingency') && expCategory.includes('contingency')) ||
-            (lineCategory.includes('company overhead') &&
-              (expCategory.includes('company overhead') || expCategory === 'overhead'))
+            (isCompanyOverheadCategory(lineCategory) && isCompanyOverheadCategory(expCategory))
           );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
@@ -477,6 +477,52 @@ export default function BudgetTab({
     () => equipmentRentalAmount(mergedProjectForFinancials),
     [mergedProjectForFinancials]
   );
+
+  const contractCostStack = useMemo(() => {
+    const project = mergedProjectForFinancials as any;
+    const bid = project?.estimateData || {};
+    const softCosts = getBidSoftCostTotal({ ...project, ...bid });
+    const contingency = Math.max(
+      0,
+      Number(bid?.contingencyAllowance ?? project?.contingencyAllowance) || 0
+    );
+    const overhead = financials.projectOverhead;
+    const hardCosts =
+      Math.max(0, financials.plannedCostBudget - softCosts - contingency - overhead) +
+      financials.approvedChangeOrderCost;
+    const markupPct = bidMarkupPercent(mergedProjectForFinancials);
+    const builderMargin =
+      financials.adjustedContractValue - (financials.adjustedCostBudget - overhead);
+    const netProfit = builderMargin - overhead;
+    const netMarginPct =
+      financials.adjustedContractValue > 0
+        ? (netProfit / financials.adjustedContractValue) * 100
+        : 0;
+    const parts = ['Materials', 'labor'];
+    if (equipmentRental > 0) parts.push('equipment');
+    if ((Number(bid?.otherDirectCost) || 0) > 0) parts.push('other direct costs');
+    let hardCaption = '';
+    if (parts.length >= 3) {
+      hardCaption = `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+    }
+    const overheadSpent = (projectData?.expenses || []).reduce((sum: number, expense: any) => {
+      return isCompanyOverheadCategory(expense?.category) ? sum + safe(expense?.amount) : sum;
+    }, 0);
+    const overheadCaption =
+      overheadSpent > 0.005 ? `Paid ${money(overheadSpent, currency)}` : '';
+    return {
+      softCosts,
+      contingency,
+      hardCosts,
+      markupPct,
+      builderMargin,
+      overhead,
+      netProfit,
+      netMarginPct,
+      hardCaption,
+      overheadCaption,
+    };
+  }, [mergedProjectForFinancials, financials, equipmentRental, currency, projectData?.expenses]);
 
   const normalizedChangeOrders: ChangeOrder[] = useMemo(() => {
     const rawChangeOrders = projectData?.changeOrders || [];
@@ -587,6 +633,7 @@ export default function BudgetTab({
 
   // Materials/Equipment is the estimate materials list, plus equipment rental,
   // plus approved change-order materials. Labor includes approved change-order labor.
+  // Received purchase orders stay on the Purchase Orders card.
   const buckets = useMemo(() => {
     const list = foldEquipmentRentalIntoMaterialsBucket(
       projectData?.buckets || [],
@@ -651,12 +698,56 @@ export default function BudgetTab({
   // Actual Expenses = sum(expenses) + received POs. For Nick: 6500 materials + 1500 POs = 8000.
   // Use sum(expenses) + receivedPOsTotal (not spent) so received POs are always included.
   const actual = useMemo(() => {
-    const expensesTotal = (projectData?.expenses || []).reduce(
-      (s, e) => (isCompanyOverheadCategory(e?.category) ? s : s + safe(e.amount)),
-      0
-    );
+    const expensesTotal = (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0);
     return expensesTotal + receivedPOsTotal;
   }, [projectData?.expenses, receivedPOsTotal]);
+
+  const billsLoggedCaption = useMemo(() => {
+    const kinds = new Set<string>();
+    let changeOrderBills = 0;
+    for (const expense of projectData?.expenses || []) {
+      if (!(safe(expense?.amount) > 0)) continue;
+      const category = String(expense?.category || '').toLowerCase();
+      const lineId = String(expense?.linkedLineId || '');
+      if (lineId.startsWith('bps-co-') || category === 'change orders' || category === 'change order') {
+        changeOrderBills += safe(expense?.amount);
+      }
+      if (isCompanyOverheadCategory(category)) kinds.add('overhead');
+      else if (category.includes('contingency')) kinds.add('contingency');
+      else if (category.includes('soft') || category.includes('allowance')) kinds.add('soft');
+      else if (
+        lineId.startsWith('bps-co-labor-') ||
+        category.includes('labor') ||
+        category.includes('labour') ||
+        category.includes('subcontract')
+      ) kinds.add('labor');
+      else if (
+        lineId.startsWith('bps-co-material-') ||
+        category.includes('material') ||
+        category.includes('equipment')
+      ) kinds.add('materials');
+      else kinds.add('other');
+    }
+    const names = [
+      kinds.has('materials') ? 'materials' : null,
+      kinds.has('labor') ? 'labor' : null,
+      kinds.has('soft') ? 'soft costs' : null,
+      kinds.has('contingency') ? 'contingency' : null,
+      kinds.has('overhead') ? 'project overhead' : null,
+      kinds.has('other') ? 'other bills' : null,
+    ].filter(Boolean) as string[];
+    if (names.length === 0) return '';
+    const joined =
+      names.length === 1
+        ? names[0]
+        : names.length === 2
+          ? `${names[0]} and ${names[1]}`
+          : `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+    const kindsLine = joined.charAt(0).toUpperCase() + joined.slice(1);
+    return changeOrderBills > 0.005
+      ? `${kindsLine}\nIncludes ${money(changeOrderBills, currency)} change order costs`
+      : kindsLine;
+  }, [projectData?.expenses, currency]);
   const committed = safe(projectData?.committedPOs || 0);
   const remaining = Math.max(
     financials.adjustedCostBudget - actual - purchaseOrdersTotal,
@@ -871,73 +962,145 @@ export default function BudgetTab({
                   <View style={styles.totalsContent}>
                     {!isCostControl ? (
                       <>
-                        <Row
-                          label="Contract value"
-                          value={money(financials.contractValueBase, currency)}
-                          theme={budgetTotalsTheme}
-                          variant="book"
-                          metricLabel
-                        />
-                        {financials.approvedChangeOrderRevenue > 0 && (
-                          <Row
-                            label="Approved change orders"
-                            value={`+ ${money(financials.approvedChangeOrderRevenue, currency)}`}
-                            theme={budgetTotalsTheme}
-                            variant="book"
-                            metricLabel
-                          />
-                        )}
-                        {Math.abs(financials.adjustedContractValue - financials.contractValueBase) > 0.005 ? (
-                          <Row
-                            label="Adjusted contract value"
-                            value={money(financials.adjustedContractValue, currency)}
-                            theme={budgetTotalsTheme}
-                            variant="book"
-                            metricLabel
-                          />
+                        <Text style={[estimateSummaryHeroAmountStyle(), { color: '#2dcc9a' }]}>
+                          {money(financials.adjustedContractValue, currency)}
+                        </Text>
+                        <Text style={{ color: pageInstructional, fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
+                          {financials.approvedChangeOrderRevenue > 0.005
+                            ? 'Adjusted contract (incl. markup)'
+                            : 'Contract (incl. markup)'}
+                          {contractCostStack.markupPct > 0 ? ` · ${contractCostStack.markupPct}% markup` : ''}
+                        </Text>
+                        {financials.approvedChangeOrderRevenue > 0.005 ? (
+                          <Text style={{ color: pageInstructional, fontSize: 13, fontWeight: '500', marginTop: 2, lineHeight: 18 }}>
+                            {`Includes ${money(financials.approvedChangeOrderRevenue, currency)} change order`}
+                          </Text>
                         ) : null}
-                        <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)' }]} />
+                        <View style={{ marginTop: 14 }}>
+                          <SummaryStackRow
+                            label={equipmentRental > 0 ? 'Hard costs + equipment' : 'Hard costs'}
+                            caption={contractCostStack.hardCaption}
+                            value={money(contractCostStack.hardCosts, currency)}
+                            labelColor={darkMode ? '#F5F7FA' : theme.text}
+                            captionColor={pageInstructional}
+                            dividerColor={estimateFlowDividerColor(darkMode)}
+                          />
+                          {contractCostStack.softCosts > 0.005 ? (
+                            <SummaryStackRow
+                              label="Soft costs"
+                              value={money(contractCostStack.softCosts, currency)}
+                              labelColor={darkMode ? '#F5F7FA' : theme.text}
+                              captionColor={pageInstructional}
+                              dividerColor={estimateFlowDividerColor(darkMode)}
+                            />
+                          ) : null}
+                          {contractCostStack.contingency > 0.005 ? (
+                            <SummaryStackRow
+                              label="Contingency"
+                              value={money(contractCostStack.contingency, currency)}
+                              labelColor={darkMode ? '#F5F7FA' : theme.text}
+                              captionColor={pageInstructional}
+                              dividerColor={estimateFlowDividerColor(darkMode)}
+                            />
+                          ) : null}
+                          <SummaryStackRow
+                            label={
+                              contractCostStack.markupPct > 0
+                                ? `Builder margin (${contractCostStack.markupPct}%)`
+                                : 'Builder margin'
+                            }
+                            value={money(contractCostStack.builderMargin, currency)}
+                            labelColor={darkMode ? '#F5F7FA' : theme.text}
+                            captionColor={pageInstructional}
+                            dividerColor={estimateFlowDividerColor(darkMode)}
+                          />
+                          {contractCostStack.overhead > 0.005 ? (
+                            <SummaryStackRow
+                              label="Project overhead"
+                              caption={contractCostStack.overheadCaption}
+                              value={`-${money(contractCostStack.overhead, currency)}`}
+                              labelColor={darkMode ? '#F5F7FA' : theme.text}
+                              captionColor={pageInstructional}
+                              dividerColor={estimateFlowDividerColor(darkMode)}
+                            />
+                          ) : null}
+                          <SummaryStackRow
+                            label="Projected profit"
+                            caption={`${contractCostStack.netMarginPct.toFixed(1)}% projected net margin`}
+                            value={money(contractCostStack.netProfit, currency)}
+                            labelColor={darkMode ? '#F5F7FA' : theme.text}
+                            captionColor={contractCostStack.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
+                            valueColor={contractCostStack.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
+                            emphasize
+                            dividerColor={estimateFlowDividerColor(darkMode)}
+                          />
+                        </View>
+                        <Text style={{ color: darkMode ? '#F5F7FA' : theme.text, fontSize: 17, fontWeight: '800', marginTop: 26, marginBottom: 6 }}>
+                          Spent so far
+                        </Text>
                       </>
-                    ) : null}
-                    <Row
-                      label={isCostControl ? 'Approved cost budget' : 'Planned cost budget'}
-                      value={money(financials.adjustedCostBudget, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    {equipmentRental > 0 ? (
+                    ) : (
                       <Row
-                        label="Equipment rental"
-                        sublabel="Included in Materials/Equipment"
-                        value={money(equipmentRental, currency)}
+                        label="Approved cost budget"
+                        value={money(financials.adjustedCostBudget, currency)}
                         theme={budgetTotalsTheme}
                         variant="book"
                         metricLabel
                       />
+                    )}
+                    {receivedPOsTotal > 0.005 ? (
+                      <>
+                        <SummaryStackRow
+                          label="Bills logged"
+                          caption={billsLoggedCaption}
+                          value={money(Math.max(0, actual - receivedPOsTotal), currency)}
+                          labelColor={darkMode ? '#F5F7FA' : theme.text}
+                          captionColor={pageInstructional}
+                          dividerColor={estimateFlowDividerColor(darkMode)}
+                        />
+                        <SummaryStackRow
+                          label="Received purchase orders"
+                          value={money(receivedPOsTotal, currency)}
+                          labelColor={darkMode ? '#F5F7FA' : theme.text}
+                          captionColor={pageInstructional}
+                          dividerColor={estimateFlowDividerColor(darkMode)}
+                        />
+                      </>
                     ) : null}
-                    <Row
+                    <SummaryStackRow
                       label="Actual costs"
+                      caption={receivedPOsTotal > 0.005 ? undefined : billsLoggedCaption}
                       value={money(actual, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
+                      labelColor={darkMode ? '#F5F7FA' : theme.text}
+                      captionColor={pageInstructional}
                       valueColor={quietMoneyColor(actual)}
+                      emphasize
+                      dividerColor={estimateFlowDividerColor(darkMode)}
                     />
-                    <Row
-                      label="Committed POs"
-                      value={money(purchaseOrdersTotal, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                      valueColor={quietMoneyColor(purchaseOrdersTotal)}
-                    />
+                    {purchaseOrdersTotal > 0.005 ? (
+                      <SummaryStackRow
+                        label="Committed POs"
+                        caption="Still on order"
+                        value={money(purchaseOrdersTotal, currency)}
+                        labelColor={darkMode ? '#F5F7FA' : theme.text}
+                        captionColor={pageInstructional}
+                        dividerColor={estimateFlowDividerColor(darkMode)}
+                      />
+                    ) : null}
                     <View style={styles.remainingSection}>
-                      <Text
-                        style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}
-                      >
-                        Usage vs planned cost budget
-                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                        <Text
+                          style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}
+                        >
+                          Cost cap used
+                        </Text>
+                        <Text
+                          style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.metricLabelColor, fontVariant: ['tabular-nums'] }]}
+                          numberOfLines={1}
+                        >
+                          {`${(usageRatio * 100).toFixed(1)}% of ${money(financials.adjustedCostBudget, currency)}`}
+                        </Text>
+                      </View>
                       <Bar pct={remainingPercent} tone={remaining > 0 ? 'green' : 'red'} usagePct={usagePercent} />
                       <Text
                         style={[styles.remainingText, { color: remainingColor }]}
@@ -953,12 +1116,13 @@ export default function BudgetTab({
                   </View>
                 </View>
               </View>
+      </View>
 
           {/* Tabs — each pill sits in an equal flex slot so width is 50/50 regardless of label */}
-          <View style={styles.tabContainer}>
+          <View style={[styles.tabContainer, { marginTop: 18, marginBottom: 6 }]}>
             <View style={styles.tabPillSlot}>
               <TabPill
-                label='Line items'
+                label='Categories'
                 active={tab === 'lines'}
                 onPress={() => setTab('lines')}
                 theme={theme}
@@ -977,7 +1141,6 @@ export default function BudgetTab({
               />
             </View>
           </View>
-      </View>
 
           {tab === 'lines' && (
               <View style={styles.budgetCategoryStack}>
@@ -1002,7 +1165,7 @@ export default function BudgetTab({
                         : itemName.toLowerCase().includes('soft cost') ||
                             itemName.toLowerCase().includes('soft-cost')
                           ? 'receipt-long'
-                          : itemName.toLowerCase().includes('company overhead')
+                          : isCompanyOverheadCategory(itemName)
                             ? 'business'
                             : itemName.toLowerCase().includes('contingency')
                             ? 'savings'
@@ -1161,6 +1324,11 @@ export default function BudgetTab({
 
         {tab === 'cos' && (
             <View style={styles.budgetCategoryStack}>
+                <View style={styles.budgetPageHeader}>
+                  <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                    Orders
+                  </Text>
+                </View>
                 {(() => {
                   const onOrder = purchaseOrdersTotal;
                   const received = receivedPOsTotal;
@@ -1259,10 +1427,15 @@ export default function BudgetTab({
                         </View>
                         <View style={styles.budgetStatusRow}>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Approved</Text>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>Client price</Text>
                             <Text style={[styles.rowValueMetric, { color: quietMoneyColor(approvedTotal) ?? budgetTotalsTheme.valueNeutral, marginTop: 6 }]}>
                               {money(approvedTotal, currency)}
                             </Text>
+                            {approvedTotal > 0.005 ? (
+                              <Text style={{ color: pageInstructional, fontSize: 12, lineHeight: 16, marginTop: 4 }}>
+                                Costs are logged on Materials and Labor
+                              </Text>
+                            ) : null}
                           </View>
                           {waitingTotal > 0 ? (
                             <View style={{ flex: 1, alignItems: 'flex-end' }}>
@@ -1913,6 +2086,58 @@ export default function BudgetTab({
 }
 
 // Components -------------------------------------------------------
+function SummaryStackRow({
+  label,
+  caption,
+  value,
+  labelColor,
+  captionColor,
+  valueColor,
+  dividerColor,
+  emphasize = false,
+}: {
+  label: string;
+  caption?: string;
+  value: string;
+  labelColor: string;
+  captionColor: string;
+  valueColor?: string;
+  dividerColor: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: emphasize ? 14 : 12,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: dividerColor,
+      }}
+    >
+      <View style={{ flex: 1, marginRight: 12 }}>
+        <Text style={{ color: labelColor, fontSize: 15, fontWeight: emphasize ? '700' : '600' }}>{label}</Text>
+        {caption ? (
+          <Text style={{ color: captionColor, fontSize: 12, lineHeight: 16, marginTop: 2, fontWeight: '600' }}>
+            {caption}
+          </Text>
+        ) : null}
+      </View>
+      <Text
+        style={{
+          color: valueColor ?? labelColor,
+          fontSize: emphasize ? 18 : 15,
+          fontWeight: emphasize ? '800' : '700',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function Row({
   label,
   sublabel,

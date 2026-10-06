@@ -23,13 +23,20 @@ export function getBidAllowanceLineItemsTotal(bid: {
   return getAllowanceLineItemsTotal(bid?.allowanceLineItems);
 }
 
-/** Budget card for insurance, facilities, admin, and added overhead. Not job cost. */
+/**
+ * Project overhead card: insurance, facilities, admin, and added overhead. Job cost.
+ * Older projects and bills still use the name "Company overhead".
+ */
 export function isCompanyOverheadCategory(name: string | null | undefined): boolean {
   const normalized = String(name || '').trim().toLowerCase();
-  return normalized.includes('company overhead') || normalized === 'overhead';
+  return (
+    normalized.includes('project overhead') ||
+    normalized.includes('company overhead') ||
+    normalized === 'overhead'
+  );
 }
 
-/** Named company-overhead lines added beside insurance, facilities, and admin. */
+/** Named overhead lines added beside insurance, facilities, and admin. */
 export function getBidOverheadLineItemsTotal(bid: {
   overheadLineItems?: AllowanceLineLike[] | null;
 } | null | undefined): number {

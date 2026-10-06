@@ -1,4 +1,3 @@
-import { isCompanyOverheadCategory } from '@/utils/estimateAllowances';
 import type { EstimateReadinessSnapshot } from '@/utils/estimateReadiness';
 import type { RateMetadata } from '@/utils/scopePricingIntelligence';
 import type { PricingSourceKind, UnitCode } from '@/utils/scopeIntelligence';
@@ -1342,8 +1341,8 @@ export function deriveEstimateFeedbackFromBudgetData(data: {
   plannedBudget?: number;
   finalCustomerPrice?: number;
 }, options: { now?: Date } = {}): EstimateFeedbackResult {
-  const lines = (data.lines || []).filter((line) => !isCompanyOverheadCategory(line.category));
-  const jobExpenses = (data.expenses || []).filter((expense) => !isCompanyOverheadCategory(expense.category));
+  const lines = data.lines || [];
+  const jobExpenses = data.expenses || [];
   const estimateSnapshot: EstimateSnapshot = {
     estimateId: data.projectId || 'budget-tab-estimate',
     createdAt: (options.now || new Date()).toISOString(),

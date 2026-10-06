@@ -52,8 +52,7 @@ export function computeBudgetProfitMixSegments(params: {
   }
 
   const remainLabel = "Left to spend";
-  const thirdLabel =
-    profit >= 0 ? (done ? "Your profit" : "Your profit") : done ? "Shortfall" : "Shortfall";
+  const thirdLabel = profit >= 0 ? (done ? "Net profit" : "Projected profit") : "Shortfall";
   const thirdColor = profit >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
 
   const parts = [
@@ -151,6 +150,9 @@ export default function BudgetProfitMixDonut({
   const valueBright = darkMode ? "#FFFFFF" : "#0f172a";
   const centerPctColor = projectedMarginPct >= 0 ? COLOR_PROFIT : COLOR_SHORTFALL;
   const visibleSegments = segments.filter((s) => s.key !== "empty");
+  const profitSegment = segments.find((s) => s.key === "profit" || s.key === "shortfall");
+  const profitHeroLabel =
+    profitSegment?.key === "shortfall" ? "Shortfall" : jobCompleted ? "Net profit" : "Projected profit";
 
   return (
     <View
@@ -159,12 +161,33 @@ export default function BudgetProfitMixDonut({
       accessibilityRole="summary"
       accessibilityLabel={accessibilityLabel}
     >
-      <Text style={[styles.centerLabel, { color: labelDim }]}>
-        Net margin
-      </Text>
-      <Text style={[styles.centerValue, { color: centerPctColor }]}>
-        {`${projectedMarginPct.toFixed(1)}%`}
-      </Text>
+      <View style={styles.heroRow}>
+        <View>
+          <Text style={[styles.centerLabel, { color: labelDim }]}>
+            Net margin
+          </Text>
+          <Text style={[styles.centerValue, { color: centerPctColor }]}>
+            {`${projectedMarginPct.toFixed(1)}%`}
+          </Text>
+        </View>
+        {profitSegment ? (
+          <View style={styles.heroProfit}>
+            <Text style={[styles.centerLabel, { color: labelDim, textAlign: "right" }]}>
+              {profitHeroLabel}
+            </Text>
+            <Text
+              style={[styles.heroProfitValue, { color: centerPctColor }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              {profitSegment.key === "shortfall"
+                ? `-${formatMoney(profitSegment.value, currency)}`
+                : formatMoney(profitSegment.value, currency)}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <View style={styles.mixTrack}>
         {visibleSegments.map((seg) => (
           <View
@@ -186,6 +209,9 @@ export default function BudgetProfitMixDonut({
                 </Text>
                 {seg.key === "spent" && spentNote ? (
                   <Text style={[styles.legendNote, { color: labelDim }]}>{spentNote}</Text>
+                ) : null}
+                {seg.key === "overhead" ? (
+                  <Text style={[styles.legendNote, { color: labelDim }]}>Comes out of profit</Text>
                 ) : null}
               </View>
               <Text style={[styles.legendValue, { color: valueBright }]}>
@@ -215,6 +241,23 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.4,
     lineHeight: 38,
+  },
+  heroRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: 12,
+  },
+  heroProfit: {
+    flexShrink: 1,
+    alignItems: "flex-end",
+  },
+  heroProfitValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    lineHeight: 30,
+    fontVariant: ["tabular-nums"],
   },
   mixTrack: {
     marginTop: 14,

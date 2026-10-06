@@ -6,7 +6,7 @@
 
 import { getProjectRevenue } from '@/lib/projectRevenue';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
-import { computeProjectFinancials, getAllocatedCompanyOverhead } from '@/src/lib/projectFinancials';
+import { computeProjectFinancials } from '@/src/lib/projectFinancials';
 
 function toFiniteNumber(value: any): number {
   if (value == null) return 0;
@@ -212,7 +212,6 @@ export function computeProjectListRowFinancials(params: {
           committedPOs,
           progressPct: finalProgress * 100,
           isCompleted: slugForUi === 'completed',
-          allocatedCompanyOverhead: getAllocatedCompanyOverhead(mergedProject),
         })
       : null;
 

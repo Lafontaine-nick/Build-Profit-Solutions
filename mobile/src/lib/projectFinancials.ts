@@ -1,7 +1,7 @@
 /**
  * Cost vs revenue for project budgeting.
  * Contract / sell price (grandTotal, bid) is revenue; spend tracking uses planned cost + allocated CO cost.
- * Planned cost matches the estimate: hard costs + soft costs + contingency. Company overhead is not job cost.
+ * Planned cost matches the estimate: hard costs + soft costs + contingency + project overhead.
  */
 
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
@@ -617,7 +617,7 @@ function readPositiveAmount(source: any, ...keys: string[]): number {
   return 0;
 }
 
-/** Allocated company overhead on the bid. Not part of the job-cost cap. */
+/** Project overhead on the bid (insurance, facilities, admin, added lines). Part of the job-cost cap; not marked up. */
 export function getAllocatedCompanyOverhead(project: any): number {
   const sources = [project?.estimateData, project?.projectData?.estimateData, project];
   const pick = (...keys: string[]) => {
@@ -653,7 +653,9 @@ export type ProjectFinancialSnapshot = {
   approvedChangeOrderCost: number;
   /** Spend cap: planned cost + allocated CO cost. */
   adjustedCostBudget: number;
-  /** Company overhead allocated on the estimate. Excluded from the cost cap. */
+  /** Project overhead from the estimate. Included in the planned cost; not marked up. */
+  projectOverhead: number;
+  /** Overhead taken from profit outside the cost cap. Project overhead sits inside the cap, so this is 0. */
   allocatedCompanyOverhead: number;
 };
 
@@ -680,7 +682,8 @@ export function foldEquipmentRentalIntoMaterialsBucket<
     if (isCompanyOverheadCategory(bucket?.name)) return sum;
     return sum + (Number(bucket?.budget) || 0);
   }, 0);
-  if (Math.abs(plannedCostBudget - bucketSum - equipment) >= 1) return list;
+  const jobPlanned = plannedCostBudget - getAllocatedCompanyOverhead(project);
+  if (Math.abs(jobPlanned - bucketSum - equipment) >= 1) return list;
   const materialsIndex = list.findIndex((bucket) =>
     String(bucket?.name || '').toLowerCase().includes('material')
   );
@@ -882,6 +885,10 @@ export function computeProjectFinancials(
   if (plannedCostBudget <= 0 && bucketSumOpt != null && bucketSumOpt > 0) {
     plannedCostBudget = bucketSumOpt;
   }
+  const projectOverhead = getAllocatedCompanyOverhead(project);
+  if (plannedCostBudget > 0) {
+    plannedCostBudget += projectOverhead;
+  }
 
   const approvedCostBudget = safeNum(project?.approvedCostBudget);
   if (plannedCostBudget <= 0 && approvedCostBudget > 0) {
@@ -913,6 +920,7 @@ export function computeProjectFinancials(
     plannedCostBudget,
     approvedChangeOrderCost,
     adjustedCostBudget,
-    allocatedCompanyOverhead: getAllocatedCompanyOverhead(project),
+    projectOverhead,
+    allocatedCompanyOverhead: 0,
   };
 }

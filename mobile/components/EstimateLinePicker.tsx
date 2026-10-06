@@ -69,6 +69,10 @@ type Props = {
   onOpenChangeOrderPayment?: (changeOrderId: string) => void;
   /** Fires after this sheet has fully closed. */
   onDidDismiss?: () => void;
+  /** Render only the list page, as the first step of an add sheet (no field, no modal). */
+  inline?: boolean;
+  /** Back arrow on the inline list. */
+  onBack?: () => void;
   colors: {
     background: string;
     card: string;
@@ -102,6 +106,13 @@ function optionsFor(
   return [...estimateLines, ...changeOrderLines];
 }
 
+export function hasEstimateLineOptions(
+  projectLike: Record<string, unknown> | null | undefined,
+  kind: EstimateLinePickerKind
+): boolean {
+  return optionsFor(projectLike, kind).length > 0;
+}
+
 function displayLineName(name: string): string {
   return displayEstimateLineName(name);
 }
@@ -118,7 +129,7 @@ function pickerTitle(kind: EstimateLinePickerKind): string {
   if (kind === 'materials') return 'Materials & equipment';
   if (kind === 'labor') return 'Labor';
   if (kind === 'soft') return 'Soft costs';
-  if (kind === 'overhead') return 'Company overhead';
+  if (kind === 'overhead') return 'Project overhead';
   return 'Contingency';
 }
 
@@ -126,7 +137,7 @@ function pickerSubtitle(kind: EstimateLinePickerKind): string {
   if (kind === 'materials') return 'Materials, equipment, and change orders';
   if (kind === 'labor') return 'Labor and change orders';
   if (kind === 'soft') return 'Soft costs';
-  if (kind === 'overhead') return 'Company overhead';
+  if (kind === 'overhead') return 'Project overhead';
   return 'Contingency';
 }
 
@@ -146,11 +157,13 @@ export default function EstimateLinePicker({
   readOnly = false,
   onOpenChangeOrderPayment,
   onDidDismiss,
+  inline = false,
+  onBack,
   colors,
 }: Props) {
   const insets = useSafeAreaInsets();
   const pageInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(inline);
   const [modalAnimation, setModalAnimation] = useState<'slide' | 'none'>('slide');
   const [query, setQuery] = useState('');
   /** Draft highlight inside the modal; committed via footer Select. */
@@ -299,6 +312,19 @@ export default function EstimateLinePicker({
     setVisible(true);
   }, [selectedLineId]);
 
+  const enterManually = useCallback(() => {
+    onSelect(null);
+    close();
+  }, [close, onSelect]);
+
+  const handleBack = useCallback(() => {
+    if (inline) {
+      onBack?.();
+      return;
+    }
+    close();
+  }, [close, inline, onBack]);
+
   const confirmSelection = useCallback(() => {
     void (async () => {
       const changeOrderId = changeOrderIdFromBudgetLineId(pendingLine?.id);
@@ -396,6 +422,7 @@ export default function EstimateLinePicker({
 
   return (
     <>
+      {!inline ? (
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.text }]}>
           {readOnly ? 'Budget item' : 'Link to a budget item'}
@@ -456,13 +483,14 @@ export default function EstimateLinePicker({
           </Pressable>
         ) : null}
       </View>
+      ) : null}
 
       {!readOnly ? (
-      <Modal
+      <ListPageShell
+        inline={inline}
         visible={visible}
         animationType={modalAnimation}
-        presentationStyle="overFullScreen"
-        onRequestClose={close}
+        onRequestClose={handleBack}
         onDismiss={onDidDismiss}
       >
         <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -477,7 +505,7 @@ export default function EstimateLinePicker({
           >
             <Pressable
               accessibilityRole="button"
-              onPress={close}
+              onPress={handleBack}
               style={[
                 styles.headerBack,
                 { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : colors.nestedCard },
@@ -719,21 +747,71 @@ export default function EstimateLinePicker({
             ) : null}
             <Pressable
               onPress={confirmSelection}
-              style={({ pressed }) => [styles.selectBtnWrap, pressed && { opacity: 0.92 }]}
+              disabled={!pendingLineId}
+              style={({ pressed }) => [
+                styles.selectBtnWrap,
+                !pendingLineId && { opacity: 0.45 },
+                pressed && { opacity: 0.92 },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel={pendingLineId ? 'Select budget item' : 'Continue without link'}
+              accessibilityLabel="Select budget item"
+              accessibilityState={{ disabled: !pendingLineId }}
             >
               <View style={styles.selectBtnInner}>
-                <Text style={styles.selectBtnText}>
-                  {pendingLineId ? 'Select' : 'Continue without link'}
-                </Text>
+                <Text style={styles.selectBtnText}>Select</Text>
               </View>
+            </Pressable>
+            <Pressable
+              onPress={enterManually}
+              style={({ pressed }) => [
+                styles.manualBtn,
+                {
+                  backgroundColor: darkMode ? '#2C2C2E' : colors.nestedCard,
+                  borderColor: darkMode ? 'rgba(148,163,184,0.35)' : colors.border,
+                },
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Enter manually"
+            >
+              <Text style={[styles.manualBtnText, { color: darkMode ? '#F5F7FA' : colors.text }]}>
+                Enter manually
+              </Text>
             </Pressable>
           </View>
         </View>
-      </Modal>
+      </ListPageShell>
       ) : null}
     </>
+  );
+}
+
+function ListPageShell({
+  inline,
+  visible,
+  animationType,
+  onRequestClose,
+  onDismiss,
+  children,
+}: {
+  inline: boolean;
+  visible: boolean;
+  animationType: 'slide' | 'none';
+  onRequestClose: () => void;
+  onDismiss?: () => void;
+  children: React.ReactNode;
+}) {
+  if (inline) return <>{children}</>;
+  return (
+    <Modal
+      visible={visible}
+      animationType={animationType}
+      presentationStyle="overFullScreen"
+      onRequestClose={onRequestClose}
+      onDismiss={onDismiss}
+    >
+      {children}
+    </Modal>
   );
 }
 
@@ -954,6 +1032,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#050B13',
+    letterSpacing: 0.3,
+  },
+  manualBtn: {
+    marginTop: 10,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+  },
+  manualBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
     letterSpacing: 0.3,
   },
 });

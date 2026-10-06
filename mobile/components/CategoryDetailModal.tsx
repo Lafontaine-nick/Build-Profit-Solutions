@@ -272,7 +272,8 @@ export default function CategoryDetailModal({
     categoryLower.includes('soft-cost') ||
     categoryLower.includes('allowance');
   const isContingencyCategory = categoryLower.includes('contingency');
-  const isCompanyOverheadCategory = categoryLower.includes('company overhead');
+  const isCompanyOverheadCategory =
+    categoryLower.includes('project overhead') || categoryLower.includes('company overhead');
   const usesPlannedBudgetCard = isSoftCostCategory || isContingencyCategory || isCompanyOverheadCategory;
   const plannedBudgetKind = isSoftCostCategory
     ? 'soft'
@@ -663,7 +664,7 @@ export default function CategoryDetailModal({
     const bucket = buckets.find((entry: { name?: string }) => {
       const name = String(entry?.name || '').toLowerCase();
       if (isContingencyCategory) return name.includes('contingency');
-      if (isCompanyOverheadCategory) return name.includes('company overhead');
+      if (isCompanyOverheadCategory) return name.includes('project overhead') || name.includes('company overhead');
       return name.includes('soft') || name.includes('allowance');
     });
     const fromBucket = Number(bucket?.budget ?? bucket?.bidBudget ?? 0);
@@ -704,6 +705,15 @@ export default function CategoryDetailModal({
   const changeOrderCategoryBudget = useMemo(
     () => changeOrderCategoryLines.reduce((sum, line) => sum + line.budget, 0),
     [changeOrderCategoryLines]
+  );
+
+  const showChangeOrderCostNote = useMemo(
+    () =>
+      isChangeOrdersCategory &&
+      (projectData.changeOrders || []).some(
+        (co: any) => co?.approved === true || String(co?.status || '').toLowerCase() === 'approved'
+      ),
+    [isChangeOrdersCategory, projectData.changeOrders]
   );
 
   const categoryBudgetSummary = useMemo(
@@ -1152,10 +1162,15 @@ export default function CategoryDetailModal({
                     {isPurchaseOrdersCategory
                       ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
                       : isChangeOrdersCategory
-                        ? 'Change order total'
+                        ? 'Client price'
                         : 'Total Spent'}
                   </Text>
                   <Text style={[styles.totalValue, !(total > 0) && { color: darkMode ? '#d7e1f0' : '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
+                  {showChangeOrderCostNote ? (
+                    <Text style={[styles.changeOrderCostNote, { color: '#d7e1f0' }]}>
+                      Log the material and labor bills for change orders on the Materials and Labor cards.
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             ) : (
@@ -1166,10 +1181,15 @@ export default function CategoryDetailModal({
                       {isPurchaseOrdersCategory
                         ? purchaseOrderSummaryLabel(activePOTab, Array.isArray(data) ? data.length : 0)
                         : isChangeOrdersCategory
-                          ? 'Change order total'
+                          ? 'Client price'
                           : 'Total Spent'}
                     </Text>
                     <Text style={[styles.totalValue, !(total > 0) && { color: '#64748b' }]}>{formatMoneyFull(total, { decimals: 2 })}</Text>
+                    {showChangeOrderCostNote ? (
+                      <Text style={[styles.changeOrderCostNote, { color: Colors.sub }]}>
+                        Log the material and labor bills for change orders on the Materials and Labor cards.
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -2721,6 +2741,12 @@ const styles = StyleSheet.create({
   totalCard: {
     flexDirection: "column",
     alignItems: "stretch",
+  },
+  changeOrderCostNote: {
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 10,
   },
   totalLabel: {
     fontSize: 12,

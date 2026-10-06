@@ -112,7 +112,8 @@ export default function EditTransactionModal({
     categoryLower.includes("soft-cost") ||
     categoryLower.includes("allowance");
   const isContingencyCategory = categoryLower.includes("contingenc");
-  const isCompanyOverheadCategory = categoryLower.includes("company overhead");
+  const isCompanyOverheadCategory =
+    categoryLower.includes("project overhead") || categoryLower.includes("company overhead");
   const showEstimateLinePicker =
     isMaterialsEquipment ||
     isLaborCategory ||

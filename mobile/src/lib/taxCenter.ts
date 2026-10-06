@@ -8,6 +8,7 @@ import {
   computeProjectFinancials,
   type ChangeOrderPaymentRow,
 } from '@/src/lib/projectFinancials';
+import { isCompanyOverheadCategory } from '@/utils/estimateAllowances';
 
 /**
  * Tax year bucketing uses **business-facing dates** (typically `YYYY-MM-DD` or localized date strings).
@@ -607,11 +608,12 @@ export function taxExpenseRecordLabel(
   return null;
 }
 
-/** Expenses Paid order: regular materials and labor, change orders, purchase orders, soft costs, then contingency. */
+/** Expenses Paid order: regular materials and labor, change orders, purchase orders, soft costs, contingency, then project overhead. */
 export function taxExpenseListRank(
   expense: (Partial<TaxExpense> & { linkedLineId?: string | null }) | null | undefined
 ): number {
   const category = String(expense?.category || '').toLowerCase();
+  if (isCompanyOverheadCategory(category)) return 5;
   if (category.includes('contingenc')) return 4;
   if (category.includes('soft')) return 3;
   const label = taxExpenseRecordLabel(expense);
