@@ -23,6 +23,33 @@ describe('groupCategoryExpenses', () => {
     expect(list[1].kind).toBe('single');
   });
 
+  it('keeps the budget line name when labor bills use different payees', () => {
+    const items = [
+      {
+        id: 'new',
+        vendor: 'Nicholas',
+        description: 'GFCI receptacles',
+        amount: 1000,
+        linkedLineId: 'gfci',
+        date: '2026-10-06',
+      },
+      {
+        id: 'old',
+        vendor: 'Electrical',
+        description: 'GFCI receptacles',
+        amount: 1000,
+        linkedLineId: 'gfci',
+        date: '2026-10-04',
+      },
+    ];
+    const list = buildGroupedCategoryExpenseList(items, { gfci: 'GFCI receptacles' });
+    expect(list[0].kind).toBe('group');
+    if (list[0].kind === 'group') {
+      expect(list[0].lineName).toBe('GFCI receptacles');
+      expect(list[0].items.map((row) => row.vendor)).toEqual(['Nicholas', 'Electrical']);
+    }
+  });
+
   it('matches material-only expenses to linked line labels', () => {
     const key = resolveExpenseGroupKey(
       { id: 'e1', material: 'Walls' },

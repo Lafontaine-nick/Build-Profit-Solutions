@@ -14,8 +14,7 @@ export default function SubcontractorTaxReport({ vendors, formatMoney }: Props) 
     <View style={styles.card}>
       <Text style={styles.title}>Subcontractor payment summary</Text>
       <Text style={styles.subtitle}>
-        Review vendors and subcontractors before year-end reporting. Confirm vendor eligibility, payment method, W-9
-        status, and filing requirements with your CPA or tax professional when Potential 1099 review applies.
+        People and companies entered as Paid to on labor bills. Mark each W-9 on the 1099 and W-2 page.
       </Text>
 
       {vendors.length === 0 ? (
@@ -29,9 +28,9 @@ export default function SubcontractorTaxReport({ vendors, formatMoney }: Props) 
                 <Text style={styles.projects} numberOfLines={2}>
                   {vendor.projects.length ? vendor.projects.join(', ') : 'No project linked'}
                 </Text>
-                <Text style={styles.metaLine}>EIN: {vendor.einPlaceholder}</Text>
-                <Text style={styles.metaLine}>Address: {vendor.addressPlaceholder}</Text>
-                <Text style={styles.metaLine}>W-9 uploaded: {vendor.w9Uploaded ? 'Yes' : 'No'}</Text>
+                {vendor.missingW9 ? (
+                  <Text style={styles.metaLine}>W-9 not on file</Text>
+                ) : null}
               </View>
               <Text style={styles.amount}>{formatMoney(vendor.totalPaid)}</Text>
             </View>

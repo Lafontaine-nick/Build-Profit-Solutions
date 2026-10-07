@@ -7,16 +7,21 @@ import {
   buildProjectTaxSummaries,
   calculateOutstandingInvoices,
   computeTaxCenterSummary,
+  expenseCountsTowardSubcontractorPayments,
+  expenseCountsTowardW2Payments,
+  laborPayeeCountsAsSubcontractorPayment,
+  laborPaymentBadge,
   getCommittedCostsDetailRows,
   getOutstandingReceivablesDetailRows,
   getYearCollectedPayments,
   getYearExpenses,
+  formatTaxNetMarginPercent,
   isCurrentTaxProject,
   isPoPaidForTax,
   taxExpenseRecordLabel,
   sortTaxExpensesForDisplay,
 } from '@/src/lib/taxCenter';
-import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
+import { build1099ReviewSummary, buildW9ReminderPayees } from '@/src/lib/tax1099Review';
 
 /** Golden-style fixtures: document Tax Center behavior and protect calculation invariants. */
 
@@ -402,8 +407,155 @@ describe('Tax Center golden fixtures', () => {
         },
       ],
     });
-    expect(review.potential1099VendorCount).toBe(1);
+    expect(review.potential1099VendorCount).toBe(0);
     expect(review.rows[0]?.totalPaid).toBe(800);
+  });
+});
+
+describe('labor paid-to subcontractor payments', () => {
+  it('counts a labor payee without a W-9 vendor record', () => {
+    const nicholas = {
+      category: 'Labor',
+      vendor: 'Nicholas',
+      trade: 'Electrical',
+      amount: 1000,
+    };
+    const tradeOnly = {
+      category: 'Labor',
+      vendor: 'Electrical',
+      trade: 'Electrical',
+      amount: 1000,
+    };
+    expect(laborPayeeCountsAsSubcontractorPayment(nicholas)).toBe(true);
+    expect(expenseCountsTowardSubcontractorPayments(nicholas, [])).toBe(true);
+    expect(laborPayeeCountsAsSubcontractorPayment(tradeOnly)).toBe(false);
+    expect(expenseCountsTowardSubcontractorPayments(tradeOnly, [])).toBe(false);
+    expect(laborPaymentBadge(nicholas)).toBe('1099');
+    expect(laborPaymentBadge(tradeOnly)).toBeNull();
+  });
+
+  it('treats me, myself, and self as the owner’s own labor', () => {
+    for (const vendor of ['me', 'Myself', 'self.']) {
+      const bill = { category: 'Labor', vendor, trade: 'Electrical', amount: 500 };
+      expect(laborPayeeCountsAsSubcontractorPayment(bill)).toBe(false);
+      expect(laborPaymentBadge(bill)).toBeNull();
+    }
+  });
+
+  it('keeps a W-2 labor payee off subcontractor payments and the 1099 review', () => {
+    const employee = {
+      category: 'Labor',
+      vendor: 'Alex',
+      trade: 'Electrical',
+      amount: 800,
+      laborPayType: 'w2' as const,
+    };
+    expect(expenseCountsTowardW2Payments(employee)).toBe(true);
+    expect(expenseCountsTowardSubcontractorPayments(employee, [])).toBe(false);
+    expect(laborPaymentBadge(employee)).toBe('W-2');
+  });
+
+  it('flags only named 1099 payees for 1099 review, not trade-only or W-2 labor', () => {
+    const review = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2026,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 1000, date: '2026-10-06', paymentStatus: 'paid' },
+        { id: 'e', category: 'Labor', vendor: 'Electrical', trade: 'Electrical', amount: 7000, date: '2026-10-04', paymentStatus: 'paid' },
+        { id: 's', category: 'Labor', vendor: 'Steve', trade: 'Electrical', amount: 2000, date: '2026-10-06', paymentStatus: 'paid', laborPayType: 'w2' },
+        { id: 'c', category: 'Contingency', vendor: 'Labor', amount: 500, date: '2026-10-05', paymentStatus: 'paid' },
+      ],
+    });
+    expect(review.potential1099VendorCount).toBe(0);
+    expect(review.missingW9Count).toBe(1);
+    expect(review.rows.map((r) => r.displayName)).toEqual(['Nicholas']);
+  });
+
+  it('flags a 2026 payee at $2,000 and keeps $600 for 2025', () => {
+    const atThreshold = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2026,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 2000, date: '2026-10-06', paymentStatus: 'paid' },
+      ],
+    });
+    expect(atThreshold.potential1099VendorCount).toBe(1);
+
+    const priorYear = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2025,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 600, date: '2025-10-06', paymentStatus: 'paid' },
+      ],
+    });
+    expect(priorYear.potential1099VendorCount).toBe(1);
+  });
+
+  it('asks for a payment method on 1099 payees only', () => {
+    const review = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2026,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 1000, date: '2026-10-06', paymentStatus: 'paid' },
+        { id: 'h', category: 'Materials/Equipment', vendor: 'Home Depot', amount: 400, date: '2026-10-06', paymentStatus: 'paid' },
+      ],
+    });
+    expect(review.paymentsMissingMethodCount).toBe(1);
+  });
+
+  it('keeps card payments out of the 1099 filing threshold', () => {
+    const cardOnly = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2026,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 2500, date: '2026-10-06', paymentStatus: 'paid', paymentMethod: 'card' },
+      ],
+    });
+    expect(cardOnly.potential1099VendorCount).toBe(0);
+
+    const byCheck = build1099ReviewSummary({
+      vendors: [],
+      selectedYear: 2026,
+      payments: [],
+      expenses: [
+        { id: 'n', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 2000, date: '2026-10-06', paymentStatus: 'paid', paymentMethod: 'check' },
+      ],
+    });
+    expect(byCheck.potential1099VendorCount).toBe(1);
+  });
+
+  it('reminds for a W-9 until the payee is marked received', () => {
+    const rows = [
+      { id: 'n1', category: 'Labor', vendor: 'Nicholas', trade: 'Electrical', amount: 600 },
+      { id: 'n2', category: 'Labor', vendor: 'nicholas ', trade: 'Electrical', amount: 400 },
+    ];
+    const pending = buildW9ReminderPayees(rows, []);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].name).toBe('Nicholas');
+    expect(pending[0].totalPaid).toBe(1000);
+
+    const received = {
+      id: 'v1',
+      userId: 'u',
+      businessName: 'Nicholas',
+      vendorType: 'subcontractor' as const,
+      w9Status: 'uploaded' as const,
+      createdAt: '',
+      updatedAt: '',
+    };
+    expect(buildW9ReminderPayees(rows, [received])).toEqual([]);
+    expect(buildW9ReminderPayees(rows, [{ ...received, w9Status: 'requested' as const }])).toHaveLength(1);
+  });
+});
+
+describe('tax net margin label', () => {
+  it('keeps one decimal so 55.5% does not round to 56%', () => {
+    expect(formatTaxNetMarginPercent(20850 / 37550)).toBe('55.5%');
   });
 });
 

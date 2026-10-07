@@ -79,13 +79,8 @@ export function computeTaxCenterReadiness(args: {
       ok: missingReceipts === 0,
     },
     {
-      id: 'vendors',
-      label: 'Vendors reviewed',
-      ok: review1099.missingVendorInfoCount === 0,
-    },
-    {
       id: 'w9',
-      label: 'W-9 / 1099 flags checked',
+      label: 'W-9s from 1099 contractors',
       ok: review1099.missingW9Count === 0,
     },
     {
@@ -95,7 +90,6 @@ export function computeTaxCenterReadiness(args: {
         missingReceipts === 0 &&
         (ACCOUNTING_CATEGORY_MAPPING_ENABLED ? unmappedCategories === 0 : true) &&
         review1099.missingW9Count === 0 &&
-        review1099.paymentsMissingMethodCount === 0 &&
         !revenueNeedsAttention &&
         datesOk,
     },
@@ -112,17 +106,12 @@ export function computeTaxCenterReadiness(args: {
   }
   if (review1099.missingW9Count > 0) {
     missingSummaryLines.push(
-      `${review1099.missingW9Count} vendor${review1099.missingW9Count === 1 ? '' : 's'} missing W-9 status`
-    );
-  }
-  if (review1099.paymentsMissingMethodCount > 0) {
-    missingSummaryLines.push(
-      `${review1099.paymentsMissingMethodCount} vendor${review1099.paymentsMissingMethodCount === 1 ? '' : 's'} missing payment method`
+      `${review1099.missingW9Count} contractor${review1099.missingW9Count === 1 ? '' : 's'} missing a W-9`
     );
   }
   if (review1099.potential1099VendorCount > 0) {
     missingSummaryLines.push(
-      `${review1099.potential1099VendorCount} Potential 1099 review vendor${review1099.potential1099VendorCount === 1 ? '' : 's'}`
+      `${review1099.potential1099VendorCount} contractor${review1099.potential1099VendorCount === 1 ? '' : 's'} for 1099 review`
     );
   }
   if (anomalies.paymentsMissingCollectedDate > 0) {

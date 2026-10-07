@@ -15,12 +15,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import TaxCategoryBreakdown from '@/src/components/tax/TaxCategoryBreakdown';
 import SubcontractorTaxReport from '@/src/components/tax/SubcontractorTaxReport';
+import W2PaymentReport from '@/src/components/tax/W2PaymentReport';
 import TaxSummaryCard from '@/src/components/tax/TaxSummaryCard';
 import TaxCenterSummaryDetailModal, {
   type TaxCenterDetailKind,
@@ -34,7 +35,9 @@ import {
   buildSubcontractorPaymentSummary,
   computeTaxCenterSummary,
   customerNameFromProject,
+  buildW2PaymentSummary,
   expenseCountsTowardSubcontractorPayments,
+  expenseCountsTowardW2Payments,
   getCommittedCostsDetailRows,
   getOutstandingReceivablesDetailRows,
   getReceiptCountDetailRows,
@@ -48,6 +51,7 @@ import {
   groupExpensesByTaxCategory,
   isCurrentTaxProject,
   type TaxCenterSummary,
+  type TaxExpense,
 } from '@/src/lib/taxCenter';
 import { computeTaxCenterReadiness, type ReadinessChecklistItem } from '@/src/lib/taxCenterReadiness';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
@@ -61,7 +65,7 @@ import {
   generateCpaVendorReviewXlsxBase64,
   generateReceiptManifestXlsxBase64,
 } from '@/src/lib/accountantWorkbookExport';
-import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
+import { build1099ReviewSummary, buildW9ReminderPayees, resolveVendorForExpense } from '@/src/lib/tax1099Review';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import { buildTaxSummaryExportPayload, type TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import { getContractorCompanyNameAsync, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
@@ -175,7 +179,8 @@ function taxCenterDetailTitle(kind: TaxCenterDetailKind): string {
     case 'netMargin':
       return 'Net Margin';
     case 'subcontractor':
-      return 'Subcontractor Payments';
+    case 'w2':
+      return '1099 & W-2 Payments';
     case 'receipts':
       return 'Receipt Count';
     default:
@@ -198,7 +203,8 @@ function taxCenterDetailSummaryCardValue(kind: TaxCenterDetailKind, summary: Tax
     case 'netMargin':
       return percent(summary.netMargin);
     case 'subcontractor':
-      return money(summary.subcontractorPayments);
+    case 'w2':
+      return '';
     case 'receipts':
       return String(summary.receiptCount);
     default:
@@ -261,7 +267,7 @@ export default function TaxCenterScreen() {
       };
     }, [])
   );
-  const { vendors, quickBooksCategoryMap } = useVendorDirectory();
+  const { vendors, quickBooksCategoryMap, addVendor, updateVendor } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(
     () => getTaxYearOptions(currentProjects, currentYear),
@@ -272,7 +278,10 @@ export default function TaxCenterScreen() {
     'pdf' | 'receipts' | 'workbook' | 'cpa1099' | null
   >(null);
   const [taxBreakdownExpanded, setTaxBreakdownExpanded] = useState(false);
-  const [detailKind, setDetailKind] = useState<TaxCenterDetailKind | null>(null);
+  const { detail } = useLocalSearchParams<{ detail?: string }>();
+  const [detailKind, setDetailKind] = useState<TaxCenterDetailKind | null>(
+    detail === 'payees' ? 'subcontractor' : null
+  );
   /** Hosted Puppeteer only; spreadsheet exports ignore this. */
   const [pdfEngineReady, setPdfEngineReady] = useState<'unknown' | 'ready' | 'not_ready'>('unknown');
 
@@ -304,6 +313,11 @@ export default function TaxCenterScreen() {
     () => subcontractors.reduce((sum, v) => sum + (Number(v.totalPaid) || 0), 0),
     [subcontractors]
   );
+  const w2Payments = useMemo(() => buildW2PaymentSummary(yearExpenses), [yearExpenses]);
+  const w2PaymentsTotal = useMemo(
+    () => w2Payments.reduce((sum, person) => sum + (Number(person.totalPaid) || 0), 0),
+    [w2Payments]
+  );
 
   const taxInputs = useMemo(() => getTaxCenterDataInputs(currentProjects), [currentProjects]);
   const revenueDetailPayments = useMemo(
@@ -333,6 +347,60 @@ export default function TaxCenterScreen() {
   const subcontractorExpenseRows = useMemo(
     () => yearExpenses.filter((e) => expenseCountsTowardSubcontractorPayments(e, vendors)),
     [yearExpenses, vendors]
+  );
+  const w2ExpenseRows = useMemo(
+    () => yearExpenses.filter((e) => expenseCountsTowardW2Payments(e)),
+    [yearExpenses]
+  );
+  const w9ReminderPayees = useMemo(
+    () => buildW9ReminderPayees(subcontractorExpenseRows, vendors),
+    [subcontractorExpenseRows, vendors]
+  );
+  const markW9Received = useCallback(
+    (expense: TaxExpense) => {
+      Haptics.selectionAsync();
+      const linked = resolveVendorForExpense(expense, vendors);
+      const name = linked?.businessName || String(expense.vendorName || expense.vendor || '').trim();
+      if (!name) return;
+      const save = () => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (linked) {
+          updateVendor(linked.id, { w9Status: 'uploaded' });
+          return;
+        }
+        addVendor({
+          businessName: name,
+          vendorType: 'subcontractor',
+          w9Status: 'uploaded',
+          defaultCategory: 'Labor',
+        });
+      };
+      Alert.alert(
+        'Have you received a W-9?',
+        `Only mark this once you have a signed W-9 from ${name}. Keep the form in your own records. The app only tracks that you have it.`,
+        [
+          { text: 'Not yet', style: 'cancel' },
+          { text: 'Yes, received', onPress: save },
+        ]
+      );
+    },
+    [vendors, addVendor, updateVendor]
+  );
+  const markW9NotReceived = useCallback(
+    (expense: TaxExpense) => {
+      const linked = resolveVendorForExpense(expense, vendors);
+      if (!linked) return;
+      Haptics.selectionAsync();
+      Alert.alert('Mark W-9 as not received?', `${linked.businessName} will show as needing a W-9 again.`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark not received',
+          style: 'destructive',
+          onPress: () => updateVendor(linked.id, { w9Status: 'missing' }),
+        },
+      ]);
+    },
+    [vendors, updateVendor]
   );
   const taxBucketAnomalies = useMemo(
     () => getTaxCenterYearBucketAnomalies(currentProjects, selectedYear),
@@ -672,13 +740,7 @@ export default function TaxCenterScreen() {
 
           <TaxGradientFrame innerStyle={styles.beforeExportFrameInner}>
             <Text style={styles.beforeExportTitle}>Before You Export</Text>
-            <Pressable
-              style={styles.missingDataRow}
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/(tabs)/projects');
-              }}
-            >
+            <View style={styles.missingDataRow}>
               <Text style={styles.missingDataLabel}>Missing receipts</Text>
               <View style={styles.missingDataRight}>
                 {readiness.missingReceipts === 0 ? (
@@ -687,15 +749,9 @@ export default function TaxCenterScreen() {
                   <Text style={styles.missingDataCount}>{readiness.missingReceipts}</Text>
                 )}
               </View>
-            </Pressable>
+            </View>
             {ACCOUNTING_CATEGORY_MAPPING_ENABLED ? (
-              <Pressable
-                style={styles.missingDataRow}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push('/tax-quickbooks-mapping');
-                }}
-              >
+              <View style={styles.missingDataRow}>
                 <Text style={styles.missingDataLabel}>Unmapped categories</Text>
                 <View style={styles.missingDataRight}>
                   {readiness.unmappedCategories === 0 ? (
@@ -704,40 +760,18 @@ export default function TaxCenterScreen() {
                     <Text style={styles.missingDataCount}>{readiness.unmappedCategories}</Text>
                   )}
                 </View>
-              </Pressable>
+              </View>
             ) : null}
-            <Pressable
-              style={styles.missingDataRow}
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/tax-vendors');
-              }}
-            >
-              <Text style={styles.missingDataLabel}>Vendors missing W-9 status</Text>
+            <View style={styles.missingDataRow}>
+              <Text style={styles.missingDataLabel}>Contractors missing W-9</Text>
               <View style={styles.missingDataRight}>
-                {readiness.missingW9 === 0 ? (
+                {w9ReminderPayees.length === 0 ? (
                   <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
                 ) : (
-                  <Text style={styles.missingDataCount}>{readiness.missingW9}</Text>
+                  <Text style={styles.missingDataCount}>{w9ReminderPayees.length}</Text>
                 )}
               </View>
-            </Pressable>
-            <Pressable
-              style={styles.missingDataRow}
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/tax-vendors');
-              }}
-            >
-              <Text style={styles.missingDataLabel}>Vendors missing payment method</Text>
-              <View style={styles.missingDataRight}>
-                {readiness.missingPaymentMethod === 0 ? (
-                  <MaterialIcons name="check-circle" size={20} color="#2dcc9a" />
-                ) : (
-                  <Text style={styles.missingDataCount}>{readiness.missingPaymentMethod}</Text>
-                )}
-              </View>
-            </Pressable>
+            </View>
             <View style={styles.missingDataRow}>
               <Text style={styles.missingDataLabel}>Potential 1099 review</Text>
               <View style={styles.missingDataRight}>
@@ -857,10 +891,21 @@ export default function TaxCenterScreen() {
                 }}
               />
               <TaxSummaryCard
-                label="Subcontractor Payments"
-                value={money(summary.subcontractorPayments)}
+                label="1099 & W-2"
+                value={money(summary.subcontractorPayments + summary.w2Payments)}
+                lines={[
+                  { label: '1099', value: money(summary.subcontractorPayments) },
+                  { label: 'W-2', value: money(summary.w2Payments) },
+                ]}
                 icon="groups"
-                helper="Paid to subs this year."
+                helper={
+                  w9ReminderPayees.length === 0
+                    ? 'Named payees.'
+                    : w9ReminderPayees.length === 1
+                      ? '1 W-9 needed'
+                      : `${w9ReminderPayees.length} W-9s needed`
+                }
+                helperTone={w9ReminderPayees.length > 0 ? 'warn' : undefined}
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('subcontractor');
@@ -897,7 +942,7 @@ export default function TaxCenterScreen() {
                 <View style={styles.collapseHeaderMain}>
                   <Text style={styles.collapseCardTitle}>Tax Breakdown</Text>
                   <Text style={styles.collapseCardSub}>
-                    Expense categories and subcontractor payments. Project summaries open on their own page.
+                    Expense categories, subcontractor payments, and W-2 wages. Project summaries open on their own page.
                   </Text>
                   {!taxBreakdownExpanded ? (
                     <View style={styles.collapsePreview}>
@@ -922,6 +967,17 @@ export default function TaxCenterScreen() {
                           ]}
                         >
                           {money(subcontractorPaymentsTotal)}
+                        </Text>
+                      </Text>
+                      <Text style={styles.collapsePreviewLine}>
+                        W-2 payments:{' '}
+                        <Text
+                          style={[
+                            styles.collapsePreviewValue,
+                            { color: previewFigureColor(w2PaymentsTotal, 'live') },
+                          ]}
+                        >
+                          {money(w2PaymentsTotal)}
                         </Text>
                       </Text>
                       <Text style={styles.collapseCta}>View Tax Breakdown</Text>
@@ -959,57 +1015,9 @@ export default function TaxCenterScreen() {
                   <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#d7e1f0' : '#64748b'} />
                 </Pressable>
                 <SubcontractorTaxReport vendors={subcontractors} formatMoney={money} />
+                <W2PaymentReport people={w2Payments} formatMoney={money} />
               </View>
             ) : null}
-          </TaxGradientFrame>
-
-          <TaxGradientFrame innerStyle={styles.framePanelInner}>
-            <Text style={styles.exportTitle}>Vendors</Text>
-            <View style={styles.collapsePreview}>
-              <Text style={styles.collapsePreviewLine}>
-                Potential 1099 review:{' '}
-                <Text
-                  style={[
-                    styles.collapsePreviewValue,
-                    { color: previewFigureColor(review1099.potential1099VendorCount, 'warn') },
-                  ]}
-                >
-                  {review1099.potential1099VendorCount}
-                </Text>
-              </Text>
-              <Text style={styles.collapsePreviewLine}>
-                Missing W-9s:{' '}
-                <Text
-                  style={[
-                    styles.collapsePreviewValue,
-                    { color: previewFigureColor(review1099.missingW9Count, 'warn') },
-                  ]}
-                >
-                  {review1099.missingW9Count}
-                </Text>
-              </Text>
-              <Text style={styles.collapsePreviewLine}>
-                Missing payment method:{' '}
-                <Text
-                  style={[
-                    styles.collapsePreviewValue,
-                    { color: previewFigureColor(review1099.paymentsMissingMethodCount, 'warn') },
-                  ]}
-                >
-                  {review1099.paymentsMissingMethodCount}
-                </Text>
-              </Text>
-            </View>
-            <ExportButton
-              icon="business"
-              title="Vendors & W-9 Tracking"
-              disabled={busy}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push('/tax-vendors');
-              }}
-              showTopDivider={false}
-            />
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.framePanelInner}>
@@ -1132,10 +1140,13 @@ export default function TaxCenterScreen() {
         expenseRows={yearExpenses}
         committedRows={committedDetailRows}
         subcontractorExpenseRows={subcontractorExpenseRows}
+        w2ExpenseRows={w2ExpenseRows}
         receiptRows={receiptDetailRows}
         vendors={vendors}
         review1099={review1099}
         formatMoney={money}
+        onMarkW9Received={markW9Received}
+        onMarkW9NotReceived={markW9NotReceived}
       />
     </View>
   );

@@ -6,6 +6,8 @@ import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from '@/utils/estimateFlowCardStyl
 import EstimateLineBudgetStrip from '@/components/EstimateLineBudgetStrip';
 import ReceiptStatusPill from '@/components/ReceiptStatusPill';
 import type { EstimateLineSpendSummary } from '@/utils/rateInsightComparisons';
+import { laborPaymentBadge } from '@/src/lib/taxCenter';
+import LaborPayTypePill from '@/components/LaborPayTypePill';
 
 export type GroupedExpenseRow = {
   id: string;
@@ -14,6 +16,8 @@ export type GroupedExpenseRow = {
   date?: string;
   receiptUri?: string | null;
   po?: string;
+  trade?: string;
+  laborPayType?: '1099' | 'w2';
 };
 
 type Props = {
@@ -26,6 +30,8 @@ type Props = {
   subtextColor: string;
   deletingId?: string | null;
   budgetSummary?: EstimateLineSpendSummary | null;
+  /** Materials bills are store trips. Labor bills are payments and keep the trade. */
+  entryNoun?: 'store trip' | 'payment';
   onPressItem: (item: GroupedExpenseRow) => void;
 };
 
@@ -39,11 +45,19 @@ export default function EstimateLineExpenseGroupCard({
   subtextColor,
   deletingId,
   budgetSummary,
+  entryNoun = 'store trip',
   onPressItem,
 }: Props) {
   const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
   const rowBg = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : nestedCardBg;
   const hasMultipleTrips = items.length > 1;
+  const trades = Array.from(
+    new Set(items.map((item) => String(item.trade || '').trim()).filter(Boolean))
+  );
+  const tradeLabel = trades.length === 1 ? trades[0] : '';
+  const noun = items.length === 1 ? entryNoun : `${entryNoun}s`;
+  const countLabel = tradeLabel ? `${tradeLabel} · ${items.length} ${noun}` : `${items.length} ${noun}`;
+  const sectionLabel = entryNoun === 'payment' ? 'Payments' : 'Store trips';
 
   return (
     <View
@@ -61,7 +75,7 @@ export default function EstimateLineExpenseGroupCard({
             {lineName}
           </Text>
           <Text style={[styles.tripCount, { color: subtextColor }]}>
-            {items.length} store {items.length === 1 ? 'trip' : 'trips'}
+            {countLabel}
           </Text>
         </View>
         <Text style={styles.totalAmount}>{formatMoneyFull(total, { decimals: 2 })}</Text>
@@ -73,7 +87,7 @@ export default function EstimateLineExpenseGroupCard({
 
       {hasMultipleTrips ? (
         <View style={styles.tripsSection}>
-          <Text style={[styles.tripsLabel, { color: subtextColor }]}>Store trips</Text>
+          <Text style={[styles.tripsLabel, { color: subtextColor }]}>{sectionLabel}</Text>
           <View style={styles.rows}>
             {items.map((item, index) => {
               const isDeleting = deletingId === item.id;
@@ -84,6 +98,7 @@ export default function EstimateLineExpenseGroupCard({
                     year: 'numeric',
                   })
                 : 'No date';
+              const payBadge = entryNoun === 'payment' ? laborPaymentBadge(item) : null;
               return (
                 <Pressable
                   key={item.id}
@@ -101,9 +116,12 @@ export default function EstimateLineExpenseGroupCard({
                 >
                   <View style={styles.rowMain}>
                     <View style={styles.rowTop}>
-                      <Text style={[styles.vendor, { color: textColor }]} numberOfLines={1}>
-                        {item.vendor}
-                      </Text>
+                      <View style={styles.nameRow}>
+                        <Text style={[styles.vendorName, { color: textColor }]} numberOfLines={1}>
+                          {item.vendor}
+                        </Text>
+                        {payBadge ? <LaborPayTypePill label={payBadge} /> : null}
+                      </View>
                       <Text style={styles.rowAmount}>
                         {formatMoneyFull(item.amount, { decimals: 2 })}
                       </Text>
@@ -176,6 +194,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   vendor: { flex: 1, fontSize: 15, fontWeight: '700' },
+  nameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+  vendorName: { flexShrink: 1, fontSize: 15, fontWeight: '700' },
   rowAmount: { color: '#2dcc9a', fontSize: 16, fontWeight: '700' },
   rowFooter: {
     flexDirection: 'row',

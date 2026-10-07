@@ -311,6 +311,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     { label: 'Net Income', amount: p.netIncome },
     { label: 'Net Margin', text: formatNetMargin(p.netMargin) },
     { label: 'Subcontractor Payments', amount: p.subcontractorPayments },
+    { label: 'W-2 Payments', amount: p.w2Payments },
     { label: 'Receipt Count', text: String(p.receiptCount) },
   ];
 

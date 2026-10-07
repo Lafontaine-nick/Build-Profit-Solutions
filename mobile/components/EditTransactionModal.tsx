@@ -41,6 +41,10 @@ import { resolveEstimateLineOption } from "@/utils/estimateLineOptions";
 import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
 import { changeOrderIdFromBudgetLineId } from "@/src/lib/projectFinancials";
 import { isChangeOrderPaymentReceived } from "@/lib/markPaymentCollected";
+import LaborPayTypeChoice from "@/components/LaborPayTypeChoice";
+import { isOwnerSelfPayeeName, laborPaidToIsSomeoneElse, laborPaymentMethodOf, laborPayTypeOf, type LaborPaymentMethod } from "@/src/lib/taxCenter";
+import LaborPaymentMethodChoice from "@/components/LaborPaymentMethodChoice";
+import PaidToNameSuggestions from "@/components/PaidToNameSuggestions";
 
 /** Web: space below browser tabs / address bar so the card does not touch the chrome */
 const WEB_MODAL_TOP_INSET = 52;
@@ -54,6 +58,9 @@ type Transaction = {
   po?: string;
   material?: string;
   linkedLineId?: string;
+  trade?: string;
+  laborPayType?: '1099' | 'w2';
+  paymentMethod?: string;
 };
 
 type Props = {
@@ -97,6 +104,8 @@ export default function EditTransactionModal({
   const { projectData } = useProjectData();
   const categoryLower = categoryName.toLowerCase();
   const [vendor, setVendor] = useState("");
+  const [laborPayType, setLaborPayType] = useState<'1099' | 'w2'>('1099');
+  const [laborPaymentMethod, setLaborPaymentMethod] = useState<LaborPaymentMethod | null>(null);
   const [amount, setAmount] = useState("");
   const [material, setMaterial] = useState("");
   const [description, setDescription] = useState("");
@@ -296,7 +305,7 @@ export default function EditTransactionModal({
     : isSoftCostCategory || isCompanyOverheadCategory
       ? "Paid to *"
       : categoryName === "Labor" || categoryName === "Subs"
-        ? "Sub / Trade *"
+        ? "Paid to *"
         : "Vendor / Supplier *";
 
   const displayLineName = (name: string) =>
@@ -319,6 +328,8 @@ export default function EditTransactionModal({
   useEffect(() => {
     if (visible && transaction) {
       setVendor(transaction.vendor);
+      setLaborPayType(laborPayTypeOf(transaction) === 'w2' ? 'w2' : '1099');
+      setLaborPaymentMethod(laborPaymentMethodOf(transaction));
       setAmount(String(transaction.amount));
       setMaterial(transaction.material || "");
       setDescription(transaction.description);
@@ -369,9 +380,18 @@ export default function EditTransactionModal({
       }
     }
 
+    const laborCategory = categoryName === 'Labor' || categoryName === 'Subs';
+    const namedLaborPayee = laborCategory && laborPaidToIsSomeoneElse(vendor, String(transaction.trade || ''));
+    const vendorSaved =
+      laborCategory && isOwnerSelfPayeeName(vendor)
+        ? String(transaction.trade || '').trim()
+        : vendor.trim();
+
     onSave({
       ...transaction,
-      vendor: vendor.trim(),
+      vendor: vendorSaved,
+      laborPayType: namedLaborPayee ? laborPayType : undefined,
+      paymentMethod: namedLaborPayee && laborPayType === '1099' ? laborPaymentMethod ?? undefined : undefined,
       amount: amountNum,
       description: isMaterialsEquipment ? transaction.description : description.trim(),
       po: isMaterialsEquipment ? transaction.po : po.trim() || undefined,
@@ -543,7 +563,35 @@ export default function EditTransactionModal({
                     {...resolveTextInputKeyboardProps()}
                   />
                 </View>
+                {isLaborCategory ? (
+                  <PaidToNameSuggestions
+                    query={vendor}
+                    expenses={projectData?.expenses}
+                    onPick={setVendor}
+                  />
+                ) : null}
               </View>
+              {(categoryName === 'Labor' || categoryName === 'Subs') &&
+              laborPaidToIsSomeoneElse(vendor, String(transaction.trade || '')) ? (
+                <LaborPayTypeChoice
+                  value={laborPayType}
+                  onChange={setLaborPayType}
+                  darkMode={darkMode}
+                  textColor={Colors.text}
+                  lineColor={darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line}
+                />
+              ) : null}
+              {(categoryName === 'Labor' || categoryName === 'Subs') &&
+              laborPaidToIsSomeoneElse(vendor, String(transaction.trade || '')) &&
+              laborPayType === '1099' ? (
+                <LaborPaymentMethodChoice
+                  value={laborPaymentMethod}
+                  onChange={setLaborPaymentMethod}
+                  darkMode={darkMode}
+                  textColor={Colors.text}
+                  lineColor={darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line}
+                />
+              ) : null}
 
               {isMaterialsEquipment ? (
                 <View style={expenseChrome.fieldGroup}>

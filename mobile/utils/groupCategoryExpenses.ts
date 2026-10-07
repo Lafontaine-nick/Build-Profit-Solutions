@@ -49,13 +49,14 @@ function displayLineNameForGroup<T extends CategoryExpenseLike>(
   items: T[],
   lineIdToLabel: Record<string, string>
 ): string {
+  const linked = items.find((item) => item.linkedLineId && lineIdToLabel[item.linkedLineId]);
+  if (linked?.linkedLineId && lineIdToLabel[linked.linkedLineId]) {
+    return displayExpenseLineName(lineIdToLabel[linked.linkedLineId]);
+  }
   const first = items[0];
   if (first.material?.trim()) return displayExpenseLineName(first.material);
-  if (first.vendor?.trim()) return displayExpenseLineName(first.vendor);
   if (first.description?.trim()) return displayExpenseLineName(first.description);
-  if (first.linkedLineId && lineIdToLabel[first.linkedLineId]) {
-    return displayExpenseLineName(lineIdToLabel[first.linkedLineId]);
-  }
+  if (first.vendor?.trim()) return displayExpenseLineName(first.vendor);
   return displayExpenseLineName(first.material);
 }
 

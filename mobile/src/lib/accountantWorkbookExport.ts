@@ -562,6 +562,7 @@ export function generateAccountantWorkbookBase64(args: {
     ['Net Income', money2(p.netIncome)],
     ['Net Margin', pctOrNa(p.netMargin)],
     ['Subcontractor Payments', money2(p.subcontractorPayments)],
+    ['W-2 Payments', money2(p.w2Payments)],
     ['Receipt Count', p.receiptCount],
     [],
     ['WORKBOOK TABS (CPA PACKAGE)'],

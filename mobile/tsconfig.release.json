@@ -8,8 +8,6 @@
     "lib/projectListRowMetrics.ts",
     "app/(tabs)/assistant.tsx",
     "app/tax-center.tsx",
-    "app/tax-vendors.tsx",
-    "app/tax-vendor/[id].tsx",
     "app/tax-quickbooks-mapping.tsx",
     "contexts/VendorDirectoryContext.tsx",
     "components/ClerkVendorDirectoryWrapper.tsx",

@@ -10,7 +10,17 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { bidMarkupPercent, changeOrderClientPrice, changeOrderIdFromBudgetLineId, approvedChangeOrderBudgetLines } from "@/src/lib/projectFinancials";
+import { budgetLineSpendForKind, estimateLineOptionsFor } from "@/utils/estimateLineOptions";
+import {
+  getEstimateLineSpendSummaries,
+  resolveProjectEstimateData,
+  resolveProjectExpenses,
+} from "@/utils/rateInsightComparisons";
 import { isChangeOrderPaymentReceived } from "@/lib/markPaymentCollected";
+import LaborPayTypeChoice from "@/components/LaborPayTypeChoice";
+import LaborPaymentMethodChoice from "@/components/LaborPaymentMethodChoice";
+import { isOwnerSelfPayeeName, laborPaidToIsSomeoneElse, type LaborPaymentMethod } from "@/src/lib/taxCenter";
+import PaidToNameSuggestions from "@/components/PaidToNameSuggestions";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
@@ -90,6 +100,8 @@ type Props = {
     expectedDelivery?: string;
     linkedLineId?: string;
     trade?: string;
+    laborPayType?: '1099' | 'w2';
+    paymentMethod?: LaborPaymentMethod;
   }) => void;
   /** Pre-fill when editing a change order from Category detail (web + native). */
   initialDraft?: AddTransactionChangeOrderDraft | null;
@@ -133,6 +145,10 @@ export default function AddTransactionModal({
   /** Budget Labor / Subs: work description (notes) vs trade name (vendor on expense). */
   const [laborDescription, setLaborDescription] = useState("");
   const [trade, setTrade] = useState("");
+  /** Person or company paid. Saved as the vendor for Tax Center and 1099s. Trade stays the work type. */
+  const [businessName, setBusinessName] = useState("");
+  const [laborPayType, setLaborPayType] = useState<'1099' | 'w2'>('1099');
+  const [laborPaymentMethod, setLaborPaymentMethod] = useState<LaborPaymentMethod | null>(null);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [selectedEstimateLine, setSelectedEstimateLine] = useState<EstimateLineOption | null>(null);
@@ -177,6 +193,7 @@ export default function AddTransactionModal({
   const materialRef = useRef<TextInput>(null);
   const laborDescRef = useRef<TextInput>(null);
   const tradeRef = useRef<TextInput>(null);
+  const businessNameRef = useRef<TextInput>(null);
   const suggestedTradeRef = useRef("");
   const tradeEditedRef = useRef(false);
 
@@ -240,15 +257,6 @@ export default function AddTransactionModal({
     ratePerSqftInput,
   ]);
 
-  const linkedBudgetGap = useMemo(() => {
-    if (!selectedEstimateLine || selectedEstimateLine.budget <= 0) return 0;
-    const entered = parseAmountFieldToNumber(amount);
-    if (!Number.isFinite(entered) || entered <= 0) return 0;
-    const delta = entered - selectedEstimateLine.budget;
-    if (Math.abs(delta) < 0.005) return 0;
-    return delta;
-  }, [amount, parseAmountFieldToNumber, selectedEstimateLine]);
-
   const applyFlatAmountTextChange = useCallback(
     (text: string) => {
       if (pricingMode === "flat") {
@@ -305,6 +313,47 @@ export default function AddTransactionModal({
                 ? "soft"
                 : null;
 
+  /** Same remaining the budget picker shows, so a second bill uses what's left. */
+  const linkedLineRemaining = useMemo(() => {
+    if (!selectedEstimateLine || selectedEstimateLine.budget <= 0 || !budgetPickerKind) return null;
+    const projectLike = projectData as unknown as Record<string, unknown>;
+    const lineId = selectedEstimateLine.id;
+    const budget = selectedEstimateLine.budget;
+    if (budgetPickerKind === "materials" || budgetPickerKind === "labor") {
+      const summaries = getEstimateLineSpendSummaries({
+        estimateData: resolveProjectEstimateData(projectLike),
+        expenses: resolveProjectExpenses(projectLike),
+        kind: budgetPickerKind,
+      });
+      if (summaries[lineId]) return summaries[lineId].remaining;
+      let logged = 0;
+      for (const expense of resolveProjectExpenses(projectLike)) {
+        if (String(expense.linkedLineId || "") !== lineId) continue;
+        const value = Number(expense.amount);
+        if (Number.isFinite(value)) logged += value;
+      }
+      return Math.round((budget - logged) * 100) / 100;
+    }
+    const summary = budgetLineSpendForKind({
+      options: estimateLineOptionsFor(resolveProjectEstimateData(projectLike), budgetPickerKind),
+      expenses: resolveProjectExpenses(projectLike),
+      kind: budgetPickerKind,
+    }).summaries[lineId];
+    return summary ? summary.remaining : null;
+  }, [selectedEstimateLine, budgetPickerKind, projectData]);
+
+  const linkedBudgetTarget =
+    linkedLineRemaining != null ? Math.max(0, linkedLineRemaining) : selectedEstimateLine?.budget ?? 0;
+
+  const linkedBudgetGap = useMemo(() => {
+    if (!selectedEstimateLine || linkedBudgetTarget <= 0) return 0;
+    const entered = parseAmountFieldToNumber(amount);
+    if (!Number.isFinite(entered) || entered <= 0) return 0;
+    const delta = entered - linkedBudgetTarget;
+    if (Math.abs(delta) < 0.005) return 0;
+    return delta;
+  }, [amount, parseAmountFieldToNumber, selectedEstimateLine, linkedBudgetTarget]);
+
   useLayoutEffect(() => {
     if (!visible) return;
     const startOnList =
@@ -352,6 +401,9 @@ export default function AddTransactionModal({
     setMaterial("");
     setLaborDescription("");
     setTrade("");
+    setBusinessName("");
+    setLaborPayType('1099');
+    setLaborPaymentMethod(null);
     suggestedTradeRef.current = "";
     tradeEditedRef.current = false;
     setVendor("");
@@ -662,6 +714,9 @@ export default function AddTransactionModal({
     setMaterial("");
     setLaborDescription("");
     setTrade("");
+    setBusinessName("");
+    setLaborPayType('1099');
+    setLaborPaymentMethod(null);
     setAmount("");
     setDescription("");
     setPo("");
@@ -844,7 +899,11 @@ export default function AddTransactionModal({
       }
     }
 
-    const vendorOut = isLaborOrSubs ? trade.trim() || laborDescription.trim() : vendor.trim();
+    const paidToRaw = isOwnerSelfPayeeName(businessName) ? '' : businessName.trim();
+    const vendorOut = isLaborOrSubs
+      ? paidToRaw || trade.trim() || laborDescription.trim()
+      : vendor.trim();
+    const namedLaborPayee = isLaborOrSubs && laborPaidToIsSomeoneElse(paidToRaw, trade);
 
     const linkedChangeOrderId = changeOrderIdFromBudgetLineId(selectedEstimateLine?.id);
     if (linkedChangeOrderId) {
@@ -869,6 +928,8 @@ export default function AddTransactionModal({
       description: descriptionOut,
       linkedLineId: selectedEstimateLine?.id,
       trade: (isLaborOrSubs || isMaterialsEquipmentExpense) ? trade.trim() || undefined : undefined,
+      laborPayType: namedLaborPayee ? laborPayType : undefined,
+      paymentMethod: namedLaborPayee && laborPayType === '1099' ? laborPaymentMethod ?? undefined : undefined,
       materialsAmount:
         isChangeOrdersCategory && pricingMode === "flat"
           ? materialsAmount
@@ -1425,7 +1486,7 @@ export default function AddTransactionModal({
                         value={laborDescription}
                         onChangeText={setLaborDescription}
                         autoCapitalize="sentences"
-                        onSubmitEditing={() => tradeRef.current?.focus()}
+                        onSubmitEditing={() => businessNameRef.current?.focus()}
                         selectionColor="#22c55e"
                         underlineColorAndroid="transparent"
                         {...resolveTextInputKeyboardProps()}
@@ -1449,11 +1510,79 @@ export default function AddTransactionModal({
                       value={laborDescription}
                       onChangeText={setLaborDescription}
                       autoCapitalize="sentences"
-                      onSubmitEditing={() => tradeRef.current?.focus()}
+                      onSubmitEditing={() => businessNameRef.current?.focus()}
                       {...resolveTextInputKeyboardProps()}
                     />
                   )}
                 </View>
+                <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                  <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Paid to (optional)</Text>
+                  {webBudgetExpenseShell && poWebChrome ? (
+                    <View style={poWebChrome.materialInputWrap}>
+                      <Feather name="user" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                      <TextInput
+                        ref={businessNameRef}
+                        style={poWebChrome.materialInput}
+                        placeholder="Person or company"
+                        placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                        value={businessName}
+                        onChangeText={setBusinessName}
+                        autoCapitalize="words"
+                        onSubmitEditing={() => tradeRef.current?.focus()}
+                        selectionColor="#22c55e"
+                        underlineColorAndroid="transparent"
+                        {...resolveTextInputKeyboardProps()}
+                      />
+                    </View>
+                  ) : (
+                    <TextInput
+                      ref={businessNameRef}
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: Colors.surface2,
+                          borderColor: Colors.line,
+                          borderWidth: 1,
+                          borderRadius: 12,
+                          color: Colors.text,
+                        },
+                      ]}
+                      placeholder="Person or company"
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={businessName}
+                      onChangeText={setBusinessName}
+                      autoCapitalize="words"
+                      onSubmitEditing={() => tradeRef.current?.focus()}
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  )}
+                  <Text style={{ color: darkMode ? '#d7e1f0' : Colors.sub, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
+                    Leave blank when this labor is yours.
+                  </Text>
+                  <PaidToNameSuggestions
+                    query={businessName}
+                    expenses={projectData?.expenses}
+                    onPick={setBusinessName}
+                  />
+                </View>
+                {laborPaidToIsSomeoneElse(businessName, trade) ? (
+                  <LaborPayTypeChoice
+                    value={laborPayType}
+                    onChange={setLaborPayType}
+                    darkMode={darkMode}
+                    textColor={Colors.text}
+                    lineColor={darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line}
+                  />
+                ) : null}
+                {laborPaidToIsSomeoneElse(businessName, trade) && laborPayType === '1099' ? (
+                  <LaborPaymentMethodChoice
+                    value={laborPaymentMethod}
+                    onChange={setLaborPaymentMethod}
+                    darkMode={darkMode}
+                    textColor={Colors.text}
+                    lineColor={darkMode ? "rgba(148, 163, 184, 0.35)" : Colors.line}
+                  />
+                ) : null}
                 <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
                   <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Trade</Text>
                   {webBudgetExpenseShell && poWebChrome ? (
@@ -1863,9 +1992,18 @@ export default function AddTransactionModal({
               )}
               {selectedEstimateLine ? (
                 <Text style={styles.linkedBudgetHint}>
-                  Budget{" "}
-                  <Text style={linkedBudgetGap > 0 ? styles.linkedBudgetOver : styles.linkedBudgetValue}>
-                    {formatMoneyFull(selectedEstimateLine.budget, { decimals: 0 })}
+                  {linkedLineRemaining != null && linkedLineRemaining < selectedEstimateLine.budget
+                    ? linkedLineRemaining < 0
+                      ? "Over "
+                      : "Left "
+                    : "Budget "}
+                  <Text style={linkedBudgetGap > 0 || (linkedLineRemaining != null && linkedLineRemaining < 0) ? styles.linkedBudgetOver : styles.linkedBudgetValue}>
+                    {formatMoneyFull(
+                      linkedLineRemaining != null && linkedLineRemaining < selectedEstimateLine.budget
+                        ? Math.abs(linkedLineRemaining)
+                        : selectedEstimateLine.budget,
+                      { decimals: 0 }
+                    )}
                   </Text>
                   {linkedBudgetGap > 0 ? (
                     <Text style={styles.linkedBudgetOver}>
@@ -2384,10 +2522,10 @@ export default function AddTransactionModal({
               </View>
             )}
 
-            {/* Planned vs Unplanned Toggle — not shown for a materials receipt or a purchase order */}
+            {/* Planned vs Unplanned — not shown for labor, materials, or a purchase order */}
             {!isMaterialsEquipmentExpense && !isChangeOrdersCategory ? (
             <>
-            {!isPurchaseOrdersCategory ? (
+            {!isPurchaseOrdersCategory && !isLaborOrSubs ? (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Budget Status *</Text>
               <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.pricingRow : { flexDirection: 'row', gap: 12 }}>

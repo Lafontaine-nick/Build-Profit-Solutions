@@ -41,6 +41,7 @@ export type TaxSummaryExportPayload = {
     netIncome: number;
     netMargin: number;
     subcontractorPayments: number;
+    w2Payments: number;
     receiptCount: number;
   };
   expenseCategories: Array<{
@@ -184,6 +185,7 @@ export function buildTaxSummaryExportPayload(input: {
       netIncome: summary.netProfit,
       netMargin: summary.netMargin,
       subcontractorPayments: summary.subcontractorPayments,
+      w2Payments: summary.w2Payments,
       receiptCount: summary.receiptCount,
     },
     expenseCategories: expenseCategories.map((row) => {

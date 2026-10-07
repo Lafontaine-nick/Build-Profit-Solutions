@@ -23,6 +23,8 @@ import {
   PROJECT_WIDE_CONTAINER_CARD_INSET,
 } from "@/constants/ScreenLayout";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
+import { laborPaymentBadge } from "@/src/lib/taxCenter";
+import LaborPayTypePill from "./LaborPayTypePill";
 import CategoryEstimateBudgetCard from "./CategoryEstimateBudgetCard";
 import ReceiptStatusPill from "./ReceiptStatusPill";
 import EstimateLineBudgetStrip from "./EstimateLineBudgetStrip";
@@ -595,6 +597,9 @@ export default function CategoryDetailModal({
           scope: exp.scope || undefined,
           priceReasonableness: exp.priceReasonableness || undefined,
           linkedLineId: exp.linkedLineId || undefined,
+          trade: exp.trade || undefined,
+          laborPayType: exp.laborPayType === 'w2' || exp.laborPayType === '1099' ? exp.laborPayType : undefined,
+          paymentMethod: exp.paymentMethod || undefined,
           isChangeOrder: false,
           isChangeOrderMirror: isChangeOrderMirrorExpenseId(expenseId),
         };
@@ -946,6 +951,8 @@ export default function CategoryDetailModal({
       receiptUri: transaction.receiptUri || null,
       linkedLineId: transaction.linkedLineId || undefined,
       trade: transaction.trade || undefined,
+      laborPayType: transaction.laborPayType === 'w2' || transaction.laborPayType === '1099' ? transaction.laborPayType : undefined,
+      paymentMethod: transaction.paymentMethod || undefined,
       isPlanned: transaction.isPlanned !== undefined ? transaction.isPlanned : true,
       projectPhase: transaction.projectPhase || undefined,
       scope: transaction.scope || undefined,
@@ -1281,6 +1288,7 @@ export default function CategoryDetailModal({
                       subtextColor={darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub}
                       deletingId={deletingId}
                       budgetSummary={lookupSpendSummary(spendSummaries, lineId)}
+                      entryNoun={isLaborCategory ? 'payment' : 'store trip'}
                       onPressItem={(item) => setEditingTransaction(item)}
                     />
                   );
@@ -1328,6 +1336,7 @@ export default function CategoryDetailModal({
                   isChangeOrderSpendLine && !item.isChangeOrder && !itemSubtitles.material
                     ? `Change order · ${item.vendor || estimateLineIdToLabel[itemLineId || ''] || 'Change order'}`
                     : item.vendor;
+                const payBadge = isLaborCategory ? laborPaymentBadge(item) : null;
                 const isItemDeleting = deletingId === item.id;
                 
                 // For Purchase Orders, use the BudgetTab card design
@@ -1746,7 +1755,8 @@ export default function CategoryDetailModal({
                           marginBottom: item.isPurchaseOrder ? 8 : 4,
                           flexWrap: 'wrap'
                         }}>
-                          <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }]}>{cardTitle}</Text>
+                          <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }, payBadge ? { flex: 0, flexShrink: 1 } : null]}>{cardTitle}</Text>
+                          {payBadge ? <LaborPayTypePill label={payBadge} /> : null}
                           {/* Change Order Status Badge */}
                           {item.isChangeOrder && item.status && (
                             <View style={{
@@ -2144,7 +2154,8 @@ export default function CategoryDetailModal({
                           <View style={styles.transactionHeader}>
                             <View style={{ flex: 1 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                <Text style={[styles.vendor, { color: Colors.text }]}>{cardTitle}</Text>
+                                <Text style={[styles.vendor, { color: Colors.text }, payBadge ? { flex: 0, flexShrink: 1 } : null]}>{cardTitle}</Text>
+                                {payBadge ? <LaborPayTypePill label={payBadge} /> : null}
                                 {/* Change Order Status Badge */}
                                 {item.isChangeOrder && item.status && (
                                   <View style={{
@@ -2411,6 +2422,9 @@ export default function CategoryDetailModal({
                 notes: updated.description,
                 material: updated.material,
                 linkedLineId: updated.linkedLineId,
+                trade: updated.trade,
+                laborPayType: updated.laborPayType ?? null,
+                paymentMethod: updated.paymentMethod ?? null,
               });
               Alert.alert('Updated!', 'Transaction updated successfully');
               setEditingTransaction(null);
@@ -2515,6 +2529,9 @@ export default function CategoryDetailModal({
               notes: updated.description,
               material: updated.material,
               linkedLineId: updated.linkedLineId,
+              trade: updated.trade,
+              laborPayType: updated.laborPayType ?? null,
+              paymentMethod: updated.paymentMethod ?? null,
             });
             if (typeof window !== 'undefined' && typeof window.alert === 'function') {
               window.alert('Updated!\n\nTransaction updated successfully');

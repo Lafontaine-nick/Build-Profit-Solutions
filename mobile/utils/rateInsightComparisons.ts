@@ -40,6 +40,9 @@ type ExpenseInput = {
   description?: string;
   material?: string;
   vendor?: string;
+  vendorName?: string;
+  trade?: string;
+  laborPayType?: string;
   amount?: number;
   linkedLineId?: string;
 };
@@ -59,6 +62,9 @@ export function normalizeExpenseForMatching(expense: Record<string, unknown>): E
     description,
     material,
     vendor: expense.vendor != null ? String(expense.vendor) : undefined,
+    vendorName: expense.vendorName != null ? String(expense.vendorName) : undefined,
+    trade: expense.trade != null ? String(expense.trade) : undefined,
+    laborPayType: expense.laborPayType != null ? String(expense.laborPayType) : undefined,
     amount: expense.amount != null ? Number(expense.amount) : undefined,
     linkedLineId: expense.linkedLineId != null ? String(expense.linkedLineId) : undefined,
   };

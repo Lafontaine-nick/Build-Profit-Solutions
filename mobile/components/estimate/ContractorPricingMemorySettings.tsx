@@ -13,11 +13,10 @@ import { clearAllSavedPricingData, countSavedPricingSources } from '@/utils/esti
 import ContractorPricingLibraryModal from '@/components/estimate/ContractorPricingLibraryModal';
 import SavedBidTemplatesBrowserModal from '@/components/estimate/SavedBidTemplatesBrowserModal';
 
-type Props = {
-  compact?: boolean;
-};
+const MINT = '#2dcc9a';
+const DANGER = '#f87171';
 
-export default function ContractorPricingMemorySettings({ compact = false }: Props) {
+export default function ContractorPricingMemorySettings() {
   const { theme, darkMode } = useTheme();
   const Colors = getColors(theme);
   const [loading, setLoading] = useState(true);
@@ -89,7 +88,7 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
 
   if (loading) {
     return (
-      <View style={{ padding: compact ? 8 : 14 }}>
+      <View style={{ padding: 14 }}>
         <ActivityIndicator color={Colors.sub} />
       </View>
     );
@@ -97,102 +96,106 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
 
   if (!settings) {
     return (
-      <Text style={{ color: Colors.sub, fontSize: 12 }}>
+      <Text style={{ color: Colors.sub, fontSize: 13, padding: 16 }}>
         Pricing memory settings unavailable (check backend connection).
       </Text>
     );
   }
 
-  const row = (label: string, key: keyof PricingMemorySettings, hint?: string) => (
-    <View
-      key={key}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 10,
-        gap: 12,
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
-        {hint ? (
-          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2, lineHeight: 15 }}>{hint}</Text>
-        ) : null}
+  const divider = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)';
+  const iconTileBg = darkMode ? '#3A3A3C' : '#e2e8f0';
+  const nothingSaved = rateCount === 0 && templateCount === 0;
+
+  const rowShell = (last: boolean) => ({
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    minHeight: 56,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    borderBottomWidth: last ? 0 : 1,
+    borderBottomColor: divider,
+  });
+
+  const rowLabel = (icon: string, label: string, detail: string, tone: string = MINT, labelColor = Colors.text) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: iconTileBg,
+        }}
+      >
+        <MaterialIcons name={icon as any} size={20} color={tone} />
       </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={{ color: labelColor, fontSize: 16 }}>{label}</Text>
+        <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 2 }}>{detail}</Text>
+      </View>
+    </View>
+  );
+
+  const toggleRow = (icon: string, label: string, detail: string, key: keyof PricingMemorySettings) => (
+    <View key={key} style={rowShell(false)}>
+      {rowLabel(icon, label, detail)}
       <Switch
         value={Boolean(settings[key])}
         disabled={saving}
         onValueChange={(v) => void patch(key, v)}
-        trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: '#2dcc9a' }}
-        thumbColor="#f4f4f5"
+        trackColor={{ false: darkMode ? '#3A3A3C' : '#cbd5e1', true: MINT }}
+        thumbColor="#fff"
         ios_backgroundColor={darkMode ? '#3A3A3C' : '#cbd5e1'}
       />
     </View>
   );
 
-  const browseRow = (label: string, detail: string, onPress: () => void) => (
-    <TouchableOpacity
-      key={label}
-      onPress={onPress}
-      activeOpacity={0.7}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingVertical: 12,
-        borderTopWidth: 1,
-        borderTopColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)',
-        gap: 12,
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{label}</Text>
-        <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{detail}</Text>
-      </View>
-      <MaterialIcons name="chevron-right" size={22} color={Colors.text} />
+  const browseRow = (icon: string, label: string, detail: string, onPress: () => void) => (
+    <TouchableOpacity key={label} onPress={onPress} activeOpacity={0.6} style={rowShell(false)}>
+      {rowLabel(icon, label, detail)}
+      <MaterialIcons name="chevron-right" size={20} color={Colors.sub} />
     </TouchableOpacity>
   );
 
   return (
     <View>
-      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
-        {compact ? 'Pricing Memory' : 'Contractor pricing memory'}
-      </Text>
-      <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
-        BPS can remember rates you approve and suggest them on future estimates.
-      </Text>
-      {row('Remember my pricing', 'pricingMemoryEnabled')}
-      {row('Exclude test/demo bids', 'excludeTestBids')}
-      <View style={{ marginTop: 4, marginBottom: 8 }}>
-        {browseRow(
-          'Pricing library',
-          rateCount === 0
-            ? 'View and manage saved rates'
-            : `${rateCount} saved rate${rateCount === 1 ? '' : 's'}`,
-          () => setShowLibrary(true)
-        )}
-        {browseRow(
-          'Bid templates',
-          templateCount === 0
-            ? 'Manage reusable estimates'
-            : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
-          () => setShowTemplates(true)
-        )}
-      </View>
+      {toggleRow(
+        'auto-awesome',
+        'Remember my pricing',
+        'Suggest your approved rates',
+        'pricingMemoryEnabled'
+      )}
+      {toggleRow('science', 'Exclude test/demo bids', 'Skip test and demo bids', 'excludeTestBids')}
+      {browseRow(
+        'library-books',
+        'Pricing library',
+        rateCount === 0 ? 'View and manage saved rates' : `${rateCount} saved rate${rateCount === 1 ? '' : 's'}`,
+        () => setShowLibrary(true)
+      )}
+      {browseRow(
+        'content-copy',
+        'Bid templates',
+        templateCount === 0
+          ? 'Manage reusable estimates'
+          : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
+        () => setShowTemplates(true)
+      )}
       <TouchableOpacity
         onPress={handleClear}
-        disabled={saving || (rateCount === 0 && templateCount === 0)}
+        disabled={saving || nothingSaved}
+        activeOpacity={0.6}
+        style={rowShell(true)}
       >
-        <Text
-          style={{
-            color: rateCount === 0 && templateCount === 0 ? Colors.sub : '#f87171',
-            fontSize: 13,
-            fontWeight: '700',
-          }}
-        >
-          Reset saved pricing
-        </Text>
+        {rowLabel(
+          'delete-outline',
+          'Reset saved pricing',
+          nothingSaved ? 'Nothing saved yet' : 'Removes saved rates and bid templates',
+          nothingSaved ? Colors.sub : DANGER,
+          nothingSaved ? Colors.sub : DANGER
+        )}
       </TouchableOpacity>
 
       <ContractorPricingLibraryModal

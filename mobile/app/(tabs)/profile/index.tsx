@@ -93,6 +93,7 @@ import {
 import { evaluateContractorProfileCompletion } from '@/lib/profileCompletion';
 import { clearProfileCompletionReminderDismissed } from '@/lib/profileCompletionReminderStorage';
 import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
+import TaxCenterSnapshotCard from '@/components/profile/TaxCenterSnapshotCard';
 
 /**
  * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
@@ -101,6 +102,8 @@ import ContractorPricingMemorySettings from '@/components/estimate/ContractorPri
 const PROFILE_MINT = '#2dcc9a';
 const PROFILE_MINT_TEXT = '#8eecc9';
 const PROFILE_SLATE = '#d7e1f0';
+/** A one-word bio does not count toward profile completion. */
+const PROFILE_BIO_MIN_LENGTH = 40;
 
 const DEFAULT_CONTRACTOR_USER = {
   id: 'local',
@@ -606,6 +609,8 @@ export default function ProfileScreen() {
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [editModalFocusedField, setEditModalFocusedField] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
+  const scrollYRef = useRef(0);
+  const trustSectionRef = useRef<View>(null);
   const licenseInputRefs = useRef<(TextInput | null)[]>([]);
   const addLicenseInputRef = useRef<TextInput>(null);
   const bioInputRef = useRef<TextInput>(null);
@@ -1439,22 +1444,6 @@ export default function ProfileScreen() {
   }, [runDeleteAccount]);
 
   // Calculate profile completion percentage
-  const calculateProfileCompletion = useCallback(() => {
-    let completedFields = 0;
-    const totalFields = 8; // Total fields to check (removed certifications)
-    
-    if (user.name && user.name.trim()) completedFields++;
-    if (user.email && user.email.trim()) completedFields++;
-    if (user.phone && user.phone.trim()) completedFields++;
-    if (user.company && user.company.trim()) completedFields++;
-    if (user.location && user.location.trim()) completedFields++;
-    if (user.licenses && user.licenses.length > 0) completedFields++;
-    if (user.insurance && Object.values(user.insurance).some(v => v === true)) completedFields++;
-    if (profileHasCustomAvatar(user.avatar)) completedFields++;
-    
-    return Math.round((completedFields / totalFields) * 100);
-  }, [user]);
-
   // Filter settings based on search query (search UI removed — always show all)
   const filterSettings = useCallback((_settingText: string): boolean => {
     return true;
@@ -1635,45 +1624,53 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const getProfileCompletionNextStep = useCallback((): { label: string; onPress: () => void } => {
-    if (!user.company?.trim()) {
-      return { label: 'Add your company name', onPress: openEditProfileModal };
-    }
-    if (!profileHasCustomAvatar(user.avatar)) {
-      return { label: 'Upload your company logo', onPress: openEditProfileModal };
-    }
-    if (!user.phone?.trim()) {
-      return { label: 'Add your phone number', onPress: openEditProfileModal };
-    }
-    if (!user.location?.trim()) {
-      return { label: 'Add your service area', onPress: openEditProfileModal };
-    }
-    if (!user.companyBio?.trim()) {
-      return { label: 'Add your company bio', onPress: () => setIsEditingBio(true) };
-    }
-    if (!user.projectPortfolio?.length) {
-      return {
+  const scrollToTrustSection = useCallback(() => {
+    trustSectionRef.current?.measureInWindow((_x, y) => {
+      scrollViewRef.current?.scrollTo({ y: Math.max(0, scrollYRef.current + y - 120), animated: true });
+    });
+  }, []);
+
+  /** What homeowners see. The percent and the "Next" step both come from this one list. */
+  const profileCompletionSteps = useMemo(() => {
+    const hasCompany = Boolean(user.company?.trim());
+    const bioLength = (user.companyBio || '').trim().length;
+    return [
+      {
+        done: hasCompany && Boolean(user.name?.trim()),
+        label: hasCompany ? 'Add your contact name' : 'Add your company name',
+        onPress: openEditProfileModal,
+      },
+      { done: profileHasCustomAvatar(user.avatar), label: 'Upload your company logo', onPress: openEditProfileModal },
+      { done: Boolean(user.phone?.trim()), label: 'Add your phone number', onPress: openEditProfileModal },
+      { done: Boolean(user.location?.trim()), label: 'Add your service area', onPress: openEditProfileModal },
+      {
+        done: bioLength >= PROFILE_BIO_MIN_LENGTH,
+        label: bioLength > 0 ? 'Add a sentence or two to your bio' : 'Add your company bio',
+        onPress: () => setIsEditingBio(true),
+      },
+      {
+        done: Boolean(user.projectPortfolio?.length),
         label: 'Add your first portfolio photo',
         onPress: () => {
           setIsEditingPortfolio(true);
           handleAddPortfolioImage();
         },
-      };
-    }
-    if (!user.licenses?.length) {
-      return { label: 'Add your contractor license', onPress: () => setIsEditingLicenses(true) };
-    }
-    if (!user.insurance || !Object.values(user.insurance).some((v) => v === true)) {
-      return {
+      },
+      {
+        done: Boolean(user.licenses?.length),
+        label: 'Add your contractor license',
+        onPress: () => {
+          setIsEditingLicenses(true);
+          scrollToTrustSection();
+        },
+      },
+      {
+        done: Boolean(user.insurance && Object.values(user.insurance).some((v) => v === true)),
         label: 'Add insurance coverage',
-        onPress: () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-      };
-    }
-    if (!user.name?.trim()) {
-      return { label: 'Add your contact name', onPress: openEditProfileModal };
-    }
-    return { label: 'Review your profile', onPress: () => setPreviewModalVisible(true) };
-  }, [user, openEditProfileModal, handleAddPortfolioImage]);
+        onPress: scrollToTrustSection,
+      },
+    ];
+  }, [user, openEditProfileModal, handleAddPortfolioImage, scrollToTrustSection]);
 
   const commitNewLicense = useCallback(() => {
     const trimmed = newLicenseText.trim();
@@ -1718,18 +1715,29 @@ export default function ProfileScreen() {
     };
   }, [leadsData]);
 
-  const profileCompletion = calculateProfileCompletion();
-  const completionNextStep = getProfileCompletionNextStep();
+  const profileCompletion = Math.round(
+    (profileCompletionSteps.filter((step) => step.done).length / profileCompletionSteps.length) * 100
+  );
+  const completionNextStep = profileCompletionSteps.find((step) => !step.done) ?? {
+    label: 'Review your profile',
+    onPress: () => setPreviewModalVisible(true),
+  };
   const displayCompany = user.company?.trim() || 'Your Company';
   const displayRole = user.role || 'General Contractor';
   const displayLocation = user.location?.trim();
   const hasLicenseOnFile = Boolean(user.licenses?.length);
   const hasInsurance = Boolean(user.insurance && Object.values(user.insurance).some((v) => v === true));
-  const hasVerifiedIdentity = Boolean(user.email?.trim());
+  const hasEmailOnFile = Boolean(user.email?.trim());
+  const insuranceBadgeLabel = user.insurance?.generalLiability
+    ? 'Liability on file'
+    : user.insurance?.autoInsurance
+      ? 'Auto insurance on file'
+      : 'Insurance on file';
+  // Self-reported details only; nothing here is verified by Build Profit Solutions.
   const trustBadges = [
-    hasVerifiedIdentity ? { icon: 'verified' as const, label: 'Identity verified' } : null,
+    hasEmailOnFile ? { icon: 'email' as const, label: 'Email on file' } : null,
     hasLicenseOnFile ? { icon: 'badge' as const, label: 'License on file' } : null,
-    hasInsurance ? { icon: 'security' as const, label: 'Insured' } : null,
+    hasInsurance ? { icon: 'security' as const, label: insuranceBadgeLabel } : null,
   ].filter(Boolean);
 
   const renderOverviewTab = () => (
@@ -1949,6 +1957,11 @@ export default function ProfileScreen() {
                   {500 - (user.companyBio || '').length} characters left
                 </Text>
               )}
+              {(user.companyBio || '').trim().length < PROFILE_BIO_MIN_LENGTH && (
+                <Text style={[styles.characterCount, { color: theme.subtext }]}>
+                  {PROFILE_BIO_MIN_LENGTH}+ characters counts toward your profile
+                </Text>
+              )}
             </View>
           </>
         ) : (
@@ -1985,220 +1998,10 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      {/* Project Portfolio */}
-      <View
-        style={[
-          styles.section,
-          { backgroundColor: theme.card, borderColor: theme.border },
-        ]}
-      >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <View style={styles.sectionHeader}>
-            <MaterialIcons name='photo-library' size={22} color={PROFILE_MINT} />
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              Project Portfolio
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setIsEditingPortfolio(!isEditingPortfolio)}
-            style={{ padding: 4 }}
-          >
-            <MaterialIcons
-              name={isEditingPortfolio ? 'check' : 'edit'}
-              size={16}
-              color={isEditingPortfolio ? PROFILE_MINT : PROFILE_SLATE}
-            />
-          </TouchableOpacity>
-        </View>
-        
-        {isEditingPortfolio && user.projectPortfolio && user.projectPortfolio.length > 0 && (
-          <TouchableOpacity
-            onPress={handleAddPortfolioImage}
-            style={[styles.addPortfolioButtonCompact, {
-              backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
-              borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
-              marginBottom: 12,
-            }]}
-          >
-            <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
-            <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
-              Add portfolio photo
-            </Text>
-          </TouchableOpacity>
-        )}
-        
-        {user.projectPortfolio && user.projectPortfolio.length > 0 ? (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
-            style={styles.portfolioContainer}
-            contentContainerStyle={styles.portfolioScrollContent}
-          >
-            {user.projectPortfolio.map((item, index) => (
-              <View key={item.id || index} style={styles.portfolioItem}>
-                <Pressable
-                  style={styles.portfolioImageShell}
-                  onPress={() => {
-                    // TODO: Open full-screen gallery
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                >
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={styles.portfolioImage}
-                    resizeMode='cover'
-                  />
-                  {index === 0 && (
-                    <View style={styles.featuredBadge} accessibilityLabel="Featured project photo">
-                      <MaterialIcons name='star' size={12} color='#FBBF24' />
-                      <Text style={styles.featuredBadgeText}>Featured</Text>
-                    </View>
-                  )}
-                  {isEditingPortfolio && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        const updatedPortfolio = user.projectPortfolio.filter((_, i) => i !== index);
-                        setUser(prev => ({ ...prev, projectPortfolio: updatedPortfolio }));
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      style={styles.deletePortfolioButton}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <MaterialIcons name='close' size={16} color='#fff' />
-                    </TouchableOpacity>
-                  )}
-                </Pressable>
-                {isEditingPortfolio ? (
-                  <TextInput
-                    style={[
-                      styles.portfolioCaptionInput,
-                      {
-                        color: theme.text,
-                        borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                      },
-                    ]}
-                    placeholder="Short caption (optional)"
-                    placeholderTextColor={
-                      darkMode ? 'rgba(203, 213, 225, 0.45)' : theme.subtext
-                    }
-                    value={item.caption || ''}
-                    onChangeText={(text) => {
-                      setUser((prev) => ({
-                        ...prev,
-                        projectPortfolio: (prev.projectPortfolio || []).map((p, i) =>
-                          i === index ? { ...p, caption: text } : p
-                        ),
-                      }));
-                    }}
-                    maxLength={120}
-                    multiline
-                    numberOfLines={2}
-                    textAlignVertical='top'
-                  />
-                ) : (
-                  item.caption ? (
-                    <Text
-                      style={[
-                        styles.portfolioCaption,
-                        { color: darkMode ? 'rgba(226, 232, 240, 0.88)' : theme.subtext },
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {item.caption}
-                    </Text>
-                  ) : null
-                )}
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={styles.emptyPortfolio}>
-            <Text style={[styles.emptyPortfolioTitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-              Show customers examples of your work.
-            </Text>
-            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
-              Before-and-after photos work especially well.
-            </Text>
-            <TouchableOpacity
-              style={[styles.addPortfolioButtonCompact, {
-                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
-              }]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setIsEditingPortfolio(true);
-                handleAddPortfolioImage();
-              }}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
-              <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
-                Add first project
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      {/* Contact Information */}
-      <View
-        style={[
-          styles.section,
-          { backgroundColor: theme.card, borderColor: theme.border },
-        ]}
-      >
-        <View style={styles.sectionHeader}>
-          <MaterialIcons name='contact-mail' size={22} color={PROFILE_MINT} />
-          <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-            Contact Information
-          </Text>
-        </View>
-
-        <View style={styles.contactDetails}>
-          {user.phone?.trim() ? (
-            <View style={styles.contactLabeledRow}>
-              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Phone</Text>
-              <Text style={[styles.contactValue, { color: theme.text }]}>{formatPhoneNumber(user.phone)}</Text>
-            </View>
-          ) : null}
-          {user.email?.trim() ? (
-            <View style={styles.contactLabeledRow}>
-              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Email</Text>
-              <Text style={[styles.contactValue, { color: theme.text }]}>{user.email}</Text>
-            </View>
-          ) : null}
-          {user.website?.trim() ? (
-            <TouchableOpacity
-              style={styles.contactLabeledRow}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                Linking.openURL(user.website.startsWith('http') ? user.website : `https://${user.website}`);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Website</Text>
-              <Text style={[styles.contactValue, { color: theme.text }]}>{user.website}</Text>
-            </TouchableOpacity>
-          ) : null}
-          {displayLocation ? (
-            <View style={styles.contactLabeledRow}>
-              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Service Area</Text>
-              <Text style={[styles.contactValue, { color: theme.text }]}>{displayLocation}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.privacyHint}>
-              <MaterialIcons name='lock' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
-              <Text style={[styles.privacyHintText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                Your contact details are only shared after a lead match.
-              </Text>
-            </View>
-      </View>
-
       {/* Licenses & Insurance */}
       <View
+        ref={trustSectionRef}
+        collapsable={false}
         style={[
           styles.section,
           { backgroundColor: theme.card, borderColor: theme.border },
@@ -2435,6 +2238,218 @@ export default function ProfileScreen() {
           </View>
         </View>
       </View>
+
+      {/* Project Portfolio */}
+      <View
+        style={[
+          styles.section,
+          { backgroundColor: theme.card, borderColor: theme.border },
+        ]}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <View style={styles.sectionHeader}>
+            <MaterialIcons name='photo-library' size={22} color={PROFILE_MINT} />
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+              Project Portfolio
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setIsEditingPortfolio(!isEditingPortfolio)}
+            style={{ padding: 4 }}
+          >
+            <MaterialIcons
+              name={isEditingPortfolio ? 'check' : 'edit'}
+              size={16}
+              color={isEditingPortfolio ? PROFILE_MINT : PROFILE_SLATE}
+            />
+          </TouchableOpacity>
+        </View>
+        
+        {isEditingPortfolio && user.projectPortfolio && user.projectPortfolio.length > 0 && (
+          <TouchableOpacity
+            onPress={handleAddPortfolioImage}
+            style={[styles.addPortfolioButtonCompact, {
+              backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+              borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
+              marginBottom: 12,
+            }]}
+          >
+            <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
+            <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
+              Add portfolio photo
+            </Text>
+          </TouchableOpacity>
+        )}
+        
+        {user.projectPortfolio && user.projectPortfolio.length > 0 ? (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            style={styles.portfolioContainer}
+            contentContainerStyle={styles.portfolioScrollContent}
+          >
+            {user.projectPortfolio.map((item, index) => (
+              <View key={item.id || index} style={styles.portfolioItem}>
+                <Pressable
+                  style={styles.portfolioImageShell}
+                  onPress={() => {
+                    // TODO: Open full-screen gallery
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={styles.portfolioImage}
+                    resizeMode='cover'
+                  />
+                  {index === 0 && (
+                    <View style={styles.featuredBadge} accessibilityLabel="Featured project photo">
+                      <MaterialIcons name='star' size={12} color='#FBBF24' />
+                      <Text style={styles.featuredBadgeText}>Featured</Text>
+                    </View>
+                  )}
+                  {isEditingPortfolio && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const updatedPortfolio = user.projectPortfolio.filter((_, i) => i !== index);
+                        setUser(prev => ({ ...prev, projectPortfolio: updatedPortfolio }));
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      style={styles.deletePortfolioButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons name='close' size={16} color='#fff' />
+                    </TouchableOpacity>
+                  )}
+                </Pressable>
+                {isEditingPortfolio ? (
+                  <TextInput
+                    style={[
+                      styles.portfolioCaptionInput,
+                      {
+                        color: theme.text,
+                        borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                      },
+                    ]}
+                    placeholder="Short caption (optional)"
+                    placeholderTextColor={
+                      darkMode ? 'rgba(203, 213, 225, 0.45)' : theme.subtext
+                    }
+                    value={item.caption || ''}
+                    onChangeText={(text) => {
+                      setUser((prev) => ({
+                        ...prev,
+                        projectPortfolio: (prev.projectPortfolio || []).map((p, i) =>
+                          i === index ? { ...p, caption: text } : p
+                        ),
+                      }));
+                    }}
+                    maxLength={120}
+                    multiline
+                    numberOfLines={2}
+                    textAlignVertical='top'
+                  />
+                ) : (
+                  item.caption ? (
+                    <Text
+                      style={[
+                        styles.portfolioCaption,
+                        { color: darkMode ? 'rgba(226, 232, 240, 0.88)' : theme.subtext },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {item.caption}
+                    </Text>
+                  ) : null
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyPortfolio}>
+            <Text style={[styles.emptyPortfolioTitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+              Show customers examples of your work.
+            </Text>
+            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+              Before-and-after photos work especially well.
+            </Text>
+            <TouchableOpacity
+              style={[styles.addPortfolioButtonCompact, {
+                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(0,0,0,0.1)',
+              }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setIsEditingPortfolio(true);
+                handleAddPortfolioImage();
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name='add-photo-alternate' size={18} color={PROFILE_MINT} />
+              <Text style={[styles.addPortfolioButtonTextCompact, { color: PROFILE_MINT }]}>
+                Add first project
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      {/* Contact Information */}
+      <View
+        style={[
+          styles.section,
+          { backgroundColor: theme.card, borderColor: theme.border },
+        ]}
+      >
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name='contact-mail' size={22} color={PROFILE_MINT} />
+          <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+            Contact Information
+          </Text>
+        </View>
+
+        <View style={styles.contactDetails}>
+          {user.phone?.trim() ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Phone</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{formatPhoneNumber(user.phone)}</Text>
+            </View>
+          ) : null}
+          {user.email?.trim() ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Email</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{user.email}</Text>
+            </View>
+          ) : null}
+          {user.website?.trim() ? (
+            <TouchableOpacity
+              style={styles.contactLabeledRow}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Linking.openURL(user.website.startsWith('http') ? user.website : `https://${user.website}`);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Website</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{user.website}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {displayLocation ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Service Area</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{displayLocation}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.privacyHint}>
+              <MaterialIcons name='lock' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
+              <Text style={[styles.privacyHintText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                Your contact details are only shared after a lead match.
+              </Text>
+            </View>
+      </View>
     </>
   );
 
@@ -2536,15 +2551,50 @@ export default function ProfileScreen() {
 
     return (
       <View style={styles.settingsTabWrap}>
-        {/* Account & Security - Top Priority */}
-        {renderSection('Account & Security', (
+        {canViewTaxCenter && filterSettings('Tax Center') ? (
+          <TaxCenterSnapshotCard
+            cardBackground={theme.card}
+            textColor={theme.text}
+          />
+        ) : null}
+
+        {/* Business */}
+        {renderSection('Business', (
           <>
-            {renderSettingItem('change-password', 'lock', 'Change Password', () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              handleChangePassword();
-            })}
+            {renderSettingItem(
+              'payment-methods',
+              'payment',
+              'Payment Methods',
+              () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handlePaymentMethods();
+              },
+              true,
+              undefined,
+              'Payouts & client payments'
+            )}
           </>
-        ), true)}
+        ))}
+
+        {/* Estimating — pricing library learn + Step 2 saved-rate suggestions */}
+        <View style={styles.settingsGroupContainer}>
+            <Text
+              style={[
+                styles.settingsGroupTitle,
+                { color: theme.subtext, opacity: darkMode ? 1 : 0.85 },
+              ]}
+            >
+              ESTIMATING & PRICING
+            </Text>
+            <View
+              style={[
+                styles.settingsGroup,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+            >
+              <ContractorPricingMemorySettings />
+            </View>
+          </View>
 
         {/* Preferences */}
         {renderSection('Preferences', (
@@ -2689,50 +2739,15 @@ export default function ProfileScreen() {
           </>
         ))}
 
-        {/* Business */}
-        {renderSection('Business', (
+        {/* Account & Security */}
+        {renderSection('Account & Security', (
           <>
-            {canViewTaxCenter &&
-              renderSettingItem('tax-center', 'request-quote', 'Tax Center', () => {
+            {renderSettingItem('change-password', 'lock', 'Change Password', () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push('/tax-center');
+              handleChangePassword();
             })}
-            {renderSettingItem(
-              'payment-methods',
-              'payment',
-              'Payment Methods',
-              () => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handlePaymentMethods();
-              },
-              true,
-              undefined,
-              'Payouts & client payments'
-            )}
           </>
-        ))}
-
-        {/* Estimating — pricing library learn + Step 2 saved-rate suggestions */}
-        <View style={styles.settingsGroupContainer}>
-            <Text
-              style={[
-                styles.settingsGroupTitle,
-                { color: theme.subtext, opacity: darkMode ? 1 : 0.85 },
-              ]}
-            >
-              ESTIMATING & PRICING
-            </Text>
-            <View
-              style={[
-                styles.settingsGroup,
-                { backgroundColor: theme.card, borderColor: theme.border },
-              ]}
-            >
-              <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
-                <ContractorPricingMemorySettings compact />
-              </View>
-            </View>
-          </View>
+        ), true)}
 
         {/* App & Data */}
         {renderSection('App & Data', (
@@ -2854,19 +2869,13 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.iosButton,
-              styles.deleteButton,
-              {
-                backgroundColor: darkMode ? '#3A3A3C' : '#e2e8f0',
-                borderColor: 'rgba(148, 163, 184, 0.35)',
-              },
-            ]}
+            style={styles.deleteButton}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
               handleDeleteAccount();
             }}
-            activeOpacity={0.7}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 16, right: 16 }}
           >
             <Text style={[styles.iosButtonText, styles.deleteButtonText]}>
               Delete Account
@@ -2904,6 +2913,10 @@ export default function ProfileScreen() {
 
       <ScrollView
         ref={scrollViewRef}
+        onScroll={(e) => {
+          scrollYRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={64}
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.scrollContent,
@@ -4746,7 +4759,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   settingItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 56,
     paddingVertical: 14,
@@ -4760,7 +4773,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginTop: 2,
   },
   switchWrapper: {
-    marginTop: 6,
     marginRight: 0,
     flexShrink: 0,
   },
@@ -4823,8 +4835,10 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   logoutButton: {
   },
   deleteButton: {
-    marginTop: 0,
-    marginBottom: 0,
+    alignSelf: 'center',
+    marginTop: 28,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
   buttonIcon: {
     marginRight: 8,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -22,11 +22,12 @@ import type {
   TaxExpense,
   TaxPayment,
 } from '@/src/lib/taxCenter';
-import { classifyRevenuePaymentSource, formatTaxNetMarginPercent, sortTaxExpensesForDisplay, taxExpenseRecordLabel } from '@/src/lib/taxCenter';
+import { classifyRevenuePaymentSource, formatTaxNetMarginPercent, laborPaymentMethodLabel, laborPaymentMethodOf, sortTaxExpensesForDisplay, taxExpenseRecordLabel } from '@/src/lib/taxCenter';
 import type { Vendor } from '@/src/lib/vendorTypes';
 import type { Tax1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { resolveVendorForExpense } from '@/src/lib/tax1099Review';
 import { parseCalendarDate } from '@/utils/formatters';
+import { getPotential1099ReviewThreshold } from '@/src/lib/taxReviewThresholds';
 
 export type TaxCenterDetailKind =
   | 'revenue'
@@ -36,6 +37,7 @@ export type TaxCenterDetailKind =
   | 'netIncome'
   | 'netMargin'
   | 'subcontractor'
+  | 'w2'
   | 'receipts';
 
 const FOOTER_NOTE =
@@ -65,10 +67,14 @@ type Props = {
     includedInCashBasis: string;
   }[];
   subcontractorExpenseRows: TaxExpense[];
+  w2ExpenseRows: TaxExpense[];
   receiptRows: ReceiptCountDetailRow[];
   vendors: Vendor[];
   review1099: Tax1099ReviewSummary;
   formatMoney: (n: number) => string;
+  /** Marks the payee's W-9 as received. Creates a saved subcontractor when the payee is not in the directory. */
+  onMarkW9Received?: (expense: TaxExpense) => void;
+  onMarkW9NotReceived?: (expense: TaxExpense) => void;
 };
 
 function revenueSourceLabel(src: ReturnType<typeof classifyRevenuePaymentSource>): string {
@@ -94,8 +100,7 @@ function displayLabel(raw: string, emptyLabel: string): string {
 function formatDisplayDate(raw: string): { text: string; warn: boolean } {
   const s = String(raw || '').trim();
   if (!s) return { text: 'Missing date', warn: true };
-  const dateOnly = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  const date = parseCalendarDate(dateOnly ? dateOnly[1] : s);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(s) ? parseCalendarDate(s) : new Date(s);
   if (Number.isNaN(date.getTime())) return { text: 'Missing date', warn: true };
   return {
     text: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
@@ -121,17 +126,20 @@ function detailDescription(kind: TaxCenterDetailKind): string {
   if (kind === 'revenue') {
     return 'These rows use the same tax-year filters as the summary cards. Source labels are shown for traceability only and do not change Tax Center math.';
   }
+  if (kind === 'subcontractor' || kind === 'w2') {
+    return 'People and companies entered as Paid to on labor bills. These payments are already inside Expenses Paid.';
+  }
   return 'These rows use the same tax-year filters as the summary cards.';
 }
 
 function w9StatusShort(linked: Vendor | undefined): { text: string; warn: boolean } {
-  if (!linked) return { text: 'Not added', warn: true };
+  if (!linked) return { text: 'W-9 not on file', warn: true };
   const s = linked.w9Status;
-  if (s === 'not_applicable') return { text: 'Not needed', warn: false };
-  if (s === 'missing') return { text: 'Missing W-9', warn: true };
+  if (s === 'not_applicable') return { text: 'W-9 not needed', warn: false };
+  if (s === 'missing') return { text: 'W-9 not on file', warn: true };
   if (s === 'requested') return { text: 'W-9 requested', warn: true };
-  if (s === 'uploaded' || s === 'verified') return { text: 'Received', warn: false };
-  return { text: String(s || 'Not added'), warn: true };
+  if (s === 'uploaded' || s === 'verified') return { text: 'W-9 received', warn: false };
+  return { text: s ? String(s) : 'W-9 not on file', warn: true };
 }
 
 function moneyColor(amount: number): string {
@@ -280,8 +288,47 @@ function createStyles(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
       lineHeight: 15,
       marginTop: 4,
     },
-    metaWarn: { color: '#FBBF24', fontWeight: '700' },
+    metaWarn: { color: '#FBBF24', fontSize: 12, fontWeight: '700' },
     empty: { color: meta, fontStyle: 'italic', padding: 16 },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
+    sectionHeaderSpaced: { marginTop: 14 },
+    metaOk: { color: '#2dcc9a' },
+    markW9Button: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      marginTop: 8,
+      marginBottom: 2,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(45, 204, 154, 0.4)',
+      backgroundColor: 'rgba(45, 204, 154, 0.14)',
+    },
+    markW9Text: { color: '#2dcc9a', fontSize: 12, fontWeight: '700' },
+    undoW9Button: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      marginTop: 8,
+      marginBottom: 2,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(148, 163, 184, 0.35)',
+    },
+    undoW9Text: { color: '#d7e1f0', fontSize: 12, fontWeight: '600' },
+    sectionTitle: { color: Colors.text, fontSize: 14, fontWeight: '700' },
+    sectionTotal: { color: Colors.text, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
     formulaBox: {
       padding: 16,
       backgroundColor: formulaBg,
@@ -347,14 +394,18 @@ export default function TaxCenterSummaryDetailModal({
   expenseRows,
   committedRows,
   subcontractorExpenseRows,
+  w2ExpenseRows,
   receiptRows,
   vendors,
   review1099,
   formatMoney,
+  onMarkW9Received,
+  onMarkW9NotReceived,
 }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => createStyles(Colors, darkMode), [Colors, darkMode]);
+  const [openPayeeKey, setOpenPayeeKey] = useState<string | null>(null);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -435,20 +486,16 @@ export default function TaxCenterSummaryDetailModal({
           </>
         );
       case 'subcontractor':
+      case 'w2':
+        if (review1099.potential1099VendorCount === 0) return null;
         return (
-          <>
-            <Chip
-              styles={styles}
-              label={`${subcontractorExpenseRows.length} payment${subcontractorExpenseRows.length === 1 ? '' : 's'}`}
-            />
-            <Chip styles={styles} label={`Total paid ${total}`} figure />
-            <Chip
-              styles={styles}
-              label={`Potential 1099 review: ${review1099.potential1099VendorCount}`}
-              warn={review1099.potential1099VendorCount > 0}
-            />
-            <Chip styles={styles} label={yearChip} />
-          </>
+          <Chip
+            styles={styles}
+            label={`Over $${getPotential1099ReviewThreshold(selectedYear).toLocaleString('en-US')}: ${
+              review1099.potential1099VendorCount
+            }`}
+            warn
+          />
         );
       case 'receipts': {
         const miss = missingReceiptsExpenseCount;
@@ -471,7 +518,6 @@ export default function TaxCenterSummaryDetailModal({
     missingReceiptsExpenseCount,
     revenuePayments.length,
     review1099.potential1099VendorCount,
-    subcontractorExpenseRows.length,
     summary.receiptCount,
     summaryCardValue,
     selectedYear,
@@ -672,22 +718,147 @@ export default function TaxCenterSummaryDetailModal({
       );
     }
 
-    if (kind === 'subcontractor') {
-      return subcontractorExpenseRows.length === 0 ? (
-        <Text style={styles.empty}>No subcontractor-classified payments in this tax year.</Text>
+    const renderSubcontractorList = () => {
+      if (subcontractorExpenseRows.length === 0) {
+        return <Text style={styles.empty}>No 1099 payments in this tax year.</Text>;
+      }
+      const groups = new Map<
+        string,
+        { name: string; rows: TaxExpense[]; total: number; vendor: Vendor | undefined }
+      >();
+      for (const expense of subcontractorExpenseRows) {
+        const linked = resolveVendorForExpense(expense, vendors);
+        const name = displayLabel(String(expense.vendor || expense.vendorName || '').trim(), 'Not added');
+        const key = linked?.id ? `id:${linked.id}` : `name:${name.toLowerCase()}`;
+        const amount =
+          typeof expense.amount === 'number'
+            ? expense.amount
+            : Number(String(expense.amount ?? '').replace(/[$,\s]/g, '')) || 0;
+        const current = groups.get(key) || { name, rows: [], total: 0, vendor: linked };
+        current.rows.push(expense);
+        current.total += amount;
+        if (!current.vendor && linked) current.vendor = linked;
+        groups.set(key, current);
+      }
+      return Array.from(groups.entries()).map(([key, group]) => {
+        const sample = group.rows[0];
+        const w9 = w9StatusShort(group.vendor);
+        const w9Received = group.vendor?.w9Status === 'uploaded' || group.vendor?.w9Status === 'verified';
+        const paidWith = Array.from(
+          new Set(
+            group.rows
+              .map((row) => laborPaymentMethodLabel(laborPaymentMethodOf(row)))
+              .filter((label): label is string => Boolean(label))
+          )
+        );
+        const missingReceipt = group.rows.some((row) => !String(row.receiptUri ?? '').trim());
+        const several = group.rows.length > 1;
+        const open = openPayeeKey === key;
+        const firstPaid = formatDisplayDate(String(sample.paidAt || sample.date || '').trim());
+        const firstProject = displayLabel(String(sample.projectName || '').trim(), 'Not added');
+        return (
+          <View key={key} style={styles.rowCard}>
+            <Pressable
+              disabled={!several}
+              onPress={() => setOpenPayeeKey(open ? null : key)}
+              accessibilityRole={several ? 'button' : undefined}
+              accessibilityLabel={several ? `${group.name}, ${group.rows.length} payments` : group.name}
+            >
+              <View style={styles.rowTop}>
+                <Text style={styles.rowPrimaryLeft} numberOfLines={2}>
+                  {group.name}
+                </Text>
+                <Text style={[styles.rowPrimaryRight, { color: moneyColor(group.total) }]}>
+                  {formatMoney(group.total)}
+                </Text>
+              </View>
+              <Text style={styles.rowMeta}>
+                {several ? (
+                  <>
+                    <Text style={styles.rowMeta}>{`${group.rows.length} payments`}</Text>
+                    <Text style={styles.rowMeta}>{open ? ' · Hide' : ' · Show dates'}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={firstPaid.warn ? styles.metaWarn : undefined}>{firstPaid.text}</Text>
+                    <Text style={styles.rowMeta}>{` · ${firstProject}`}</Text>
+                  </>
+                )}
+              </Text>
+            </Pressable>
+            {several && open
+              ? group.rows.map((row, idx) => {
+                  const amt =
+                    typeof row.amount === 'number'
+                      ? row.amount
+                      : Number(String(row.amount ?? '').replace(/[$,\s]/g, '')) || 0;
+                  const paidFmt = formatDisplayDate(String(row.paidAt || row.date || '').trim());
+                  const project = displayLabel(String(row.projectName || '').trim(), 'Not added');
+                  return (
+                    <Text key={`${String(row.id || idx)}`} style={styles.rowMetaSub}>
+                      <Text style={paidFmt.warn ? styles.metaWarn : undefined}>{paidFmt.text}</Text>
+                      {` · ${project} · `}
+                      <Text style={{ color: moneyColor(amt) }}>{formatMoney(amt)}</Text>
+                    </Text>
+                  );
+                })
+              : null}
+            <Text style={styles.rowMeta}>
+              <Text style={w9.warn ? styles.metaWarn : styles.metaOk}>{w9.text}</Text>
+              {paidWith.length ? (
+                <>
+                  <Text style={styles.rowMeta}> · Paid with </Text>
+                  {paidWith.map((label, index) => (
+                    <Text key={label} style={label === 'Card' ? styles.rowMeta : styles.metaOk}>
+                      {index > 0 ? ', ' : ''}
+                      {label}
+                    </Text>
+                  ))}
+                </>
+              ) : null}
+            </Text>
+            <Text style={missingReceipt ? styles.metaWarn : styles.rowMetaSub}>
+              {missingReceipt ? 'Missing receipt' : 'Receipt attached'}
+            </Text>
+            {w9.warn && onMarkW9Received ? (
+              <Pressable
+                onPress={() => onMarkW9Received(sample)}
+                style={({ pressed }) => [styles.markW9Button, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark W-9 received for ${group.name}`}
+                hitSlop={6}
+              >
+                <MaterialIcons name="check" size={14} color="#2dcc9a" />
+                <Text style={styles.markW9Text}>Mark W-9 received</Text>
+              </Pressable>
+            ) : w9Received && onMarkW9NotReceived ? (
+              <Pressable
+                onPress={() => onMarkW9NotReceived(sample)}
+                style={({ pressed }) => [styles.undoW9Button, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Undo W-9 received for ${group.name}`}
+                hitSlop={6}
+              >
+                <MaterialIcons name="undo" size={14} color="#d7e1f0" />
+                <Text style={styles.undoW9Text}>Undo W-9 received</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      });
+    };
+
+    const renderW2List = () =>
+      w2ExpenseRows.length === 0 ? (
+        <Text style={styles.empty}>No W-2 labor payments in this tax year.</Text>
       ) : (
-        subcontractorExpenseRows.map((e, idx) => {
-          const v = resolveVendorForExpense(e, vendors);
+        w2ExpenseRows.map((e, idx) => {
           const amt =
             typeof e.amount === 'number' ? e.amount : Number(String(e.amount ?? '').replace(/[$,\s]/g, '')) || 0;
           const vendor = displayLabel(String(e.vendor || e.vendorName || '').trim(), 'Not added');
           const paidRaw = String(e.paidAt || e.date || '').trim();
           const paidFmt = formatDisplayDate(paidRaw);
           const project = displayLabel(String(e.projectName || '').trim(), 'Not added');
-          const pmRaw = String(e.paymentMethod || '').trim();
-          const pmMissing = !pmRaw;
-          const pmText = pmMissing ? 'Not added' : pmRaw;
-          const w9 = w9StatusShort(v);
           const uri = String(e.receiptUri ?? '').trim();
           const missingReceipt = !uri;
           return (
@@ -702,17 +873,35 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={paidFmt.warn ? styles.metaWarn : undefined}>{paidFmt.text}</Text>
                 <Text style={styles.rowMeta}>{` · ${project}`}</Text>
               </Text>
-              <Text style={styles.rowMeta}>
-                <Text style={pmMissing ? styles.metaWarn : undefined}>{pmText}</Text>
-                <Text style={styles.rowMeta}> · </Text>
-                <Text style={w9.warn ? styles.metaWarn : undefined}>{w9.text}</Text>
-              </Text>
               <Text style={missingReceipt ? styles.metaWarn : styles.rowMetaSub}>
                 {missingReceipt ? 'Missing receipt' : 'Receipt attached'}
               </Text>
             </View>
           );
         })
+      );
+
+    if (kind === 'subcontractor' || kind === 'w2') {
+      const rowsTotal = (rows: TaxExpense[]) =>
+        rows.reduce(
+          (sum, e) =>
+            sum +
+            (typeof e.amount === 'number' ? e.amount : Number(String(e.amount ?? '').replace(/[$,\s]/g, '')) || 0),
+          0
+        );
+      return (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>1099 · Contractors</Text>
+            <Text style={styles.sectionTotal}>{formatMoney(rowsTotal(subcontractorExpenseRows))}</Text>
+          </View>
+          {renderSubcontractorList()}
+          <View style={[styles.sectionHeader, styles.sectionHeaderSpaced]}>
+            <Text style={styles.sectionTitle}>W-2 · Employees</Text>
+            <Text style={styles.sectionTotal}>{formatMoney(rowsTotal(w2ExpenseRows))}</Text>
+          </View>
+          {renderW2List()}
+        </>
       );
     }
 
@@ -763,6 +952,10 @@ export default function TaxCenterSummaryDetailModal({
     revenuePayments,
     selectedYear,
     subcontractorExpenseRows,
+    w2ExpenseRows,
+    onMarkW9Received,
+    onMarkW9NotReceived,
+    openPayeeKey,
     summary.grossIncomeCollected,
     summary.netMargin,
     summary.netProfit,

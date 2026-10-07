@@ -82,6 +82,10 @@ export type TaxExpense = {
   paymentStatus?: string;
   /** Informational flag for 1099-readiness review (not a legal determination). */
   requires1099Review?: boolean;
+  /** Work type on a labor bill. When this differs from the payee, Paid to was filled in. */
+  trade?: string;
+  /** Set when Paid to is a person or company. W-2 stays off the 1099 and vendor lists. */
+  laborPayType?: '1099' | 'w2';
   /** Internal: purchase order line (only counted when paid per tax rules) */
   __isPurchaseOrder?: boolean;
 };
@@ -136,6 +140,8 @@ export type TaxCenterSummary = {
   /** Net Income ÷ Revenue Collected; **0** when there is no collected revenue in the year. */
   netMargin: number;
   subcontractorPayments: number;
+  /** Named employee labor. Same dollars stay inside Labor and Expenses Paid. */
+  w2Payments: number;
   receiptCount: number;
 };
 
@@ -540,9 +546,98 @@ export function matchVendorForExpense(expense: TaxExpense, vendors: Vendor[]): V
   return vendors.find((v) => normalizeVendorNameKey(v.businessName) === label);
 }
 
-/** Sum portfolio “Subcontractor Payments”: Subcontractors category **or** vendor directory type subcontractor. */
+export function laborPayTypeOf(expense: Partial<TaxExpense> | null | undefined): '1099' | 'w2' | null {
+  const raw = String(expense?.laborPayType || '').toLowerCase();
+  if (raw === 'w2' || raw === 'w-2') return 'w2';
+  if (raw === '1099') return '1099';
+  return null;
+}
+
+export type LaborPaymentMethod = 'check' | 'cash' | 'card' | 'bank';
+
+/** How a 1099 labor bill was paid. Card stays off the 1099 the payer files. */
+export function laborPaymentMethodOf(
+  expense: Partial<TaxExpense> | null | undefined
+): LaborPaymentMethod | null {
+  const raw = String(expense?.paymentMethod || '').toLowerCase();
+  if (raw === 'check' || raw === 'cheque') return 'check';
+  if (raw === 'cash') return 'cash';
+  if (raw === 'card' || raw === 'credit' || raw === 'debit') return 'card';
+  if (raw === 'bank' || raw === 'ach' || raw === 'transfer' || raw === 'wire') return 'bank';
+  return null;
+}
+
+export function laborPaymentMethodLabel(method: LaborPaymentMethod | null): string | null {
+  if (method === 'check') return 'Check';
+  if (method === 'cash') return 'Cash';
+  if (method === 'card') return 'Card';
+  if (method === 'bank') return 'Bank';
+  return null;
+}
+
+/** Card payments are reported by the card company. Unset payments still count until the payer chooses. */
+export function expenseCountsToward1099Filing(expense: Partial<TaxExpense> | null | undefined): boolean {
+  return laborPaymentMethodOf(expense) !== 'card';
+}
+
+const OWNER_SELF_PAYEE_NAMES = new Set(['me', 'myself', 'self']);
+
+/** Owner's own labor typed into Paid to. Same result as leaving the field blank. */
+export function isOwnerSelfPayeeName(name: string | null | undefined): boolean {
+  const normalized = String(name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '');
+  return OWNER_SELF_PAYEE_NAMES.has(normalized);
+}
+
+function laborPayeeName(expense: Partial<TaxExpense>): string {
+  return String(expense.vendorName || expense.vendor || '').trim();
+}
+
+/** Paid to is someone else, not the trade name and not the owner's own labor. */
+export function laborPaidToIsSomeoneElse(paidTo: string, trade?: string): boolean {
+  const payee = String(paidTo || '').trim();
+  if (!payee || isOwnerSelfPayeeName(payee)) return false;
+  const tradeName = String(trade || '').trim();
+  if (!tradeName) return true;
+  return payee.toLowerCase() !== tradeName.toLowerCase();
+}
+
+/** Paid to is a person or company, not just the trade name. */
+export function laborPayeeIsNamed(expense: Partial<TaxExpense>): boolean {
+  return laborPaidToIsSomeoneElse(laborPayeeName(expense), String(expense.trade || ''));
+}
+
+export function isLaborBill(expense: Partial<TaxExpense>): boolean {
+  const category = String(expense.category || '').toLowerCase();
+  return category.includes('labor') || category === 'subs';
+}
+
+/** Labor bill where Paid to is a 1099 payee. A W-2 choice never counts. W-9 on file is not required. */
+export function laborPayeeCountsAsSubcontractorPayment(expense: TaxExpense): boolean {
+  if (!isLaborBill(expense) || !laborPayeeIsNamed(expense)) return false;
+  if (laborPayTypeOf(expense) === 'w2') return false;
+  return true;
+}
+
+/** Named employee labor. Blank Paid to and 1099 payees stay off this list. */
+export function expenseCountsTowardW2Payments(expense: TaxExpense): boolean {
+  return isLaborBill(expense) && laborPayTypeOf(expense) === 'w2' && laborPayeeIsNamed(expense);
+}
+
+/** Label for a labor payment row. Trade-only bills stay unlabeled. */
+export function laborPaymentBadge(expense: Partial<TaxExpense> | null | undefined): '1099' | 'W-2' | null {
+  if (!expense || !laborPayeeIsNamed(expense)) return null;
+  if (laborPayTypeOf(expense) === 'w2') return 'W-2';
+  return '1099';
+}
+
+/** Subcontractor Payments: Subcontractors category, a 1099 labor payee, or a vendor marked subcontractor. */
 export function expenseCountsTowardSubcontractorPayments(expense: TaxExpense, vendors?: Vendor[]): boolean {
+  if (laborPayTypeOf(expense) === 'w2') return false;
   if (mapExpenseToTaxCategory(expense) === 'Subcontractors') return true;
+  if (laborPayeeCountsAsSubcontractorPayment(expense)) return true;
   if (!vendors?.length) return false;
   const v = matchVendorForExpense(expense, vendors);
   return v?.vendorType === 'subcontractor';
@@ -1044,6 +1139,7 @@ export function buildSubcontractorPaymentSummary(
 ): SubcontractorPaymentSummary[] {
   const reviewThreshold = getPotential1099ReviewThreshold(selectedYear);
   const byVendor = new Map<string, SubcontractorPaymentSummary>();
+  const filingByVendor = new Map<string, number>();
 
   asArray<TaxExpense>(expenses)
     .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
@@ -1055,22 +1151,47 @@ export function buildSubcontractorPaymentSummary(
           name,
           totalPaid: 0,
           projects: [],
-          missingW9: true,
+          missingW9: false,
           potential1099Review: false,
           w9Uploaded: false,
           einPlaceholder: '—',
           addressPlaceholder: '—',
         } satisfies SubcontractorPaymentSummary);
 
-      current.totalPaid += expenseAmount(expense);
+      const paidNow = expenseAmount(expense);
+      current.totalPaid += paidNow;
       if (expense.projectName && !current.projects.includes(expense.projectName)) {
         current.projects.push(expense.projectName);
       }
-      current.potential1099Review = current.totalPaid >= reviewThreshold;
+      const filingPaid = (filingByVendor.get(name) || 0) + (expenseCountsToward1099Filing(expense) ? paidNow : 0);
+      filingByVendor.set(name, filingPaid);
+      current.potential1099Review = filingPaid >= reviewThreshold;
       byVendor.set(name, current);
     });
 
   return Array.from(byVendor.values()).sort((a, b) => b.totalPaid - a.totalPaid);
+}
+
+export type W2PaymentSummary = {
+  name: string;
+  totalPaid: number;
+  projects: string[];
+};
+
+export function buildW2PaymentSummary(expenses: TaxExpense[]): W2PaymentSummary[] {
+  const byName = new Map<string, W2PaymentSummary>();
+  asArray<TaxExpense>(expenses)
+    .filter((expense) => expenseCountsTowardW2Payments(expense))
+    .forEach((expense) => {
+      const name = laborPayeeName(expense) || 'Unknown employee';
+      const current = byName.get(name) || { name, totalPaid: 0, projects: [] };
+      current.totalPaid += expenseAmount(expense);
+      if (expense.projectName && !current.projects.includes(expense.projectName)) {
+        current.projects.push(expense.projectName);
+      }
+      byName.set(name, current);
+    });
+  return Array.from(byName.values()).sort((a, b) => b.totalPaid - a.totalPaid);
 }
 
 /**
@@ -1155,6 +1276,9 @@ export function computeTaxCenterSummary(
   const subcontractorPayments = yearExpenses
     .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
     .reduce((sum, expense) => sum + expenseAmount(expense), 0);
+  const w2Payments = yearExpenses
+    .filter((expense) => expenseCountsTowardW2Payments(expense))
+    .reduce((sum, expense) => sum + expenseAmount(expense), 0);
 
   const seenReceiptKeys = new Set<string>();
   let receiptCount = 0;
@@ -1189,6 +1313,7 @@ export function computeTaxCenterSummary(
     netProfit,
     netMargin: grossIncomeCollected > 0 ? netProfit / grossIncomeCollected : 0,
     subcontractorPayments,
+    w2Payments,
     receiptCount,
   };
 }

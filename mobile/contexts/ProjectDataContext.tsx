@@ -837,6 +837,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     receiptUri?: string | null;
     linkedLineId?: string;
     trade?: string;
+    laborPayType?: '1099' | 'w2';
+    paymentMethod?: 'check' | 'cash' | 'card' | 'bank';
   }) => {
     // Emit PM event for expense added
     pmEventTracker.emit({
@@ -1118,6 +1120,10 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     amount: number;
     date?: string;
     notes?: string;
+    trade?: string;
+    laborPayType?: '1099' | 'w2' | null;
+    paymentMethod?: 'check' | 'cash' | 'card' | 'bank' | null;
+    linkedLineId?: string | null;
   }) => {
     applyProjectDataUpdate(prev => {
       const oldExpense = prev.expenses?.find(e => e.id === updatedExpense.id);
@@ -1134,6 +1140,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         const merged = { ...e, ...updatedExpense };
         if ('linkedLineId' in updatedExpense && updatedExpense.linkedLineId == null) {
           delete (merged as { linkedLineId?: string }).linkedLineId;
+        }
+        if ('laborPayType' in updatedExpense && updatedExpense.laborPayType == null) {
+          delete (merged as { laborPayType?: string }).laborPayType;
+        }
+        if ('paymentMethod' in updatedExpense && updatedExpense.paymentMethod == null) {
+          delete (merged as { paymentMethod?: string }).paymentMethod;
         }
         return merged;
       });

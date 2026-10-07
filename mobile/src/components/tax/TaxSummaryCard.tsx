@@ -9,7 +9,11 @@ type Props = {
   icon: keyof typeof MaterialIcons.glyphMap;
   accent?: string;
   helper?: string;
+  /** Amber helper with a warning icon, for a follow-up the user still owes. */
+  helperTone?: 'warn';
   onPress?: () => void;
+  /** Two or more labeled totals in place of the single figure, e.g. 1099 and W-2. */
+  lines?: { label: string; value: string }[];
 };
 
 /** Split $12,777,936.00 so cents stay on the same row (avoids ".00" wrapping alone on narrow cards). */
@@ -38,9 +42,12 @@ function fontSizeForCardValue(value: string): number {
   return 14;
 }
 
-function TaxSummaryCardValue({ value }: { value: string }) {
+function TaxSummaryCardValue({ value, maxFontSize }: { value: string; maxFontSize?: number }) {
   const currency = useMemo(() => splitUsdValue(value), [value]);
-  const fontSize = useMemo(() => fontSizeForCardValue(value), [value]);
+  const fontSize = useMemo(() => {
+    const size = fontSizeForCardValue(value);
+    return maxFontSize ? Math.min(size, maxFontSize) : size;
+  }, [value, maxFontSize]);
   const color = taxFigureColor(value);
 
   if (!currency) {
@@ -79,7 +86,16 @@ function TaxSummaryCardValue({ value }: { value: string }) {
   );
 }
 
-export default function TaxSummaryCard({ label, value, icon, accent = '#2dcc9a', helper, onPress }: Props) {
+export default function TaxSummaryCard({
+  label,
+  value,
+  icon,
+  accent = '#2dcc9a',
+  helper,
+  helperTone,
+  onPress,
+  lines,
+}: Props) {
   const inner = (
     <>
       <View style={styles.topRow}>
@@ -89,8 +105,28 @@ export default function TaxSummaryCard({ label, value, icon, accent = '#2dcc9a',
         {onPress ? <MaterialIcons name="chevron-right" size={20} color="#d7e1f0" /> : null}
       </View>
       <Text style={styles.label}>{label}</Text>
-      <TaxSummaryCardValue value={value} />
-      {helper ? <Text style={styles.helper}>{helper}</Text> : null}
+      {lines?.length ? (
+        <View style={styles.lines}>
+          {lines.map((line) => (
+            <View key={line.label} style={styles.lineRow}>
+              <Text style={styles.lineLabel}>{line.label}</Text>
+              <View style={styles.lineValue}>
+                <TaxSummaryCardValue value={line.value} maxFontSize={18} />
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <TaxSummaryCardValue value={value} />
+      )}
+      {helper && helperTone === 'warn' ? (
+        <View style={styles.helperWarnRow}>
+          <MaterialIcons name="error-outline" size={15} color="#f59e0b" />
+          <Text style={[styles.helper, styles.helperWarn]}>{helper}</Text>
+        </View>
+      ) : helper ? (
+        <Text style={styles.helper}>{helper}</Text>
+      ) : null}
     </>
   );
 
@@ -100,7 +136,9 @@ export default function TaxSummaryCard({ label, value, icon, accent = '#2dcc9a',
         onPress={onPress}
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         accessibilityRole="button"
-        accessibilityLabel={`${label}, ${value}. Tap for detail`}
+        accessibilityLabel={`${label}, ${
+          lines?.length ? lines.map((line) => `${line.label} ${line.value}`).join(', ') : value
+        }. Tap for detail`}
       >
         {inner}
       </Pressable>
@@ -181,7 +219,37 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     flexShrink: 1,
   },
+  helperWarnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+  },
+  helperWarn: {
+    flex: 1,
+    marginTop: 0,
+    color: '#f59e0b',
+    fontWeight: '700',
+  },
   cardPressed: {
     opacity: 0.88,
+  },
+  lines: {
+    gap: 4,
+  },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  lineLabel: {
+    width: 34,
+    color: '#d7e1f0',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  lineValue: {
+    flex: 1,
+    minWidth: 0,
   },
 });

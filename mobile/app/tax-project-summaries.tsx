@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import ProjectTaxSummaryList from '@/src/components/tax/ProjectTaxSummaryList';
-import { buildProjectTaxSummaries, isCurrentTaxProject } from '@/src/lib/taxCenter';
+import { buildProjectTaxSummaries, formatTaxNetMarginPercent, isCurrentTaxProject } from '@/src/lib/taxCenter';
 
 const money = (value: number): string =>
   new Intl.NumberFormat('en-US', {
@@ -17,10 +17,7 @@ const money = (value: number): string =>
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
 
-const percent = (value: number | null): string => {
-  if (value == null || !Number.isFinite(value)) return 'N/A';
-  return `${Math.round(value * 100)}%`;
-};
+const percent = (value: number | null): string => formatTaxNetMarginPercent(value);
 
 export default function TaxProjectSummariesScreen() {
   const router = useRouter();

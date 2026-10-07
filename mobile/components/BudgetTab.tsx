@@ -753,6 +753,11 @@ export default function BudgetTab({
     financials.adjustedCostBudget - actual - purchaseOrdersTotal,
     0
   );
+  const realizedProfit = financials.adjustedContractValue - actual;
+  const realizedMarginPct =
+    financials.adjustedContractValue > 0
+      ? (realizedProfit / financials.adjustedContractValue) * 100
+      : 0;
   const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
   const milestoneProgressPct = useMemo(() => {
     const milestoneSources = [
@@ -1025,12 +1030,16 @@ export default function BudgetTab({
                             />
                           ) : null}
                           <SummaryStackRow
-                            label="Projected profit"
-                            caption={`${contractCostStack.netMarginPct.toFixed(1)}% projected net margin`}
-                            value={money(contractCostStack.netProfit, currency)}
+                            label={isProjectCompleted ? 'Net profit' : 'Projected profit'}
+                            caption={
+                              isProjectCompleted
+                                ? `${realizedMarginPct.toFixed(1)}% net margin`
+                                : `${contractCostStack.netMarginPct.toFixed(1)}% projected net margin`
+                            }
+                            value={money(isProjectCompleted ? realizedProfit : contractCostStack.netProfit, currency)}
                             labelColor={darkMode ? '#F5F7FA' : theme.text}
-                            captionColor={contractCostStack.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
-                            valueColor={contractCostStack.netProfit >= 0 ? '#2dcc9a' : '#f87171'}
+                            captionColor={(isProjectCompleted ? realizedProfit : contractCostStack.netProfit) >= 0 ? '#2dcc9a' : '#f87171'}
+                            valueColor={(isProjectCompleted ? realizedProfit : contractCostStack.netProfit) >= 0 ? '#2dcc9a' : '#f87171'}
                             emphasize
                             dividerColor={estimateFlowDividerColor(darkMode)}
                           />
@@ -1108,9 +1117,13 @@ export default function BudgetTab({
                         adjustsFontSizeToFit
                         minimumFontScale={0.75}
                       >
-                        {remaining > 0
-                          ? `${money(remaining, currency)} available`
-                          : `Over budget by ${money(Math.abs(remaining), currency)}`}
+                        {isProjectCompleted
+                          ? remaining > 0
+                            ? `${money(remaining, currency)} under the cost cap`
+                            : `Over the cost cap by ${money(Math.abs(financials.adjustedCostBudget - actual - purchaseOrdersTotal), currency)}`
+                          : remaining > 0
+                            ? `${money(remaining, currency)} available`
+                            : `Over budget by ${money(Math.abs(remaining), currency)}`}
                       </Text>
                     </View>
                   </View>

@@ -19,7 +19,6 @@ const IN_APP_STACK_ROOTS = new Set([
   'project-detail',
   'payment',
   'tax-center',
-  'tax-vendors',
   'tax-quickbooks-mapping',
   'legal-hub',
   'add-materials-equipment',

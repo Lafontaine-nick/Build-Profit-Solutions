@@ -4,7 +4,12 @@
 
 import {
   expenseAmount,
+  expenseCountsToward1099Filing,
+  expenseCountsTowardSubcontractorPayments,
+  expenseCountsTowardW2Payments,
   inferVendorTypeFromTaxCategory,
+  isLaborBill,
+  laborPayeeCountsAsSubcontractorPayment,
   isCashBasisExpensePaidInTaxYear,
   isPoPaidForTax,
   mapExpenseToTaxCategory,
@@ -103,7 +108,6 @@ export type Tax1099ReviewSummary = {
   potential1099VendorCount: number;
   missingW9Count: number;
   paymentsMissingMethodCount: number;
-  missingVendorInfoCount: number;
   rows: Tax1099ReviewVendorRow[];
   disclaimer: string;
 };
@@ -139,7 +143,7 @@ function formatW9StatusDisplay(
 }
 
 function splitWorkbookFlagColumns(actionNeeded: string[]): { flags: string; actions: string } {
-  const flagLabels = new Set(['Potential 1099 Review', 'Missing W-9', 'Missing Vendor Info']);
+  const flagLabels = new Set(['Potential 1099 Review', 'Missing W-9']);
   const flags = actionNeeded.filter((a) => flagLabels.has(a));
   const actions = actionNeeded.filter((a) => !flagLabels.has(a));
   return {
@@ -163,6 +167,8 @@ export function build1099ReviewSummary(args: {
     displayName: string;
     totalPaid: number;
     paid1099Total: number;
+    /** Check, cash, bank, and unset. Card payments stay off the 1099 the payer files. */
+    filingTotal: number;
     projects: Set<string>;
     methods: Set<string>;
     linked?: Vendor;
@@ -176,6 +182,14 @@ export function build1099ReviewSummary(args: {
     // Tax Center passes year-filtered rows, but keep this function safe when
     // called directly by applying the same cash-basis inclusion rule here.
     if (!isCashBasisExpensePaidInTaxYear(e, selectedYear)) continue;
+    if (expenseCountsTowardW2Payments(e)) continue;
+    // Trade-only labor (blank Paid to) and contingency labor ("What it covered") are not 1099 payees.
+    if (
+      (isLaborBill(e) || mapExpenseToTaxCategory(e) === 'Labor') &&
+      !expenseCountsTowardSubcontractorPayments(e, vendors)
+    ) {
+      continue;
+    }
     const linked = resolveVendorForExpense(e, vendors);
     const displayName = linked?.businessName || displayVendorName(e);
     const savedVendorId = linked?.id ?? null;
@@ -189,6 +203,7 @@ export function build1099ReviewSummary(args: {
         displayName,
         totalPaid: 0,
         paid1099Total: 0,
+        filingTotal: 0,
         projects: new Set(),
         methods: new Set(),
         linked,
@@ -202,6 +217,7 @@ export function build1099ReviewSummary(args: {
     if (paid) {
       g.totalPaid += amt;
       g.paid1099Total += amt;
+      if (expenseCountsToward1099Filing(e)) g.filingTotal += amt;
     }
     if (e.projectName) g.projects.add(e.projectName);
     const pm = String(e.paymentMethod || '').trim();
@@ -223,7 +239,7 @@ export function build1099ReviewSummary(args: {
     const eligiblePotential1099 =
       isPotential1099EligibleVendorType(vType) || (vType === 'supplier' && override);
 
-    if (eligiblePotential1099 && g.paid1099Total >= getPotential1099ReviewThreshold(selectedYear)) {
+    if (eligiblePotential1099 && g.filingTotal >= getPotential1099ReviewThreshold(selectedYear)) {
       actionNeeded.push('Potential 1099 Review');
     }
 
@@ -238,26 +254,10 @@ export function build1099ReviewSummary(args: {
     const savedMethod = String(linked?.defaultPaymentMethod || '').trim();
     if (g.methods.size === 0 && savedMethod) g.methods.add(savedMethod);
 
-    if (g.methods.size === 0 && g.paid1099Total > 0) {
+    const contractorPayee =
+      vType === 'subcontractor' || laborPayeeCountsAsSubcontractorPayment(g.sampleExpense);
+    if (g.methods.size === 0 && g.paid1099Total > 0 && contractorPayee) {
       actionNeeded.push('Confirm Payment Method');
-    }
-
-    const detailEligible =
-      (isW9EligibleVendorType(vType) && g.paid1099Total > 0) ||
-      (vType === 'supplier' && override && g.paid1099Total > 0);
-
-    const hasLocationDetail =
-      !!String(linked?.address || '').trim() ||
-      (!!String(linked?.city || '').trim() && !!String(linked?.state || '').trim());
-
-    if (
-      detailEligible &&
-      linked &&
-      (!String(linked.legalName || '').trim() ||
-        !hasLocationDetail ||
-        !String(linked.email || '').trim())
-    ) {
-      actionNeeded.push('Missing Vendor Info');
     }
 
     const paymentMethodDisplay = g.methods.size === 0 ? '—' : Array.from(g.methods).sort().join(', ');
@@ -311,16 +311,39 @@ export function build1099ReviewSummary(args: {
   const potential1099VendorCount = rows.filter((r) => r.actionNeeded.includes('Potential 1099 Review')).length;
   const missingW9Count = rows.filter((r) => r.actionNeeded.includes('Missing W-9')).length;
   const paymentsMissingMethodCount = rows.filter((r) => r.actionNeeded.includes('Confirm Payment Method')).length;
-  const missingVendorInfoCount = rows.filter((r) => r.actionNeeded.includes('Missing Vendor Info')).length;
-
   return {
     potential1099VendorCount,
     missingW9Count,
     paymentsMissingMethodCount,
-    missingVendorInfoCount,
     rows,
     disclaimer: DISCLAIMER,
   };
+}
+
+export function isW9OnFile(vendor: Vendor | undefined): boolean {
+  const s = vendor?.w9Status;
+  return s === 'uploaded' || s === 'verified' || s === 'not_applicable';
+}
+
+export type W9ReminderPayee = {
+  name: string;
+  totalPaid: number;
+  vendor?: Vendor;
+};
+
+/** 1099 payees with no W-9 marked received. Reminds before the filing threshold, since a W-9 is best collected before the first payment. */
+export function buildW9ReminderPayees(subcontractorExpenses: TaxExpense[], vendors: Vendor[]): W9ReminderPayee[] {
+  const byKey = new Map<string, W9ReminderPayee>();
+  for (const e of subcontractorExpenses) {
+    const linked = resolveVendorForExpense(e, vendors);
+    if (isW9OnFile(linked)) continue;
+    const name = linked?.businessName || displayVendorName(e);
+    const key = linked?.id ? `id:${linked.id}` : `name:${normalizeVendorNameKey(name)}`;
+    const current = byKey.get(key) || { name, totalPaid: 0, vendor: linked };
+    current.totalPaid += expenseAmount(e);
+    byKey.set(key, current);
+  }
+  return Array.from(byKey.values()).sort((a, b) => b.totalPaid - a.totalPaid);
 }
 
 export function format1099ReviewMoney(n: number): string {

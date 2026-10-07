@@ -406,13 +406,8 @@ export default function AccountSettingsScreen() {
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Estimating & Pricing
           </Text>
-          <View
-            style={[
-              styles.settingItem,
-              { backgroundColor: theme.card, flexDirection: 'column', alignItems: 'stretch' },
-            ]}
-          >
-            <ContractorPricingMemorySettings compact />
+          <View style={{ backgroundColor: theme.card, borderRadius: 12, overflow: 'hidden' }}>
+            <ContractorPricingMemorySettings />
           </View>
         </View>
 
