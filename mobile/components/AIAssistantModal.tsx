@@ -69,6 +69,12 @@ import {
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { workTaskProgressPct } from "@/src/lib/timelineScheduleProgress";
+import {
+  answerCentralCommandTaxQuestion,
+  buildCentralCommandBriefLines,
+  buildCentralCommandTaxSnapshot,
+  type CentralCommandTaxSource,
+} from "@/src/lib/centralCommandTax";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
@@ -951,6 +957,8 @@ type Props = {
   estimateBidIsEmpty?: boolean;
   /** When true, child overlay owns the keyboard — disable parent layout shifts. */
   overlayBlocksKeyboard?: boolean;
+  /** Central Command: Tax Center data for the year brief and read-only tax answers. Null when the user cannot view Tax Center. */
+  taxSource?: CentralCommandTaxSource | null;
   children?: React.ReactNode;
 };
 
@@ -968,6 +976,7 @@ const CENTRAL_SLATE = '#d7e1f0';
 const CENTRAL_CARD = "#202022";
 const CENTRAL_CARD_BORDER = "rgba(148, 163, 184, 0.12)";
 const CENTRAL_GOLD = "#fbbf24";
+const CENTRAL_TEXT = "#F8FAFC";
 
 function centralBriefInsightColor(insight: string): string {
   if (/\b(over budget|over-budget|cost increase|price increase)\b/i.test(insight)) return "#f87171";
@@ -985,7 +994,9 @@ function centralLiveNumberColor(label: string, value: string): string {
   if (!numeric) return CENTRAL_SLATE;
   const amount = Number(numeric[0]);
   if (!Number.isFinite(amount) || amount === 0) return CENTRAL_SLATE;
-  return CENTRAL_MINT;
+  if (/^\s*-/.test(value) || amount < 0) return "#f87171";
+  if (/\b(profit|margin|markup|net income|under budget|savings)\b/i.test(label)) return CENTRAL_MINT;
+  return CENTRAL_TEXT;
 }
 
 const CENTRAL_COMMAND_PROMPTS = [
@@ -1071,6 +1082,7 @@ const AIAssistantModal: React.FC<Props> = ({
   onBuildWithAi,
   estimateBidIsEmpty = false,
   overlayBlocksKeyboard = false,
+  taxSource = null,
   children,
 }) => {
   const { theme, darkMode } = useTheme();
@@ -1712,6 +1724,11 @@ const AIAssistantModal: React.FC<Props> = ({
       insights: [...todayBriefData.insights, ...localScheduleInsights].slice(0, 5),
     };
   }, [todayBriefData, todayBriefFromContext]);
+  const briefInsightLines = useMemo(() => {
+    const insights = displayBrief?.insights || [];
+    if (insights.length > 0 || !isGlobalAssistantContext || !taxSource) return insights;
+    return buildCentralCommandBriefLines(buildCentralCommandTaxSnapshot(taxSource, new Date().getFullYear()));
+  }, [displayBrief, isGlobalAssistantContext, taxSource]);
   const centralCommandStatus = useMemo(() => {
     if (!isGlobalAssistantContext) return null;
     const projects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
@@ -3166,6 +3183,24 @@ const AIAssistantModal: React.FC<Props> = ({
     setLoading(true);
     setIsTyping(true);
 
+    if (isCentralCommandReadOnly && taxSource) {
+      const taxReply = answerCentralCommandTaxQuestion(messageToSend, taxSource);
+      if (taxReply) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-tax-center`,
+            role: 'assistant',
+            content: taxReply,
+            timestamp: new Date(),
+          },
+        ]);
+        setLoading(false);
+        setIsTyping(false);
+        return;
+      }
+    }
+
     // Keep "original forecast" tied to the original estimate basis. This
     // question must not fall through to a stale projected-profit response.
     if (isCentralCommandReadOnly && /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(messageToSend)) {
@@ -4087,10 +4122,13 @@ const AIAssistantModal: React.FC<Props> = ({
       const containsNumericGuidance =
         !isWeatherReply &&
         /\b(?:markup|margin|projected profit|estimated cost|target bid|price range)\b/i.test(responseText);
-      const numericGuidanceDisclaimer =
-        '[DISCLAIMER]Numbers are illustrative planning guidance based on the project data and assumptions provided—not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms before relying on or sending them.[/DISCLAIMER]';
+      const numericGuidanceDisclaimer = isCentralCommandReadOnly
+        ? '[DISCLAIMER]From your logged bills and payments. Projections are estimates. Not tax or accounting advice.[/DISCLAIMER]'
+        : '[DISCLAIMER]Numbers are illustrative planning guidance based on the project data and assumptions provided—not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms before relying on or sending them.[/DISCLAIMER]';
       const finalResponseContent =
-        containsNumericGuidance && !/\[DISCLAIMER\]/i.test(responseText)
+        containsNumericGuidance &&
+        !/\[DISCLAIMER\]/i.test(responseText) &&
+        !(isCentralCommandReadOnly && /Numbers reflect (?:your project data|the latest data)/i.test(responseText))
           ? `${responseText}\n\n${numericGuidanceDisclaimer}`
           : responseContent;
       const assistantMessage: Message = {
@@ -4882,6 +4920,11 @@ const AIAssistantModal: React.FC<Props> = ({
     return { label: match[1].trim(), value: match[2].trim() };
   };
 
+  const centralValueColor = (label: string, value: string) => {
+    const color = centralLiveNumberColor(label, value);
+    return !darkMode && (color === CENTRAL_TEXT || color === CENTRAL_SLATE) ? ThemeColors.text : color;
+  };
+
   const renderMetricInline = (
     label: string,
     value: string,
@@ -4894,10 +4937,22 @@ const AIAssistantModal: React.FC<Props> = ({
         valueStyle,
         light({ color: ThemeColors.sub }),
         darkModeChatMutedWhite,
-        isCentralCommandReadOnly ? { color: centralLiveNumberColor(label, value) } : null,
+        isCentralCommandReadOnly ? { color: centralValueColor(label, value) } : null,
       ])}
     </>
   );
+
+  /** Central Command: short money, percent, or count values that render as a two-column grid. */
+  const centralGridMetric = (line: string) => {
+    if (!isCentralCommandReadOnly) return null;
+    const bullet = line.match(/^(?:[-*•])\s+(.+)$/);
+    if (!bullet) return null;
+    const metric = splitMetricText(bullet[1].replace(/\*\*/g, ''));
+    if (!metric) return null;
+    if (/\b(risk|status|focus|note)\b/i.test(metric.label)) return null;
+    if (!/^-?\$[\d,]+(?:\.\d+)?$|^-?\d+(?:\.\d+)?%$/.test(metric.value.trim())) return null;
+    return metric;
+  };
 
   const isMetadataLine = (line: string, rawLine: string) => {
     if (!line) return false;
@@ -4927,15 +4982,63 @@ const AIAssistantModal: React.FC<Props> = ({
       );
     };
 
+    const gridMetrics = lines.map((line) => centralGridMetric(stripLineMarkdownWrappers(line)));
+    const gridRunStart: (number | null)[] = lines.map(() => null);
+    let runStart = -1;
+    for (let i = 0; i <= lines.length; i++) {
+      if (i < lines.length && gridMetrics[i]) {
+        if (runStart < 0) runStart = i;
+        continue;
+      }
+      if (runStart >= 0 && i - runStart >= 3) {
+        for (let j = runStart; j < i; j++) gridRunStart[j] = runStart;
+      }
+      runStart = -1;
+    }
+
     lines.forEach((rawLine, index) => {
       const trimmedLine = rawLine.trim();
       const cleanedLine = stripLineMarkdownWrappers(rawLine);
 
+      const runFrom = gridRunStart[index];
+      if (runFrom != null) {
+        if (runFrom !== index) return;
+        flushMetadata(`line-${index}`);
+        const run: { label: string; value: string }[] = [];
+        for (let j = index; j < lines.length && gridRunStart[j] === index; j++) {
+          const metric = gridMetrics[j];
+          if (metric) run.push(metric);
+        }
+        elements.push(
+          <View key={`grid-${index}`} style={[styles.centralMetricGrid, light({ borderTopColor: ThemeColors.line })]}>
+            {run.map((metric, cell) => (
+              <View key={`grid-${index}-${cell}`} style={styles.centralMetricCell}>
+                <Text style={[styles.centralMetricCellLabel, light({ color: ThemeColors.sub })]}>{metric.label}</Text>
+                <Text style={[styles.centralMetricCellValue, { color: centralValueColor(metric.label, metric.value) }]}>
+                  {metric.value}
+                </Text>
+              </View>
+            ))}
+          </View>
+        );
+        return;
+      }
+
       const disclaimerMatch = cleanedLine.match(/\[DISCLAIMER\](.+?)\[\/DISCLAIMER\]/);
       if (disclaimerMatch) {
         flushMetadata(`line-${index}`);
+        while (elements.length > 0 && String(elements[elements.length - 1]?.key || '').startsWith('spacer-')) {
+          elements.pop();
+        }
         elements.push(
-          <View key={`disclaimer-wrap-${index}`} style={[styles.messageMetaBlock, light({ borderTopColor: ThemeColors.line })]}>
+          <View
+            key={`disclaimer-wrap-${index}`}
+            style={[
+              styles.messageMetaBlock,
+              light({ borderTopColor: ThemeColors.line }),
+              isCentralCommandReadOnly && { borderTopWidth: 0, marginTop: 2 },
+            ]}
+          >
             <Text key={`disclaimer-${index}`} style={[styles.messageMetaText, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
               {disclaimerMatch[1].trim()}
             </Text>
@@ -4946,7 +5049,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (!trimmedLine) {
         flushMetadata(`line-${index}`);
-        if (elements.length > 0) {
+        const previousKey = String(elements[elements.length - 1]?.key || '');
+        if (elements.length > 0 && !previousKey.startsWith('spacer-')) {
           elements.push(<View key={`spacer-${index}`} style={styles.messageSpacer} />);
         }
         return;
@@ -5050,7 +5154,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     `bullet-${index}`,
                     [
                       styles.messageMetricValue,
-                      isCentralCommandReadOnly && { color: centralLiveNumberColor(metric.label, metric.value) },
+                      isCentralCommandReadOnly && { color: centralValueColor(metric.label, metric.value) },
                       light({ color: ThemeColors.sub }),
                       darkModeChatMutedWhite,
                     ],
@@ -5083,7 +5187,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     `number-${index}`,
                     [
                       styles.messageMetricValue,
-                      isCentralCommandReadOnly && { color: centralLiveNumberColor(metric.label, metric.value) },
+                      isCentralCommandReadOnly && { color: centralValueColor(metric.label, metric.value) },
                       light({ color: ThemeColors.sub }),
                       darkModeChatMutedWhite,
                     ],
@@ -5632,9 +5736,9 @@ const AIAssistantModal: React.FC<Props> = ({
                               ? `Updated ${briefUpdatedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Project data`
                               : "Using the current project snapshot"}
                           </Text>
-                          {displayBrief.insights.length > 0 ? (
+                          {briefInsightLines.length > 0 ? (
                             <View style={styles.todayBriefInsights}>
-                              {displayBrief.insights.map((insight, i) => (
+                              {briefInsightLines.map((insight, i) => (
                                 <View key={i} style={styles.todayBriefInsightRow}>
                                   <View
                                     style={[
@@ -5653,7 +5757,7 @@ const AIAssistantModal: React.FC<Props> = ({
                               {centralCommandStatus?.label}
                             </Text>
                           )}
-                          {displayBrief.insights.length > 0 && centralCommandStatus && (
+                          {briefInsightLines.length > 0 && centralCommandStatus && (
                             <View style={styles.todayBriefStatusRow}>
                               <View
                                 style={[
@@ -7085,6 +7189,32 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
     borderColor: "rgba(141, 160, 184, 0.08)",
+  },
+  centralMetricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 6,
+    marginBottom: 2,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(148, 163, 184, 0.12)",
+  },
+  centralMetricCell: {
+    width: "50%",
+    paddingTop: 10,
+    paddingBottom: 6,
+    paddingRight: 8,
+  },
+  centralMetricCellLabel: {
+    color: "#8DA0B8",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    marginBottom: 3,
+  },
+  centralMetricCellValue: {
+    fontSize: 17,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
   centralMessageMetricRow: {
     paddingVertical: 6,

@@ -79,7 +79,7 @@ describe('aiAssistantCore', () => {
     });
 
     expect(analyzed.marginLabel).toBe('Margin');
-    expect(analyzed.profitLabel).toBe('Net Profit');
+    expect(analyzed.profitLabel).toBe('Net profit');
     expect(analyzed.profitLeaks).toEqual([]);
   });
 
@@ -122,7 +122,7 @@ describe('aiAssistantCore', () => {
       },
     ]);
 
-    expect(reply).toContain('Current attention flags use active projects only (1 active)');
+    expect(reply).toContain('1 active job and 1 finished. Attention flags cover active jobs only.');
     expect(reply).toContain('Active Job');
     expect(reply).not.toContain('Closed Job — upload missing receipts');
     expect(reply).toContain('Projected Profit: $20,000.00');
@@ -283,7 +283,7 @@ describe('aiAssistantCore', () => {
       estimatedCost: 95000,
       actualCost: 100000,
     });
-    expect(analyzed.profitLabel).toBe('Net Profit');
+    expect(analyzed.profitLabel).toBe('Net profit');
     expect(analyzed.projectedProfit).toBe(20000);
     expect(analyzed.estimatedProfit).toBe(25000);
   });
@@ -559,12 +559,12 @@ describe('aiAssistantCore', () => {
     const compareReply = buildPortfolioComparisonReply(rows);
     const budgetReply = buildPortfolioBudgetRisksReply(rows);
 
-    expect(compareReply).toContain('profitability and risk');
+    expect(compareReply).toContain('how your projects compare');
     expect(compareReply).toContain('Healthy Job');
     expect(budgetReply).toContain('Budget alert summary');
     expect(budgetReply).toContain('Active Job');
     expect(budgetReply).not.toContain('Healthy Job');
-    expect(budgetReply).not.toContain('profitability and risk');
+    expect(budgetReply).not.toContain('how your projects compare');
   });
 
   test('budget risks reply includes closeout line overruns from dashboard insights', () => {
@@ -595,6 +595,17 @@ describe('aiAssistantCore', () => {
     expect(budgetReply).toContain('Walls — materials');
     expect(budgetReply).toContain('Prep & Masking');
     expect(budgetReply).not.toContain('No active budget alerts right now');
+  });
+
+  test('budget risks reply says there are no active jobs when every job is finished', () => {
+    const budgetReply = buildPortfolioBudgetRisksReplyForProjects(
+      [{ id: 'done-1', title: 'Electrical Job', status: 'completed', progress: 100, revenue: 37550, expenses: [] }],
+      {}
+    );
+
+    expect(budgetReply).toContain('No active jobs to check.');
+    expect(budgetReply).toContain('Your finished job has no estimate lines over budget.');
+    expect(budgetReply).not.toContain('in-progress projects are within budget');
   });
 
   test('isPortfolioBudgetRisksQuery matches alert prompts but not compare-all', () => {

@@ -145,9 +145,40 @@ const budgetReply = buildBudgetStatusReply({ projectName: 'Beta', budget: 70000,
 assert.match(budgetReply, /over budget/i, 'Budget reply should indicate over budget when spent exceeds budget');
 
 const portfolioReply = buildPortfolioComparisonReply(analyzedPortfolio);
-assert.match(portfolioReply, /comparison of all your projects/i, 'Portfolio reply should contain comparison heading');
+assert.match(portfolioReply, /how your projects compare/i, 'Portfolio reply should contain comparison heading');
 assert.match(portfolioReply, /Beta/, 'Portfolio reply should mention lowest margin project');
-assert.match(portfolioReply, /Portfolio totals/i, 'Portfolio reply should include portfolio totals');
+assert.match(portfolioReply, /All projects/i, 'Portfolio reply should include portfolio totals');
+assert.doesNotMatch(portfolioReply, /\$-/, 'Negative money should read -$, not $-');
+
+// Finished job: cost is bills plus received orders. A cancelled order is not a cost.
+const finishedJob = {
+  id: 'done-1',
+  title: 'Electrical Job',
+  status: 'completed',
+  contractValue: 37550,
+  progress: 100,
+  expenses: [
+    { amount: 18000, receiptUri: 'file://a.jpg' },
+    { amount: 400 },
+  ],
+  purchaseOrders: [
+    { amount: 1000, status: 'Received' },
+    { amount: 800, status: 'Received', receiptUri: 'file://b.jpg' },
+    { amount: 500, status: 'Cancelled' },
+  ],
+};
+const finishedAnalysis = analyzePortfolioProject(finishedJob);
+assert.equal(finishedAnalysis.spent, 20200, 'Finished job spent should be bills plus received orders');
+assert.equal(finishedAnalysis.projectedProfit, 17350, 'Cancelled orders should not reduce finished-job profit');
+assert.equal(finishedAnalysis.margin, 46.2, 'Finished-job margin should match its net profit');
+assert.equal(finishedAnalysis.missingReceipts, 2, 'Missing receipts should include received orders');
+const finishedReply = buildPortfolioComparisonReply([finishedAnalysis]);
+assert.match(finishedReply, /1 finished job, no active jobs\./);
+assert.match(finishedReply, /\*\*Electrical Job\*\* · Completed/);
+assert.match(finishedReply, /• Net profit: \$17,350\.00/);
+assert.match(finishedReply, /• Margin: 46\.2%/);
+assert.match(finishedReply, /• Risk: 2 bills missing receipts/);
+assert.doesNotMatch(finishedReply, /Cost budget|Progress|All projects/, 'A single finished job should not repeat budget, progress, or totals');
 
 const pipeline = runCompareProjectsPipeline({
   allProjects: portfolioProjects,

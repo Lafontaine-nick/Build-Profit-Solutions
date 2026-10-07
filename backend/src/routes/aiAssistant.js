@@ -344,16 +344,36 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
       /\b(profit|forecast|projected)\b/i.test(topic) &&
       snapshot.revenue != null &&
       snapshot.projectedFinalCost != null) {
-    const projectedProfit = snapshot.revenue - snapshot.projectedFinalCost;
+    const projectStatus = String(
+      targetProject?.status || targetProject?.projectStatus || parsedContext.projectStatus || ''
+    ).toLowerCase();
+    const finished = /^(completed|complete|closed|archived)$/.test(projectStatus) ||
+      Number(targetProject?.progress || 0) >= 100;
+    const finalCost = finished && snapshot.spent != null ? snapshot.spent : snapshot.projectedFinalCost;
+    const projectedProfit = snapshot.revenue - finalCost;
     const margin = snapshot.revenue > 0 ? (projectedProfit / snapshot.revenue) * 100 : null;
+    if (finished) {
+      return [
+        `**Net profit — ${projectName}** · Completed`,
+        '',
+        `• Revenue: ${money(snapshot.revenue)}`,
+        `• Spent: ${money(finalCost)}`,
+        `• Net profit: ${money(projectedProfit)}`,
+        margin == null ? '' : `• Margin: ${margin.toFixed(1)}%`,
+        '',
+        'This job is finished, so these are actual results, not a forecast.',
+      ].filter((line, index, lines) => line || lines[index - 1]).join('\n');
+    }
     return [
-      `**Projected profit calculation — ${projectName}**`,
+      `**Projected profit — ${projectName}**`,
       '',
-      `Contract value: ${money(snapshot.revenue)}`,
-      `Projected final cost: ${money(snapshot.projectedFinalCost)}`,
-      `Projected profit: ${money(snapshot.revenue)} − ${money(snapshot.projectedFinalCost)} = **${money(projectedProfit)}**`,
-      margin == null ? '' : `Projected margin: ${margin.toFixed(1)}%`,
-    ].filter(Boolean).join('\n');
+      `• Contract value: ${money(snapshot.revenue)}`,
+      `• Projected final cost: ${money(finalCost)}`,
+      `• Projected profit: ${money(projectedProfit)}`,
+      margin == null ? '' : `• Projected margin: ${margin.toFixed(1)}%`,
+      '',
+      `${money(snapshot.revenue)} − ${money(finalCost)} = ${money(projectedProfit)}`,
+    ].filter((line, index, lines) => line || lines[index - 1]).join('\n');
   }
 
   if (/\b(margin)\b/i.test(topic) && snapshot.revenue > 0 && snapshot.spent != null) {

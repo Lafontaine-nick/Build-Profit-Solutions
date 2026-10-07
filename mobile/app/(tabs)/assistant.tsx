@@ -25,6 +25,9 @@ import {
   computeElapsedCalendarPct,
 } from '@/src/lib/profitForecast';
 import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
+import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
+import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
+import type { CentralCommandTaxSource } from '@/src/lib/centralCommandTax';
 
 /** Last wins per id (or title if id missing) — avoids duplicate rows inflating Command Center / compare counts. */
 function dedupeProjectsForAssistantAi(list: any[]): any[] {
@@ -53,6 +56,12 @@ export default function AssistantScreen() {
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   const { activeProjects, estimates, projects, projectsReady } = useProjectList();
+  const { vendors } = useVendorDirectory();
+  const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
+  const taxSource = useMemo<CentralCommandTaxSource | null>(
+    () => (canViewTaxCenter ? { projects: projects || [], vendors } : null),
+    [canViewTaxCenter, projects, vendors]
+  );
   const allProjectsForTimeline = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
   const { compareData: compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates, allProjectsForTimeline);
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
@@ -198,7 +207,11 @@ export default function AssistantScreen() {
         mergedProject.estimateData?.paymentMilestones ||
         mergedProject.estimateData?.weeklyPayments ||
         [];
-      const expenseLineTotal = expenses.reduce((sum: number, e: any) => sum + safeNum(e?.amount), 0);
+      const expenseLineTotal =
+        expenses.reduce((sum: number, e: any) => sum + safeNum(e?.amount), 0) +
+        purchaseOrders
+          .filter((po: any) => String(po?.status || '').toLowerCase() === 'received')
+          .reduce((sum: number, po: any) => sum + safeNum(po?.amount), 0);
       const bucketSpentTotal = Array.isArray(buckets)
         ? buckets.reduce((sum: number, b: any) => sum + safeNum(b?.spent), 0)
         : 0;
@@ -244,7 +257,7 @@ export default function AssistantScreen() {
         estimatedCostBaseline:
           financials.adjustedCostBudget || financials.plannedCostBudget,
         actualExpenses: actualCost,
-        committedPOs,
+        committedPOs: String(projectStatus).toLowerCase() === 'completed' ? 0 : committedPOs,
         progressPct: workTaskProgressPct(milestones) ?? 0,
         contractCollectedPct,
         elapsedTimePct,
@@ -433,6 +446,7 @@ export default function AssistantScreen() {
         resetSignal={assistantResetSignal}
         projectOptionsOverride={projectOptions}
         isContextReady={isCompareContextReady}
+        taxSource={taxSource}
       />
     </View>
     <TabScreenBottomScrollFade />

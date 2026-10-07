@@ -364,6 +364,26 @@ function isPurchaseOrderReceived(order) {
   return order?.received === true || ['received', 'complete', 'completed'].includes(status);
 }
 
+/** Still on order. Cancelled, rejected, or void orders are not a cost. */
+function isPurchaseOrderOpen(order) {
+  if (isPurchaseOrderReceived(order)) return false;
+  const status = normalizeProjectStatus(order?.status || order?.state);
+  return !['cancelled', 'canceled', 'void', 'voided', 'rejected', 'deleted', 'closed'].includes(status);
+}
+
+function receiptMissing(row) {
+  const amount = normalizeNonNegativeMoneyValue(row?.amount ?? row?.total ?? row?.cost);
+  if (!amount) return false;
+  return !String(row?.receiptUri ?? '').trim();
+}
+
+/** Bills plus received purchase orders with no receipt attached. Matches Tax Center. */
+function countMissingReceipts(project, parsedContext = {}) {
+  const expenses = getProjectExpenses(project, parsedContext);
+  const receivedOrders = getProjectPurchaseOrders(project, parsedContext).filter(isPurchaseOrderReceived);
+  return [...expenses, ...receivedOrders].filter(receiptMissing).length;
+}
+
 function getProjectSpendBreakdown(project, parsedContext = {}) {
   const expenses = getProjectExpenses(project, parsedContext);
   const purchaseOrders = getProjectPurchaseOrders(project, parsedContext);
@@ -377,7 +397,7 @@ function getProjectSpendBreakdown(project, parsedContext = {}) {
   }, 0);
   const committedPoTotal = purchaseOrders.reduce((sum, order) => {
     const amount = normalizeNonNegativeMoneyValue(order?.amount ?? order?.total ?? order?.cost);
-    return sum + (!isPurchaseOrderReceived(order) ? (amount ?? 0) : 0);
+    return sum + (isPurchaseOrderOpen(order) ? (amount ?? 0) : 0);
   }, 0);
   const explicitActual = normalizeNonNegativeMoneyValue(
     project?.actualCost ??
@@ -588,8 +608,9 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
   const isCompletedProject = isTerminalProjectStatus(projectStatus) || progress >= 100;
   const progressStatusConflict = isTerminalProjectStatus(projectStatus) && progress < 100;
   const actualPlusCommitted = (spent ?? 0) + (spendBreakdown.committedPoTotal ?? 0);
+  // A finished job's cost is what was paid: bills plus received orders, same as the job budget.
   const derivedProjectedFinalCost = isCompletedProject && spent != null && spent > 0
-    ? actualPlusCommitted
+    ? spent
     : (progress > 5 && spent != null && spent > 0
       ? Math.max(actualPlusCommitted, spent / (progress / 100))
       : estimatedCost != null
@@ -1272,13 +1293,14 @@ function analyzePortfolioProject(project, opts = {}) {
   const projectedMarginPct = financials.projectedMarginPct;
   const estimatedProfit = revenue > 0 && budget != null ? revenue - budget : null;
   const hasRealSpend = spent != null && spent > 0;
-  const displayMargin = hasRealSpend
-    ? (financials.currentMarginPct != null ? financials.currentMarginPct : projectedMarginPct)
-    : (compareItem?.margin != null && Number.isFinite(compareItem.margin))
-      ? Number(compareItem.margin)
-      : estimatedMarginPct;
-  const expenses = project?.expenses || project?.projectData?.expenses || [];
-  const missingReceipts = expenses.filter((expense) => !expense?.receiptUri || !String(expense.receiptUri).trim()).length;
+  const displayMargin = isCompletedProject && projectedMarginPct != null
+    ? projectedMarginPct
+    : hasRealSpend
+      ? (financials.currentMarginPct != null ? financials.currentMarginPct : projectedMarginPct)
+      : (compareItem?.margin != null && Number.isFinite(compareItem.margin))
+        ? Number(compareItem.margin)
+        : estimatedMarginPct;
+  const missingReceipts = countMissingReceipts(project, parsedContext);
   const profitLeaks = buildProjectProfitLeaks(project, financials, {
     overdueItems,
     overduePayments: overdueItems.map((item) => ({ name: item.name || 'Payment', amount: normalizeMoneyValue(item.amount ?? 0), date: item.date || null })),
@@ -1301,10 +1323,12 @@ function analyzePortfolioProject(project, opts = {}) {
       : financials.dataQuality?.estimateOnlyForecast
         ? 'Estimated margin'
         : 'Current margin',
-    profitLabel: isCompletedProject ? 'Net Profit' : 'Projected Profit',
+    profitLabel: isCompletedProject ? 'Net profit' : 'Projected profit',
+    isCompleted: isCompletedProject,
     spent,
     budget,
     revenue,
+    committedPOs: financials.committedPOs,
     overBudgetPct: overBudgetPct == null ? null : Math.round(overBudgetPct * 10) / 10,
     progress: Math.round(progress),
     overdueItems: overdueItems.length,
@@ -1331,25 +1355,29 @@ function buildPortfolioComparisonReply(data = []) {
   const totalRevenue = safeData.reduce((sum, item) => sum + Number(item.revenue || 0), 0);
   const projectedProfitActive = activeData.reduce((sum, item) => sum + Number(item.projectedProfit || 0), 0);
   const netProfitCompleted = completedData.reduce((sum, item) => sum + Number(item.projectedProfit || 0), 0);
-  const highestMargin = safeData.reduce((best, item) => (Number(item.margin || 0) > Number(best?.margin || 0) ? item : best), null);
-  const highestProfit = safeData.reduce((best, item) => (Number(item.projectedProfit || 0) > Number(best?.projectedProfit || 0) ? item : best), null);
+  // Active jobs show the margin at completion so it agrees with projected profit on the same card.
+  const shownMargin = (item) => {
+    if (!isCompleted(item) && item.projectedMarginPct != null && Number.isFinite(Number(item.projectedMarginPct))) {
+      return Math.round(Number(item.projectedMarginPct) * 10) / 10;
+    }
+    return Number(item.margin || 0);
+  };
+  const highestMargin = safeData.reduce((best, item) => (best == null || shownMargin(item) > shownMargin(best) ? item : best), null);
+  const highestProfit = safeData.reduce((best, item) => (best == null || Number(item.projectedProfit || 0) > Number(best.projectedProfit || 0) ? item : best), null);
   // Current attention is scoped to active work. Completed projects remain useful for historical comparison.
   const needsAttention = activeData.filter((item) => item.missingReceipts > 0 || (Array.isArray(item.riskFlags) && item.riskFlags.length > 0));
   const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = (n) => (Number(n) < 0 ? `-$${fmt(Math.abs(Number(n)))}` : `$${fmt(n || 0)}`);
   const highestProfitLabel = highestProfit && isCompleted(highestProfit) ? 'net profit' : 'projected profit';
 
   let summary = '';
-  if (highestMargin && highestProfit) {
+  if (safeData.length > 1 && highestMargin && highestProfit) {
     const sameProject = highestMargin.title === highestProfit.title;
     if (sameProject) {
-      summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%) and highest ${highestProfitLabel} ($${fmt(highestProfit.projectedProfit || 0)})`;
+      summary += `${highestMargin.title} has the highest margin (${shownMargin(highestMargin)}%) and highest ${highestProfitLabel} (${money(highestProfit.projectedProfit)})`;
     } else {
-      summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%); ${highestProfit.title} has the highest ${highestProfitLabel} ($${fmt(highestProfit.projectedProfit || 0)})`;
+      summary += `${highestMargin.title} has the highest margin (${shownMargin(highestMargin)}%); ${highestProfit.title} has the highest ${highestProfitLabel} (${money(highestProfit.projectedProfit)})`;
     }
-  } else if (highestMargin) {
-    summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%)`;
-  } else if (highestProfit) {
-    summary += `${highestProfit.title} has the highest ${highestProfitLabel} ($${fmt(highestProfit.projectedProfit || 0)})`;
   }
 
   if (needsAttention.length > 0) {
@@ -1364,46 +1392,52 @@ function buildPortfolioComparisonReply(data = []) {
   }
   summary = summary ? `${summary}.\n\n` : '';
 
+  const plural = (count, one, many) => (count === 1 ? one : many);
   const scopeLine = activeData.length > 0
-    ? `Current attention flags use active projects only (${activeData.length} active); completed projects are shown for historical comparison.`
-    : 'There are no active projects; profit figures are historical or estimate-based.';
-  let reply = `Here's the comparison of all your projects for profitability and risk:\n\n${scopeLine}\n\n${summary}`;
+    ? `${activeData.length} active ${plural(activeData.length, 'job', 'jobs')}${completedData.length > 0 ? ` and ${completedData.length} finished` : ''}. Attention flags cover active jobs only.`
+    : completedData.length > 0
+      ? `${completedData.length} finished ${plural(completedData.length, 'job', 'jobs')}, no active jobs.`
+      : 'No active jobs yet.';
+  let reply = `Here's how your projects compare.\n\n${scopeLine}\n\n${summary}`;
   safeData.forEach((item) => {
+    const done = isCompleted(item);
     const riskParts = [];
-    if (item.missingReceipts > 0) riskParts.push(`${item.missingReceipts} missing receipts`);
+    if (item.missingReceipts > 0) {
+      riskParts.push(`${item.missingReceipts} ${plural(item.missingReceipts, 'bill', 'bills')} missing receipts`);
+    }
     if (Array.isArray(item.riskFlags) && item.riskFlags.length > 0) {
       riskParts.push(...item.riskFlags.filter((risk) => risk !== 'missing_receipts').map((risk) => String(risk).replace(/_/g, ' ')));
     }
-    const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
-    const profitLabel = item.profitLabel || (isCompleted(item) ? 'Net Profit' : 'Projected Profit');
-    const marginLabel = item.marginLabel || (isCompleted(item) ? 'Margin' : 'Current margin');
+    const profitLabel = item.profitLabel || (done ? 'Net profit' : 'Projected profit');
+    const marginLabel = done
+      ? 'Margin'
+      : item.projectedMarginPct != null
+        ? 'Projected margin'
+        : item.marginLabel || 'Current margin';
     const status = getStatus(item);
     const statusLabel = status === 'in_progress'
       ? 'In progress'
       : status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-    reply += `**${item.title}**\n`;
-    reply += `• ${marginLabel}: ${item.margin}%\n`;
-    reply += `• Spent: $${fmt(item.spent || 0)}\n`;
-    if (item.budget != null && Number(item.budget) > 0) {
-      reply += `• Cost budget: $${fmt(item.budget)}\n`;
+    reply += `**${item.title}**${item.status ? ` · ${statusLabel}` : ''}\n`;
+    if (item.revenue != null && item.revenue > 0) reply += `• Revenue: ${money(item.revenue)}\n`;
+    reply += `• Spent: ${money(item.spent)}\n`;
+    reply += `• ${profitLabel}: ${money(item.projectedProfit)}\n`;
+    reply += `• ${marginLabel}: ${shownMargin(item)}%\n`;
+    if (!done) {
+      if (item.budget != null && Number(item.budget) > 0) reply += `• Cost budget: ${money(item.budget)}\n`;
+      if (item.committedPOs != null && item.committedPOs > 0) reply += `• Committed POs: ${money(item.committedPOs)}\n`;
+      if (item.budgetUsedPct != null && item.budgetUsedPct > 0) reply += `• Budget used: ${item.budgetUsedPct}%\n`;
+      if (item.progress != null) reply += `• Progress: ${Math.round(item.progress)}%\n`;
     }
-    if (item.committedPOs != null && item.committedPOs > 0) reply += `• Committed POs: $${fmt(item.committedPOs)}\n`;
-    reply += `• ${profitLabel}: $${fmt(item.projectedProfit || 0)}\n`;
-    if (item.revenue != null && item.revenue > 0) reply += `• Revenue: $${fmt(item.revenue)}\n`;
-    if (item.budgetUsedPct != null && item.budgetUsedPct > 0) reply += `• Budget used: ${item.budgetUsedPct}%\n`;
-    if (isCompleted(item) && Number(item.progress || 0) === 0) {
-      reply += '• Progress: Not available (project marked completed)\n';
-    } else if (item.progress != null) {
-      reply += `• Progress: ${Math.round(item.progress)}%\n`;
-    }
-    if (item.status) reply += `• Status: ${statusLabel}\n`;
-    reply += `• ${riskStr}\n\n`;
+    reply += `• Risk: ${riskParts.length > 0 ? riskParts.join(', ') : 'None'}\n\n`;
   });
 
-  let portfolioLine = `**Portfolio totals** — Revenue: $${fmt(totalRevenue)}`;
-  if (projectedProfitActive !== 0) portfolioLine += ` | Projected profit (active): $${fmt(projectedProfitActive)}`;
-  if (netProfitCompleted !== 0) portfolioLine += ` | Net profit already made: $${fmt(netProfitCompleted)}`;
-  reply += `${portfolioLine}\n\n`;
+  if (safeData.length > 1) {
+    const portfolioParts = [`Revenue ${money(totalRevenue)}`];
+    if (netProfitCompleted !== 0) portfolioParts.push(`Net profit (finished) ${money(netProfitCompleted)}`);
+    if (projectedProfitActive !== 0) portfolioParts.push(`Projected profit (active) ${money(projectedProfitActive)}`);
+    reply += `**All projects** — ${portfolioParts.join(' · ')}\n\n`;
+  }
   if (needsAttention.length > 0) {
     const receiptProjects = needsAttention
       .filter((item) => item.missingReceipts > 0)
@@ -1654,6 +1688,18 @@ function buildPortfolioBudgetRisksReply(data = [], options = {}) {
   const hasCloseoutAlerts = closeoutGroups.length > 0;
 
   if (!hasCompareAlerts && !hasActiveLineAlerts && !hasCloseoutAlerts) {
+    const projectsForCount = allProjects.length > 0 ? allProjects : safeData;
+    const activeCount = projectsForCount.filter((item) => !isCompleted(item)).length;
+    if (activeCount === 0) {
+      const finishedCount = projectsForCount.length;
+      return [
+        '**No active jobs to check.**',
+        '',
+        finishedCount > 0
+          ? `Budget alerts cover jobs in progress. Your ${finishedCount === 1 ? 'finished job has' : `${finishedCount} finished jobs have`} no estimate lines over budget.`
+          : 'Budget alerts cover jobs in progress. Add a project to start tracking.',
+      ].join('\n');
+    }
     return [
       '**No active budget alerts right now.**',
       '',
