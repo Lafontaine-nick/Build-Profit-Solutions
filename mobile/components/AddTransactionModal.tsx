@@ -21,6 +21,7 @@ import LaborPayTypeChoice from "@/components/LaborPayTypeChoice";
 import LaborPaymentMethodChoice from "@/components/LaborPaymentMethodChoice";
 import { isOwnerSelfPayeeName, laborPaidToIsSomeoneElse, type LaborPaymentMethod } from "@/src/lib/taxCenter";
 import PaidToNameSuggestions from "@/components/PaidToNameSuggestions";
+import BackButton from "@/components/ui/BackButton";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
@@ -32,7 +33,7 @@ import {
   dollarsToCentsDigits,
   sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
-import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
+import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding, PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
@@ -1375,19 +1376,13 @@ export default function AddTransactionModal({
       ]}>
           {/* Header */}
           <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.headerRow : [styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
-            <Pressable
-              accessibilityRole="button"
+            <BackButton
+              darkMode={darkMode}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 dismissModal();
               }}
-              style={[
-                styles.backBtn,
-                { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
-              ]}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-            </Pressable>
+              style={{ position: "absolute", left: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER, top: 8, zIndex: 2 }}
+            />
             <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialTitle : [styles.title, { color: Colors.text }]}>
               Add {displayCategoryName}
             </Text>
@@ -1431,7 +1426,7 @@ export default function AddTransactionModal({
                 borderRadius: budgetExpenseWebRing ? 20 : (webBudgetExpenseShell ? 14 : 0),
                 padding: budgetExpenseWebRing ? 1 : 0,
                 marginBottom: webBudgetExpenseShell ? 8 : 0,
-                marginHorizontal: webBudgetExpenseShell && !budgetExpenseWebRing ? webPoFormPad.scroll : 0,
+                marginHorizontal: 0,
               }}
             >
               <View
@@ -2839,6 +2834,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 60,
     backgroundColor: 'transparent',
     borderBottomWidth: 1,
@@ -2914,6 +2910,7 @@ const styles = StyleSheet.create({
   },
   form: {
     padding: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
   },
   field: {
     marginBottom: 20,
@@ -3000,7 +2997,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 12,
     gap: 10,
     borderTopWidth: 1,

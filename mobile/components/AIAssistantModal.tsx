@@ -39,9 +39,10 @@ import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  getWideContainerInset,
 } from "@/constants/ScreenLayout";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
+import BackButton from "@/components/ui/BackButton";
 import {
   BRAND_FRAME_GRADIENT_COLORS,
   BRAND_FRAME_GRADIENT_END,
@@ -59,7 +60,6 @@ import {
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
   isWriteOrMutationRequest,
-  buildCentralCommandReadOnlyReply,
   isExplicitExpenseLogQuery,
   SCENARIO_SELECTION_ID_PATTERN,
   type UIState,
@@ -1140,7 +1140,7 @@ const AIAssistantModal: React.FC<Props> = ({
    * Match project-detail `[id].tsx` `wideContainer` inner padding (after scroll `edge` is cancelled):
    * 8 on desktop web, 4 on native / narrow web — same gutters as the Project Overview gradient card.
    */
-  const aiWideColumnPadding = useMemo(() => (aiDesktopWeb ? 8 : 4), [aiDesktopWeb]);
+  const aiWideColumnPadding = useMemo(() => getWideContainerInset(aiDesktopWeb), [aiDesktopWeb]);
   const dotAnim1 = useRef(new Animated.Value(0.4)).current;
   const dotAnim2 = useRef(new Animated.Value(0.4)).current;
   const dotAnim3 = useRef(new Animated.Value(0.4)).current;
@@ -1383,7 +1383,8 @@ const AIAssistantModal: React.FC<Props> = ({
   const greetingShownRef = useRef(false);
   const [briefRefreshing, setBriefRefreshing] = useState(false);
 
-  const refreshTodayBrief = useCallback(async () => {
+  /** `showSpinner` only for pull-to-refresh — a programmatic RefreshControl spinner pushes the whole list down and snaps it back. */
+  const refreshTodayBrief = useCallback(async (options?: { showSpinner?: boolean }) => {
     if (!context) return;
     let parsed: { screen?: string } = {};
     try {
@@ -1396,7 +1397,7 @@ const AIAssistantModal: React.FC<Props> = ({
       setBriefRefreshing(false);
       return;
     }
-    setBriefRefreshing(true);
+    if (options?.showSpinner) setBriefRefreshing(true);
     try {
       const AI_API_BASE = resolveAIBaseUrl();
       const url = `${AI_API_BASE}/api/ai-assistant/greeting`;
@@ -1446,12 +1447,21 @@ const AIAssistantModal: React.FC<Props> = ({
     });
   }, [visible, messages.length, loading, initialQuestion, context, refreshTodayBrief, todayBriefData]);
 
-  // Reset greeting ref and today brief when modal closes so it shows again on next open
+  // Reset greeting ref when modal closes so the brief refreshes on next open. Central Command keeps the
+  // last server brief on screen until the refresh lands, instead of flashing the local fallback first.
   useEffect(() => {
     if (!visible) {
       greetingShownRef.current = false;
-      setTodayBriefData(null);
-      setBriefUpdatedAt(null);
+      let keepLastBrief = false;
+      try {
+        keepLastBrief = String(JSON.parse(context || '{}')?.screen || '').toLowerCase() === 'ai assistant tab';
+      } catch (_e) {
+        keepLastBrief = false;
+      }
+      if (!keepLastBrief) {
+        setTodayBriefData(null);
+        setBriefUpdatedAt(null);
+      }
       setPendingPaymentSelection(null);
     }
   }, [visible]);
@@ -3212,23 +3222,6 @@ const AIAssistantModal: React.FC<Props> = ({
     setLoading(true);
     setIsTyping(true);
 
-    if (isReadOnlyWriteTurn) {
-      const asOf = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-read-only`,
-          role: 'assistant',
-          content:
-            `${buildCentralCommandReadOnlyReply(messageToSend, parsedContext?.currentProject || parsedContext?.projectName)}\n\n_Numbers reflect your project data as of **${asOf}**. Pull to refresh if you’ve updated costs._`,
-          timestamp: new Date(),
-        },
-      ]);
-      setLoading(false);
-      setIsTyping(false);
-      return;
-    }
-
     if (isCentralCommandReadOnly && taxSource) {
       const taxReply = answerCentralCommandTaxQuestion(messageToSend, taxSource);
       if (taxReply) {
@@ -4554,8 +4547,7 @@ const AIAssistantModal: React.FC<Props> = ({
       if (
         data.actions &&
         Array.isArray(data.actions) &&
-        !isCentralCommandReadOnly &&
-        (onAction || hasCalendarCreate)
+        (onAction || hasCalendarCreate || isCentralCommandReadOnly)
       ) {
         console.log('🔍 AIAssistantModal: Received actions from backend:', {
           actionsCount: data.actions.length,
@@ -4664,6 +4656,18 @@ const AIAssistantModal: React.FC<Props> = ({
                 },
               ]);
             }
+            return;
+          }
+          if (!onAction) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString() + '-action-unsaved',
+                role: 'assistant',
+                content: `I prepared that for **${action.projectName || 'this job'}**. Open the job and confirm it there so it is saved on the project.`,
+                timestamp: new Date(),
+              },
+            ]);
             return;
           }
           if (onAction) {
@@ -5593,11 +5597,87 @@ const AIAssistantModal: React.FC<Props> = ({
     return null;
   }
 
+  const assistantHeader = (
+    <View
+      style={[
+        styles.header,
+        {
+          /** Always respect top safe area; compact mode only tightens bottom padding */
+          paddingTop: Math.max(insets.top, keyboardOpen ? 6 : 14),
+        },
+        keyboardOpen ? styles.headerKeyboardCompact : null,
+        isCentralCommandReadOnly && styles.centralHeaderInList,
+        light({ backgroundColor: ThemeColors.bg }),
+      ]}
+    >
+      {isCentralCommandReadOnly ? null : (
+      <View style={styles.backButtonWrapper}>
+        <BackButton
+          darkMode={darkMode}
+          onPress={() => {
+            console.log('🔙 Back button pressed in AIAssistantModal');
+            handleBackNavigation();
+          }}
+        />
+      </View>
+      )}
+      <View style={[styles.headerContent, isCentralCommandReadOnly && styles.centralHeaderContent]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
+            <View style={[styles.headerTitleRow, isCentralCommandReadOnly && styles.centralHeaderTitleRow]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
+              <View style={[styles.headerTitleCenter, isCentralCommandReadOnly && styles.centralHeaderTitleCenter]} pointerEvents={isCentralCommandReadOnly ? "none" : "auto"}>
+                {isCentralCommandReadOnly ? null : (
+                  <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
+                )}
+                <Text style={[styles.headerTitle, isCentralCommandReadOnly && styles.centralHeaderTitle, light({ color: ThemeColors.text })]}>
+                  {isCentralCommandReadOnly ? 'Central Command' : 'AI Assistant'}
+                </Text>
+              </View>
+              {isCentralCommandReadOnly ? (
+                <BackButton
+                  darkMode={darkMode}
+                  onPress={handleBackNavigation}
+                  style={{ position: "absolute", left: 0, zIndex: 2 }}
+                />
+              ) : null}
+            </View>
+            {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
+              <View style={styles.headerContextStack}>
+                <Text style={[styles.headerSubtitle, isCentralCommandReadOnly && styles.centralHeaderSubtitle, light({ color: ThemeColors.sub })]}>
+                  {isCentralCommandReadOnly
+                    ? 'All projects · Read-only'
+                    : isGlobalAssistantContext
+                      ? 'All projects'
+                    : isProjectsScreenContext
+                      ? selectedProjectHintId
+                        ? (() => {
+                            const sel = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
+                            return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
+                          })()
+                        : 'Portfolio View • All Projects'
+                      : isEstimateContext
+                        ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
+                        : `${projectInfo!.title} • ${projectInfo!.phase}`}
+                </Text>
+                {projectInfo &&
+                  !isProjectsScreenContext &&
+                  !isGlobalAssistantContext &&
+                  !(isEstimateContext && estimateBidIsEmpty) && (
+                  <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
+                    Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
+                    {projectInfo.markup}%
+                  </Text>
+                )}
+              </View>
+            )}
+        </View>
+        {isCentralCommandReadOnly ? null : <View style={styles.headerSpacer} />}
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
       presentationStyle={isGlobalAssistantContext ? "fullScreen" : undefined}
-      animationType={isGlobalAssistantContext ? "fade" : Platform.OS === "ios" ? "slide" : "fade"}
+      animationType={isGlobalAssistantContext ? "none" : Platform.OS === "ios" ? "slide" : "fade"}
       onRequestClose={handleBackNavigation}
     >
       <KeyboardAvoidingView
@@ -5625,96 +5705,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 paddingHorizontal: aiWideColumnPadding,
               }}
             >
-            {/* Header — remains visible while the keyboard is open */}
-            <View
-              style={[
-                styles.header,
-                {
-                  /** Always respect top safe area; compact mode only tightens bottom padding */
-                  paddingTop: Math.max(insets.top, keyboardOpen ? 6 : 14),
-                },
-                keyboardOpen ? styles.headerKeyboardCompact : null,
-                light({ backgroundColor: ThemeColors.bg }),
-              ]}
-            >
-              {isCentralCommandReadOnly ? null : (
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={BRAND_FRAME_GRADIENT_START}
-                  end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      console.log('🔙 Back button pressed in AIAssistantModal');
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      handleBackNavigation();
-                    }}
-                    style={[styles.backButton, light({ backgroundColor: ThemeColors.bg })]}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </GradientRingBackInner>
-                </LinearGradient>
-              </View>
-              )}
-              <View style={[styles.headerContent, isCentralCommandReadOnly && styles.centralHeaderContent]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
-                    <View style={[styles.headerTitleRow, isCentralCommandReadOnly && styles.centralHeaderTitleRow]} pointerEvents={isCentralCommandReadOnly ? "box-none" : "auto"}>
-                      <View style={[styles.headerTitleCenter, isCentralCommandReadOnly && styles.centralHeaderTitleCenter]} pointerEvents={isCentralCommandReadOnly ? "none" : "auto"}>
-                        {isCentralCommandReadOnly ? null : (
-                          <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
-                        )}
-                        <Text style={[styles.headerTitle, isCentralCommandReadOnly && styles.centralHeaderTitle, light({ color: ThemeColors.text })]}>
-                          {isCentralCommandReadOnly ? 'Central Command' : 'AI Assistant'}
-                        </Text>
-                      </View>
-                      {isCentralCommandReadOnly ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            handleBackNavigation();
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          accessibilityLabel="Back"
-                          style={[styles.centralBackButton, light({ backgroundColor: ThemeColors.surface2 })]}
-                        >
-                          <MaterialIcons name="chevron-left" size={22} color={darkMode ? "#e2e8f0" : "#000000"} />
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                    {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
-                      <View style={styles.headerContextStack}>
-                        <Text style={[styles.headerSubtitle, isCentralCommandReadOnly && styles.centralHeaderSubtitle, light({ color: ThemeColors.sub })]}>
-                          {isCentralCommandReadOnly
-                            ? 'All projects · Read-only'
-                            : isGlobalAssistantContext
-                              ? 'All projects'
-                            : isProjectsScreenContext
-                              ? selectedProjectHintId
-                                ? (() => {
-                                    const sel = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
-                                    return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
-                                  })()
-                                : 'Portfolio View • All Projects'
-                              : isEstimateContext
-                                ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
-                                : `${projectInfo!.title} • ${projectInfo!.phase}`}
-                        </Text>
-                        {projectInfo &&
-                          !isProjectsScreenContext &&
-                          !isGlobalAssistantContext &&
-                          !(isEstimateContext && estimateBidIsEmpty) && (
-                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
-                            Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
-                            {projectInfo.markup}%
-                          </Text>
-                        )}
-                      </View>
-                    )}
-                </View>
-                {isCentralCommandReadOnly ? null : <View style={styles.headerSpacer} />}
-            </View>
+            {/* AI Assistant header stays pinned (visible while typing); Central Command's scrolls with the list */}
+            {isCentralCommandReadOnly ? null : assistantHeader}
 
             {/* Messages - Everything scrolls together */}
             <View style={{ flex: 1, minHeight: 0 }}>
@@ -5733,6 +5725,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 keyboardOpeningTime={0}
                 contentContainerStyle={[
                   styles.messagesContainer,
+                  isCentralCommandReadOnly && { paddingTop: 0 },
                   {
                     paddingBottom: isCentralCommandReadOnly
                       ? 12
@@ -5761,7 +5754,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   isGlobalAssistantContext && displayBrief ? (
                     <RefreshControl
                       refreshing={briefRefreshing}
-                      onRefresh={refreshTodayBrief}
+                      onRefresh={() => void refreshTodayBrief({ showSpinner: true })}
                       tintColor={darkMode ? Colors.green : undefined}
                     />
                   ) : undefined
@@ -5780,6 +5773,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   }, 500);
                 }}
               onContentSizeChange={() => {
+                if (isCentralCommandReadOnly && messages.length === 0) return;
                 // Only auto-scroll if user is not manually scrolling
                 if (flatListRef.current && !isUserScrollingRef.current) {
                   setTimeout(() => {
@@ -5791,6 +5785,7 @@ const AIAssistantModal: React.FC<Props> = ({
               }}
               ListHeaderComponent={
                 <>
+                  {isCentralCommandReadOnly ? assistantHeader : null}
                   {/* Global AI: Today Brief card — hero, insight-first */}
                   {isGlobalAssistantContext && displayBrief && messages.length === 0 && (
                     <>
@@ -6855,6 +6850,15 @@ const AIAssistantModal: React.FC<Props> = ({
             </View>
             {children}
           </SafeAreaView>
+          {isCentralCommandReadOnly && insets.top > 0 ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.statusBarBackdrop,
+                { height: insets.top, backgroundColor: darkMode ? Colors.bg : ThemeColors.bg },
+              ]}
+            />
+          ) : null}
         </View>
       </KeyboardAvoidingView>
 
@@ -6904,6 +6908,17 @@ const styles = StyleSheet.create({
   },
   headerKeyboardCompact: {
     paddingBottom: 6,
+  },
+  centralHeaderInList: {
+    paddingBottom: 28,
+    zIndex: 0,
+  },
+  statusBarBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
   },
   headerContent: {
     flex: 1,

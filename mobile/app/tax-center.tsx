@@ -14,7 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import { PHONE_CARD_GUTTER, TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -29,6 +29,7 @@ import TaxCenterSummaryDetailModal, {
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import FinancialAccessLocked from '@/components/FinancialAccessLocked';
+import BackButton from '@/components/ui/BackButton';
 import {
   buildProjectTaxSummaries,
   buildRuleBasedTaxInsights,
@@ -617,12 +618,9 @@ export default function TaxCenterScreen() {
         <StatusBar barStyle="light-content" />
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={[styles.pageShell, { paddingTop: Math.max(insets.top, 12) + 14 }]}>
-            <Pressable
-              onPress={() => router.back()}
-              style={{ marginBottom: 16, alignSelf: 'flex-start' }}
-            >
-              <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-            </Pressable>
+            <View style={{ marginBottom: 16, alignSelf: 'flex-start' }}>
+              <BackButton darkMode={darkMode} onPress={() => router.back()} />
+            </View>
             <FinancialAccessLocked colors={Colors} />
           </View>
         </SafeAreaView>
@@ -650,25 +648,8 @@ export default function TaxCenterScreen() {
           >
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Back"
-              style={[
-                styles.backButtonInner,
-                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-              ]}
-            >
-              <MaterialIcons
-                name="chevron-left"
-                size={22}
-                color={darkMode ? '#e2e8f0' : '#000000'}
-              />
-            </Pressable>
-          </View>
+              <BackButton darkMode={darkMode} onPress={() => router.back()} />
+            </View>
           <View style={styles.headerCopy}>
             <Text style={styles.kicker}>TAX-READY REPORT</Text>
             <Text style={styles.title}>Tax Center</Text>
@@ -1215,7 +1196,7 @@ const styles = StyleSheet.create({
   pageShell: {
     flex: 1,
     width: '100%',
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   pageShellWeb: {
     maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,

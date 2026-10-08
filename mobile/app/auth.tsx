@@ -19,6 +19,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { isClerkPublishableKeyConfigured } from '@/lib/clerkPublishableKey';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { OAuthButtons } from '@/components/OAuthButtons';
+import BackButton from '@/components/ui/BackButton';
 import {
   useClerk as clerkInstanceHook,
   useAuth as clerkAuthHook,
@@ -38,6 +39,7 @@ import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/con
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
+  getWideContainerInset,
 } from '@/constants/ScreenLayout';
 import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
@@ -1369,13 +1371,9 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
             {/* Top header – styled like the Dashboard title area */}
             <View style={[styles.headerRow, styles.wideContainer]}>
               {navigation.canGoBack() && (
-                <TouchableOpacity
-                  onPress={handleBack}
-                  hitSlop={12}
-                  style={styles.headerBackBtn}
-                >
-                  <MaterialIcons name="arrow-back-ios" size={18} color={darkMode ? "#FFFFFF" : Colors.text} />
-                </TouchableOpacity>
+                <View style={[styles.headerBackBtn, { alignSelf: 'flex-start' }]}>
+                  <BackButton darkMode={darkMode} onPress={handleBack} />
+                </View>
               )}
 
               <View style={styles.headerTextBlock}>
@@ -1880,7 +1878,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
         }
       : {
           marginHorizontal: -20,
-          paddingHorizontal: 8,
+          paddingHorizontal: getWideContainerInset(false, 8),
         }),
   },
   headerRow: {

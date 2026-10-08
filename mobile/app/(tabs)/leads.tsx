@@ -29,7 +29,7 @@ import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { ScreenLayout } from '@/constants/ScreenLayout';
+import { ScreenLayout, getWideContainerInset } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -3589,7 +3589,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 4,
+    paddingHorizontal: getWideContainerInset(false),
   },
   profileOuter: {
     width: 54,

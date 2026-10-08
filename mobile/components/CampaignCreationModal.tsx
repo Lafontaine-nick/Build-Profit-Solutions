@@ -31,7 +31,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
+
+const CAMPAIGN_EDGE_PAD = Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER;
 
 const IG_GRADIENT = `
 <svg width="18" height="18" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
@@ -1108,26 +1111,7 @@ export default function CampaignCreationModal({
             ]}
           >
             <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onClose();
-                  }}
-                  style={[
-                    styles.backBtn,
-                    !darkMode && { backgroundColor: Colors.bg },
-                  ]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton darkMode={darkMode} onPress={onClose} />
             </View>
             <View style={styles.headerContent}>
               <Text style={styles.headerTitle}>{isEditMode ? 'Edit Campaign' : 'Create Campaign'}</Text>
@@ -1246,23 +1230,7 @@ export default function CampaignCreationModal({
           {/* Preview Header */}
           <View style={styles.previewHeader}>
             <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowPreview(false);
-                  }}
-                  style={[styles.backBtn, !darkMode && { backgroundColor: Colors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton darkMode={darkMode} onPress={() => setShowPreview(false)} />
             </View>
             <View style={styles.headerContent}>
               <Text style={styles.headerTitle}>Campaign Preview</Text>
@@ -1316,7 +1284,7 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   header: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    paddingHorizontal: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
     paddingTop: 60,
     paddingBottom: 20,
     borderBottomWidth: 1,
@@ -1369,7 +1337,7 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
-    paddingHorizontal: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
     paddingVertical: 16,
   },
   progressStepWrapper: {
@@ -1410,12 +1378,12 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
   },
   navigation: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : 0,
     paddingVertical: 20,
     marginTop: 20,
     borderTopWidth: 1,
@@ -1500,7 +1468,7 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   previewHeader: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    paddingHorizontal: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
     paddingTop: 60,
     paddingBottom: 20,
     borderBottomWidth: 1,
@@ -1508,7 +1476,7 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   },
   previewContent: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
   },
   previewSection: {
     marginTop: 20,
@@ -1816,6 +1784,7 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   },
   previewFooter: {
     padding: 20,
+    paddingHorizontal: CAMPAIGN_EDGE_PAD,
     borderTopWidth: 1,
     borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
   },

@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -22,7 +21,8 @@ import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import { useUser } from '@clerk/clerk-react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebPageShell, {
@@ -574,9 +574,9 @@ export default function PaymentManagementModal({
   const appleContent = (
     <LinearGradient colors={theme.background} style={styles.container}>
       <View style={styles.content}>
-        <TouchableOpacity onPress={handleClose} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
+        <View style={{ alignSelf: 'flex-start' }}>
+          <BackButton darkMode={darkMode} onPress={handleClose} />
+        </View>
         <Text style={[styles.title, { color: theme.text }]}>Manage Subscription</Text>
         <Text style={[styles.subtitle, { color: theme.subtext }]}>
           Your Apple subscription is managed through the App Store.
@@ -613,25 +613,7 @@ export default function PaymentManagementModal({
           ]}
         >
           <View style={styles.backButtonWrapperWeb}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  handleClose();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
           </View>
           <View style={styles.headerTitleBlock}>
             <Text style={[styles.screenTitleWeb, { color: theme.text }]}>Manage Subscription</Text>
@@ -642,25 +624,7 @@ export default function PaymentManagementModal({
       {isScreenMode && Platform.OS !== 'web' && (
         <View style={[styles.headerRow, webPaymentScreenHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  handleClose();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
           </View>
           <View style={styles.titleContainerCentered}>
             <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>Manage</Text>
@@ -804,7 +768,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 20,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
     paddingBottom: 8,
     position: 'relative',
   },
@@ -839,7 +803,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 100,
     paddingBottom: 20,
     position: 'relative',
@@ -864,7 +828,7 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingBottom: 16,
     gap: 12,
   },
@@ -891,7 +855,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 24,
   },
   subtitle: {

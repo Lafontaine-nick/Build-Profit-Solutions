@@ -1,14 +1,12 @@
 import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
-import * as Haptics from 'expo-haptics';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import { haptic } from '@/utils/haptics';
 
 function pressIn(props: BottomTabBarButtonProps) {
   return (ev: Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0]) => {
-    if (process.env.EXPO_OS === 'ios') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    if (!props.accessibilityState?.selected) haptic.select();
     props.onPressIn?.(ev);
   };
 }

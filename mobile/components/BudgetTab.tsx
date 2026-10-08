@@ -14,13 +14,13 @@ import {
   InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { formatMoneyFull } from '../src/lib/budgetUtils';
 import { useTheme } from '../contexts/ThemeContext';
+import { useToast } from '../contexts/ToastContext';
 import { getColors } from '../theme/getColors';
 import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
@@ -49,7 +49,7 @@ import EditPurchaseOrderModal from './EditPurchaseOrderModal';
 import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
-import GradientRingBackInner from './GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import { ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK, estimateFlowDividerColor, estimateSummaryHeroAmountStyle } from '@/utils/estimateFlowCardStyle';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 
@@ -234,6 +234,7 @@ export default function BudgetTab({
   onConsumedResumeChangeOrderBill?: () => void;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
+  const toast = useToast();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
   const [tab, setTab] = useState<'lines' | 'cos' | 'ai'>('lines');
   const [editing, setEditing] = useState<BudgetLine | null>(null);
@@ -1677,7 +1678,7 @@ export default function BudgetTab({
                     });
                     setShowExpenseModal(false);
                     setNewExpense({ vendor: '', amount: '', category: '', notes: '' });
-                    Alert.alert('Success', 'Expense added successfully!');
+                    toast.success('Expense added', newExpense.vendor || undefined);
                   } else {
                     Alert.alert('Error', 'Please fill in vendor and amount');
                   }
@@ -1704,25 +1705,14 @@ export default function BudgetTab({
           {/* Header */}
           <View style={styles.modalHeader}>
             <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowChangeOrderModal(false);
-                    setEditingChangeOrder(null);
-                    setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
-                  }}
-                  style={styles.backBtn}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton
+                darkMode
+                onPress={() => {
+                  setShowChangeOrderModal(false);
+                  setEditingChangeOrder(null);
+                  setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
+                }}
+              />
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1989,7 +1979,7 @@ export default function BudgetTab({
                     setEditingChangeOrder(null);
                     setShowChangeOrderModal(false);
                     setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
-                    Alert.alert('Success', 'Change order updated successfully!');
+                    toast.success('Change order updated', updatedCO.title || undefined);
                   } else {
                     addChangeOrder({
                       id: `co-${Date.now()}`,
@@ -2033,7 +2023,7 @@ export default function BudgetTab({
         onClose={() => setThresholdModalVisible(false)}
         onSaved={(newThresholds) => {
           setThresholds(newThresholds);
-          Alert.alert('Saved', 'Alert thresholds updated successfully!');
+          toast.success('Alert thresholds saved');
         }}
       />
 

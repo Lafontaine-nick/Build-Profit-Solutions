@@ -10,14 +10,8 @@ import {
   TextInput,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
+import BackButton from '@/components/ui/BackButton';
 import type { getColors } from '@/theme/getColors';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
@@ -273,25 +267,11 @@ export default function ScopeReviewSheet({
       <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
         <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
           <View style={styles.headerSide}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={handleClose}
-                accessibilityLabel="Close scope review"
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={24}
-                  color={darkMode ? '#FFFFFF' : Colors.text}
-                />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton
+              darkMode={darkMode}
+              onPress={handleClose}
+              accessibilityLabel="Close scope review"
+            />
           </View>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: Colors.text }]} accessibilityRole="header">

@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Switch, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { View, Switch, StyleSheet, Text } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { Typography } from '../constants/Typography';
-import { neutralIconPressableWebStyle } from '../constants/iconPressable';
+import BackButton from '@/components/ui/BackButton';
 
 interface PageHeaderProps {
   title?: string;
@@ -23,18 +23,7 @@ export default function PageHeader({
       {title && (
         <View style={styles.titleContainer}>
           {onBackPress && (
-            <TouchableOpacity
-              onPress={onBackPress}
-              style={[styles.backButton, neutralIconPressableWebStyle()]}
-              activeOpacity={0.88}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <MaterialIcons
-                name='arrow-back'
-                size={24}
-                color={darkMode ? '#FFFFFF' : '#000000'}
-              />
-            </TouchableOpacity>
+            <BackButton darkMode={darkMode} onPress={onBackPress} style={{ marginRight: 12 }} />
           )}
           <Text style={[styles.title, { color: darkMode ? '#fff' : '#222' }]}>
             {title}

@@ -24,6 +24,8 @@ import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { saveProjectPhoto } from "@/services/projectPhotoService";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 
 type Props = {
   visible: boolean;
@@ -158,22 +160,13 @@ export default function AddProjectPhotoModal({
                 Add to your project portfolio
               </Text>
             </View>
-            <TouchableOpacity
+            <BackButton
+              darkMode={darkMode}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 resetAndClose();
               }}
-              style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-            >
-              <MaterialIcons
-                name="arrow-back"
-                size={22}
-                color={darkMode ? "#e2e8f0" : Colors.text}
-              />
-            </TouchableOpacity>
+              style={{ position: "absolute", left: 16, top: 8, zIndex: 2 }}
+            />
           </View>
 
           <ScrollView
@@ -306,7 +299,7 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
   },
   hint: {
     fontSize: 13,

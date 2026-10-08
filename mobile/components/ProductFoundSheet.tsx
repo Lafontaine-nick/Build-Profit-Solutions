@@ -42,8 +42,10 @@ import {
 } from '@/utils/estimateFlowCardStyle';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import BackButton from '@/components/ui/BackButton';
 
 const DESTINATION_LABELS: Record<ProductScannerDestination, { title: string; subtitle: string; icon: string }> = {
   estimate: {
@@ -514,14 +516,11 @@ export default function ProductFoundSheet({
                 >
                   Product Found
                 </Text>
-                <TouchableOpacity
+                <BackButton
+                  darkMode={darkMode}
                   onPress={onClose}
-                  accessibilityLabel="Back"
-                  style={styles.backBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
-                </TouchableOpacity>
+                  style={{ position: 'absolute', left: 0, top: 0, zIndex: 2 }}
+                />
               </View>
 
               <View style={[flowCardStyle, styles.productCard]}>
@@ -1020,7 +1019,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetScrollContent: {
-    paddingHorizontal: 14,
+    paddingHorizontal: Platform.OS === 'web' ? 14 : PHONE_CARD_GUTTER,
   },
   infoBanner: {
     flexDirection: 'row',
@@ -1119,7 +1118,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   sheetFooter: {
-    paddingHorizontal: 14,
+    paddingHorizontal: Platform.OS === 'web' ? 14 : PHONE_CARD_GUTTER,
     paddingTop: 12,
     borderTopWidth: 1,
   },

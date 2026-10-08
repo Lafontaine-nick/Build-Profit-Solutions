@@ -9,11 +9,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 
 type Props = {
   title?: string;
@@ -35,23 +31,12 @@ export default function ProjectHeader({
         {onBack ? (
           <View style={styles.headerRow}>
             <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backBtnBorder}
-              >
-                <GradientRingBackInner
-                  darkMode
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onBack();
-                  }}
-                  style={styles.backBtn}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton
+                darkMode
+                onPress={() => {
+                  onBack();
+                }}
+              />
             </View>
             <Text numberOfLines={1} style={styles.title}>
               {title}

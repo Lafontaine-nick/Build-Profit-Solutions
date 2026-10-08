@@ -212,7 +212,7 @@ import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { estimateStep12NumericKeyboardProps, lineItemModalNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
-import GradientRingBackInner from '../../components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
@@ -300,6 +300,7 @@ import {
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
   getProjectExpenseFormHorizontalPadding,
+  getWideContainerInset,
 } from '@/constants/ScreenLayout';
 import WebPageShell from '@/components/layout/WebPageShell';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
@@ -1401,16 +1402,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
               ]}
             >
               <View style={modalStyles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.backButtonBorder}
-                >
-                  <GradientRingBackInner darkMode={darkMode} onPress={onClose} style={modalStyles.backButton}>
-                    <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={modalStyles.headerTitleRow}>
                 <View style={modalStyles.headerIconContainerWrapper}>
@@ -1542,20 +1534,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
         {/* HEADER - Fixed at top, respects safe area - outside layout containers */}
         <View style={[modalStyles.materialHeader, headerStyle]} collapsable={false}>
           <View style={modalStyles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={modalStyles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={onClose}
-                style={modalStyles.backButton}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={onClose} />
           </View>
 
           <View style={modalStyles.headerTitleRow}>
@@ -1983,16 +1962,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal, paymen
               ]}
             >
               <View style={modalStyles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.backButtonBorder}
-                >
-                  <GradientRingBackInner darkMode={darkMode} onPress={onClose} style={modalStyles.backButton}>
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={modalStyles.headerTitleRow}>
                 <View style={modalStyles.headerIconContainerWrapper}>
@@ -2376,7 +2346,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   }, [visible]);
 
   const lineItemNativeFullBleedForm = Platform.OS === 'ios' || Platform.OS === 'android';
-  /** Native + mobile web: match estimate `wideContainer` card inset (4px). Desktop web: expense-modal tokens. */
+  /** Native + mobile web: match estimate `wideContainer` card inset. Desktop web: expense-modal tokens. */
   const lineItemLayoutPad = useMemo(() => {
     return getProjectExpenseFormHorizontalPadding({
       desktopWeb: lineItemWebConstrained,
@@ -2432,27 +2402,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     {isLaborForm ? 'Log your labor expense' : 'Log your material or equipment expense'}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={onClose}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Back"
+                <View
                   style={{
                     position: 'absolute',
                     left: 16,
                     top: Platform.OS === 'web' ? 32 : 8,
                     zIndex: 2,
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
                   }}
                 >
-                  <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-                </TouchableOpacity>
+                  <BackButton darkMode={darkMode} onPress={onClose} />
+                </View>
               </View>
               
               {/* Content — keyboard insets on iOS (avoid stacking KeyboardAvoidingView + footer hide/show jank) */}
@@ -3114,27 +3073,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 Category
                               </Text>
                             </View>
-                            <TouchableOpacity
-                              activeOpacity={0.85}
-                              onPress={() => setShowMaterialCategoryPicker(false)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              accessibilityRole="button"
-                              accessibilityLabel="Back"
+                            <View
                               style={{
                                 position: 'absolute',
                                 left: 16,
                                 top: Math.max(insets.top, 12) + 8,
                                 zIndex: 2,
-                                width: 40,
-                                height: 40,
-                                borderRadius: 20,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
                               }}
                             >
-                              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-                            </TouchableOpacity>
+                              <BackButton darkMode={darkMode} onPress={() => setShowMaterialCategoryPicker(false)} />
+                            </View>
                           </View>
                           <ScrollView
                             contentContainerStyle={{
@@ -4579,7 +4527,7 @@ const getStyles = (Colors, desktopWeb = false) => {
   // same idea as Dashboard wideContainer
   wideContainer: {
     marginHorizontal: -edge,
-    paddingHorizontal: desktopWeb ? 8 : 4,
+    paddingHorizontal: getWideContainerInset(desktopWeb),
   },
   gradBorder: {
     borderRadius: 20,
@@ -14256,27 +14204,16 @@ export default function EstimateGeneratorScreen() {
                         Project type
                       </Text>
                     </View>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={() => setShowProjectTypePicker(false)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Back"
+                    <View
                       style={{
                         position: 'absolute',
                         left: 16,
                         top: Math.max(insets.top, 12) + 8,
                         zIndex: 2,
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
                       }}
                     >
-                      <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-                    </TouchableOpacity>
+                      <BackButton darkMode={darkMode} onPress={() => setShowProjectTypePicker(false)} />
+                    </View>
                   </View>
                   <ScrollView
                     contentContainerStyle={{
@@ -22882,23 +22819,9 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ textAlign: 'center', color: Colors.text, fontSize: 18, fontWeight: '700', letterSpacing: -0.25, lineHeight: 23 }}>
                       Contract wording
                     </Text>
-                    <TouchableOpacity
-                      onPress={() => setContractWordingExpanded(false)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        zIndex: 2,
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
-                      }}
-                    >
-                      <Ionicons name="chevron-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-                    </TouchableOpacity>
+                    <View style={{ position: 'absolute', left: 0, zIndex: 2 }}>
+                      <BackButton darkMode={darkMode} onPress={() => setContractWordingExpanded(false)} />
+                    </View>
                   </View>
                   <Text style={{ textAlign: 'center', color: '#d7e1f0', fontSize: 14, fontWeight: '500', marginTop: 4, lineHeight: 20 }}>
                     {formatContractWordingSummary(
@@ -23142,11 +23065,14 @@ export default function EstimateGeneratorScreen() {
         }
       : {};
 
-  useEffect(() => {
-    if (!canAccessEstimateAndLeads) {
-      router.replace('/(tabs)/projects');
-    }
-  }, [canAccessEstimateAndLeads, router]);
+  // Focus-scoped: the tab is preloaded in the background and must not redirect while another tab is showing.
+  useFocusEffect(
+    useCallback(() => {
+      if (!canAccessEstimateAndLeads) {
+        router.replace('/(tabs)/projects');
+      }
+    }, [canAccessEstimateAndLeads, router])
+  );
 
   if (!canAccessEstimateAndLeads) {
     return null;

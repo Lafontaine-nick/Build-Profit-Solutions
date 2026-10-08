@@ -7,12 +7,15 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import {
   deleteSavedBidTemplate,
   formatTemplateCategory,
@@ -71,17 +74,9 @@ export default function SavedBidTemplatesBrowserModal({ visible, onClose }: Prop
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={[styles.shell, { backgroundColor: Colors.bg, paddingTop: insets.top }]}>
         <View style={styles.headerRow}>
-          <TouchableOpacity
-            onPress={onClose}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Close saved bid templates"
-            style={[
-              styles.backButton,
-              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-            ]}
-          >
-            <MaterialIcons name="chevron-left" size={22} color={darkMode ? '#e2e8f0' : '#000000'} />
-          </TouchableOpacity>
+          <View style={{ position: 'absolute', left: 0, top: 0 }}>
+            <BackButton darkMode={darkMode} onPress={onClose} accessibilityLabel="Close saved bid templates" />
+          </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.title, { color: darkMode ? '#f9fafb' : Colors.text }]}>Saved bid templates</Text>
             <Text style={[styles.subtitle, { color: Colors.sub }]}>Snapshots from finished bids</Text>
@@ -163,7 +158,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
     marginBottom: 12,
-    marginHorizontal: 8,
+    marginHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   headerCopy: {
     width: '100%',
@@ -183,7 +178,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
   subtitle: { fontSize: 14, lineHeight: 18, marginTop: 4, textAlign: 'center' },
   scrollContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
     paddingBottom: 40,
   },
   emptyCard: {

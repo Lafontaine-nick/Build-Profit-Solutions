@@ -36,6 +36,8 @@ import {
   isTeamWorkspaceReleased,
 } from '@/constants/releaseFlags';
 import IosFoundingSubscriptionPanel from '@/components/IosFoundingSubscriptionPanel';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import { isAppleBillingAvailable } from '@/services/appleBillingService';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 import { FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
@@ -883,26 +885,9 @@ export default function SubscriptionPlansModal({
             },
           ]}
         >
-          <TouchableOpacity
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              handleClose();
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Back"
-            style={[
-              styles.backButton,
-              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-            ]}
-          >
-            <MaterialIcons
-              name="chevron-left"
-              size={22}
-              color={darkMode ? '#e2e8f0' : '#000000'}
-            />
-          </TouchableOpacity>
+          <View style={styles.backButton}>
+            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
+          </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
             <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
@@ -973,7 +958,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 8 }),
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
   },
   headerCopy: {
     width: '100%',
@@ -996,9 +981,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
@@ -1006,7 +991,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingBottom: 12,
     position: 'relative',
   },
@@ -1029,7 +1014,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   scrollContent: {
     paddingBottom: 24,

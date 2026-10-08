@@ -12,12 +12,13 @@ import {
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import { PHONE_CARD_GUTTER, TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
+import BackButton from '@/components/ui/BackButton';
 import { stripeService, resolveLiveStripePriceId } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -426,24 +427,9 @@ export default function PaymentScreen() {
       <View style={[styles.pageShell, Platform.OS === 'web' && styles.pageShellWeb]}>
         {/* Header with Back Button and Title — same column as body (web) */}
         <View style={styles.headerRow}>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Back"
-            style={[
-              styles.backButton,
-              { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-            ]}
-          >
-            <MaterialIcons
-              name="chevron-left"
-              size={22}
-              color={darkMode ? '#e2e8f0' : '#000000'}
-            />
-          </TouchableOpacity>
+          <View style={styles.backButton}>
+            <BackButton darkMode={darkMode} onPress={() => router.back()} />
+          </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
               Payment & Billing
@@ -729,7 +715,7 @@ const styles = StyleSheet.create({
   pageShell: {
     flex: 1,
     width: '100%',
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   pageShellWeb: {
     maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,
@@ -778,9 +764,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

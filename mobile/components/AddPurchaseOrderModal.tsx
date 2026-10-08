@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import PricingModeSection, { PricingMode } from "./PricingModeSection";
@@ -18,7 +17,8 @@ import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
-import GradientRingBackInner from "./GradientRingBackInner";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 
 type Props = {
   visible: boolean;
@@ -177,23 +177,12 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.backBtnWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backBtnBorder}
-            >
-              <GradientRingBackInner
-                darkMode
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  handleCancel();
-                }}
-                style={styles.backBtn}
-              >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton
+              darkMode
+              onPress={() => {
+                handleCancel();
+              }}
+            />
           </View>
           <View style={styles.headerTitleRow}>
             <View style={styles.headerIconContainer}>
@@ -460,6 +449,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 50,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(148, 163, 184, 0.12)",
@@ -513,6 +503,7 @@ const styles = StyleSheet.create({
   form: {
     flex: 1,
     padding: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
   },
   summaryCard: {
     backgroundColor: "rgba(255, 255, 255, 0.04)",
@@ -647,7 +638,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 16,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
     gap: 12,

@@ -8,14 +8,12 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { useRouter } from 'expo-router';
+import BackButton from '@/components/ui/BackButton';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
@@ -67,23 +65,7 @@ export default function TaxQuickBooksMappingScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.headerRow}>
           <View style={styles.backWrap}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backBorder}
-            >
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                style={[styles.backInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={() => router.back()} />
           </View>
           <Text style={styles.title}>Accounting Mapping</Text>
         </View>
@@ -138,7 +120,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000' },
   safe: { flex: 1 },
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 8, gap: 12 },
-  backWrap: { width: 42 },
+  backWrap: { width: 44 },
   backBorder: { width: 42, height: 42, borderRadius: 20, padding: 1, overflow: 'hidden' },
   backInner: { width: 40, height: 40, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, color: '#FFFFFF', fontSize: 22, fontWeight: '900' },

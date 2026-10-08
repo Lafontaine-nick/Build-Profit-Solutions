@@ -20,11 +20,14 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GreyCalendar from "./GreyCalendar";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { useToast } from "@/contexts/ToastContext";
 import {
   deleteProjectPhoto,
   getProjectPhotosByIds,
@@ -88,6 +91,7 @@ export async function updateDailyLog(projectId: string, entry: DailyLogEntry): P
 export default function AddDailyLogModal({ visible, projectId, existingLog, onClose, onSaved }: Props) {
   const isEditing = !!existingLog;
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
@@ -315,9 +319,9 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
       } else {
         await saveDailyLog(projectId, entry);
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSaved();
       resetAndClose();
+      toast.success(isEditing ? "Daily log updated" : "Daily log saved");
     } catch (error) {
       console.error("❌ Error saving daily log:", error);
       Alert.alert("Error", "Failed to save daily log. Please try again.");
@@ -340,22 +344,13 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   {isEditing ? "Update site notes for this entry" : "Record site notes for this job"}
                 </Text>
               </View>
-              <TouchableOpacity
+              <BackButton
+                darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   resetAndClose();
                 }}
-                style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Back"
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={22}
-                  color={darkMode ? "#e2e8f0" : Colors.text}
-                />
-              </TouchableOpacity>
+                style={{ position: "absolute", left: 16, top: 8, zIndex: 2 }}
+              />
             </View>
 
             <ScrollView
@@ -550,7 +545,7 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
   },
   fieldGroup: {
     marginBottom: 18,

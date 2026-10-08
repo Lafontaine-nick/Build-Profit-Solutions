@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import BackButton from "@/components/ui/BackButton";
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CARD_GAP,
@@ -1004,14 +1005,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
           
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity 
-                style={styles.modalBackButton}
+              <BackButton
+                darkMode
                 onPress={() => setShowDetailsModal(false)}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#0F172A"} />
-              </TouchableOpacity>
+              />
               <Text style={styles.modalTitle}>Detailed Analysis</Text>
-              <View style={{ width: 40 }} />
+              <View style={{ width: 44 }} />
             </View>
             
             <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>

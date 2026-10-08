@@ -17,12 +17,6 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from "@/constants/brandFrameGradient";
 import {
   Ionicons,
   Feather,
@@ -42,14 +36,14 @@ import {
 } from "@/src/lib/keyboardMoney";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
-import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
+import BackButton from "@/components/ui/BackButton";
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 import { projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
 import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
 import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
-import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -462,20 +456,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             {/* HEADER */}
             <Pressable onPress={Keyboard.dismiss} style={styles.headerRow} accessibilityRole="none">
               <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={BRAND_FRAME_GRADIENT_START}
-                  end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => navigation?.goBack?.()}
-                    style={styles.backButtonInner}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton
+                  darkMode={darkMode}
+                  onPress={() => navigation?.goBack?.()}
+                />
               </View>
 
               <View style={styles.headerAvatar}>
@@ -878,7 +862,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 8,
     marginBottom: 18,
   },
@@ -942,7 +926,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   },
 
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingBottom: 24,
   },
 
@@ -1113,7 +1097,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     bottom: 0,
     zIndex: 100,
     elevation: 24,
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === "web" ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
     flexDirection: "row",

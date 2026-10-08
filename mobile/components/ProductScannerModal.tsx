@@ -21,6 +21,8 @@ import type { ProductSupplierId, ScannedProduct } from '../lib/products/productS
 import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, estimateFlowCardStyle, estimateFlowInputShellStyle } from '@/utils/estimateFlowCardStyle';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 
 let CameraView = null;
 let CameraModule = null;
@@ -279,24 +281,11 @@ function ProductScannerModalContent({
             >
               Product Scanner
             </Text>
-            <TouchableOpacity
+            <BackButton
+              darkMode
               onPress={handleClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={{
-                position: 'absolute',
-                left: 8,
-                top: 0,
-                zIndex: 2,
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'rgba(255,255,255,0.08)',
-              }}
-            >
-              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
-            </TouchableOpacity>
+              style={{ position: 'absolute', left: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER, top: 0, zIndex: 2 }}
+            />
             {isLookingUp ? (
               <ActivityIndicator
                 color="#2dcc9a"

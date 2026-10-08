@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import BackButton from '@/components/ui/BackButton';
 
 type Props = {
   title: string;
@@ -53,27 +54,13 @@ export default function AIEstimateFlowHeader({
     >
       <View style={styles.assistantHeaderRow}>
         <View style={styles.headerSide}>
-          <TouchableOpacity
+          <BackButton
+            darkMode={darkMode}
             onPress={() => {
               if (!disabled) onBack();
             }}
-            disabled={disabled}
-            accessibilityRole="button"
             accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
-            hitSlop={12}
-            style={[
-              styles.backButton,
-              {
-                backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : (Colors.surface2 ?? '#f3f4f6'),
-              },
-            ]}
-          >
-            <MaterialIcons
-              name="chevron-left"
-              size={26}
-              color={darkMode ? '#e2e8f0' : Colors.text}
-            />
-          </TouchableOpacity>
+          />
         </View>
         <View style={{ flex: 1, alignItems: 'center' }}>
           {step != null ? (

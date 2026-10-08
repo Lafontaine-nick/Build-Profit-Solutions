@@ -34,7 +34,7 @@ import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/con
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import { useRouter } from "expo-router";
 import BusinessTeamLock from "@/components/BusinessTeamLock";
-import GradientRingBackInner from "@/components/GradientRingBackInner";
+import BackButton from "@/components/ui/BackButton";
 import { useUser, useAuth } from "@clerk/clerk-react";
 import {
   businessWorkspaceService,
@@ -1100,23 +1100,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
               ]}
             >
               <View style={styles.addMemberBackWrap}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.addMemberBackGradient}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onClose();
-                    }}
-                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={styles.addMemberTitleBlock}>
                 <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Edit Team Member</Text>
@@ -1451,23 +1435,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
           ]}
         >
           <View style={styles.addMemberBackWrap}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.addMemberBackGradient}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onClose();
-                }}
-                style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={onClose} />
           </View>
           <View style={styles.addMemberTitleBlock}>
             <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Edit Team Member</Text>
@@ -1884,23 +1852,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
               ]}
             >
               <View style={styles.addMemberBackWrap}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.addMemberBackGradient}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onClose();
-                    }}
-                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={styles.addMemberTitleBlock}>
                 <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Invite Team Member</Text>
@@ -2141,23 +2093,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
           ]}
         >
           <View style={styles.addMemberBackWrap}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.addMemberBackGradient}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onClose();
-                }}
-                style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={onClose} />
           </View>
           <View style={styles.addMemberTitleBlock}>
             <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Invite Team Member</Text>
@@ -2545,23 +2481,7 @@ const NotifyTeamModal = ({ members, onClose }: {
               ]}
             >
               <View style={styles.addMemberBackWrap}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.addMemberBackGradient}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onClose();
-                    }}
-                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={styles.addMemberTitleBlock}>
                 <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Notify Team</Text>
@@ -2742,30 +2662,7 @@ const NotifyTeamModal = ({ members, onClose }: {
         {/* Header with Back Arrow */}
         <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingTop: Platform.OS === "ios" ? 8 : 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
           <View style={{ marginRight: 12 }}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 22, padding: 1, overflow: "hidden" }}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onClose();
-                }}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 21,
-                  backgroundColor: Colors.bg,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={onClose} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: Colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.4, lineHeight: 34 }}>Notify Team</Text>

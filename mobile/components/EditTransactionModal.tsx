@@ -29,6 +29,7 @@ import { getColors } from "@/theme/getColors";
 import {
   getProjectExpenseFormHorizontalPadding,
   isDesktopWebLayoutWidth,
+  PHONE_CARD_GUTTER,
 } from "@/constants/ScreenLayout";
 import {
   AI_FLOW_CARD_BG_DARK,
@@ -45,6 +46,7 @@ import LaborPayTypeChoice from "@/components/LaborPayTypeChoice";
 import { isOwnerSelfPayeeName, laborPaidToIsSomeoneElse, laborPaymentMethodOf, laborPayTypeOf, type LaborPaymentMethod } from "@/src/lib/taxCenter";
 import LaborPaymentMethodChoice from "@/components/LaborPaymentMethodChoice";
 import PaidToNameSuggestions from "@/components/PaidToNameSuggestions";
+import BackButton from "@/components/ui/BackButton";
 
 /** Web: space below browser tabs / address bar so the card does not touch the chrome */
 const WEB_MODAL_TOP_INSET = 52;
@@ -480,23 +482,13 @@ export default function EditTransactionModal({
           ]}
         >
           <View style={expenseChrome.headerRow}>
-            <Pressable
-              accessibilityRole="button"
+            <BackButton
+              darkMode={darkMode}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onClose();
               }}
-              style={[
-                styles.backBtn,
-                { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
-              ]}
-            >
-              <MaterialIcons
-                name="arrow-back"
-                size={22}
-                color={darkMode ? "#FFFFFF" : Colors.text}
-              />
-            </Pressable>
+              style={{ position: "absolute", left: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER, top: 10, zIndex: 2 }}
+            />
             <Text style={expenseChrome.materialTitle}>
               Edit {displayCategoryName}
             </Text>

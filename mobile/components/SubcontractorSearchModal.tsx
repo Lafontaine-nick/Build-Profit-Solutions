@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import GradientRingBackInner from './GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
@@ -1600,30 +1600,7 @@ function SubcontractorSearchModal({
           }}>
               <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webColumn860]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onClose();
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Back"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
-                  }}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={22}
-                    color={darkMode ? '#e2e8f0' : Colors.text}
-                  />
-                </TouchableOpacity>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
 
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
@@ -1679,35 +1656,7 @@ function SubcontractorSearchModal({
               }}
             >
               <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 1,
-                  }}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onClose();
-                    }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 19,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={onClose} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 }}>
@@ -2443,36 +2392,7 @@ function SubcontractorSearchModal({
           }}>
               <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webColumn860]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 1,
-                  }}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={handleBackFromRequest}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 19,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <MaterialIcons
-                      name="arrow-back"
-                      size={24}
-                      color={darkMode ? '#FFFFFF' : Colors.text}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={handleBackFromRequest} />
               </View>
 
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
@@ -2525,32 +2445,7 @@ function SubcontractorSearchModal({
               }}
             >
               <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 1,
-                  }}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={handleBackFromRequest}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 19,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={handleBackFromRequest} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 }}>
@@ -2614,30 +2509,11 @@ function SubcontractorSearchModal({
                       {selectedSubcontractor.name}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setShowProfile(false);
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      zIndex: 2,
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2,
-                    }}
-                  >
-                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-                  </TouchableOpacity>
+                  <BackButton
+                    darkMode={darkMode}
+                    onPress={() => setShowProfile(false)}
+                    style={{ position: 'absolute', left: 0, top: 0, zIndex: 2 }}
+                  />
                 </View>
               </View>
 

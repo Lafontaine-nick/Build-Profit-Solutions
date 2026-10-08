@@ -58,6 +58,8 @@ import {
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
   getCalendarTabShellStyle,
+  getWideContainerInset,
+  PHONE_CARD_GUTTER,
 } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { useRestrictedWorkspaceFinancials } from "@/hooks/useRestrictedWorkspaceFinancials";
@@ -5982,7 +5984,7 @@ const getStyles = (
   // HEADER (TabScreenHeader handles vertical spacing; wide bleed for segments)
   headerRow: {
     marginHorizontal: -edge,
-    paddingHorizontal: desktopWeb ? 12 : 8,
+    paddingHorizontal: desktopWeb ? 12 : Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER,
   },
   headerTitle: {
     fontSize: 30,
@@ -6100,12 +6102,12 @@ const getStyles = (
   allProjectsContainer: {
     marginBottom: 16,
     marginHorizontal: -edge,
-    paddingHorizontal: 4,
+    paddingHorizontal: getWideContainerInset(false),
     paddingTop: 16,
   },
-  /** Container is inset 4; section headers (Needs attention) sit at 8 */
+  /** Web: container is inset 4; section headers (Needs attention) sit at 8. Native: aligned with cards. */
   allProjectsHeaderRow: {
-    paddingHorizontal: 4,
+    paddingHorizontal: Platform.OS === "web" ? 4 : 0,
   },
   /** Cap height when 4+ projects so the list scrolls inside the card */
   allProjectsListScroll: {
@@ -6988,7 +6990,7 @@ const getStyles = (
   // WIDE CONTAINER (matches allProjectsContainer)
   wideContainer: {
     marginHorizontal: -edge,
-    paddingHorizontal: desktopWeb ? 8 : 4,
+    paddingHorizontal: getWideContainerInset(desktopWeb),
   },
   /** Calendar tab: slightly inset vs full-bleed section cards */
   calendarContainer: {
@@ -7017,7 +7019,7 @@ const getStyles = (
     marginTop: 6,
     marginBottom: 8,
     marginHorizontal: -edge,
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",

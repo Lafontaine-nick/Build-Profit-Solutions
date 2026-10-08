@@ -38,9 +38,11 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
+  getWideContainerInset,
+  PHONE_CARD_GUTTER,
 } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
@@ -2893,18 +2895,7 @@ export default function ProfileScreen() {
       {/* Header with Back Button and Title */}
       <View style={[styles.headerRow, webProfileHeaderMargins]}>
         <View style={styles.backButtonWrapper}>
-          <View style={styles.backButtonBorder}>
-            <GradientRingBackInner
-              darkMode={darkMode}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
-              }}
-              style={styles.backButton}
-            >
-              <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-            </GradientRingBackInner>
-          </View>
+          <BackButton darkMode={darkMode} onPress={() => router.back()} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.screenTitle}>Profile</Text>
@@ -3942,7 +3933,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     zIndex: 2,
     elevation: 2,
     // Web: horizontal inset comes from `webProfileHeaderMargins` (aligned with WebPageShell).
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: edge }),
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
   },
   scrollContent: {
     paddingTop: desktopWeb ? 24 : 16,
@@ -3954,7 +3945,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     ...(!(Platform.OS === 'web' && desktopWeb)
       ? {
           marginHorizontal: -edge,
-          paddingHorizontal: desktopWeb ? 8 : 4,
+          paddingHorizontal: getWideContainerInset(desktopWeb),
         }
       : {}),
   },

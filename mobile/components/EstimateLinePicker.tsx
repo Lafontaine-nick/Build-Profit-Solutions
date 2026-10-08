@@ -13,7 +13,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
+import { PHONE_CARD_GUTTER, PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import {
   approvedChangeOrderBudgetLines,
@@ -41,6 +41,7 @@ import {
   type EstimateLinePickerKind,
 } from '@/utils/estimateLineOptions';
 import BudgetStatusBadge from '@/components/BudgetStatusBadge';
+import BackButton from '@/components/ui/BackButton';
 import {
   formatSpendDetail,
   lineBudgetStatusVariant,
@@ -503,16 +504,9 @@ export default function EstimateLinePicker({
               },
             ]}
           >
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleBack}
-              style={[
-                styles.headerBack,
-                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : colors.nestedCard },
-              ]}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : colors.text} />
-            </Pressable>
+            <View style={{ position: 'absolute', top: 8, left: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER, zIndex: 2 }}>
+              <BackButton darkMode={darkMode} onPress={handleBack} />
+            </View>
             <View style={styles.headerCenter}>
               <Text style={[styles.sheetTitle, { color: colors.text }]}>Choose a budget item</Text>
               <Text style={[styles.sheetSubtitle, { color: darkMode ? '#d7e1f0' : colors.secondary }]}>

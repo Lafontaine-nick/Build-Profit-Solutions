@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 
 // ---------------- Theme ----------------
 const Colors = {
@@ -523,23 +523,12 @@ export default function MessagesTab({ onNavigateToTab, onClose }: MessagesTabPro
       {/* Header with Back Arrow */}
       <View style={styles.headerContainer}>
         <View style={styles.backBtnWrapper}>
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.backBtnBorder}
-          >
-            <GradientRingBackInner
-              darkMode
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (onClose) onClose();
-              }}
-              style={styles.backBtn}
-            >
-              <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-            </GradientRingBackInner>
-          </LinearGradient>
+          <BackButton
+            darkMode={darkMode}
+            onPress={() => {
+              if (onClose) onClose();
+            }}
+          />
         </View>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>

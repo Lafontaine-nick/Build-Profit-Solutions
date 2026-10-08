@@ -16,7 +16,9 @@ import { getColors } from '@/theme/getColors';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import * as Haptics from 'expo-haptics';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
+import BackButton from '@/components/ui/BackButton';
 import WebPageShell from '@/components/layout/WebPageShell';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import {
   PROFILE_HELP_CHROME_H_MARGIN,
   useWebProfileHelpHeaderMargins,
@@ -157,24 +159,9 @@ export default function ProjectsTutorialScreen() {
             />
           ) : (
             <View style={styles.headerRow}>
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityLabel="Back"
-                style={[
-                  styles.backButton,
-                  { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-                ]}
-              >
-                <MaterialIcons
-                  name="chevron-left"
-                  size={22}
-                  color={darkMode ? '#e2e8f0' : '#000000'}
-                />
-              </TouchableOpacity>
+              <View style={styles.backButton}>
+                <BackButton darkMode={darkMode} onPress={() => router.back()} />
+              </View>
               <View style={styles.headerCopy}>
                 <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
                   Project Management
@@ -233,7 +220,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
     marginBottom: 4,
-    marginHorizontal: 8,
+    marginHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   headerCopy: {
     width: '100%',
@@ -256,9 +243,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -273,7 +260,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   scrollContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
     paddingBottom: 8,
   },
   card: {

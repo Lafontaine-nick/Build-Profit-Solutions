@@ -28,9 +28,7 @@ import {
   estimateFlowPrimaryButtonTextStyle,
   estimateStep1InputCardStyle,
 } from '@/utils/estimateFlowCardStyle';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
-import { LinearGradient } from 'expo-linear-gradient';
+import BackButton from '@/components/ui/BackButton';
 import type { ProjectPhoto } from '@/services/projectPhotoService';
 import { removeProjectPhoto, updateProjectPhotoCaption } from '@/services/projectPhotoService';
 import AddProjectPhotoModal from '@/components/AddProjectPhotoModal';
@@ -230,27 +228,12 @@ export default function ProjectPhotosCard({
           <View style={[styles.viewerSafeArea, { paddingTop: insets.top }]}>
             <View style={styles.viewerHeader}>
               <View style={styles.viewerHeaderSide}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={BRAND_FRAME_GRADIENT_START}
-                  end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.viewerBackBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={isDark}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      closeViewer();
-                    }}
-                    style={[styles.viewerBackButton, !isDark && { backgroundColor: Colors.bg }]}
-                  >
-                    <MaterialIcons
-                      name="arrow-back"
-                      size={24}
-                      color={isDark ? '#FFFFFF' : textColor}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton
+                  darkMode={isDark}
+                  onPress={() => {
+                    closeViewer();
+                  }}
+                />
               </View>
               <View style={styles.viewerHeaderCenter}>
                 <Text style={[styles.viewerHeaderTitle, { color: textColor }]}>Site photo</Text>

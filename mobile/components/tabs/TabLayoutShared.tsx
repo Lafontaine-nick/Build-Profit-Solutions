@@ -1,5 +1,5 @@
-import { Tabs } from 'expo-router';
-import React, { useMemo, useEffect, type ComponentType } from 'react';
+import { Tabs, useRouter, type Href } from 'expo-router';
+import React, { useMemo, useEffect, useRef, type ComponentType } from 'react';
 import { View, StyleSheet, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
 import { HapticTab, PillHapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
@@ -14,7 +14,7 @@ import {
   TabIconSlot,
   TAB_NAV_ACTIVE,
 } from '@/components/ui/TabBarPillIcons';
-import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
+import { isDesktopWebLayoutWidth, PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
@@ -26,6 +26,7 @@ export type TabLayoutSharedProps = {
 
 export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutSharedProps) {
   const { width } = useWindowDimensions();
+  const router = useRouter();
   const desktopWebSidebar = isDesktopWebLayoutWidth(width);
   const { hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
@@ -35,6 +36,43 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
   const showLeadsTab = canAccessEstimateAndLeads && isLeadsNetworkingReleased();
+
+  // Tabs are lazy: the first visit mounts a heavy screen on tap, which reads as a stutter.
+  // Preload them one at a time once Dashboard is idle so the first switch is instant.
+  const prefetchedTabsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const queue: { href: Href; delayMs: number }[] = [
+      { href: '/(tabs)/projects', delayMs: 800 },
+      ...(canAccessEstimateAndLeads ? [{ href: '/(tabs)/estimate-generator' as Href, delayMs: 2600 }] : []),
+      { href: '/(tabs)/assistant', delayMs: 4200 },
+    ].filter((item) => !prefetchedTabsRef.current.has(String(item.href)));
+    if (queue.length === 0) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const tasks: { cancel?: () => void }[] = [];
+    for (const item of queue) {
+      timers.push(
+        setTimeout(() => {
+          tasks.push(
+            InteractionManager.runAfterInteractions(() => {
+              const key = String(item.href);
+              if (prefetchedTabsRef.current.has(key)) return;
+              prefetchedTabsRef.current.add(key);
+              try {
+                router.prefetch(item.href);
+              } catch {
+                prefetchedTabsRef.current.delete(key);
+              }
+            })
+          );
+        }, item.delayMs)
+      );
+    }
+    return () => {
+      timers.forEach(clearTimeout);
+      tasks.forEach((task) => task.cancel?.());
+    };
+  }, [canAccessEstimateAndLeads, router]);
 
   // Warm estimate AsyncStorage cache as soon as tabs mount; defer JS parse so Dashboard stays responsive.
   useEffect(() => {
@@ -100,6 +138,8 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
                 bottom: 22,
                 left: 20,
                 right: 20,
+                /** BottomTabBar's base style sets start/end: 0, which win over left/right. */
+                ...(Platform.OS !== 'web' ? { start: PHONE_CARD_GUTTER, end: PHONE_CARD_GUTTER } : {}),
                 height: 64,
                 paddingBottom: 7,
                 paddingTop: 7,

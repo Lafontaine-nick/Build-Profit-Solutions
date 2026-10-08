@@ -19,6 +19,8 @@ import * as Haptics from 'expo-haptics';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import WebPageShell from '@/components/layout/WebPageShell';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 
 const Colors = {
   bg: '#0d2745',
@@ -93,19 +95,16 @@ export default function ManualLaborEntryScreen() {
         <SafeAreaView style={styles.safeArea}>
           <View style={{ flex: 1 }}>
             <View style={styles.header}>
-              <TouchableOpacity
+              <BackButton
+                darkMode
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   router.back();
                 }}
-                style={styles.backButton}
-              >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-              </TouchableOpacity>
+              />
               <View style={styles.titleContainer}>
                 <Text style={styles.headerTitle}>Labor Pricing</Text>
               </View>
-              <View style={{ width: 40 }} />
+              <View style={{ width: 44 }} />
             </View>
 
             <View style={styles.contentCard}>
@@ -291,7 +290,7 @@ const styles = StyleSheet.create({
   },
   contentCard: {
     flex: 1,
-    marginHorizontal: 4,
+    marginHorizontal: Platform.OS === 'web' ? 4 : PHONE_CARD_GUTTER,
     marginTop: 8,
     marginBottom: 16,
     borderRadius: 20,

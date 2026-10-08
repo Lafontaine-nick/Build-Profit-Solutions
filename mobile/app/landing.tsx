@@ -27,6 +27,7 @@ import { useClerkUiEnabled } from "@/contexts/ClerkUiContext";
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
+  getWideContainerInset,
 } from "@/constants/ScreenLayout";
 import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
@@ -642,7 +643,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
         }
       : {
           marginHorizontal: -20,
-          paddingHorizontal: 8,
+          paddingHorizontal: getWideContainerInset(false, 8),
         }),
     position: "relative",
   },

@@ -11,8 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import BackButton from '@/components/ui/BackButton';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
@@ -210,19 +211,9 @@ export default function EstimateVersionHistoryModal({
                   : `${savedEstimates.length} saved bids`}
               </Text>
             </View>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={onClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              style={[
-                styles.backButton,
-                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-              ]}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-            </TouchableOpacity>
+            <View style={{ position: 'absolute', left: 0, top: 0, zIndex: 2 }}>
+              <BackButton darkMode={darkMode} onPress={onClose} />
+            </View>
           </View>
 
           {sortedEstimates.length === 0 ? (

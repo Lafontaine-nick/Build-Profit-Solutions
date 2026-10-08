@@ -9,16 +9,14 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import WebPageShell from '@/components/layout/WebPageShell';
 import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 
 export default function AboutScreen() {
   const tabScrollBottomInset = useTabScrollBottomInset();
@@ -54,27 +52,7 @@ export default function AboutScreen() {
               ]}
             >
               <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      router.back();
-                    }}
-                    style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                  >
-                    <MaterialIcons
-                      name='arrow-back'
-                      size={24}
-                      color={darkMode ? '#FFFFFF' : '#000000'}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                <BackButton darkMode={darkMode} onPress={() => router.back()} />
               </View>
               <View style={styles.titleContainer}>
                 <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
@@ -258,10 +236,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   headerRowNativeMargins: {
-    marginHorizontal: 20,
+    marginHorizontal: PHONE_CARD_GUTTER,
   },
   backButtonWrapper: {
-    width: 42,
+    width: 44,
     zIndex: 1,
     alignItems: 'center',
   },
@@ -297,7 +275,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     ...Platform.select({
       web: { marginHorizontal: 0 },
-      default: { marginHorizontal: 8 },
+      default: { marginHorizontal: PHONE_CARD_GUTTER },
     }),
   },
   contentCard: {

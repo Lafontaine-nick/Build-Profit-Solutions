@@ -37,7 +37,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 
 interface LeadDetailModalProps {
@@ -703,7 +704,7 @@ export default function LeadDetailModal({
                       styles.scrollContent,
                       {
                         paddingTop: Math.max(insets.top, 0) + 20,
-                        paddingHorizontal: 20,
+                        paddingHorizontal: PHONE_CARD_GUTTER,
                         paddingBottom: insets.bottom + 100,
                       },
                     ]
@@ -723,30 +724,7 @@ export default function LeadDetailModal({
                   }}
                 >
                   <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.backButtonBorder}
-                    >
-                      <GradientRingBackInner
-                        darkMode={darkMode}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          onClose();
-                        }}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          borderRadius: 19,
-                          backgroundColor: darkMode ? '#000000' : Colors.bg,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
-                      </GradientRingBackInner>
-                    </LinearGradient>
+                    <BackButton darkMode={darkMode} onPress={onClose} />
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text
@@ -774,11 +752,11 @@ export default function LeadDetailModal({
               ) : (
                 <View
                   style={{
-                    paddingHorizontal: 22,
+                    paddingHorizontal: PHONE_CARD_GUTTER,
                     paddingTop: 0,
                     paddingBottom: 14,
                     marginBottom: 12,
-                    marginHorizontal: -20,
+                    marginHorizontal: -PHONE_CARD_GUTTER,
                     backgroundColor: darkMode ? '#000000' : Colors.bg,
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
@@ -791,34 +769,7 @@ export default function LeadDetailModal({
                     ]}
                   >
                     <View style={{ width: 52, alignItems: 'flex-start' }}>
-                      <LinearGradient
-                        colors={BRAND_FRAME_GRADIENT_COLORS}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
-                        style={styles.backButtonBorder}
-                      >
-                        <GradientRingBackInner
-                          darkMode={darkMode}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            onClose();
-                          }}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            borderRadius: 19,
-                            backgroundColor: darkMode ? '#000000' : Colors.bg,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <MaterialIcons
-                            name="arrow-back"
-                            size={24}
-                            color={darkMode ? '#FFFFFF' : Colors.text}
-                          />
-                        </GradientRingBackInner>
-                      </LinearGradient>
+                      <BackButton darkMode={darkMode} onPress={onClose} />
                     </View>
 
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
@@ -2198,8 +2149,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0, // No padding - wideContainer handles width
   },
   wideContainer: {
-    marginHorizontal: -20, // Extend beyond ScrollView padding (matches dashboard, projects, landing)
-    paddingHorizontal: 8, // Add padding back inside (matches dashboard, projects, landing)
+    marginHorizontal: Platform.OS === 'web' ? -20 : 0,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : 0,
   },
   wideContainerWeb: {
     marginHorizontal: 0,

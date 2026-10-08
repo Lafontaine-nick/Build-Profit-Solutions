@@ -18,6 +18,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import Constants from 'expo-constants';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 
 // Conditionally import Clerk - only if configured
 let signInHookFactory: any = null;
@@ -238,13 +240,9 @@ export default function ForgotPasswordScreen() {
           >
             <View style={styles.card}>
               {/* Back button */}
-              <TouchableOpacity
-                onPress={() => router.back()}
-                style={styles.backButton}
-                hitSlop={10}
-              >
-                <MaterialIcons name="arrow-back" size={24} color="#4A4F5C" />
-              </TouchableOpacity>
+              <View style={[styles.backButton, { alignSelf: 'flex-start' }]}>
+                <BackButton darkMode={false} onPress={() => router.back()} />
+              </View>
 
               {/* Title */}
               <Text style={styles.title}>Reset Password</Text>
@@ -425,7 +423,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: Platform.OS === 'web' ? 24 : PHONE_CARD_GUTTER,
     paddingTop: 20,
   },
   card: {

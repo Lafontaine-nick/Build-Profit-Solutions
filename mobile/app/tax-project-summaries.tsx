@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { AppState, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { AppState, Platform, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import ProjectTaxSummaryList from '@/src/components/tax/ProjectTaxSummaryList';
+import BackButton from '@/components/ui/BackButton';
 import { buildProjectTaxSummaries, formatTaxNetMarginPercent, isCurrentTaxProject } from '@/src/lib/taxCenter';
 
 const money = (value: number): string =>
@@ -65,17 +64,7 @@ export default function TaxProjectSummariesScreen() {
           >
             <View style={styles.headerRow}>
               <View style={styles.backButtonWrapper}>
-                <Pressable
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="Back"
-                  style={styles.backButton}
-                >
-                  <MaterialIcons name="chevron-left" size={22} color="#e2e8f0" />
-                </Pressable>
+                <BackButton darkMode={true} onPress={() => router.back()} />
               </View>
               <View style={styles.headerCopy}>
                 <Text style={styles.title}>Project summaries</Text>

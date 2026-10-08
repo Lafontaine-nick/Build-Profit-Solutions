@@ -51,7 +51,7 @@ import { buildSpendingTrendSamplePoints } from '@/src/lib/projectChartTimeline';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import ProjectActivationFlow from '@/components/ProjectActivationFlow';
 import { isChangeOrderMirrorExpenseId } from '@/lib/changeOrderMirrorExpenses';
 import { setLastOpenedProjectId } from '@/lib/ai/userProjectSettings';
@@ -62,6 +62,7 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
+  getWideContainerInset,
 } from '@/constants/ScreenLayout';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -2528,20 +2529,16 @@ function ProjectDetailContent() {
           {/* HEADER */}
           <View style={[styles.headerRow, styles.wideContainer]}>
             <View style={styles.backButtonWrapper}>
-              <GradientRingBackInner
+              <BackButton
                 darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   if (backToProjects) {
                     router.replace("/(tabs)/projects");
                     return;
                   }
                   router.back();
                 }}
-                style={styles.backButton}
-              >
-                <Ionicons name="arrow-back" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
-              </GradientRingBackInner>
+              />
             </View>
 
             <View style={styles.headerTitleBlock}>
@@ -2828,7 +2825,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   wideContainer: {
     marginHorizontal: -edge,
-    paddingHorizontal: desktopWeb ? 8 : 4,
+    paddingHorizontal: getWideContainerInset(desktopWeb),
   },
   tabFlowWide: {
     flex: 1,
@@ -3650,9 +3647,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   // Profile styles
   profileOuter: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
@@ -3670,7 +3667,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   profileInitials: {
     color: darkMode ? "#e5e7eb" : "#000000",
     fontWeight: "700",
-    fontSize: 16,
+    fontSize: 15,
   },
   // Kickoff Card styles
   activationCardContainer: {

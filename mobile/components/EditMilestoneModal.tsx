@@ -13,6 +13,11 @@ import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { estimateFlowCardStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { isBillingTimelineMilestone } from "@/src/lib/projectFinancials";
+import PressableScale from "@/components/ui/PressableScale";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
+import { useToast } from "@/contexts/ToastContext";
+import { haptic } from "@/utils/haptics";
 
 function isPaymentMilestone(m: Milestone | null): boolean {
   if (!m) return false;
@@ -31,6 +36,7 @@ type Props = {
 
 export default function EditMilestoneModal({ visible, milestone, projectBudget = 0, paymentMilestones = [], onClose, onSave, onDelete }: Props) {
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
@@ -162,17 +168,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       return; // Don't close modal if save failed
     }
     
-    // Normal save flow (no confirmation dialog) - close modal
     onClose();
 
-    // Show success message after a brief delay
-    setTimeout(() => {
-      Alert.alert(
-        '✅ Saved!',
-        `${title} status updated to ${status === 'completed' ? (isPaymentMilestone(milestone) ? 'Received' : 'Completed') : status === 'in_progress' ? 'In Progress' : 'Pending'}\n\nChanges are automatically saved.`,
-        [{ text: 'OK' }]
-      );
-    }, 100);
+    const savedTitle = title.trim() || milestone.title;
+    if (isPaymentMilestone(milestone)) {
+      toast.success(status === 'completed' ? 'Payment received' : 'Payment marked pending', savedTitle);
+    } else {
+      const label = status === 'completed' ? 'Completed' : status === 'in_progress' ? 'In progress' : 'Pending';
+      toast.success('Milestone saved', `${savedTitle} · ${label}`);
+    }
   };
 
   // Don't render if not visible or no milestone
@@ -194,9 +198,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   const amountColor = Number.isFinite(amountValue) && amountValue > 0 ? "#2dcc9a" : "#d7e1f0";
 
   const handleHeaderBack = () => {
-    if (Platform.OS === "ios") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     onClose();
   };
 
@@ -212,15 +213,11 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           {milestone.title}
         </Text>
       </View>
-      <TouchableOpacity
+      <BackButton
+        darkMode={darkMode}
         onPress={handleHeaderBack}
-        style={[styles.backButton, !darkMode && { backgroundColor: "rgba(15, 23, 42, 0.06)" }]}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityRole="button"
-        accessibilityLabel="Back"
-      >
-        <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#e2e8f0" : ThemeColors.text} />
-      </TouchableOpacity>
+        style={{ position: "absolute", left: 16, top: 8, zIndex: 2 }}
+      />
     </View>
   );
 
@@ -310,6 +307,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     key={s.value}
                     onPress={() => {
                       console.log(`🔄 Status button clicked: ${s.value}`);
+                      if (status !== s.value) haptic.select();
                       setStatus(s.value);
                       console.log(`✅ Status changed to ${s.value} - payment amount remains $${paymentAmount}`);
                     }}
@@ -494,19 +492,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 }
               : { paddingBottom: Math.max(insets.bottom, 20) + 30 },
           ]}>
-            <TouchableOpacity
-              onPress={() => {
-                if (Platform.OS === "ios") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }
-                handleSave();
-              }}
+            <PressableScale
+              onPress={handleSave}
               style={styles.saveButton}
-              activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Save"
             >
               <Text style={styles.saveButtonText}>{isWeb ? "✓ Save" : "Save"}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </PressableScale>
+            <PressableScale
               onPress={onClose}
               style={[
                 styles.cancelButtonFlat,
@@ -514,7 +508,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                   ? { backgroundColor: "#3A3A3C", borderColor: "rgba(148, 163, 184, 0.35)" }
                   : { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line },
               ]}
-              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
             >
               <Text
                 style={[
@@ -524,7 +519,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
               >
                 Cancel
               </Text>
-            </TouchableOpacity>
+            </PressableScale>
           </View>
   );
 
@@ -683,7 +678,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   formContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: PHONE_CARD_GUTTER,
     paddingBottom: 180,
   },
   editMilestoneWebPageContent: {

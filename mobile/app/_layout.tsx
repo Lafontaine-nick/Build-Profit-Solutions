@@ -32,6 +32,7 @@ import {
 import '../i18n/config'; // Initialize i18n
 import '@/lib/projectListSessionHydration';
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
+import { ToastProvider } from '../contexts/ToastContext';
 import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapper';
 import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
@@ -445,8 +446,10 @@ export default function RootLayout() {
                         <LanguageProvider>
                           <NotificationProvider>
                             <ThemeAwareLayout>
-                              <ProfileCompletionReminderRouteGuard />
-                              <AuthGate useClerk={false} />
+                              <ToastProvider>
+                                <ProfileCompletionReminderRouteGuard />
+                                <AuthGate useClerk={false} />
+                              </ToastProvider>
                             </ThemeAwareLayout>
                           </NotificationProvider>
                         </LanguageProvider>
@@ -483,8 +486,10 @@ export default function RootLayout() {
                             <NotificationProvider>
                               <BetaFeedbackProvider>
                                 <ThemeAwareLayout>
-                                  <ProfileCompletionReminderRouteGuard />
-                                  <AuthGate useClerk={true} />
+                                  <ToastProvider>
+                                    <ProfileCompletionReminderRouteGuard />
+                                    <AuthGate useClerk={true} />
+                                  </ToastProvider>
                                 </ThemeAwareLayout>
                               </BetaFeedbackProvider>
                             </NotificationProvider>

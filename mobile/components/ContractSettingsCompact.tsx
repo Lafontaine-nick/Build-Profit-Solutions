@@ -12,6 +12,8 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getColors } from "../theme/getColors";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
 
 export type ContractTemplateStateValue = "nevada" | "utah" | "other";
 
@@ -588,26 +590,9 @@ export default function ContractSettingsCompact({
                 <Text style={[styles.pageTitle, { color: colors.text }]} numberOfLines={1}>
                   Contract settings
                 </Text>
-                <Pressable
-                  style={[
-                    styles.backBtn,
-                    {
-                      backgroundColor: darkMode
-                        ? "rgba(255,255,255,0.08)"
-                        : (colors.surface2 ?? "#f3f4f6"),
-                    },
-                  ]}
-                  onPress={() => setOpen(false)}
-                  hitSlop={12}
-                  accessibilityRole="button"
-                  accessibilityLabel="Back"
-                >
-                  <MaterialIcons
-                    name="chevron-left"
-                    size={26}
-                    color={darkMode ? "#e2e8f0" : colors.text}
-                  />
-                </Pressable>
+                <View style={styles.backBtn}>
+                  <BackButton darkMode={darkMode} onPress={() => setOpen(false)} />
+                </View>
               </View>
               <Text style={styles.pageSubtitle}>
                 Who the agreement is for, where the work is, and how your name appears on the PDF.
@@ -725,11 +710,11 @@ const styles = StyleSheet.create({
   backBtn: {
     position: "absolute",
     left: 0,
-    top: 4,
+    top: 0,
     zIndex: 2,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -774,7 +759,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   modalContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER,
     paddingTop: 8,
     paddingBottom: 32,
     gap: 22,

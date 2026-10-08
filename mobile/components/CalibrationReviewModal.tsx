@@ -9,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ScopeActualComparison } from '@/utils/estimateFeedback';
 import {
@@ -17,9 +16,8 @@ import {
   type CloseoutCalibrationResult,
 } from '@/utils/contractorPricingMemory';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
-import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
@@ -370,39 +368,11 @@ export default function CalibrationReviewModal({
       <View style={[styles.root, { backgroundColor: pageBg, paddingTop: insets.top }]}>
         <View style={[styles.header, { paddingHorizontal: pageInset }]}>
           <View style={[styles.headerBack, { left: pageInset }]}>
-            {darkMode ? (
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode
-                  onPress={onClose}
-                  accessibilityLabel={closeAccessibilityLabel ?? "Go back"}
-                  style={[styles.backButton, { backgroundColor: '#000000' }]}
-                >
-                  <MaterialIcons name="arrow-back" size={22} color="#FFFFFF" />
-                </GradientRingBackInner>
-              </LinearGradient>
-            ) : (
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={false}
-                  onPress={onClose}
-                  accessibilityLabel={closeAccessibilityLabel ?? "Go back"}
-                  style={[styles.backButton, { backgroundColor: '#FFFFFF' }]}
-                >
-                  <MaterialIcons name="arrow-back" size={22} color="#0F172A" />
-                </GradientRingBackInner>
-              </LinearGradient>
-            )}
+            <BackButton
+              darkMode={darkMode}
+              onPress={onClose}
+              accessibilityLabel={closeAccessibilityLabel ?? "Go back"}
+            />
           </View>
           <View style={styles.headerCenter}>
             <Text style={[styles.title, { color: text }]}>Rate insights</Text>

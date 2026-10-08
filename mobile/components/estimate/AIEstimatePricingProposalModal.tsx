@@ -13,15 +13,9 @@ import {
   StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
+import BackButton from '@/components/ui/BackButton';
 import { useTheme } from '@/contexts/ThemeContext';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { getColors } from '@/theme/getColors';
@@ -1081,24 +1075,7 @@ export default function AIEstimatePricingProposalModal({
     <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
         <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
           <View style={styles.headerSide}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={handleBack}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={24}
-                  color={darkMode ? '#FFFFFF' : Colors.text}
-                />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={handleBack} />
           </View>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: Colors.text }]}>{title}</Text>

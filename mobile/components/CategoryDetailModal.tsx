@@ -21,6 +21,7 @@ import {
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   ScreenLayout,
   PROJECT_WIDE_CONTAINER_CARD_INSET,
+  PHONE_CARD_GUTTER,
 } from "@/constants/ScreenLayout";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
 import { laborPaymentBadge } from "@/src/lib/taxCenter";
@@ -43,6 +44,7 @@ import {
 import { buildCategoryBudgetSummary } from "@/utils/estimateLineBudgetDisplay";
 import { expenseSubtitleLines } from "@/utils/expenseCardDisplay";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import BackButton from "@/components/ui/BackButton";
 import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK, AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
@@ -1002,16 +1004,16 @@ export default function CategoryDetailModal({
         >
         {/* Header */}
         <View style={[styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
-          <Pressable
-            accessibilityRole="button"
+          <BackButton
+            darkMode={darkMode}
             onPress={onClose}
-            style={[
-              styles.backButtonPlain,
-              { backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2 },
-            ]}
-          >
-            <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : "#000000"} />
-          </Pressable>
+            style={{
+              position: "absolute",
+              left: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER,
+              top: 64,
+              zIndex: 2,
+            }}
+          />
           <View style={styles.headerCenter}>
             <Text style={[styles.headerTitle, !darkMode && { color: Colors.text }]}>
               {categoryName.replace('/', ' & ')}
@@ -2609,7 +2611,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   header: {
-    paddingHorizontal: 56,
+    paddingHorizontal: Platform.OS === 'web' ? 56 : 64,
     paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: 'transparent',

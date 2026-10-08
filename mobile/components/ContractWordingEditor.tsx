@@ -22,6 +22,7 @@ import {
 } from "@/lib/proposals/contractWordingSerialization";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import BackButton from "@/components/ui/BackButton";
 
 type ColorsLike = {
   text: string;
@@ -622,27 +623,9 @@ export function ContractWordingEditor({
                 <Text style={{ textAlign: "center", color: colors.text, fontSize: 18, fontWeight: "700", letterSpacing: -0.25, lineHeight: 23 }} numberOfLines={1}>
                   {modalTitle}
                 </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    hapticLight();
-                    closeEdit();
-                  }}
-                  hitSlop={12}
-                  accessibilityLabel="Go back"
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    zIndex: 2,
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : (colors.surface2 ?? "#f3f4f6"),
-                  }}
-                >
-                  <MaterialIcons name="chevron-left" size={26} color={darkMode ? "#e2e8f0" : colors.text} />
-                </TouchableOpacity>
+                <View style={{ position: "absolute", left: 0, zIndex: 2 }}>
+                  <BackButton darkMode={darkMode} onPress={() => closeEdit()} accessibilityLabel="Go back" />
+                </View>
               </View>
               {modalSubtitle ? (
                 <Text style={{ textAlign: "center", color: "#d7e1f0", fontSize: 14, fontWeight: "500", marginTop: 4, lineHeight: 20 }}>

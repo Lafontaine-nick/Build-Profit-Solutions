@@ -13,6 +13,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useChat, Message } from '../contexts/ChatContext';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
+
+const CHAT_EDGE_PAD = Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER;
 
 interface ChatModalProps {
   visible: boolean;
@@ -116,28 +120,13 @@ export function ChatModal({
             style={{
               paddingTop: 60,
               paddingBottom: 16,
-              paddingHorizontal: 20,
+              paddingHorizontal: CHAT_EDGE_PAD,
               borderBottomWidth: 1,
               borderBottomColor: 'rgba(255, 255, 255, 0.1)',
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onClose();
-                }}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(67, 206, 162, 0.2)',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <MaterialIcons name="arrow-back" size={24} color="#43cea2" />
-              </TouchableOpacity>
+              <BackButton darkMode={true} onPress={onClose} />
 
               <View style={{ flex: 1, marginLeft: 16 }}>
                 <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700' }}>
@@ -156,7 +145,7 @@ export function ChatModal({
           {/* Messages */}
           <ScrollView
             ref={scrollViewRef}
-            style={{ flex: 1, paddingHorizontal: 20, paddingVertical: 16 }}
+            style={{ flex: 1, paddingHorizontal: CHAT_EDGE_PAD, paddingVertical: 16 }}
             contentContainerStyle={{ paddingBottom: 20 }}
           >
             {messages.length === 0 ? (
@@ -241,7 +230,7 @@ export function ChatModal({
           {/* Input */}
           <View
             style={{
-              paddingHorizontal: 20,
+              paddingHorizontal: CHAT_EDGE_PAD,
               paddingVertical: 16,
               borderTopWidth: 1,
               borderTopColor: 'rgba(255, 255, 255, 0.1)',

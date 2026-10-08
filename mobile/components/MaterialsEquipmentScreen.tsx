@@ -27,7 +27,7 @@ import type { ProductScannerSavePayload } from "../lib/products/productScannerTy
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
-import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
+import BackButton from "@/components/ui/BackButton";
 import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
 import CategoryEstimateBudgetCard from "./CategoryEstimateBudgetCard";
@@ -276,18 +276,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
         >
           {/* HEADER */}
           <View style={styles.headerRow}>
-            <TouchableOpacity
+            <BackButton
+              darkMode={darkMode}
               onPress={() => navigation?.goBack?.()}
-              style={[
-                styles.headerIconButton,
-                !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line },
-                neutralIconPressableWebStyle(),
-              ]}
-              activeOpacity={0.88}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-            </TouchableOpacity>
+              style={{ marginRight: 12 }}
+            />
 
             <View style={styles.headerTitleRow}>
               <View style={[styles.headerAvatar, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line }]}>

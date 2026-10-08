@@ -26,6 +26,7 @@ import {
 } from '@/utils/estimateFlowCardStyle';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import BackButton from '@/components/ui/BackButton';
 
 interface SavedMaterialsScreenProps {
   onClose: () => void;
@@ -202,19 +203,13 @@ export default function SavedMaterialsScreen({
             {materials.length} {materials.length === 1 ? 'item' : 'items'}
           </Text>
         </View>
-        <TouchableOpacity
-          activeOpacity={0.85}
+        <BackButton
+          darkMode={darkMode}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             onClose();
           }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={[styles.backButton, { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 }]}
-        >
-          <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#e2e8f0' : Colors.text} />
-        </TouchableOpacity>
+          style={{ position: 'absolute', left: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, top: 8, zIndex: 2 }}
+        />
       </View>
 
       {/* Content */}

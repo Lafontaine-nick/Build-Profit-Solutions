@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import GradientRingBackInner from './GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -34,6 +34,7 @@ import {
 import {
   getProjectExpenseFormHorizontalPadding,
   isDesktopWebLayoutWidth,
+  PHONE_CARD_GUTTER,
 } from '@/constants/ScreenLayout';
 
 /** Match estimate `LineItemModal` / Add Labor desktop web column (estimate-generator.jsx). */
@@ -499,34 +500,16 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                 }}
               >
                 <View style={styles.backBtnWrapper}>
-                  <LinearGradient
-                    colors={[...BRAND_FRAME_GRADIENT_COLORS]}
-                    start={BRAND_FRAME_GRADIENT_START}
-                    end={BRAND_FRAME_GRADIENT_END}
-                    style={styles.backBtnBorder}
-                  >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        if (selectedConversationId) {
-                          handleBackFromChat();
-                        } else {
-                          onClose();
-                        }
-                      }}
-                      style={[
-                        styles.backBtn,
-                        !darkMode && { backgroundColor: Colors.bg },
-                      ]}
-                    >
-                      <MaterialIcons
-                        name="arrow-back"
-                        size={24}
-                        color={darkMode ? '#FFFFFF' : '#000000'}
-                      />
-                    </GradientRingBackInner>
-                  </LinearGradient>
+                  <BackButton
+                    darkMode={darkMode}
+                    onPress={() => {
+                      if (selectedConversationId) {
+                        handleBackFromChat();
+                      } else {
+                        onClose();
+                      }
+                    }}
+                  />
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                   <View style={{ marginRight: 12 }}>
@@ -588,34 +571,16 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                 ]}
               >
                 <View style={styles.backBtnWrapper}>
-                  <LinearGradient
-                    colors={[...BRAND_FRAME_GRADIENT_COLORS]}
-                    start={BRAND_FRAME_GRADIENT_START}
-                    end={BRAND_FRAME_GRADIENT_END}
-                    style={styles.backBtnBorder}
-                  >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        if (selectedConversationId) {
-                          handleBackFromChat();
-                        } else {
-                          onClose();
-                        }
-                      }}
-                      style={[
-                        styles.backBtn,
-                        !darkMode && { backgroundColor: Colors.bg },
-                      ]}
-                    >
-                      <MaterialIcons
-                        name="arrow-back"
-                        size={24}
-                        color={darkMode ? '#FFFFFF' : '#000000'}
-                      />
-                    </GradientRingBackInner>
-                  </LinearGradient>
+                  <BackButton
+                    darkMode={darkMode}
+                    onPress={() => {
+                      if (selectedConversationId) {
+                        handleBackFromChat();
+                      } else {
+                        onClose();
+                      }
+                    }}
+                  />
                 </View>
                 <View
                   style={[styles.headerContent, selectedConversation && styles.headerContentChat]}
@@ -1173,7 +1138,7 @@ const styles = StyleSheet.create({
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
@@ -1371,7 +1336,7 @@ const styles = StyleSheet.create({
   },
   chatScroll: {
     flex: 1,
-    paddingHorizontal: 18,
+    paddingHorizontal: Platform.OS === 'web' ? 18 : PHONE_CARD_GUTTER,
     paddingTop: 8,
     backgroundColor: 'transparent',
   },
@@ -1453,7 +1418,7 @@ const styles = StyleSheet.create({
     color: 'rgba(148, 163, 184, 0.88)',
   },
   chatInputBar: {
-    paddingHorizontal: 18,
+    paddingHorizontal: Platform.OS === 'web' ? 18 : PHONE_CARD_GUTTER,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255, 255, 255, 0.07)',

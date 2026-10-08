@@ -1,11 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
 
 export type HelpSupportSubpageWebHeaderProps = {
   title: string;
@@ -24,7 +20,6 @@ export default function HelpSupportSubpageWebHeader({
   title,
   titleLine2,
   darkMode,
-  lightBg,
   webHelpHeaderMargins,
 }: HelpSupportSubpageWebHeaderProps) {
   const router = useRouter();
@@ -35,23 +30,7 @@ export default function HelpSupportSubpageWebHeader({
   return (
     <View style={[styles.headerRow, webHelpHeaderMargins, styles.headerRowWebPayment]}>
       <View style={[styles.backButtonWrapper, styles.backButtonWrapperWebPayment]}>
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.backButtonBorder}
-        >
-          <GradientRingBackInner
-            darkMode={darkMode}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
-            style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : lightBg }]}
-          >
-            <MaterialIcons name='arrow-back' size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-          </GradientRingBackInner>
-        </LinearGradient>
+        <BackButton darkMode={darkMode} onPress={() => router.back()} />
       </View>
       <View style={styles.titleBlockWebPayment}>
         {titleLine2 ? (

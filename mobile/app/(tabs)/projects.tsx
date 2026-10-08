@@ -39,7 +39,7 @@ import {
   loadWorkspaceTimelineProgressByProjectId,
 } from '@/utils/workspaceTimelineProgress';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
+import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, PROJECT_WIDE_CONTAINER_CARD_INSET, getWideContainerInset } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
@@ -517,6 +517,16 @@ export default function ProjectsScreen() {
     setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
+  const projectsFocusedRef = useRef(false);
+  useFocusEffect(
+    React.useCallback(() => {
+      projectsFocusedRef.current = true;
+      return () => {
+        projectsFocusedRef.current = false;
+      };
+    }, [])
+  );
+
   useFocusEffect(
     React.useCallback(() => {
       const task = InteractionManager.runAfterInteractions(() => {
@@ -525,6 +535,15 @@ export default function ProjectsScreen() {
       return () => task.cancel?.();
     }, [loadProjectDataOverrides])
   );
+
+  // Tab is preloaded in the background: have timeline progress ready so cards don't jump on first visit.
+  useEffect(() => {
+    if (projectsFocusedRef.current) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadProjectDataOverrides();
+    });
+    return () => task.cancel?.();
+  }, [loadProjectDataOverrides]);
 
   const refreshProjectsRef = useRef(refreshProjects);
   refreshProjectsRef.current = refreshProjects;
@@ -1476,7 +1495,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   wideContainer: {
     marginHorizontal: -edge,
-    paddingHorizontal: desktopWeb ? 8 : 4,
+    paddingHorizontal: getWideContainerInset(desktopWeb),
   },
   pageTitle: {
     fontSize: 30,

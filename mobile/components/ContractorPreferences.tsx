@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import GradientRingBackInner from './GradientRingBackInner';
+import * as Haptics from 'expo-haptics';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
@@ -1464,30 +1466,12 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
       ]}
     >
       <View style={styles.backBtnWrapper}>
-        <LinearGradient
-          colors={[...BRAND_FRAME_GRADIENT_COLORS]}
-          start={BRAND_FRAME_GRADIENT_START}
-          end={BRAND_FRAME_GRADIENT_END}
-          style={styles.backBtnBorder}
-        >
-          <GradientRingBackInner
-            darkMode={darkMode}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              if (onClose) onClose();
-            }}
-            style={[
-              styles.backBtn,
-              !darkMode && { backgroundColor: Colors.bg },
-            ]}
-          >
-            <MaterialIcons
-              name="arrow-back"
-              size={24}
-              color={darkMode ? '#FFFFFF' : '#000000'}
-            />
-          </GradientRingBackInner>
-        </LinearGradient>
+        <BackButton
+          darkMode={darkMode}
+          onPress={() => {
+            if (onClose) onClose();
+          }}
+        />
       </View>
       <View style={styles.headerContent}>
         <Text
@@ -2103,14 +2087,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 12,
     paddingBottom: 100,
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 60,
     paddingBottom: 20,
     borderBottomWidth: 1,
@@ -2562,8 +2546,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 8,
+    marginHorizontal: Platform.OS === 'web' ? -20 : 0,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : 0,
   },
   matchQualityGradientBorder: {
     borderRadius: 24,
@@ -2878,8 +2862,8 @@ const styles = StyleSheet.create({
   filterRail: {
     marginTop: 12,
     marginBottom: 18,
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
+    marginHorizontal: Platform.OS === 'web' ? -20 : -PHONE_CARD_GUTTER,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
   },
   filterRailContent: {
     flexDirection: 'row',

@@ -7,10 +7,10 @@ import {
   StatusBar,
   Pressable,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
 import BudgetTab from '@/components/BudgetTab';
@@ -24,7 +24,8 @@ import {
   neutralIconPressableProps,
   neutralIconPressableWebStyle,
 } from '@/constants/iconPressable';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 
 type TabKey = 'Overview' | 'Budget' | 'Timeline' | 'Health' | 'Team';
 
@@ -172,20 +173,7 @@ export default function ProjectDetailContent() {
           {/* HEADER – same visual weight as "Dashboard" header */}
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode
-                  onPress={() => router.back()}
-                  style={styles.backButton}
-                >
-                  <Ionicons name='chevron-back' size={20} color='#FFFFFF' />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton darkMode onPress={() => router.back()} />
             </View>
 
             <View style={{ flex: 1 }}>
@@ -425,7 +413,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 8,
     paddingBottom: 32,
   },

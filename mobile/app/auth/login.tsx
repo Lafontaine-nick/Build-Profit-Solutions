@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import {
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   estimateFlowCardStyle,
@@ -247,7 +248,7 @@ const styles = StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
   card: {
     paddingHorizontal: 24,

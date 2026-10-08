@@ -12,12 +12,10 @@ import {
 } from 'react-native';
 import { usePathname } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
-import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
-import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import { PHONE_CARD_GUTTER, TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import BackButton from '@/components/ui/BackButton';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -152,7 +150,7 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
       pageShell: {
         flex: 1,
         width: '100%',
-        paddingHorizontal: 8,
+        paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
       },
       pageShellWeb: {
         maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,
@@ -172,7 +170,6 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
         alignItems: 'center',
         marginTop: 24,
         marginBottom: 12,
-        ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
       },
       backButtonWrapper: {
         marginRight: 12,
@@ -305,27 +302,7 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
         ) : (
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onCancel();
-                  }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                >
-                  <MaterialIcons
-                    name='arrow-back'
-                    size={24}
-                    color={darkMode ? '#FFFFFF' : '#000000'}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
+              <BackButton darkMode={darkMode} onPress={() => onCancel()} />
             </View>
             <View style={{ flex: 1 }}>
               <Text

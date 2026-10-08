@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -23,7 +22,8 @@ import { invoiceService, Invoice } from '@/services/invoiceService';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import GradientRingBackInner from '@/components/GradientRingBackInner';
+import BackButton from '@/components/ui/BackButton';
+import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import WebPageShell, {
   getWebPageShellMaxWidth,
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
@@ -416,25 +416,7 @@ export default function InvoicesList({
           ]}
         >
           <View style={styles.backButtonWrapperWeb}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  handleClose();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
           </View>
           <View style={styles.headerTitleBlock}>
             <Text style={[styles.screenTitleWeb, { color: theme.text }]}>Billing History</Text>
@@ -445,25 +427,7 @@ export default function InvoicesList({
       {isScreenMode && Platform.OS !== 'web' && (
         <View style={[styles.headerRow, webPaymentScreenHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  handleClose();
-                }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </GradientRingBackInner>
-            </LinearGradient>
+            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
           </View>
           <View style={styles.titleContainerCentered}>
             <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>Billing History</Text>
@@ -692,7 +656,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 20,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
     paddingBottom: 8,
     position: 'relative',
   },
@@ -727,7 +691,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingTop: 100,
     paddingBottom: 20,
     position: 'relative',
@@ -755,7 +719,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   filterContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     paddingVertical: 8,
     gap: 8,
     alignItems: 'center',
@@ -792,6 +756,7 @@ const styles = StyleSheet.create({
   },
   invoicesContainer: {
     padding: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 20 : PHONE_CARD_GUTTER,
     gap: 16,
   },
   invoiceCard: {

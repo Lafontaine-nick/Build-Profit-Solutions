@@ -72,6 +72,7 @@ import { saveMaterial, removeSavedMaterial, isMaterialSaved } from '../services/
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import BackButton from '@/components/ui/BackButton';
 import {
   nativeNumericKeyboardProps,
   skuSearchQueryTextKeyboard,
@@ -186,30 +187,13 @@ function SkuModalHeaderRow({
           Search for materials and equipment
         </Text>
       </View>
-      <TouchableOpacity
-        activeOpacity={0.85}
+      <BackButton
+        darkMode={darkMode}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onClose();
         }}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityRole="button"
-        accessibilityLabel="Back"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          zIndex: 2,
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.surface2,
-        }}
-      >
-        <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#e2e8f0" : Colors.text} />
-      </TouchableOpacity>
+        style={{ position: "absolute", left: 0, top: 0, zIndex: 2 }}
+      />
       {onOpenSaved ? (
         <TouchableOpacity
           onPress={() => {

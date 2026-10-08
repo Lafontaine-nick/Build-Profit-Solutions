@@ -33,7 +33,16 @@ export function isDesktopWebLayoutWidth(width: number): boolean {
  * Horizontal padding inside project-detail `wideContainer` on phone (non-desktop web).
  * Budget “Categories” / overview gradient cards use this inset after the -edge margin.
  */
-export const PROJECT_WIDE_CONTAINER_CARD_INSET = 4;
+/** Side margin for cards and page titles on native phones (iOS standard inset). */
+export const PHONE_CARD_GUTTER = 16;
+
+export const PROJECT_WIDE_CONTAINER_CARD_INSET = Platform.OS === 'web' ? 4 : PHONE_CARD_GUTTER;
+
+/** Horizontal padding for a `wideContainer` that bleeds out of the screen `edge` padding with `marginHorizontal: -edge`. */
+export function getWideContainerInset(desktopWeb: boolean, webInset = 4): number {
+  if (desktopWeb) return 8;
+  return Platform.OS === 'web' ? webInset : PHONE_CARD_GUTTER;
+}
 
 /**
  * Header / scroll / footer horizontal padding for project expense modals (Add Transaction, PO, etc.).

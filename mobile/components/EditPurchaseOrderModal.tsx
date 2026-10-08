@@ -12,6 +12,9 @@ import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
+import BackButton from "@/components/ui/BackButton";
+import { PHONE_CARD_GUTTER } from "@/constants/ScreenLayout";
+import { useToast } from "@/contexts/ToastContext";
 
 /** Web: space below browser tabs / address bar */
 const WEB_MODAL_TOP_INSET = 52;
@@ -45,6 +48,7 @@ type Props = {
 export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose, onSave, onCancel }: Props) {
   const { theme, darkMode } = useTheme();
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const Colors = getColors(theme);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
   const [poNumber, setPONumber] = useState("");
@@ -88,8 +92,8 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
       expectedDelivery: toYYYYMMDD(expectedDeliveryDate),
     });
 
-    Alert.alert('Updated!', 'Purchase Order updated successfully');
     onClose();
+    toast.success('Purchase order updated', [poNumber.trim(), vendor.trim()].filter(Boolean).join(' · ') || undefined);
   };
 
 
@@ -132,19 +136,13 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           >
           {/* Header */}
           <View style={[styles.header, { paddingTop: 8 }]}>
-            <Pressable
-              accessibilityRole="button"
+            <BackButton
+              darkMode={darkMode}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onClose();
               }}
-              style={[
-                styles.backBtn,
-                { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.surface2 },
-              ]}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={darkMode ? '#FFFFFF' : Colors.text} />
-            </Pressable>
+              style={{ position: "absolute", left: Platform.OS === "web" ? 8 : PHONE_CARD_GUTTER, top: 10, zIndex: 2 }}
+            />
             <Text style={[styles.title, !darkMode && { color: '#000000' }]}>Edit Purchase Order</Text>
             <Text style={[styles.subtitle, !darkMode && { color: '#4B5563' }]}>Purchase Orders</Text>
           </View>
@@ -433,7 +431,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   form: {
-    paddingHorizontal: 4,
+    paddingHorizontal: Platform.OS === "web" ? 4 : PHONE_CARD_GUTTER,
     paddingTop: 8,
     paddingBottom: 24,
   },
@@ -528,7 +526,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "column",
-    paddingHorizontal: 4,
+    paddingHorizontal: Platform.OS === "web" ? 4 : PHONE_CARD_GUTTER,
     paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
     gap: 4,
