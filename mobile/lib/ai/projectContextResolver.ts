@@ -84,10 +84,17 @@ export function isWriteOrMutationRequest(query: string): boolean {
   // treated as a write in Central Command's read-only mode.
   if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(text)) return false;
   const mutationVerb =
-    /\b(?:add|record|log|create|save|update|edit|modify|mark|apply|remove|delete|rename|put|place|send|message|notify|schedule|assign|approve|submit|purchase)\b/i;
+    /\b(?:add|record|log|create|save|update|edit|modify|mark|apply|remove|delete|rename|put|place|send|message|notify|schedule|assign|approve|submit|purchase|book)\b/i;
   const mutationObject =
-    /\b(?:expense|expenses|material|materials|labor|labou?r|purchase\s+order|order\b|po\b|daily\s+log|change\s+order|payment|estimate|project|budget|calendar)\b/i;
+    /\b(?:expense|expenses|material|materials|labor|labou?r|lumber|wood|purchase\s+order|order\b|po\b|daily\s+log|change\s+order|payment|estimate|project|budget|pricing|scope|schedule|team\s+member|message|inspection|appointment|task|calendar)\b/i;
   if (mutationVerb.test(text) && mutationObject.test(text)) return true;
+  if (
+    /\b(?:put|place|send|schedule|assign|approve|submit|purchase|book)\b/i.test(text) &&
+    /\b(?:job|project|team|person|tomorrow|today|\$?\d[\d,]*)\b/i.test(text)
+  ) {
+    return true;
+  }
+  if (/\b(?:change|move|set)\s+(?:the|my|this|that|a|an)\b/i.test(text) && mutationObject.test(text)) return true;
   return /\b(?:bought|purchased|spent)\b/i.test(text) && /\d/.test(text) && mutationObject.test(text);
 }
 
@@ -111,6 +118,38 @@ export function isGeneralKnowledgeQuery(query: string): boolean {
   );
 }
 
+/** Timeline payment list — not a project health check. */
+export function isPaymentStatusQuery(query: string): boolean {
+  const q = String(query || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
+  return /\b(when am i getting paid|next payment|upcoming payments?|payments? due|my next payment|what payments?|review payments?|overdue payments?|payments? (?:are )?(?:due|overdue|coming)|getting paid|left to collect|still (?:owed|to collect))\b/i.test(q);
+}
+
+/**
+ * Money questions answered from the job snapshot.
+ * These must not open the health-check / full-breakdown fork.
+ */
+export function isSnapshotTopicQuery(query: string): boolean {
+  const q = String(query || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
+  if (!q) return false;
+  if (/\b(health\s+check|full breakdown|what[- ]if|compare|calendar|receipt|1099|weather|which\s+(?:projects?|jobs?))\b/i.test(q)) return false;
+  if (isPaymentStatusQuery(q)) return true;
+  if (
+    /\b(?:remaining|left)\b[\s\S]{0,40}\b(?:cost|budget|spend|to spend)\b/i.test(q) ||
+    /\b(?:cost|budget)\b[\s\S]{0,24}\bleft\b/i.test(q) ||
+    /\bleft to spend\b/i.test(q)
+  ) return true;
+  if (/\b(over|under|within)\s+budget\b|\bbudget status\b/i.test(q)) return true;
+  if (/\bforecast\b/i.test(q) || /\bcosts keep coming\b/i.test(q) || /\bif costs keep\b/i.test(q)) return true;
+  if (/\b(make money|made money|making enough|profitable|come out ahead)\b/i.test(q)) return true;
+  if (/\bmargin\b/i.test(q)) return true;
+  if (/\b(?:what|how much) did\b[\s\S]{0,40}\bcost\b/i.test(q)) return true;
+  if (/\b(?:materials?|labor|labour)\b[\s\S]{0,40}\bbudget\b|\bbudget\b[\s\S]{0,40}\b(?:materials?|labor|labour)\b/i.test(q)) return true;
+  if (/\b(?:collected so far|have i collected|how much (?:have )?(?:i|we) collected|still coming in|coming in on)\b/i.test(q)) return true;
+  if (/\bworth it\b|\bworth doing\b/i.test(q)) return true;
+  if (/\d+\s*%/.test(q) && /\b(?:goes?\s+up|go(?:es)?\s+up|increase[sd]?|rise[sd]?|goes?\s+down|decrease[sd]?)\b/i.test(q)) return true;
+  return false;
+}
+
 export function detectProjectIntent(query: string): ProjectIntent {
   const lowerQuery = query.toLowerCase().trim();
   // CRITICAL: Scenario card tap sends only the id (e.g. job_runs_long_4). That string contains "job",
@@ -118,11 +157,20 @@ export function detectProjectIntent(query: string): ProjectIntent {
   if (SCENARIO_SELECTION_ID_PATTERN.test(query.trim())) {
     return { type: 'other', needsProject: true, analysisType: 'unspecified' };
   }
+  if (/\bwhich\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money\b|\b(?:projects?|jobs?)\s+losing\s+money\b|\bwhere am i losing money\b/i.test(lowerQuery)) {
+    return { type: 'other', needsProject: false, analysisType: 'unspecified' };
+  }
+  if (/\b(?:which|what)\s+(?:job|project)\s+should\s+i\s+worry\b|\bworry about most\b|\bwhat should i worry about\b/i.test(lowerQuery)) {
+    return { type: 'other', needsProject: false, analysisType: 'unspecified' };
+  }
   if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(lowerQuery)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
   if (isGeneralKnowledgeQuery(query) || isConversationCancelQuery(query) || isStandaloneWeatherQuery(query)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
+  }
+  if (isPaymentStatusQuery(query) || isSnapshotTopicQuery(query)) {
+    return { type: 'other', needsProject: true, analysisType: 'unspecified' };
   }
   const isExpenseFlow = isExplicitExpenseLogQuery(lowerQuery);
   
@@ -162,6 +210,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
       lowerQuery
     ) || lowerQuery === 'margin';
   const isForecastRequest = /\b(forecast|what\s+if|scenario\s+analysis)\b/i.test(lowerQuery);
+  const isProfitResultRequest = /\b(make money|made money|profitable|come out ahead)\b/i.test(lowerQuery);
   
   // Project-specific keywords (including "my project", "this job", "our estimate")
   // But exclude if it's an action request (those need project context but aren't analysis)
@@ -188,7 +237,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   if (isHealthCheckRequest) {
     return { type: 'project_health', needsProject: true, analysisType: 'quick' };
   }
-  if (isForecastRequest) {
+  if (isForecastRequest || isProfitResultRequest) {
     return { type: 'project_profitability', needsProject: true, analysisType: 'full' };
   }
   
@@ -239,7 +288,7 @@ export const PORTFOLIO_ACTIVE_PROFIT_PATTERN =
   /\b(?:projected\s+)?(?:profit|margin|forecast)\b[\s\S]{0,40}\b(?:my\s+)?(?:active|current)\s+(?:jobs?|projects?)\b|\b(?:my\s+)?(?:active|current)\s+(?:jobs?|projects?)\b[\s\S]{0,40}\b(?:profit|margin|forecast)\b/i;
 
 /** Phrases that mean "all active projects" / compare scope — never ask "which project?"; send to backend so it can say "You have no active projects" if needed. */
-const PORTFOLIO_ACTIVE_PROJECTS_PATTERN = /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|across my active projects|across all active projects|compare (all )?my active projects|current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?))\b/i;
+const PORTFOLIO_ACTIVE_PROJECTS_PATTERN = /\b(where am I losing money|losing money across|which\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money|(?:projects?|jobs?)\s+losing\s+money|profit leak|biggest profit leak|show me the biggest profit leak|across my active projects|across all active projects|compare (all )?my active projects|current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?))\b/i;
 /** Phrases that mean "completed projects" / compare scope — never ask "which project?"; backend will list completed and where they lost/could have made more. */
 const PORTFOLIO_COMPLETED_PROJECTS_PATTERN = /\b(yes\s+)?(completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|profit\s+(on\s+)?completed)\b/i;
 /** Phrases that mean "which projects are over budget" — never ask "which project?"; backend will list active + completed over budget and by how much. */
@@ -349,12 +398,16 @@ export function resolveProjectContext(
         reason: 'Project name found in user query',
       };
     }
-    const isCompleted = (p: RecentProject) => (p.status || '').toLowerCase() === 'completed';
+    const isCompleted = (p: RecentProject) => {
+      const status = (p.status || '').toLowerCase();
+      return p.isCompleted === true || ['completed', 'complete', 'closed', 'done', 'finished'].includes(status);
+    };
     const isActiveProject = (p: RecentProject) => {
+      if (isCompleted(p)) return false;
       const status = (p.status || '').toLowerCase();
       return p.isActive === true || ['won', 'active', 'in_progress', 'in-progress'].includes(status);
     };
-    const activeOnly = recentProjects.filter((p) => !isCompleted(p) && isActiveProject(p));
+    const activeOnly = recentProjects.filter((p) => isActiveProject(p));
     if (activeOnly.length === 1) {
       return {
         projectId: activeOnly[0].id,
@@ -362,14 +415,28 @@ export function resolveProjectContext(
         reason: 'Only one active project — use it instead of asking which project',
       };
     }
-    const selectableProjects = recentProjects.filter((p) => !isCompleted(p) && isActiveProject(p));
-    
-    // Use selectableProjects only (no fallback to all) so we never show completed in generic clarification
+    // A finished job is still a real job. One job total answers the question.
+    if (recentProjects.length === 1) {
+      return {
+        projectId: recentProjects[0].id,
+        needsClarification: false,
+        reason: 'Only one project — use it instead of asking which project',
+      };
+    }
+    // Nothing in progress and the question did not name a job. Don't ask with an empty list.
+    if (activeOnly.length === 0) {
+      return {
+        projectId: null,
+        needsClarification: false,
+        reason: 'No active project to choose, and the question did not name one',
+      };
+    }
+
     return {
       projectId: null,
       needsClarification: true,
       clarificationType: 'project_selection',
-      options: getTopProjectsForClarification(selectableProjects, selectableProjects),
+      options: getTopProjectsForClarification(activeOnly, activeOnly),
       reason: 'No project mentioned in query - asking for clarification (active projects only)',
     };
   }

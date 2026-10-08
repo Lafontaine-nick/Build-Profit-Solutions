@@ -61,19 +61,32 @@ const {
   getProjectMilestones,
   getPaymentDateValue,
   isPaymentCollectedForAI,
+  overduePaymentBriefLine,
+  buildHealthPaymentInsights,
   getProjectFinancialSnapshot,
   buildMakingEnoughReply,
   buildProjectedProfitReply,
   computeMarginAtProgress,
   buildMarginAtProgressReply,
   buildMarginReplyForProject,
+  buildFinishedJobForecastReply,
+  buildSeparatePayeeReply,
+  finishedJobActualsNote,
+  isUngroundedCentralCommandMoneyQuestion,
+  classifyCentralCommandIntent,
+  needsCentralCommandIntentModel,
+  parseCentralCommandIntentChoice,
+  buildCentralCommandIntentReply,
+  trySnapshotTopicReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,
   resolveProjectByQuery,
   isCurrentProjectMatch,
   collectPaymentBuckets,
   buildPaymentStatusReply,
+  buildRemainingBudgetReply,
   buildBudgetStatusReply,
+  buildPortfolioLosingMoneyReply,
   analyzePortfolioProject,
   buildDailyCommandCenter,
   buildProfitLeakPromptBlock,
@@ -215,14 +228,17 @@ function buildProjectedVsEstimateReply({ project = null, parsedContext = {} } = 
     contextProject?.title ||
     contextProject?.name ||
     'This project';
+  const finished = snapshot.forecastMethod === 'completed';
   return (
     `For the "${projectName}" project:\n\n` +
-    `- **Current projected profit:** $${Math.round(snapshot.projectedProfit).toLocaleString()} ` +
+    `- **${finished ? 'Finished result' : 'Current projected profit'}:** $${Math.round(snapshot.projectedProfit).toLocaleString()} ` +
     `(${Number(snapshot.projectedMarginPct).toFixed(1)}% margin)\n` +
     `- **Original estimate profit:** $${Math.round(originalProfit).toLocaleString()} ` +
     `(${((originalProfit / snapshot.revenue) * 100).toFixed(1)}% margin)\n` +
     `- **Difference:** ${difference >= 0 ? '+' : '-'}$${Math.abs(Math.round(difference)).toLocaleString()}\n\n` +
-    `The current projection uses actual spending and timeline progress. ` +
+    (finished
+      ? 'The finished result is the actual profit. '
+      : 'The current projection uses actual spending and timeline progress. ') +
     `The original estimate uses the planned cost budget.`
   );
 }
@@ -253,7 +269,7 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
       );
   const targetProject =
     findProjectMentionedInMessage(projectsForFollowUp, lastUserMessage) ||
-    projectsForFollowUp.find((project) => String(project?.id) === String(parsedContext?.projectId)) ||
+    projectsForFollowUp.find((project) => String(project?.id) === String(parsedContext?.projectId || parsedContext?.resolvedProjectId)) ||
     (projectsForFollowUp.length === 1 ? projectsForFollowUp[0] : null) ||
     null;
   const scopedContext = targetProject
@@ -376,14 +392,20 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
     ].filter((line, index, lines) => line || lines[index - 1]).join('\n');
   }
 
-  if (/\b(margin)\b/i.test(topic) && snapshot.revenue > 0 && snapshot.spent != null) {
-    const margin = ((snapshot.revenue - snapshot.spent) / snapshot.revenue) * 100;
+  if (/\b(margin)\b/i.test(lastUserMessage) && snapshot.revenue > 0 && snapshot.spent != null) {
+    const projectStatus = String(
+      targetProject?.status || targetProject?.projectStatus || parsedContext.projectStatus || ''
+    ).toLowerCase();
+    const finished = /^(completed|complete|closed|done|finished)$/.test(projectStatus) ||
+      targetProject?.isCompleted === true;
+    const marginPct = ((snapshot.revenue - snapshot.spent) / snapshot.revenue) * 100;
+    const marginLabel = finished ? 'Margin' : 'Spend-to-date margin';
     return [
-      `**Margin calculation — ${projectName}**`,
+      `**${marginLabel} — ${projectName}**${finished ? ' · Completed' : ''}`,
       '',
-      `Contract value: ${money(snapshot.revenue)}`,
-      `Recorded spend: ${money(snapshot.spent)}`,
-      `Spend-to-date margin: (${money(snapshot.revenue)} − ${money(snapshot.spent)}) ÷ ${money(snapshot.revenue)} = **${margin.toFixed(1)}%**`,
+      `• Revenue: ${money(snapshot.revenue)}`,
+      `• Spent: ${money(snapshot.spent)}`,
+      `• ${marginLabel}: ${marginPct.toFixed(1)}%`,
     ].join('\n');
   }
 
@@ -719,21 +741,6 @@ function isRemainingBudgetQuery(message = '') {
   return /\b(?:remaining|left)\b[\s\S]{0,25}\b(?:cost|budget)\b|\b(?:cost|budget)\b[\s\S]{0,25}\b(?:remaining|left)\b/i.test(
     String(message || '')
   );
-}
-
-function buildRemainingBudgetReply({ projectName = 'This project', snapshot = {} } = {}) {
-  if (!(snapshot.estimatedCost > 0) || snapshot.spent == null) return null;
-  const spent = Number(snapshot.spent);
-  const remaining = Number(snapshot.remainingCostBudget ?? Math.max(0, snapshot.estimatedCost - spent));
-  const usedPct = snapshot.estimatedCost > 0 ? (spent / snapshot.estimatedCost) * 100 : 0;
-  return [
-    `**Remaining cost budget for ${projectName}**`,
-    '',
-    `- **Cost budget:** $${Number(snapshot.estimatedCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `- **Spent to date:** $${spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `- **Remaining:** **$${remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**`,
-    `- **Budget used:** ${usedPct.toFixed(1)}%`,
-  ].join('\n');
 }
 
 function weatherLocationFromContext({ message = '', parsedContext = {}, currentProjectData = null, allProjects = [], history = [] } = {}) {
@@ -1121,6 +1128,35 @@ async function runRouter(message, history, ctxSummary) {
     console.warn('⚠️ Router stage failed, defaulting to auto:', e.message);
     return { domain: 'general', proposed_tool: null, required_fields_missing: [], clarification_question: null, confidence: 0 };
   }
+}
+
+// A missed Central Command money question picks a label. The snapshot writes the card.
+async function answerCentralCommandFromIntent(message, { projects, parsedContext }) {
+  let choice = classifyCentralCommandIntent(message);
+  if (!choice && needsCentralCommandIntentModel(message)) {
+    try {
+      const completion = await createOpenAiChatCompletion(openai, {
+        model: aiModels.assistant.router,
+        response_format: aiRuntime.assistant.router.responseFormat,
+        temperature: 0,
+        max_tokens: 80,
+        messages: [
+          {
+            role: 'system',
+            content: 'Choose one intent for a construction job question. Return JSON only: {"intent":"profit|margin|labor_budget|material_budget|spent|forecast|payee|payment|remaining_budget|budget_status|unknown","payeeName":null}. payeeName is a person copied from the question, or null. Do not include dollar amounts or a written answer.',
+          },
+          { role: 'user', content: String(message || '') },
+        ],
+      });
+      choice = parseCentralCommandIntentChoice(completion.choices?.[0]?.message?.content || '{}', message);
+    } catch (error) {
+      console.warn('Central Command intent choice failed:', error.message);
+      choice = { intent: 'unknown', payeeName: null };
+    }
+  }
+  if (!choice) return null;
+  if (choice.intent === 'unknown') return "I don't have that number in this job.";
+  return buildCentralCommandIntentReply(choice, { projects, parsedContext }) || "I don't have that number in this job.";
 }
 
 // Shared AI financial/project helpers live in ../services/aiAssistantCore.js
@@ -1781,7 +1817,8 @@ function assistantMessageIsChangeOrderCollectionPrompt(content) {
   if (!/\bchange\s+orders?\b/.test(t)) return false;
   if (/\bwhat\s+is\s+(the\s+)?change\s+order\b/.test(t)) return true;
   if (t.includes('change order') && t.includes('amount') && t.includes('vendor')) return true;
-  if (/\bchange\s+order\b/.test(t) && /\b(material|labor)\b/.test(t) && /\b(cost|dollar|\$)\b/.test(t)) return true;
+  // A tip that mentions a change order ("price it through a change order") is not collecting one.
+  if (/\bi still need\b/.test(t) && /\b(?:material cost|labor cost|what this change order)\b/.test(t)) return true;
   return false;
 }
 
@@ -4546,17 +4583,11 @@ function runProfitLeakDetection(parsedContext) {
       });
     }
 
-    const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
-    const overdue = milestonesRaw.filter((m) => {
-      const status = String(m?.status || '').toLowerCase();
-      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
-      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
-      return !!dt && dt < now;
-    });
-    if (overdue.length > 0 && progress > 20) {
+    const overdueLine = overduePaymentBriefLine(p, now);
+    if (overdueLine) {
       leaks.push({
         project: title,
-        message: `${overdue[0]?.title || overdue[0]?.name || 'Payment'} appears overdue relative to completed work.`,
+        message: overdueLine,
         cta: 'Review Payments',
         prompt: `What payments are overdue on ${title}?`,
         priority: 5,
@@ -4617,7 +4648,10 @@ function runTodayBrief(parsedContext) {
       const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
       const spentOrEstimate = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
       const marginFallback = revenue > 0 ? ((revenue - spentOrEstimate) / revenue) * 100 : 0;
-      const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+      const projected = Number(p?.projectedMarginPct);
+      const margin = Number.isFinite(projected) && projected !== 0
+        ? projected
+        : normalize(p?.margin ?? p?.marginPct ?? marginFallback);
       return { title, margin, revenue };
     })
     .filter((x) => x.margin > 0 && x.revenue > 0);
@@ -4627,7 +4661,7 @@ function runTodayBrief(parsedContext) {
     const lowest = byMargin[0];
     const highest = byMargin[byMargin.length - 1];
     if (lowest.margin < 25) {
-      insights.push(`${lowest.title} margin is trending lower`);
+      insights.push(`${lowest.title} margin is low at ${lowest.margin.toFixed(1)}%`);
       projectNames.add(lowest.title);
       recommendedActions.push({ label: `Review ${lowest.title} costs`, prompt: `Review labor costs and expenses on ${lowest.title}` });
     }
@@ -4705,18 +4739,12 @@ function runTodayBrief(parsedContext) {
     }
   });
 
-  // Overdue items
+  // Overdue items — same sentence the Biggest Risk card uses, so the brief shows it once
   portfolioForBrief.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
-    const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
-    const overdue = milestonesRaw.filter((m) => {
-      const status = String(m?.status || '').toLowerCase();
-      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
-      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
-      return !!dt && dt < now;
-    });
-    if (overdue.length > 0) {
-      insights.push(`${overdue[0]?.title || overdue[0]?.name || 'Payment'} overdue on ${title}`);
+    const overdueLine = overduePaymentBriefLine(p, now);
+    if (overdueLine) {
+      insights.push(overdueLine);
       projectNames.add(title);
     }
   });
@@ -7278,7 +7306,12 @@ router.post('/stream', async (req, res) => {
     const isMarkupAdviceStream = isMarkupAdviceQuestion(message);
     const isEstimateBudgetAdviceStream = isEstimateBudgetAdviceQuestion(message);
     const isCalendarWriteStream = shouldUseCalendarCreateParser(message, history);
-    if (isCentralCommandStream && isCentralCommandMutationRequest(message) && !isMarkupAdviceStream && !isEstimateBudgetAdviceStream && !isCalendarWriteStream) {
+    if (
+      isCentralCommandStream &&
+      !isMarkupAdviceStream &&
+      !isEstimateBudgetAdviceStream &&
+      (isCentralCommandMutationRequest(message) || isCalendarWriteStream)
+    ) {
       const reply = appendDataFreshness(
         'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
         parsedContext
@@ -7506,6 +7539,19 @@ router.post('/stream', async (req, res) => {
       }
     }
     const rawBodyMsgStream = String(message ?? '').toLowerCase();
+
+    const snapshotReplyStream = trySnapshotTopicReply(message, {
+      projects: allProjects,
+      parsedContext,
+    });
+    if (snapshotReplyStream) {
+      const reply = appendDataFreshness(snapshotReplyStream, parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
 
     if (isRemainingBudgetQuery(rawBodyMsgStream)) {
       const remainingProject = currentProjectDataStream ||
@@ -7752,7 +7798,7 @@ router.post('/stream', async (req, res) => {
           `(${originalMargin.toFixed(1)}% margin): ` +
           `contract value $${Math.round(snapshot.revenue).toLocaleString()} ` +
           `less planned cost $${Math.round(snapshot.estimatedCost).toLocaleString()}. ` +
-          `That is different from the current projected profit, which uses actual spend and progress.`;
+          finishedJobActualsNote(snapshot);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -7836,14 +7882,22 @@ router.post('/stream', async (req, res) => {
        /\b(what is my|what'?s my|what is the|how is my|how'?s my)\b/i.test(msgForSimpleMarginStream))) ||
       /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForSimpleMarginStream) ||
       /\b(what is my|what'?s my|what is the)\s+current\s+margin\b/i.test(msgForSimpleMarginStream) ||
-      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForSimpleMarginStream) ||
+      /\b(what is my|what'?s my)\s+profit\b(?!\s+forecast)/i.test(msgForSimpleMarginStream) ||
       /\bmargin\s+for\s+\w+/i.test(msgForSimpleMarginStream) ||
       /\bprofit\s+margin\s+for\s+\w+/i.test(msgForSimpleMarginStream);
     if (isSimpleMarginStream) {
       // EARLY-EXIT: When we have projectId + contract, always answer from context — never let stream fall through to LLM
       const streamContextSnapshot = getProjectFinancialSnapshot({ parsedContext });
       if (parsedContext.projectId && streamContextSnapshot.revenue > 0) {
-        const streamR = appendDataFreshness(formatMarginReply({
+        const streamProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+        const streamProject = streamProjects.find((p) => String(p?.id) === String(parsedContext.projectId)) || {
+          id: parsedContext.projectId,
+          title: parsedContext.currentProject || parsedContext.projectName || 'This project',
+          status: parsedContext.status,
+          contractValue: streamContextSnapshot.revenue,
+        };
+        const streamBuilt = buildMarginReplyForProject(streamProject, { parsedContext, isCurrent: true });
+        const streamR = appendDataFreshness(streamBuilt?.reply || formatMarginReply({
           spendToDatePct: streamContextSnapshot.spendToDateMarginPct,
           projectedPct: streamContextSnapshot.projectedMarginPct,
           originalEstPct: streamContextSnapshot.bidMarginPct,
@@ -7901,15 +7955,29 @@ router.post('/stream', async (req, res) => {
 
     // SIMPLE PAYMENTS: "when am I getting paid", "next payment", "upcoming payments" — deterministic from timeline
     const msgForPaymentsStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
-    const isPaymentQuestionStream = /\b(when am I getting paid|next payment|upcoming payment|payments due|when.*getting paid|my next payment|what payments? (?:are )?due|payments? (?:due|coming))\b/i.test(msgForPaymentsStream);
+    const isPaymentQuestionStream = /\b(when am I getting paid|next payment|upcoming payments?|payments due|when.*getting paid|my next payment|what payments?|review payments?|overdue payments?|payments? (?:are )?(?:due|overdue|coming))\b/i.test(msgForPaymentsStream);
     if (isPaymentQuestionStream) {
       const streamProjects = Array.isArray(allProjects) ? allProjects : [];
-      const paymentBuckets = collectPaymentBuckets({ parsedContext, projects: streamProjects, now: new Date() });
+      const streamPayProject = streamProjects.find((p) => String(p?.id) === String(parsedContext.projectId))
+        || (parsedContext.currentProject
+          ? resolveProjectByQuery(streamProjects, parsedContext.currentProject, { minScore: 35 }).project
+          : null);
+      const paymentBuckets = collectPaymentBuckets({
+        parsedContext,
+        projects: streamProjects,
+        currentProject: streamPayProject,
+        now: new Date(),
+      });
+      const streamPaymentName = parsedContext.currentProject || parsedContext.projectName || 'your project';
+      const streamPaymentStatus = String(parsedContext.status || '').toLowerCase();
       const streamPayReply = appendDataFreshness(buildPaymentStatusReply({
         upcoming: paymentBuckets.upcoming,
         overdue: paymentBuckets.overdue,
         unscheduled: paymentBuckets.unscheduled,
-        fallbackProjectName: parsedContext.currentProject || parsedContext.projectName || 'your project',
+        collected: paymentBuckets.collected,
+        collectedCount: paymentBuckets.collectedCount,
+        finished: ['completed', 'complete', 'closed', 'done', 'finished'].includes(streamPaymentStatus),
+        fallbackProjectName: streamPaymentName,
       }), parsedContext);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: streamPayReply })}\n\n`);
@@ -7937,6 +8005,15 @@ router.post('/stream', async (req, res) => {
       }
     }
 
+    if (isPortfolioLosingMoneyQuery(normalizeAiMessageForIntent(String(message || '')))) {
+      const losingReply = appendDataFreshness(buildPortfolioLosingMoneyReply(allProjects, parsedContext), parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: losingReply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
     // SIMPLE OVER BUDGET: "am I over budget", "over budget", "budget status" — deterministic (not portfolio list)
     const msgForBudgetStream = normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '';
     const isOverBudgetStream = isSimpleProjectBudgetStatusQuery(msgForBudgetStream);
@@ -7946,7 +8023,12 @@ router.post('/stream', async (req, res) => {
       const streamSpent = streamFinancials.spent ?? 0;
       const streamProjName = parsedContext.currentProject || parsedContext.projectName || 'This project';
       if (streamBudget != null && streamBudget > 0) {
-        const fullReply = appendDataFreshness(buildBudgetStatusReply({ projectName: streamProjName, budget: streamBudget, spent: streamSpent }), parsedContext);
+        const fullReply = appendDataFreshness(buildBudgetStatusReply({
+          projectName: streamProjName,
+          budget: streamBudget,
+          spent: streamSpent,
+          finished: streamFinancials.forecastMethod === 'completed',
+        }), parsedContext);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: fullReply })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -7979,12 +8061,16 @@ router.post('/stream', async (req, res) => {
           events: upcomingS,
           paymentBuckets: paymentBucketsCal,
           filterLabel: cap,
+          readOnly: isCentralCommandStream,
         }),
         parsedContext,
       );
+      const calendarListFollowUps = isCentralCommandStream
+        ? []
+        : [{ label: 'Add a calendar event', prompt: 'Schedule an inspection on 2026-04-01 for my current project' }];
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: calListReply })}\n\n`);
-      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [{ label: 'Add a calendar event', prompt: 'Schedule an inspection on 2026-04-01 for my current project' }], sessionId: session?.id })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: calendarListFollowUps, sessionId: session?.id })}\n\n`);
       res.end();
       return;
     }
@@ -8141,6 +8227,30 @@ router.post('/stream', async (req, res) => {
       { role: 'user', content: normalizedMessage },
     ];
 
+    if (isCentralCommandStream) {
+      const intentReply = await answerCentralCommandFromIntent(normalizedMessage || message, {
+        projects: allProjects,
+        parsedContext,
+      });
+      if (intentReply) {
+        const reply = appendDataFreshness(intentReply, parsedContext);
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    if (isCentralCommandStream && isUngroundedCentralCommandMoneyQuestion(normalizedMessage || message)) {
+      const reply = appendDataFreshness("I don't have that number in this job.", parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+      res.end();
+      return;
+    }
+
     // Set up SSE headers
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -8240,7 +8350,12 @@ router.post('/', async (req, res) => {
     const isMarkupAdvice = isMarkupAdviceQuestion(message);
     const isEstimateBudgetAdvice = isEstimateBudgetAdviceQuestion(message);
     const isCalendarWrite = shouldUseCalendarCreateParser(message, history);
-    if (isCentralCommand && isCentralCommandMutationRequest(message) && !isMarkupAdvice && !isEstimateBudgetAdvice && !isCalendarWrite) {
+    if (
+      isCentralCommand &&
+      !isMarkupAdvice &&
+      !isEstimateBudgetAdvice &&
+      (isCentralCommandMutationRequest(message) || isCalendarWrite)
+    ) {
       return res.json({
         reply: appendDataFreshness(
           'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
@@ -8435,10 +8550,11 @@ router.post('/', async (req, res) => {
       });
     }
     if (customCostIncrease?.type === 'remaining_increase') {
-      const namedIncreaseProject = findProjectMentionedInMessage(allProjects, userMsgTrim);
+      const projectsForIncrease = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+      const namedIncreaseProject = findProjectMentionedInMessage(projectsForIncrease, userMsgTrim);
       const increaseProject = namedIncreaseProject ||
-        allProjects.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
-        null;
+        projectsForIncrease.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        (projectsForIncrease.length === 1 ? projectsForIncrease[0] : null);
       return res.json({
         reply: appendDataFreshness(buildRemainingCostIncreaseReply({
           project: increaseProject,
@@ -8518,6 +8634,17 @@ router.post('/', async (req, res) => {
         title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
       }];
     }
+    if (parsedContext.assistantMode === 'central_command') {
+      const separatePayeeReply = buildSeparatePayeeReply(message, allProjects);
+      if (separatePayeeReply) {
+        return res.json({
+          reply: appendDataFreshness(separatePayeeReply, parsedContext),
+          actions: [],
+          projectUpdateData: null,
+          readOnly: true,
+        });
+      }
+    }
     // Calendar and deterministic portfolio handlers use parsedContext.allProjects.
     // Keep the normalized fallback list available to those handlers as well.
     if (allProjects.length > 0 && !Array.isArray(parsedContext.allProjects)) {
@@ -8576,6 +8703,18 @@ router.post('/', async (req, res) => {
     }
 
     const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
+
+    const snapshotReply = trySnapshotTopicReply(req.body?.message ?? message, {
+      projects: allProjects,
+      parsedContext,
+    });
+    if (snapshotReply) {
+      return res.json({
+        reply: appendDataFreshness(snapshotReply, parsedContext),
+        actions: [],
+        suggestedFollowUps: [],
+      });
+    }
 
     if (isRemainingBudgetQuery(rawBodyMsg)) {
       const remainingSnapshot = getProjectFinancialSnapshot({
@@ -8650,13 +8789,21 @@ router.post('/', async (req, res) => {
       const fpContextSnapshot = getProjectFinancialSnapshot({ parsedContext });
       if (parsedContext.projectId && fpContextSnapshot.revenue > 0) {
         const fpName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
-        const fpReply = formatMarginReply({
+        const fpProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+        const fpProject = fpProjects.find((p) => String(p?.id) === String(parsedContext.projectId)) || currentProjectData || {
+          id: parsedContext.projectId,
+          title: fpName,
+          status: parsedContext.status,
+          contractValue: fpContextSnapshot.revenue,
+        };
+        const fpBuilt = buildMarginReplyForProject(fpProject, { parsedContext, isCurrent: true });
+        const fpReply = fpBuilt?.reply || formatMarginReply({
           spendToDatePct: fpContextSnapshot.spendToDateMarginPct,
           projectedPct: fpContextSnapshot.projectedMarginPct,
           originalEstPct: fpContextSnapshot.bidMarginPct,
           projectedProfit: typeof parsedContext.projectedProfit === 'number' ? parsedContext.projectedProfit : fpContextSnapshot.projectedProfit,
         });
-        console.log('✅ FIRST-PRIORITY MARGIN: Using context for', fpName, 'spend-to-date', Number(fpContextSnapshot.spendToDateMarginPct || 0).toFixed(1) + '%', fpHasAnySpendData ? '(live)' : '(from contract/spent)');
+        console.log('✅ FIRST-PRIORITY MARGIN: Using context for', fpName, fpReply.includes('· Completed') ? 'finished-job margin' : `spend-to-date ${Number(fpContextSnapshot.spendToDateMarginPct || 0).toFixed(1)}%`, fpHasAnySpendData ? '(live)' : '(from contract/spent)');
         return res.json({ reply: fpReply, actions: [] });
       }
       const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
@@ -8722,7 +8869,7 @@ router.post('/', async (req, res) => {
           `The original estimate forecast for the "${name}" project was **$${Math.round(originalProfit).toLocaleString()} profit** ` +
           `(${originalMargin.toFixed(1)}% margin): contract value $${Math.round(snapshot.revenue).toLocaleString()} ` +
           `less planned cost $${Math.round(snapshot.estimatedCost).toLocaleString()}. ` +
-          `That is different from the current projected profit, which uses actual spend and progress.`;
+          finishedJobActualsNote(snapshot);
         return res.json({ reply, actions: [] });
       }
     }
@@ -8829,16 +8976,20 @@ router.post('/', async (req, res) => {
     }
 
     // ── FIRST-PRIORITY: "next payment" / "when am I getting paid" / "upcoming payments" → deterministic from timeline (never LLM)
-    const isPaymentQuestion = /\b(when am I getting paid|next payment|upcoming payment|payments due|when.*getting paid|my next payment|what payments? (?:are )?due|payments? (?:due|coming)\b)/i.test(rawBodyMsg);
+    const isPaymentQuestion = /\b(when am I getting paid|next payment|upcoming payments?|payments due|when.*getting paid|my next payment|what payments?|review payments?|overdue payments?|payments? (?:are )?(?:due|overdue|coming))\b/i.test(rawBodyMsg);
     if (isPaymentQuestion) {
       const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
       const projForPayments = currentProjectData || (projectId && projectsList.length ? projectsList.find(p => String(p?.id) === String(projectId)) : null);
       const paymentBuckets = collectPaymentBuckets({ parsedContext, projects: projectsList, currentProject: projForPayments, now: new Date() });
+      const paymentStatus = String(projForPayments?.status || parsedContext.status || '').toLowerCase();
       const reply = buildPaymentStatusReply({
         upcoming: paymentBuckets.upcoming,
         overdue: paymentBuckets.overdue,
         unscheduled: paymentBuckets.unscheduled,
-        fallbackProjectName: parsedContext.currentProject || parsedContext.projectName || 'your project',
+        collected: paymentBuckets.collected,
+        collectedCount: paymentBuckets.collectedCount,
+        finished: ['completed', 'complete', 'closed', 'done', 'finished'].includes(paymentStatus),
+        fallbackProjectName: parsedContext.currentProject || parsedContext.projectName || projForPayments?.title || projForPayments?.name || 'your project',
       });
       console.log('✅ FIRST-PRIORITY PAYMENTS: deterministic reply from shared payment buckets');
       return res.json({ reply, actions: [] });
@@ -8924,6 +9075,7 @@ router.post('/', async (req, res) => {
           events: upcomingCal,
           paymentBuckets: paymentBucketsCal,
           filterLabel,
+          readOnly: isCentralCommand,
         }),
         parsedContext,
       );
@@ -8994,6 +9146,12 @@ router.post('/', async (req, res) => {
       }
     }
 
+    if (isPortfolioLosingMoneyQuery(rawBodyMsg)) {
+      const losingReply = buildPortfolioLosingMoneyReply(allProjects, parsedContext);
+      console.log('✅ FIRST-PRIORITY LOSING MONEY');
+      return res.json({ reply: losingReply, actions: [] });
+    }
+
     // ── FIRST-PRIORITY: single-project "am I over budget?" / "budget status" → deterministic (never LLM); not portfolio list
     const isOverBudgetQuestion = isSimpleProjectBudgetStatusQuery(rawBodyMsg);
     if (isOverBudgetQuestion && (projectId || currentProjectData || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0))) {
@@ -9006,7 +9164,12 @@ router.post('/', async (req, res) => {
       const projName = parsedContext.currentProject || parsedContext.projectName || currentProjectData?.title || currentProjectData?.name || 'This project';
       if (budget != null && budget > 0) {
         const overBy = spent - budget;
-        const reply = buildBudgetStatusReply({ projectName: projName, budget, spent });
+        const reply = buildBudgetStatusReply({
+          projectName: projName,
+          budget,
+          spent,
+          finished: financials.forecastMethod === 'completed',
+        });
         console.log('✅ FIRST-PRIORITY OVER BUDGET: deterministic reply for', projName, overBy > 0 ? 'over' : 'within');
         return res.json({ reply, actions: [] });
       }
@@ -9023,8 +9186,8 @@ router.post('/', async (req, res) => {
       /\b(?:what'?s|what is) the biggest threat to profit/i.test(rawBodyMsg) ||
       /\bbiggest threat to profit (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg) ||
       /\bwhich cost category matters most/i.test(rawBodyMsg) ||
-      /\b(?:if |when ).+ (?:labor|material) increases \d+%/i.test(rawBodyMsg) ||
-      /\bdrywall labor increases \d+%|\blabor increases \d+%/i.test(rawBodyMsg) ||
+      /\b(?:if |when ).+ (?:labor|material) (?:increases|goes up|go up) \d+%/i.test(rawBodyMsg) ||
+      /\bdrywall labor increases \d+%|\blabor (?:increases|goes up) \d+%/i.test(rawBodyMsg) ||
       /\b(?:how much )?margin do I lose\b/i.test(rawBodyMsg) ||
       /\bwhat price (?:should I )?charge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
       /\bcharge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
@@ -9078,11 +9241,11 @@ router.post('/', async (req, res) => {
         }
         reply = appendEstimateAssistantDisclaimer(reply);
       } else if (/\bam I making enough money/i.test(rawBodyMsg) || /\bmaking enough (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg)) {
-        const m = currentMarginPct != null ? Number(currentMarginPct).toFixed(1) : (bidMarginPctVal != null ? Number(bidMarginPctVal).toFixed(1) : null);
-        if (m) {
-          const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
-          reply = `Your current margin on **${projName}** is **${m}%** based on the current numbers in this view. Many contractors target 15–25%; you're **${above}** that. `;
-          reply += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        const m = financialSnapshot.currentMarginPct != null
+          ? Number(financialSnapshot.currentMarginPct)
+          : (bidMarginPctVal != null ? Number(bidMarginPctVal) : null);
+        if (m != null && Number.isFinite(m)) {
+          reply = buildMakingEnoughReply(projName, m, financialSnapshot.dataQuality);
         } else if (revenue > 0 || cost > 0) {
           reply = `I have **${projName}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
         }
@@ -9118,7 +9281,7 @@ router.post('/', async (req, res) => {
           const pctImpact = total > 0 ? ((total * 0.1) / revenue * 100) : 0;
           reply = `**${name}** has the highest exposure at **$${Math.round(total).toLocaleString()}**. If prices there go up 10%, cost would rise about **$${Math.round(total * 0.1).toLocaleString()}** and margin would drop about **${Number(pctImpact).toFixed(1)}** points.`;
         } else reply = `I don't have a cost breakdown by category for **${projName}** in this view. Add line items in the estimate to see which category matters most.`;
-      } else if (/\bif .+ increases \d+%\b/i.test(rawBodyMsg) || /\b(?:how much )?margin do I lose\b/i.test(rawBodyMsg)) {
+      } else if (/\b(?:if|what happens)\b[\s\S]{0,80}(?:increases|goes up|go up)\s+\d+%\b/i.test(rawBodyMsg) || /\b(?:how much )?margin do I lose\b/i.test(rawBodyMsg)) {
         const pctMatch = rawBodyMsg.match(/(\d+)\s*%?\s*(?:percent)?/);
         const pct = pctMatch ? Math.min(50, Math.max(1, parseInt(pctMatch[1], 10))) : 10;
         const key = rawBodyMsg.replace(/\d+\s*%?/g, '').toLowerCase();
@@ -9782,7 +9945,7 @@ router.post('/', async (req, res) => {
     const isSimpleMarginOrProfitQ = hasProfitAndMargin ||
       /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForSimpleMargin) ||
       /\b(what is my|what'?s my|what is the)\s+current\s+margin\b/i.test(msgForSimpleMargin) ||
-      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForSimpleMargin) ||
+      /\b(what is my|what'?s my)\s+profit\b(?!\s+forecast)/i.test(msgForSimpleMargin) ||
       /\bmargin\s+for\s+\w+/i.test(msgForSimpleMargin) ||
       /\bprofit\s+margin\s+for\s+\w+/i.test(msgForSimpleMargin);
     if (isSimpleMarginOrProfitQ) {
@@ -9904,13 +10067,24 @@ router.post('/', async (req, res) => {
       msgForProfitCheck.includes('forecast for');
     const isSimpleMarginQ = (msgForProfitCheck.includes('profit') && msgForProfitCheck.includes('margin') && !msgForProfitCheck.includes('forecast')) ||
       /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForProfitCheck) ||
-      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForProfitCheck) ||
+      /\b(what is my|what'?s my)\s+profit\b(?!\s+forecast)/i.test(msgForProfitCheck) ||
       /\bmargin\s+for\s+\w+/i.test(msgForProfitCheck);
     const isProfitOrForecastRequest = isExplicitForecastRequest && !isSimpleMarginQ;
 
     if (isProfitOrForecastRequest) {
       const forecastTargetProject = currentProjectData ||
         (projectName ? resolveProjectByQuery(allProjects, projectName, { minScore: 35 }).project : null);
+      const finishedForecastReply = buildFinishedJobForecastReply(forecastTargetProject, {
+        parsedContext,
+        isCurrent: forecastTargetProject ? isCurrentProjectMatch(forecastTargetProject, parsedContext) : false,
+      });
+      if (finishedForecastReply) {
+        console.log('✅ FINISHED-JOB FORECAST: actual result for', forecastTargetProject?.title || forecastTargetProject?.name || 'project');
+        return res.json({
+          reply: appendDataFreshness(finishedForecastReply, parsedContext),
+          actions: [],
+        });
+      }
       const forecastEstimateData =
         forecastTargetProject?.estimateData ||
         forecastTargetProject?.projectData?.estimateData ||
@@ -9985,9 +10159,24 @@ router.post('/', async (req, res) => {
       const precomputedMargin = precomputedBelongsToTarget ? parsedContext.projectedMarginPct : null;
       const precomputedForecastCost = precomputedBelongsToTarget ? parsedContext.forecastFinalCost : null;
       const hasPrecomputed = precomputedProfit != null && Number.isFinite(Number(precomputedProfit));
-      // baseEstimate = our cost to complete. If estimatedCost >= contractValue it's wrong (revenue, not cost)
-      let baseEstimate = Number(forecastEstimatedCost || forecastEstimateData?.totalCost || forecastEstimateData?.baseCost || 0);
-      if (baseEstimate >= contractValueFinal * 0.95) baseEstimate = 0; // Wrong: estimatedCost was set to revenue
+      // Same cost budget the health check prints for this job. A stored project field can be $1,000 off that budget.
+      const forecastIsCurrentJob = !forecastTargetProject || isCurrentProjectMatch(forecastTargetProject, parsedContext);
+      const forecastSnapshotBudget = Number(
+        getProjectFinancialSnapshot({
+          project: forecastTargetProject,
+          parsedContext: forecastIsCurrentJob ? parsedContext : {},
+        }).estimatedCost || 0
+      );
+      const healthCheckBudget = forecastIsCurrentJob ? Number(estimatedCost || 0) : 0;
+      let baseEstimate = Number(
+        (healthCheckBudget > 0 ? healthCheckBudget : null) ||
+        (forecastSnapshotBudget > 0 ? forecastSnapshotBudget : null) ||
+        forecastEstimatedCost ||
+        forecastEstimateData?.totalCost ||
+        forecastEstimateData?.baseCost ||
+        0
+      );
+      if (contractValueFinal > 0 && baseEstimate >= contractValueFinal * 0.95) baseEstimate = 0; // Wrong: estimatedCost was set to revenue
       const actual = Number(forecastActualCost || 0);
       const progressPct = Math.max(0, Math.min(100, Number(forecastProgress || 0)));
       const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
@@ -10046,7 +10235,9 @@ router.post('/', async (req, res) => {
         forecastMethod = 'progress-adjusted burn rate (CPI blend)';
       } else if (baseEstimate > 0) {
         likelyFinalCost = Math.max(actual + committedNotInActual, baseEstimate);
-        forecastMethod = 'estimate baseline (insufficient progress data)';
+        forecastMethod = actual <= 0
+          ? 'estimate baseline (no costs logged yet)'
+          : 'estimate baseline (insufficient progress data)';
       } else {
         likelyFinalCost = actual + committedNotInActual;
         forecastMethod = 'actuals + committed costs only (no estimate baseline)';
@@ -10090,19 +10281,17 @@ router.post('/', async (req, res) => {
       if (materialBudget > 0 && materialSpent / materialBudget > 0.75) {
         drivers.push(`Material burn is high (${Math.round((materialSpent / materialBudget) * 100)}% used).`);
       }
-      if (drivers.length === 0) {
-        drivers.push(
-          progressRatio <= 0.01 && actual <= 0
-            ? 'No recorded spend or progress is available; this is an estimate-based forecast.'
-            : 'Current burn appears consistent with the cost budget baseline.'
-        );
+      if (actual <= 0) {
+        drivers.push('No costs have been logged yet, so this forecast uses the cost budget.');
+      } else if (drivers.length === 0) {
+        drivers.push('Current burn appears consistent with the cost budget baseline.');
       }
 
       const isSimpleProfitQ = /estimated profit|projected profit|expected profit|what is my profit|what'?s my profit|my profit on this job|profit on this job/i.test(msgLower) && !msgLower.includes('forecast');
       let reply = '';
       if (isSimpleProfitQ && contractValueFinal > 0) {
         reply += `Your **estimated profit** on this job is approximately **$${Math.round(likelyProfit).toLocaleString()}**.\n\n`;
-        reply += `Based on your progress (${progressPct.toFixed(0)}% complete) and actual spend ($${Math.round(actual).toLocaleString()}), your projected cost at completion is ~$${Math.round(likelyFinalCostUse).toLocaleString()}. Revenue (Contract Value) is $${Math.round(contractValueFinal).toLocaleString()}, so profit = $${Math.round(contractValueFinal).toLocaleString()} − $${Math.round(likelyFinalCostUse).toLocaleString()} = **$${Math.round(likelyProfit).toLocaleString()}** (${likelyMarginPct.toFixed(1)}% margin).${hasPrecomputed ? ' These numbers match the Financial Health and Budget Totals in the app.' : ''}\n\n`;
+        reply += `Based on your progress (${progressPct.toFixed(0)}% complete) and actual spend ($${Math.round(actual).toLocaleString()}), your projected cost at completion is ~$${Math.round(likelyFinalCostUse).toLocaleString()}. Revenue (Contract Value) is $${Math.round(contractValueFinal).toLocaleString()}, so profit = $${Math.round(contractValueFinal).toLocaleString()} − $${Math.round(likelyFinalCostUse).toLocaleString()} = **$${Math.round(likelyProfit).toLocaleString()}** (${likelyMarginPct.toFixed(1)}% margin).\n\n`;
       }
       reply += `📈 Forecast final cost & profit for ${projectName ? `"${projectName}"` : 'this project'}:\n\n`;
       reply += `📊 Baseline:\n`;
@@ -10114,7 +10303,7 @@ router.post('/', async (req, res) => {
 
       reply += `💰 Forecast (EAC):\n`;
       reply += `- Optimistic Final Cost: $${Math.round(optimisticFinalCost).toLocaleString()} (${fmtCostBudgetVariance(optimisticFinalCost)}) → Projected Profit: $${Math.round(optimisticProfit).toLocaleString()} (${optimisticMarginPct.toFixed(1)}%)\n`;
-      reply += `- Likely Final Cost: $${Math.round(likelyFinalCostUse).toLocaleString()} (${fmtCostBudgetVariance(likelyFinalCostUse)}) → Projected Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)${hasPrecomputed ? ' ← matches app UI' : ''}\n`;
+      reply += `- Likely Final Cost: $${Math.round(likelyFinalCostUse).toLocaleString()} (${fmtCostBudgetVariance(likelyFinalCostUse)}) → Projected Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)\n`;
       reply += `- Worst-case (risk-adjusted) Final Cost: $${Math.round(conservativeFinalCost).toLocaleString()} (${fmtCostBudgetVariance(conservativeFinalCost)}) → Projected Profit: $${Math.round(conservativeProfit).toLocaleString()} (${conservativeMarginPct.toFixed(1)}%)\n\n`;
 
       reply += `⚠️ Key drivers:\n`;
@@ -13635,6 +13824,30 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
       });
     }
     
+    if (isCentralCommand) {
+      const intentReply = await answerCentralCommandFromIntent(message || normalizedMessage, {
+        projects: allProjects,
+        parsedContext,
+      });
+      if (intentReply) {
+        return res.json({
+          reply: appendDataFreshness(intentReply, parsedContext),
+          actions: [],
+          projectUpdateData: null,
+          readOnly: true,
+        });
+      }
+    }
+
+    if (isCentralCommand && isUngroundedCentralCommandMoneyQuestion(message || normalizedMessage)) {
+      return res.json({
+        reply: appendDataFreshness("I don't have that number in this job.", parsedContext),
+        actions: [],
+        projectUpdateData: null,
+        readOnly: true,
+      });
+    }
+
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
     logPhase('executor_llm_start', { toolChoice: typeof finalToolChoice === 'string' ? finalToolChoice : finalToolChoice?.function?.name });
     let completion = await withTimeout(createOpenAiChatCompletion(openai, {
@@ -16739,32 +16952,60 @@ RULES:
           : analysisCard.profitability.riskLevel === 'Medium'
             ? 'The project is mostly on track, but there are a few risks to watch.'
             : 'The project is on track with no significant risks identified.';
-      const paymentLine = upcomingPayment
-        ? `Upcoming payments are scheduled, starting with ${String(upcomingPayment?.title || upcomingPayment?.name || 'the next payment').toLowerCase()} of ${fmtMoney(upcomingPayment?.amount || upcomingPayment?.paymentAmount || 0)} due on ${fmtDate(upcomingPayment?.plannedDate || upcomingPayment?.dueDate || upcomingPayment?.date)}.`
-        : 'Upcoming payments are scheduled in the Timeline tab for this project.';
+      const healthSnapshot = getProjectFinancialSnapshot({
+        parsedContext,
+        project: currentProjectData,
+      });
+      const finishedJob = healthSnapshot.forecastMethod === 'completed';
+      const displaySpent = healthSnapshot.spent != null ? healthSnapshot.spent : Number(actualCost || 0);
+      const displayRevenue = healthSnapshot.revenue > 0 ? healthSnapshot.revenue : revenueForReply;
+      const displayProfit = displayRevenue > 0 ? displayRevenue - displaySpent : projectedProfitForReply;
+      const displayMargin = displayRevenue > 0 ? (displayProfit / displayRevenue) * 100 : currentMarginForReply;
+      const budgetBase = Number(estimatedCost || healthSnapshot.estimatedCost || analysisCard.budgetAndCosting?.planned || 0);
+      const budgetUsedPct = budgetBase > 0 ? Math.round((displaySpent / budgetBase) * 100) : 0;
+      const paymentInsights = finishedJob
+        ? { overdueLine: null, nextLine: null }
+        : buildHealthPaymentInsights(
+          currentProjectData || { title: projectTitle, milestones: normalizedMilestones },
+          { parsedContext },
+        );
+      const paymentLine = finishedJob
+        ? 'This job is finished, so there are no upcoming payments.'
+        : paymentInsights.nextLine
+          || (upcomingPayment && !paymentInsights.overdueLine
+            ? `Upcoming payments are scheduled, starting with ${String(upcomingPayment?.title || upcomingPayment?.name || 'the next payment').toLowerCase()} of ${fmtMoney(upcomingPayment?.amount || upcomingPayment?.paymentAmount || 0)} due on ${fmtDate(upcomingPayment?.plannedDate || upcomingPayment?.dueDate || upcomingPayment?.date)}.`
+            : 'Upcoming payments are scheduled in the Timeline tab for this project.');
+      const healthRiskLine = paymentInsights.overdueLine
+        ? (analysisCard.profitability.riskLevel === 'Low'
+          ? `The budget is on track, but ${paymentInsights.overdueLine.charAt(0).toLowerCase()}${paymentInsights.overdueLine.slice(1)}`
+          : paymentInsights.overdueLine)
+        : riskLine;
+      const finishedRiskLine = 'This job is finished. The margin below is the actual result.';
+      const categoryBudgetSection = (title, budget, spent, remaining) => (
+        finishedJob
+          ? `**${title}**\n• **Total Budget**: ${fmtMoney(budget)}\n• **Spent**: ${fmtMoney(spent)}\n\n`
+          : `**${title}**\n• **Total Budget**: ${fmtMoney(budget)}\n• **Spent**: ${fmtMoney(spent)}\n• **Remaining**: ${fmtMoney(remaining)}\n\n`
+      );
+      const marginSection = finishedJob
+        ? `**Margin**\n• **Margin**: ${fmtPct(displayMargin)}\n• **Net profit**: ${fmtMoney(displayProfit)}\n\n`
+        : `**Margin Summary**\n• **${currentMarginLabelForReply}**: ${fmtPct(currentMarginForReply)}\n• **Projected Margin at Completion**: ${fmtPct(projectedMarginForReply)}\n• **Projected Profit**: ${fmtMoney(projectedProfitForReply)}\n\n`;
       reply =
         `Here's the updated project health check for **${projectTitle}**:\n\n` +
         `**Budget Overview**\n` +
-        `• **Revenue**: ${fmtMoney(contractValue > 0 ? contractValue : bidTotal)}\n` +
+        `• **Revenue**: ${fmtMoney(displayRevenue || (contractValue > 0 ? contractValue : bidTotal))}\n` +
         `• **Estimated Cost**: ${fmtMoney(estimatedCost)}\n` +
-        `• **Actual Spent**: ${fmtMoney(actualCost)}\n` +
-        `• **Budget Used**: ${Math.round((analysisCard.budgetAndCosting?.planned || 0) > 0 ? ((analysisCard.budgetAndCosting.actual || 0) / analysisCard.budgetAndCosting.planned) * 100 : 0)}%\n\n` +
-        `**Material Budget**\n` +
-        `• **Total Budget**: ${fmtMoney(analysisCard.budgetAndCosting.materialBudget)}\n` +
-        `• **Spent**: ${fmtMoney(analysisCard.budgetAndCosting.materialSpent)}\n` +
-        `• **Remaining**: ${fmtMoney(analysisCard.budgetAndCosting.materialRemaining)}\n\n` +
-        `**Labor Budget**\n` +
-        `• **Total Budget**: ${fmtMoney(analysisCard.budgetAndCosting.laborBudget)}\n` +
-        `• **Spent**: ${fmtMoney(analysisCard.budgetAndCosting.laborSpent)}\n` +
-        `• **Remaining**: ${fmtMoney(analysisCard.budgetAndCosting.laborRemaining)}\n\n` +
-        `**Margin Summary**\n` +
-        `• **${currentMarginLabelForReply}**: ${fmtPct(currentMarginForReply)}\n` +
-        `• **Projected Margin at Completion**: ${fmtPct(projectedMarginForReply)}\n` +
-        `• **Projected Profit**: ${fmtMoney(projectedProfitForReply)}\n\n` +
+        `• **Actual Spent**: ${fmtMoney(displaySpent)}\n` +
+        `• **Budget Used**: ${budgetUsedPct}%\n\n` +
+        categoryBudgetSection('Material Budget', analysisCard.budgetAndCosting.materialBudget, analysisCard.budgetAndCosting.materialSpent, analysisCard.budgetAndCosting.materialRemaining) +
+        categoryBudgetSection('Labor Budget', analysisCard.budgetAndCosting.laborBudget, analysisCard.budgetAndCosting.laborSpent, analysisCard.budgetAndCosting.laborRemaining) +
+        (finishedJob && Number(healthSnapshot.receivedPoTotal || 0) > 0
+          ? `**Received purchase orders**\n• **Spent**: ${fmtMoney(healthSnapshot.receivedPoTotal)}\n\n`
+          : '') +
+        marginSection +
         `**Key Insights**\n` +
-        `• ${riskLine}\n` +
+        `• ${finishedJob ? finishedRiskLine : healthRiskLine}\n` +
         `• ${paymentLine}\n\n` +
-        `Want me to check on any other upcoming payments or project details?`;
+        (finishedJob ? '' : `Want me to check on any other upcoming payments or project details?`);
       responseData.reply = reply;
     }
     

@@ -810,7 +810,10 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
       const title = p?.title || p?.name || 'Project';
       const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
       const spent = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
-      const margin = revenue > 0 ? ((revenue - spent) / revenue) * 100 : 0;
+      const projected = Number(p?.projectedMarginPct);
+      const margin = Number.isFinite(projected) && projected !== 0
+        ? projected
+        : revenue > 0 ? ((revenue - spent) / revenue) * 100 : 0;
       return { title, margin, revenue };
     })
     .filter((x: { margin: number; revenue: number }) => x.margin > 0 && x.revenue > 0);
@@ -821,7 +824,7 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
     const lowest = byMargin[0];
     const highest = byMargin[byMargin.length - 1];
     if (lowest.margin < 25) {
-      insights.push(`${lowest.title} margin is trending lower`);
+      insights.push(`${lowest.title} margin is low at ${lowest.margin.toFixed(1)}%`);
       projectNames.add(lowest.title);
       recommendedActions.push({ label: `Review ${lowest.title} costs`, prompt: `Review labor costs and expenses on ${lowest.title}` });
       biggestRisk = {
@@ -980,7 +983,7 @@ const CENTRAL_TEXT = "#F8FAFC";
 
 function centralBriefInsightColor(insight: string): string {
   if (/\b(over budget|over-budget|cost increase|price increase)\b/i.test(insight)) return "#f87171";
-  if (/\b(missing|overdue|review|alert|risk|attention|behind|unpaid)\b/i.test(insight)) {
+  if (/\b(missing|overdue|review|alert|risk|attention|behind|unpaid|low|lower|lowest)\b/i.test(insight)) {
     return CENTRAL_GOLD;
   }
   return CENTRAL_MINT;
@@ -999,28 +1002,44 @@ function centralLiveNumberColor(label: string, value: string): string {
   return CENTRAL_TEXT;
 }
 
-const CENTRAL_COMMAND_PROMPTS = [
-  {
-    label: "Compare projects",
-    prompt: "Compare all my projects for profitability and risk",
-    icon: "compare-arrows",
-  },
-  {
-    label: "Review budget alerts",
-    prompt: "Which projects have budget risks? Show me specifics.",
-    icon: "warning-amber",
-  },
-  {
-    label: "Check projected profit",
-    prompt: "Forecast profit across my entire portfolio — show projected numbers",
-    icon: "trending-up",
-  },
-  {
-    label: "Upcoming schedule",
-    prompt: "What does my calendar look like?",
-    icon: "event",
-  },
-] as const;
+type CentralCommandPrompt = {
+  label: string;
+  prompt: string;
+  icon: React.ComponentProps<typeof MaterialIcons>["name"];
+};
+
+const CENTRAL_PROMPT_LEFT_TO_SPEND: CentralCommandPrompt = {
+  label: "What's left to spend?",
+  prompt: "What's left to spend?",
+  icon: "account-balance-wallet",
+};
+const CENTRAL_PROMPT_PROFIT_FORECAST: CentralCommandPrompt = {
+  label: "What's my profit forecast?",
+  prompt: "What's my profit forecast?",
+  icon: "trending-up",
+};
+const CENTRAL_PROMPT_MAKING_ENOUGH: CentralCommandPrompt = {
+  label: "Am I making enough?",
+  prompt: "Am I making enough on this job?",
+  icon: "percent",
+};
+const CENTRAL_PROMPT_COMPARE: CentralCommandPrompt = {
+  label: "Compare projects",
+  prompt: "Compare all my projects for profitability and risk",
+  icon: "compare-arrows",
+};
+const CENTRAL_PROMPT_SCHEDULE: CentralCommandPrompt = {
+  label: "Upcoming schedule",
+  prompt: "What does my calendar look like?",
+  icon: "event",
+};
+
+/** Follow-ups to Today's Brief. Compare only makes sense with two or more active jobs. */
+function centralCommandPrompts(activeProjectCount: number): CentralCommandPrompt[] {
+  return activeProjectCount >= 2
+    ? [CENTRAL_PROMPT_COMPARE, CENTRAL_PROMPT_LEFT_TO_SPEND, CENTRAL_PROMPT_PROFIT_FORECAST, CENTRAL_PROMPT_SCHEDULE]
+    : [CENTRAL_PROMPT_LEFT_TO_SPEND, CENTRAL_PROMPT_PROFIT_FORECAST, CENTRAL_PROMPT_MAKING_ENOUGH, CENTRAL_PROMPT_SCHEDULE];
+}
 
 const CENTRAL_COMPOSER_MIN_HEIGHT = 54;
 const CENTRAL_COMPOSER_MAX_HEIGHT = 118;
@@ -1757,6 +1776,15 @@ const AIAssistantModal: React.FC<Props> = ({
           attention: false,
         };
   }, [displayBrief, isGlobalAssistantContext, parsedContext?.allProjects]);
+  const centralPromptCards = useMemo(() => {
+    const projects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+    const activeCount = projects.filter((project: any) =>
+      ["won", "active", "in_progress", "in-progress"].includes(
+        String(project?.status || project?.projectData?.status || "").toLowerCase(),
+      ),
+    ).length;
+    return centralCommandPrompts(activeCount);
+  }, [parsedContext?.allProjects]);
 
   // Flow-specific chips: detect from last assistant message
   const compactChipFlow = useMemo(() => {
@@ -3183,6 +3211,23 @@ const AIAssistantModal: React.FC<Props> = ({
     setLoading(true);
     setIsTyping(true);
 
+    if (isReadOnlyWriteTurn) {
+      const asOf = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-read-only`,
+          role: 'assistant',
+          content:
+            `Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.\n\n_Numbers reflect your project data as of **${asOf}**. Pull to refresh if you’ve updated costs._`,
+          timestamp: new Date(),
+        },
+      ]);
+      setLoading(false);
+      setIsTyping(false);
+      return;
+    }
+
     if (isCentralCommandReadOnly && taxSource) {
       const taxReply = answerCentralCommandTaxQuestion(messageToSend, taxSource);
       if (taxReply) {
@@ -3235,6 +3280,26 @@ const AIAssistantModal: React.FC<Props> = ({
           parsedContext?.projectName ||
           parsedContext?.bidTitle ||
           'This project';
+        const projects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+        const current =
+          projects.find((p: any) => String(p?.id) === String(parsedContext?.projectId)) ||
+          (projects.length === 1 ? projects[0] : null);
+        const status = String(parsedContext?.status || current?.status || '').toLowerCase();
+        const progress = Number(parsedContext?.progress ?? current?.progress ?? 0);
+        const finished =
+          current?.isCompleted === true ||
+          ['completed', 'complete', 'closed', 'done', 'finished'].includes(status) ||
+          progress >= 100;
+        const spent = Number(
+          parsedContext?.actualCost ??
+          parsedContext?.totalSpent ??
+          current?.actualCost ??
+          current?.totalSpent
+        );
+        const closing =
+          finished && Number.isFinite(spent) && spent >= 0
+            ? `The finished result is $${Math.round(contractValue - spent).toLocaleString()} net profit on $${Math.round(spent).toLocaleString()} spent.`
+            : 'That is separate from the current projected profit, which uses actual spending and progress.';
         const localReply: Message = {
           id: `${Date.now()}-original-forecast`,
           role: 'assistant',
@@ -3244,7 +3309,7 @@ const AIAssistantModal: React.FC<Props> = ({
             `(${originalMargin.toFixed(1)}% margin): contract value ` +
             `$${contractValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ` +
             `less planned cost $${plannedCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. ` +
-            `That is separate from the current projected profit, which uses actual spending and progress.`,
+            closing,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, localReply]);
@@ -3412,7 +3477,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
         (isProjectsScreenContext || isGlobalAssistantContext) &&
-        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|what\s+(?:does|is)\s+(?:my\s+)?(?:upcoming\s+)?schedule(?:\s+look\s+like)?|(?:my\s+)?upcoming\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|what\s+(?:does|is)\s+(?:my\s+)?(?:upcoming\s+)?schedule(?:\s+look\s+like)?|(?:my\s+)?upcoming\s+schedule|where am I losing money|losing money across|which\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money|(?:projects?|jobs?)\s+losing\s+money|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
           messageToSend
         );
 
@@ -3479,14 +3544,18 @@ const AIAssistantModal: React.FC<Props> = ({
       // Skip project resolver for portfolio/compare-all messages — send directly to backend
       if (!isPortfolioScopeMessage && !isGeneralTurn && !isReadOnlyWriteTurn && (intent.needsProject || resolvedProjectId)) {
         try {
-          const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
-            const status = ((p.status || '') as string).toLowerCase();
+          const contextProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+          const projectsForResolution = contextProjects.length > 0 ? contextProjects : [...activeProjects, ...estimates];
+          const recentProjects: RecentProject[] = projectsForResolution.map((p: any) => {
+            const status = String(p.status || p.projectStatus || '').toLowerCase();
+            const finished = p.isCompleted === true || ['completed', 'complete', 'closed', 'done', 'finished'].includes(status);
             return {
               id: p.id,
               title: p.title || p.name || 'Untitled Project',
-              status: p.status || 'unknown',
-              lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-              isActive: ['active', 'won', 'in_progress', 'in-progress'].includes(status),
+              status: p.status || p.projectStatus || 'unknown',
+              lastOpened: p.lastOpened || p.updatedAt || p.createdAt,
+              isActive: !finished && (p.isActive === true || ['active', 'won', 'in_progress', 'in-progress'].includes(status)),
+              isCompleted: finished,
             };
           });
 
@@ -3523,7 +3592,7 @@ const AIAssistantModal: React.FC<Props> = ({
           if (!resolvedProjectId) {
             const projectContext = resolveProjectContext(newMessage.content, uiState, recentProjects);
             
-            if (projectContext.needsClarification && projectContext.clarificationType === 'project_selection') {
+            if (projectContext.needsClarification && projectContext.clarificationType === 'project_selection' && (projectContext.options || []).length > 0) {
               const opts = projectContext.options || [];
               const optsCount = opts.length;
               const clarificationContent = optsCount >= 2 && optsCount <= 4
@@ -3578,7 +3647,8 @@ const AIAssistantModal: React.FC<Props> = ({
             // CRITICAL: "Am I making enough money?" and margin questions → send to backend for deterministic margin answer; do NOT show "quick health check or full breakdown?"
             const isMakingEnoughOrMargin = /\bmaking\s+enough\b/i.test(newMessage.content) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(newMessage.content) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(newMessage.content)) ||
               /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(newMessage.content) ||
-              /\bam i making\s+enough\b/i.test(newMessage.content);
+              /\bam i making\s+enough\b/i.test(newMessage.content) ||
+              /\b(make money|made money|profitable|come out ahead)\b/i.test(newMessage.content);
             // CRITICAL: Scenario requests (worst case, what if, profit scenarios, etc.) → send to backend for scenario analysis; do NOT show "quick health check or full breakdown?"
             const isScenarioRequest = /\b(worst\s*[- ]?case|best\s*[- ]?case|what\s*if|run\s+scenario|scenario\s+analysis)\b/i.test(newMessage.content) ||
               /\b(typical\s*friction|bad\s*remodel|smooth\s*job)\b/i.test(newMessage.content) ||
@@ -3588,7 +3658,7 @@ const AIAssistantModal: React.FC<Props> = ({
               SCENARIO_SELECTION_ID_PATTERN.test(newMessage.content.trim());
             // CRITICAL: Skip analysis-type flow when resuming from payment card tap — bind to mark_payment_completed, not health check
             // CRITICAL: On Estimate Generator, messages often say "project title / Step 2" — those match project_analysis but are bid workflow, not PM health checks
-            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisTypeForTurn && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            if (!isReadOnlyWriteTurn && !isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisTypeForTurn && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -3609,6 +3679,10 @@ const AIAssistantModal: React.FC<Props> = ({
             // Enhance context with resolved project ID
             const contextObj = JSON.parse(finalContext);
             contextObj.resolvedProjectId = resolvedProjectId;
+            contextObj.projectId = resolvedProjectId;
+            const resolvedProject = projectsForResolution.find((p: any) => String(p?.id) === String(resolvedProjectId));
+            const resolvedTitle = resolvedProject?.title || resolvedProject?.name;
+            if (resolvedTitle) contextObj.currentProject = resolvedTitle;
             if (intent.analysisType !== 'unspecified') {
               contextObj.requestedAnalysisType = intent.analysisType;
             }
@@ -4122,8 +4196,14 @@ const AIAssistantModal: React.FC<Props> = ({
       const containsNumericGuidance =
         !isWeatherReply &&
         /\b(?:markup|margin|projected profit|estimated cost|target bid|price range)\b/i.test(responseText);
+      const finishedActualReply = /\b(?:this job is finished|is finished, so|actual result|finished result)\b/i.test(responseText);
+      const noCostsLoggedReply = /no costs have been logged yet/i.test(responseText);
       const numericGuidanceDisclaimer = isCentralCommandReadOnly
-        ? '[DISCLAIMER]From your logged bills and payments. Projections are estimates. Not tax or accounting advice.[/DISCLAIMER]'
+        ? (noCostsLoggedReply
+          ? '[DISCLAIMER]Projections are estimates. Not tax or accounting advice.[/DISCLAIMER]'
+          : finishedActualReply
+          ? '[DISCLAIMER]From your logged bills and payments. Not tax or accounting advice.[/DISCLAIMER]'
+          : '[DISCLAIMER]From your logged bills and payments. Projections are estimates. Not tax or accounting advice.[/DISCLAIMER]')
         : '[DISCLAIMER]Numbers are illustrative planning guidance based on the project data and assumptions provided—not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms before relying on or sending them.[/DISCLAIMER]';
       const finalResponseContent =
         containsNumericGuidance &&
@@ -4467,16 +4547,14 @@ const AIAssistantModal: React.FC<Props> = ({
       }, 100);
       
       // Handle AI actions if any - but first show confirmation
-      const calendarActionsOnly =
-        isCentralCommandReadOnly &&
+      const hasCalendarCreate =
         Array.isArray(data.actions) &&
-        data.actions.length > 0 &&
-        data.actions.every((action: any) => action?.type === 'create_calendar_event');
+        data.actions.some((action: any) => action?.type === 'create_calendar_event');
       if (
         data.actions &&
         Array.isArray(data.actions) &&
-        (onAction || calendarActionsOnly) &&
-        (!isCentralCommandReadOnly || calendarActionsOnly)
+        !isCentralCommandReadOnly &&
+        (onAction || hasCalendarCreate)
       ) {
         console.log('🔍 AIAssistantModal: Received actions from backend:', {
           actionsCount: data.actions.length,
@@ -5373,7 +5451,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 {formatTimestamp(item.timestamp)}
               </Text>
             )}
-            {showProjectChips && pendingProjectSelection && (
+            {showProjectChips && pendingProjectSelection && pendingProjectSelection.options.length > 0 && (
               <View style={{ marginTop: 8, marginLeft: 4 }}>
                 <ProjectSelectionChips
                   options={pendingProjectSelection.options}
@@ -5820,7 +5898,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             Ask about your business
                           </Text>
                           <View style={styles.commandPromptGrid}>
-                            {CENTRAL_COMMAND_PROMPTS.map((prompt) => {
+                            {centralPromptCards.map((prompt) => {
                               const promptDisabled = !isContextReady;
                               return (
                                 <TouchableOpacity

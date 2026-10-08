@@ -24,6 +24,11 @@ describe('projectContextResolver conversation routing', () => {
     expect(detectProjectIntent('Explain markup versus margin').needsProject).toBe(false);
     expect(detectProjectIntent('Why can a profitable job still have cash-flow problems?').needsProject).toBe(false);
     expect(detectProjectIntent('What is my projected profit?').needsProject).toBe(true);
+    expect(detectProjectIntent('Did this job make money?')).toEqual({
+      type: 'other',
+      needsProject: true,
+      analysisType: 'unspecified',
+    });
     expect(detectProjectIntent('Check Repaint').needsProject).toBe(false);
   });
 
@@ -38,6 +43,9 @@ describe('projectContextResolver conversation routing', () => {
     expect(isConversationCancelQuery('never mind')).toBe(true);
     expect(isWriteOrMutationRequest('Can you add $500 expense to repaint?')).toBe(true);
     expect(isWriteOrMutationRequest('Can you add something to my calendar?')).toBe(true);
+    expect(isWriteOrMutationRequest('Please schedule an inspection tomorrow')).toBe(true);
+    expect(isWriteOrMutationRequest('Add a $500 Home Depot material')).toBe(true);
+    expect(isWriteOrMutationRequest("What's on my calendar?")).toBe(false);
     expect(isWriteOrMutationRequest('What is my projected profit?')).toBe(false);
   });
 
@@ -49,6 +57,26 @@ describe('projectContextResolver conversation routing', () => {
       [{ id: 'p1', title: 'Interior and Exterior House Repaint', status: 'won', isActive: true }]
     );
     expect(result.needsClarification).toBe(false);
+  });
+
+  test('uses a finished job when the question names it', () => {
+    const result = resolveProjectContext(
+      '"What\'s my margin on Electrical Estimate Draft?"',
+      { currentScreen: 'AI Assistant Tab' },
+      [{ id: 'done-1', title: 'Electrical Estimate Draft', status: 'completed', isActive: false, isCompleted: true }]
+    );
+    expect(result.needsClarification).toBe(false);
+    expect(result.projectId).toBe('done-1');
+  });
+
+  test('uses the only finished job instead of asking which project', () => {
+    const result = resolveProjectContext(
+      "What's my margin?",
+      { currentScreen: 'AI Assistant Tab' },
+      [{ id: 'done-1', title: 'Electrical Estimate Draft', status: 'completed', isActive: false }]
+    );
+    expect(result.needsClarification).toBe(false);
+    expect(result.projectId).toBe('done-1');
   });
 
   test('uses the only active project on Central Command instead of asking which one', () => {
@@ -79,10 +107,11 @@ describe('projectContextResolver conversation routing', () => {
     expect(result.analysisType).toBe('quick');
   });
 
-  test('routes remaining-cost questions directly to a health check', () => {
+  test('routes remaining-cost questions to the snapshot card, not a health check', () => {
     const result = detectProjectIntent("What's my remaining cost for my current project?");
-    expect(result.type).toBe('project_health');
-    expect(result.analysisType).toBe('quick');
+    expect(result.type).toBe('other');
+    expect(result.needsProject).toBe(true);
+    expect(result.analysisType).toBe('unspecified');
   });
 
   test('routes budget variance follow-ups directly to a health check', () => {
@@ -127,6 +156,62 @@ describe('projectContextResolver conversation routing', () => {
       'Interior Repaint',
       'Kitchen Remodel',
     ]);
+  });
+
+  test('snapshot money questions skip the health-check fork', () => {
+    const questions = [
+      'What payments are overdue on Electrical Estimate Draft?',
+      'When am I getting paid?',
+      'Review payments',
+      "What's still left to collect?",
+      "What's left to spend?",
+      'Remaining cost',
+      'How much budget is left?',
+      "What's my profit forecast?",
+      'If costs keep coming in, what do I make?',
+      "What's my margin?",
+      'Did this job make money?',
+      'Am I making enough on this job?',
+      'How much have I collected so far?',
+      'How much is still coming in on this job?',
+      "What's my material budget?",
+      'How much labor budget do I have left?',
+      'Is this job worth it?',
+      'What happens to my profit if labor goes up 10%?',
+    ];
+    for (const question of questions) {
+      const result = detectProjectIntent(question);
+      expect(result.needsProject).toBe(true);
+      expect(result.type).not.toBe('project_analysis');
+      expect(result.type).not.toBe('project_health');
+    }
+    const review = detectProjectIntent('How is this job doing?');
+    expect(review.analysisType).not.toBe('unspecified');
+    expect(detectProjectIntent('Give me a health check').type).toBe('project_health');
+  });
+
+  test('does not ask for a health check when Review Payments asks what is overdue', () => {
+    const result = detectProjectIntent('What payments are overdue on Electrical Estimate Draft?');
+    expect(result.type).toBe('other');
+    expect(result.needsProject).toBe(true);
+    expect(result.analysisType).toBe('unspecified');
+  });
+
+  test('treats which job to worry about as a portfolio question', () => {
+    const result = detectProjectIntent('Which job should I worry about most?');
+    expect(result.type).toBe('other');
+    expect(result.needsProject).toBe(false);
+  });
+
+  test('does not ask for a health check when the question is which projects are losing money', () => {
+    expect(detectProjectIntent('Which projects are losing money?').needsProject).toBe(false);
+    const result = resolveProjectContext(
+      'Which projects are losing money?',
+      { currentScreen: 'AI Assistant Tab' },
+      [{ id: 'done-1', title: 'Electrical Estimate Draft', status: 'completed', isActive: false }]
+    );
+    expect(result.needsClarification).toBe(false);
+    expect(result.projectId).toBeNull();
   });
 
   test('treats current risks across projects as a portfolio question', () => {

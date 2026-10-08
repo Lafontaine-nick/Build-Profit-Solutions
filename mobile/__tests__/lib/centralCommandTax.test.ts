@@ -71,11 +71,33 @@ describe('Central Command tax answers', () => {
   const ask = (q: string) => answerCentralCommandTaxQuestion(q, source, now);
 
   it('answers how much a named payee was paid without mixing Nick and Nicholas', () => {
-    const nick = ask('How much did I pay Nick this year?');
+    const nick = ask('How much did I pay Nick?');
     expect(nick).toContain('You paid Nick **$500.00** in 2026 as a 1099 contractor');
     expect(nick).toContain('W-9 not on file · Paid with Check');
     expect(nick).toContain('under the 2026 $2,000 line');
+    expect(nick).toContain('Nicholas is a separate payee, paid $1,000.00');
+    expect(nick).not.toContain('same person');
+    const onProject = ask('How much did I pay Nick on Electrical Estimate Draft?');
+    expect(onProject).toContain('You paid Nick **$500.00**');
+    expect(onProject).not.toContain('same person');
     expect(ask('what did nicholas get paid')).toContain('You paid Nicholas **$1,000.00**');
+    const cost = ask('What did Nick cost me?');
+    expect(cost).toContain('You paid Nick **$500.00**');
+    expect(cost).toContain('Nicholas is a separate payee, paid $1,000.00');
+    expect(cost).not.toContain('same person');
+  });
+
+  it('names the finished job when two jobs share a title', () => {
+    const withActiveTwin = {
+      ...source,
+      projects: [
+        ...source.projects,
+        { id: 'p2', title: 'Electrical Estimate Draft', status: 'active', expenses: [] },
+      ],
+    };
+    const reply = answerCentralCommandTaxQuestion('What did Nick cost me?', withActiveTwin, now);
+    expect(reply).toContain('across 1 payment on Electrical Estimate Draft (finished).');
+    expect(ask('What did Nick cost me?')).toContain('across 1 payment on Electrical Estimate Draft.');
   });
 
   it('lists who still needs a W-9', () => {
@@ -102,6 +124,11 @@ describe('Central Command tax answers', () => {
     const reply = ask('What can I deduct this year?');
     expect(reply).toContain("I can't give tax advice");
     expect(reply).toContain('Revenue received: $5,000.00');
+  });
+
+  it('leaves job collections to the assistant', () => {
+    expect(ask('How much have I collected so far?')).toBeNull();
+    expect(ask('How much is still coming in on this job?')).toBeNull();
   });
 
   it('leaves project and forecast questions to the assistant', () => {

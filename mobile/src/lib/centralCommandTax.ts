@@ -60,11 +60,32 @@ function w9For(vendor: Vendor | undefined): CentralCommandW9 {
   return 'missing';
 }
 
+const FINISHED_PROJECT_STATUSES = new Set(['completed', 'complete', 'closed', 'done', 'finished']);
+
+/** Two saves can share a title. Name the finished one so a payee is tied to the right job. */
+function projectLabeler(projects: any[]): (row: TaxExpense) => string {
+  const countByName = new Map<string, number>();
+  const byId = new Map<string, any>();
+  for (const project of projects) {
+    const name = String(project?.title || project?.name || '').trim().toLowerCase();
+    if (name) countByName.set(name, (countByName.get(name) || 0) + 1);
+    if (project?.id != null) byId.set(String(project.id), project);
+  }
+  return (row) => {
+    const name = String(row.projectName || '').trim();
+    if (!name || (countByName.get(name.toLowerCase()) || 0) < 2) return name;
+    const project = byId.get(String(row.projectId || ''));
+    const status = String(project?.status || project?.projectData?.status || '').toLowerCase();
+    return FINISHED_PROJECT_STATUSES.has(status) ? `${name} (finished)` : `${name} (active)`;
+  };
+}
+
 function groupPayees(
   rows: TaxExpense[],
   kind: '1099' | 'w2',
   vendors: Vendor[],
-  threshold: number
+  threshold: number,
+  labelFor: (row: TaxExpense) => string = (row) => String(row.projectName || '').trim()
 ): CentralCommandTaxPayee[] {
   const groups = new Map<string, CentralCommandTaxPayee & { filingTotal: number }>();
   for (const row of rows) {
@@ -88,7 +109,7 @@ function groupPayees(
     const amount = expenseAmount(row);
     current.totalPaid += amount;
     current.payments += 1;
-    const project = String(row.projectName || '').trim();
+    const project = labelFor(row);
     if (project && !current.projects.includes(project)) current.projects.push(project);
     const method = laborPaymentMethodOf(row);
     const label = laborPaymentMethodLabel(method);
@@ -115,8 +136,9 @@ export function buildCentralCommandTaxSnapshot(
   const yearExpenses = getYearExpenses(projects, year);
   const contractorRows = yearExpenses.filter((e) => expenseCountsTowardSubcontractorPayments(e, vendors));
   const employeeRows = yearExpenses.filter((e) => expenseCountsTowardW2Payments(e));
-  const contractors = groupPayees(contractorRows, '1099', vendors, threshold);
-  const employees = groupPayees(employeeRows, 'w2', vendors, threshold);
+  const labelFor = projectLabeler(projects);
+  const contractors = groupPayees(contractorRows, '1099', vendors, threshold, labelFor);
+  const employees = groupPayees(employeeRows, 'w2', vendors, threshold, labelFor);
 
   const receiptsByProject = new Map<string, number>();
   let missingReceipts = 0;
@@ -242,6 +264,16 @@ function payeeAnswer(payee: CentralCommandTaxPayee, snapshot: CentralCommandTaxS
   const payments = `${payee.payments} ${plural(payee.payments, 'payment', 'payments')}`;
   const projects = payee.projects.length ? ` on ${payee.projects.join(', ')}` : '';
   const lines = [`You paid ${payee.name} **${money(payee.totalPaid)}** in ${snapshot.year} as ${role}, across ${payments}${projects}.`];
+  const similar = [...snapshot.contractors, ...snapshot.employees].filter((other) => {
+    const a = payee.name.trim().toLowerCase();
+    const b = other.name.trim().toLowerCase();
+    if (!a || !b || a === b || a.length < 3 || b.length < 3) return false;
+    const stem = (a.length <= b.length ? a : b).slice(0, 3);
+    return a.startsWith(stem) && b.startsWith(stem);
+  });
+  if (similar.length) {
+    lines.push(similar.map((other) => `${other.name} is a separate payee, paid ${money(other.totalPaid)}.`).join('\n'));
+  }
   if (payee.kind === '1099') {
     const details = [w9Label(payee.w9)];
     if (payee.paidWith.length) details.push(`Paid with ${payee.paidWith.join(', ')}`);
@@ -333,7 +365,7 @@ function yearSummaryAnswer(snapshot: CentralCommandTaxSnapshot): string {
 
 const TAX_ADVICE_PATTERN =
   /\b(deduct|deductions?|deductible|write[- ]?offs?|quarterly|estimated\s+tax(?:es)?|owe\s+the\s+irs|how\s+much\s+tax|tax\s+bracket|self[- ]employment\s+tax)\b/i;
-const MONEY_WORD_PATTERN = /\b(pay|paid|payments?|total|how\s+much|owe|spent|1099s?|w-?2s?|w-?9s?)\b/i;
+const MONEY_WORD_PATTERN = /\b(pay|paid|payments?|total|how\s+much|owe|spent|cost|1099s?|w-?2s?|w-?9s?)\b/i;
 
 /**
  * Read-only answers from Tax Center data. Returns null when the question is not a Tax Center question,
@@ -349,12 +381,7 @@ export function answerCentralCommandTaxQuestion(
   const year = resolveQuestionYear(text, now);
   const snapshot = buildCentralCommandTaxSnapshot(source, year);
 
-  const lower = text.toLowerCase();
-  const mentionsProject = (source.projects || []).some((p) => {
-    const title = String(p?.title || p?.name || '').trim().toLowerCase();
-    return title.length >= 3 && lower.includes(title);
-  });
-  if (!mentionsProject && MONEY_WORD_PATTERN.test(text)) {
+  if (MONEY_WORD_PATTERN.test(text)) {
     const payees = [...snapshot.contractors, ...snapshot.employees]
       .filter((p) => p.name.trim().length >= 2)
       .sort((a, b) => b.name.length - a.name.length);
@@ -381,11 +408,14 @@ export function answerCentralCommandTaxQuestion(
   if (/\breceipts?\b/i.test(text) && /\b(missing|without|no|need|needs|which|how\s+many|attach)\b/i.test(text)) {
     return receiptsAnswer(snapshot);
   }
+  const yearWord = /\b(this\s+year|last\s+year|in\s+20\d{2})\b/i.test(text);
+  const businessTotal = /\b(revenue|income|expenses|net|profit|make|made|earn|earned)\b/i.test(text);
   if (
     /\b(tax\s+center|tax\s+summary|year[- ]to[- ]date|ytd)\b/i.test(text) ||
     (!/\b(projected|forecast|forecasted)\b/i.test(text) &&
-      /\b(this\s+year|so\s+far|last\s+year|in\s+20\d{2})\b/i.test(text) &&
-      /\b(revenue|income|received|collected|expenses|spent|net|profit|make|made|earn|earned)\b/i.test(text))
+      ((yearWord &&
+        /\b(revenue|income|received|collected|expenses|spent|net|profit|make|made|earn|earned)\b/i.test(text)) ||
+        (/\bso\s+far\b/i.test(text) && businessTotal && !/\b(collected|this job|this project)\b/i.test(text))))
   ) {
     return yearSummaryAnswer(snapshot);
   }

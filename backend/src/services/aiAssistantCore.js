@@ -11,7 +11,7 @@ const SIMPLE_PROJECT_BUDGET_STATUS_PATTERN =
   /\b(am i |are we |is (?:this |the )?project )?over budget\b|\bover budget\b|\bbudget status\b|\b(?:within|under|over) budget\b|\bspent over (?:my )?budget\b/i;
 
 const PORTFOLIO_LOSING_MONEY_PATTERN =
-  /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak)\b/i;
+  /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|which\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money|(?:projects?|jobs?)\s+losing\s+money)\b/i;
 
 // Portfolio list phrasing only. Singular project questions must be resolved
 // against a named project before this predicate is used.
@@ -124,6 +124,23 @@ function buildRemainingCostIncreaseReply({ project = null, parsedContext = {}, p
   const snapshot = getProjectFinancialSnapshot({ project, parsedContext });
   const revenue = Number(snapshot.revenue || 0);
   const spent = Number(snapshot.spent || 0);
+  const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
+  const title = project?.title || project?.name || parsedContext.currentProject || parsedContext.projectName || 'this project';
+  if (snapshot.forecastMethod === 'completed' && basis !== 'budget') {
+    const raised = spent * (1 + (Number(percent) / 100));
+    const baseProfit = revenue - spent;
+    const scenarioProfit = revenue - raised;
+    const scenarioMargin = revenue > 0 ? (scenarioProfit / revenue) * 100 : null;
+    return [
+      `**If costs had been ${Number(percent)}% higher — ${title}** · Completed`,
+      '',
+      'This is a hypothetical. It does not change the saved job.',
+      '',
+      `• Spent: ${money(spent)} → ${money(raised)}`,
+      `• Net profit: ${money(baseProfit)} → ${money(scenarioProfit)}`,
+      scenarioMargin == null ? '' : `• Margin: ${scenarioMargin.toFixed(1)}%`,
+    ].filter(Boolean).join('\n');
+  }
   const increaseBasis = basis === 'budget' ? 'budget' : 'remaining';
   const baselineFinal = snapshot.projectedFinalCost != null
     ? Number(snapshot.projectedFinalCost)
@@ -137,8 +154,6 @@ function buildRemainingCostIncreaseReply({ project = null, parsedContext = {}, p
   const baselineProfit = revenue - (increaseBasis === 'budget' ? baselineBudget : baselineFinal);
   const projectedProfit = revenue - finalCost;
   const margin = revenue > 0 ? (projectedProfit / revenue) * 100 : null;
-  const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
-  const title = project?.title || project?.name || parsedContext.currentProject || parsedContext.projectName || 'this project';
   return [
     increaseBasis === 'budget'
       ? `**If the cost budget increases ${Number(percent)}% — ${title}**`
@@ -196,10 +211,160 @@ function sortCompareProjectsResults(items = [], sortBy = '') {
   });
 }
 
+function buildFinishedJobForecastReply(project, opts = {}) {
+  const { parsedContext = {}, isCurrent = false } = opts;
+  if (!project) return null;
+  const snapshot = getProjectFinancialSnapshot({
+    project,
+    parsedContext: isCurrent ? parsedContext : {},
+  });
+  const projectStatus = normalizeProjectStatus(project?.status || (isCurrent ? parsedContext?.status : ''));
+  const finished = snapshot.forecastMethod === 'completed' || isTerminalProjectStatus(projectStatus);
+  const projectedProfit = isCurrent && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)
+    ? Math.round(parsedContext.projectedProfit)
+    : (snapshot.projectedProfit != null && Number.isFinite(snapshot.projectedProfit) ? Math.round(snapshot.projectedProfit) : null);
+  if (!finished || !(snapshot.revenue > 0) || projectedProfit == null) return null;
+  const title = project?.title || project?.name || 'This project';
+  const spent = snapshot.revenue - projectedProfit;
+  const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const margin = (projectedProfit / snapshot.revenue) * 100;
+  return [
+    `**Profit forecast — ${title}** · Completed`,
+    '',
+    `• Revenue: ${money(snapshot.revenue)}`,
+    `• Spent: ${money(spent)}`,
+    `• Net profit: ${money(projectedProfit)}`,
+    `• Margin: ${margin.toFixed(1)}%`,
+    '',
+    'This job is finished, so this is the actual result, not a forecast.',
+  ].join('\n');
+}
+
+/** Open-job forecast from the snapshot. Dollars are never supplied by the model. */
+function buildLiveForecastReply(project, opts = {}) {
+  const { parsedContext = {}, isCurrent = false } = opts;
+  if (!project) return null;
+  const snapshot = getProjectFinancialSnapshot({
+    project,
+    parsedContext: isCurrent ? parsedContext : {},
+  });
+  if (snapshot.forecastMethod === 'completed') return null;
+  if (!(snapshot.revenue > 0) || snapshot.projectedFinalCost == null || snapshot.projectedProfit == null) return null;
+  const title = project?.title || project?.name || 'this project';
+  const actual = Number(snapshot.spent || 0);
+  const progressPct = Number(snapshot.progress || 0);
+  const baseEstimate = Number(snapshot.estimatedCost || 0);
+  const likelyFinalCost = Number(snapshot.projectedFinalCost);
+  const likelyProfit = Number(snapshot.projectedProfit);
+  const likelyMargin = snapshot.projectedMarginPct != null ? Number(snapshot.projectedMarginPct) : 0;
+  const costRiskPct = progressPct > 1 ? 0.08 : 0.1;
+  const optimisticFinalCost = Math.max(actual, likelyFinalCost * (1 - costRiskPct));
+  const conservativeFinalCost = likelyFinalCost * (1 + costRiskPct);
+  const money = (n) => `$${Math.round(Number(n)).toLocaleString()}`;
+  const marginOf = (profit) => (snapshot.revenue > 0 ? (profit / snapshot.revenue) * 100 : 0);
+  const variance = (finalCost) => {
+    if (!(baseEstimate > 0)) return 'No cost budget baseline';
+    const delta = finalCost - baseEstimate;
+    if (Math.abs(delta) < 1) return 'On budget';
+    return delta > 0
+      ? `Over budget by ${money(delta)}`
+      : `Under budget by ${money(Math.abs(delta))}`;
+  };
+  const method = actual <= 0 && baseEstimate > 0
+    ? 'estimate baseline (no costs logged yet)'
+    : (progressPct > 1 && actual > 0
+      ? 'progress-adjusted burn rate (CPI blend)'
+      : (baseEstimate > 0
+        ? 'estimate baseline (insufficient progress data)'
+        : 'actuals + committed costs only (no estimate baseline)'));
+  const driver = actual <= 0
+    ? 'No costs have been logged yet, so this forecast uses the cost budget.'
+    : 'Current burn appears consistent with the cost budget baseline.';
+  const optimisticProfit = snapshot.revenue - optimisticFinalCost;
+  const conservativeProfit = snapshot.revenue - conservativeFinalCost;
+  return [
+    `📈 Forecast final cost & profit for "${title}":`,
+    '',
+    '📊 Baseline:',
+    `- Contract Value: ${money(snapshot.revenue)}`,
+    `- Estimated Cost Baseline: ${money(baseEstimate)}`,
+    `- Actual Spent to Date: ${money(actual)}`,
+    `- Progress: ${progressPct.toFixed(0)}%`,
+    `- Method: ${method}`,
+    '',
+    '💰 Forecast (EAC):',
+    `- Optimistic Final Cost: ${money(optimisticFinalCost)} (${variance(optimisticFinalCost)}) → Projected Profit: ${money(optimisticProfit)} (${marginOf(optimisticProfit).toFixed(1)}%)`,
+    `- Likely Final Cost: ${money(likelyFinalCost)} (${variance(likelyFinalCost)}) → Projected Profit: ${money(likelyProfit)} (${likelyMargin.toFixed(1)}%)`,
+    `- Worst-case (risk-adjusted) Final Cost: ${money(conservativeFinalCost)} (${variance(conservativeFinalCost)}) → Projected Profit: ${money(conservativeProfit)} (${marginOf(conservativeProfit).toFixed(1)}%)`,
+    '',
+    '⚠️ Key drivers:',
+    `1. ${driver}`,
+  ].join('\n');
+}
+
+function namesShareStem(left, right) {
+  const a = String(left || '').trim().toLowerCase();
+  const b = String(right || '').trim().toLowerCase();
+  if (!a || !b || a === b || a.length < 3 || b.length < 3) return false;
+  const stem = (a.length <= b.length ? a : b).slice(0, 3);
+  return a.startsWith(stem) && b.startsWith(stem);
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Named-person payment questions stay on that person. Similar names are separate payees. */
+function buildSeparatePayeeReply(message, projects) {
+  const text = String(message || '');
+  if (!/\b(how much|pay|paid)\b/i.test(text)) return null;
+  if (isPercentChangeQuestion(text) || isCategoryBudgetQuestion(text)) return null;
+  const groups = new Map();
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const expenses = Array.isArray(project?.expenses)
+      ? project.expenses
+      : (Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : []);
+    for (const expense of expenses) {
+      const name = String(expense?.vendorName || expense?.vendor || '').trim();
+      if (name.length < 2) continue;
+      const key = name.toLowerCase();
+      const current = groups.get(key) || { name, total: 0 };
+      current.total += Number(expense?.amount || 0);
+      groups.set(key, current);
+    }
+  }
+  const payees = [...groups.values()].sort((a, b) => b.name.length - a.name.length);
+  const match = payees.find((payee) => new RegExp(`\\b${escapeRegExp(payee.name)}\\b`, 'i').test(text));
+  if (!match) return null;
+  const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const similar = payees.filter((other) => namesShareStem(match.name, other.name));
+  const lines = [`You paid **${match.name}** **${money(match.total)}**.`];
+  if (similar.length) {
+    lines.push(similar.map((other) => `**${other.name}** is a separate payee, paid ${money(other.total)}.`).join('\n'));
+  }
+  return lines.join('\n\n');
+}
+
+function formatFinishedJobMarginReply({ title, revenue, spent, profit }) {
+  const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  return [
+    `**Margin — ${title}** · Completed`,
+    '',
+    `• Revenue: ${money(revenue)}`,
+    `• Spent: ${money(spent)}`,
+    `• Net profit: ${money(profit)}`,
+    `• Margin: ${margin.toFixed(1)}%`,
+    '',
+    'This job is finished, so this is the actual margin.',
+  ].join('\n');
+}
+
 function formatMarginReply(opts = {}) {
   const { spendToDatePct, projectedPct, originalEstPct, projectedProfit, followUp = '➡️ Want me to check your PO commitments or anything else?' } = opts;
   const lines = ['### Margin Summary\n'];
   if (spendToDatePct != null) lines.push(`**Spend-to-date:** ${Number(spendToDatePct).toFixed(1)}%`);
+  else lines.push('No costs have been logged yet.');
   if (projectedPct != null) lines.push(`**Projected at completion:** ${typeof projectedPct === 'string' ? projectedPct : Number(projectedPct).toFixed(1) + '%'}`);
   if (originalEstPct != null) lines.push(`**Original estimate:** ${typeof originalEstPct === 'string' ? originalEstPct : Number(originalEstPct).toFixed(1) + '%'}`);
   const profitStr = projectedProfit != null
@@ -475,11 +640,26 @@ function getPaymentDateValue(milestone) {
 function isPaymentCollectedForAI(milestone, opts = {}) {
   const { projectIsCompleted = false } = opts;
   if (projectIsCompleted) return true;
-  const status = String(milestone?.status || milestone?.state || '').toLowerCase();
+  const status = String(milestone?.status || milestone?.state || '').toLowerCase().replace(/[\s-]+/g, '_');
   if (['complete', 'completed', 'paid', 'collected', 'done', 'finished'].includes(status)) return true;
+  if (status.includes('collected') || status.includes('received')) return true;
   if (milestone?.collected === true || milestone?.isPaid === true || milestone?.paid === true) return true;
+  if (String(milestone?.collectedAt || '').trim()) return true;
+  // A scheduled row can carry a progress field without having been collected.
+  const stillOpen = [
+    'pending',
+    'scheduled',
+    'upcoming',
+    'overdue',
+    'due',
+    'unpaid',
+    'open',
+    'in_progress',
+    'not_started',
+  ].includes(status);
+  if (stillOpen) return false;
   const pct = Number(milestone?.progressPct ?? milestone?.progress ?? 0);
-  return Number.isFinite(pct) && pct >= 100;
+  return !status && Number.isFinite(pct) && pct >= 99.5;
 }
 
 function getMilestoneProgressForAI(project, parsedContext = {}) {
@@ -590,10 +770,11 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     bidMarginPct = revenue > 0 && estimatedCost > 0 ? ((revenue - estimatedCost) / revenue * 100) : 0;
   }
 
-  const computedSpendToDateMarginPct = revenue > 0 && spent != null ? ((revenue - spent) / revenue * 100) : null;
+  // $0 spent is not a 100% margin. There is no spend-to-date margin until a cost is logged.
+  const computedSpendToDateMarginPct = revenue > 0 && spent != null && spent > 0 ? ((revenue - spent) / revenue * 100) : null;
   const contextSpendToDateMarginPct = scopedContext?.spendToDateMarginPct ?? project?.spendToDateMarginPct ?? project?.projectData?.spendToDateMarginPct;
   const spendToDateMarginPct =
-    typeof contextSpendToDateMarginPct === 'number' && Number.isFinite(contextSpendToDateMarginPct)
+    spent != null && spent > 0 && typeof contextSpendToDateMarginPct === 'number' && Number.isFinite(contextSpendToDateMarginPct)
       ? contextSpendToDateMarginPct
       : computedSpendToDateMarginPct;
   const contextProjectedFinalCostValue = firstKnownMoneyValue([
@@ -666,6 +847,7 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     revenue,
     estimatedCost,
     spent,
+    receivedPoTotal: spendBreakdown.receivedPoTotal,
     committedPOs: spendBreakdown.committedPoTotal,
     hasKnownSpent: spendBreakdown.hasKnownSpent,
     hasEstimatedCost: estimatedCost != null,
@@ -694,8 +876,12 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
 function buildMakingEnoughReply(projectName, marginPct, dataQuality = {}) {
   const m = Number(marginPct).toFixed(1);
   const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
-  const marginLabel = dataQuality.estimateOnlyForecast ? 'estimated margin' : 'current margin';
+  const noCostsLogged = dataQuality.hasActivity !== true;
+  const marginLabel = noCostsLogged ? 'estimated margin' : 'current margin';
   let reply = `The ${marginLabel} on **${projectName}** is **${m}%** based on the current numbers in this view. Many contractors target 15–25%; you're **${above}** that. `;
+  if (noCostsLogged) {
+    reply += `No costs have been logged yet, so this is the estimate, not money already spent. `;
+  }
   if (dataQuality.estimateOnlyForecast) {
     reply += `No spend or progress is recorded yet, so this is not a performance-based result. `;
   }
@@ -778,12 +964,30 @@ function buildMarginReplyForProject(project, opts = {}) {
     ? Math.round(parsedContext.projectedProfit)
     : (snapshot.projectedProfit != null && Number.isFinite(snapshot.projectedProfit) ? Math.round(snapshot.projectedProfit) : null);
 
+  const projectStatus = normalizeProjectStatus(project?.status || parsedContext?.status);
+  const finished = snapshot.forecastMethod === 'completed' || isTerminalProjectStatus(projectStatus);
+  if (finished && snapshot.revenue > 0 && projectedProfit != null) {
+    return {
+      snapshot,
+      reply: formatFinishedJobMarginReply({
+        title: project?.title || project?.name || 'This project',
+        revenue: snapshot.revenue,
+        spent: snapshot.revenue - projectedProfit,
+        profit: projectedProfit,
+      }),
+    };
+  }
+
+  const noSpendYet = snapshot.spent == null || Number(snapshot.spent) <= 0;
+  const originalEstPct = snapshot.originalEstimateMarginPct != null
+    ? snapshot.originalEstimateMarginPct
+    : snapshot.bidMarginPct;
   return {
     snapshot,
     reply: formatMarginReply({
-      spendToDatePct: snapshot.spendToDateMarginPct,
+      spendToDatePct: noSpendYet ? null : snapshot.spendToDateMarginPct,
       projectedPct: snapshot.projectedMarginPct,
-      originalEstPct: snapshot.bidMarginPct,
+      originalEstPct,
       projectedProfit,
       followUp,
     }),
@@ -861,6 +1065,8 @@ function collectPaymentBuckets({ parsedContext = {}, projects = [], currentProje
   const upcoming = [];
   const overdue = [];
   const unscheduled = [];
+  const collected = [];
+  let collectedCount = 0;
   const currentProjectId = currentProject?.id != null ? String(currentProject.id) : null;
 
   const addPaymentsFromProject = (project, milestonesList, opts = {}) => {
@@ -868,93 +1074,331 @@ function collectPaymentBuckets({ parsedContext = {}, projects = [], currentProje
     const title = project?.title || project?.name || 'Project';
     const projectIsCompleted = opts.projectIsCompleted === true;
     const rawMilestones = Array.isArray(milestonesList) ? milestonesList : [];
-    rawMilestones
-      .filter((milestone) => !isPaymentCollectedForAI(milestone, { projectIsCompleted }))
-      .forEach((milestone) => {
-        const date = getPaymentDateValue(milestone);
-        const dateMs = date ? new Date(date).getTime() : NaN;
-        const item = {
-          projectId: project?.id,
-          projectTitle: title,
-          name: milestone?.title || milestone?.name || 'Payment',
-          amount: normalizeMoneyValue(milestone?.amount ?? milestone?.paymentAmount ?? 0),
-          date,
-          dateMs,
-        };
-        if (Number.isFinite(dateMs)) {
-          if (dateMs < now.getTime()) overdue.push(item);
-          else upcoming.push(item);
-        } else {
-          unscheduled.push(item);
+    rawMilestones.forEach((milestone) => {
+      if (isPaymentCollectedForAI(milestone, { projectIsCompleted })) {
+        collectedCount += 1;
+        if (opts.includeCollected !== false) {
+          collected.push({
+            projectId: project?.id,
+            projectTitle: title,
+            name: milestone?.title || milestone?.name || 'Payment',
+            amount: normalizeMoneyValue(milestone?.amount ?? milestone?.paymentAmount ?? 0),
+            date: getPaymentDateValue(milestone),
+          });
         }
-      });
+        return;
+      }
+      const date = getPaymentDateValue(milestone);
+      const dateMs = date ? new Date(date).getTime() : NaN;
+      const item = {
+        projectId: project?.id,
+        projectTitle: title,
+        name: milestone?.title || milestone?.name || 'Payment',
+        amount: normalizeMoneyValue(milestone?.amount ?? milestone?.paymentAmount ?? 0),
+        date,
+        dateMs,
+      };
+      if (Number.isFinite(dateMs)) {
+        if (dateMs < now.getTime()) overdue.push(item);
+        else upcoming.push(item);
+      } else {
+        unscheduled.push(item);
+      }
+    });
   };
+
+  const currentTitle = normalizeProjectSearchText(currentProject?.title || currentProject?.name || '');
 
   if (currentProject) {
     addPaymentsFromProject(
       currentProject,
       getProjectMilestones(currentProject, parsedContext, { preferParsedMilestones: true }),
-      { projectIsCompleted: currentProjectIsCompleted }
+      { projectIsCompleted: currentProjectIsCompleted, includeCollected: true }
     );
   }
 
   (Array.isArray(projects) ? projects : []).forEach((project) => {
     if (!project) return;
     if (currentProjectId && String(project?.id ?? '') === currentProjectId) return;
+    const otherTitle = normalizeProjectSearchText(project?.title || project?.name || '');
+    // An older save with the same name is not a second job.
+    if (currentTitle && otherTitle && otherTitle === currentTitle) return;
     const status = String(project?.status || project?.projectData?.status || '').toLowerCase();
     const projectIsCompleted = status === 'completed' || status === 'done' || status === 'finished';
-    addPaymentsFromProject(project, getProjectMilestones(project), { projectIsCompleted });
+    addPaymentsFromProject(project, getProjectMilestones(project), {
+      projectIsCompleted,
+      includeCollected: !currentProject,
+    });
   });
 
   upcoming.sort((a, b) => (a.dateMs || 0) - (b.dateMs || 0));
   overdue.sort((a, b) => (a.dateMs || 0) - (b.dateMs || 0));
-  return { upcoming, overdue, unscheduled };
+  return { upcoming, overdue, unscheduled, collected, collectedCount };
 }
 
-function buildPaymentStatusReply({ upcoming = [], overdue = [], unscheduled = [], fallbackProjectName = 'your project' } = {}) {
-  if (upcoming.length > 0) {
-    const first = upcoming[0];
-    const dateStr = first.date ? (typeof first.date === 'string' ? first.date : new Date(first.date).toLocaleDateString()) : 'no date set';
-    let reply = `Your next payment is the **${first.name}** for the **${first.projectTitle}** project, amounting to **$${Math.round(first.amount).toLocaleString()}**, due on ${dateStr}.`;
-    if (upcoming.length > 1) {
-      reply += `\n\nOther upcoming: ` + upcoming.slice(1, 4).map((p) => `${p.name} (${p.projectTitle}) $${Math.round(p.amount).toLocaleString()}${p.date ? ` due ${typeof p.date === 'string' ? p.date : new Date(p.date).toLocaleDateString()}` : ''}`).join('; ');
-    }
-    if (overdue.length > 0) reply += `\n\n⚠️ ${overdue.length} overdue: ${overdue.slice(0, 3).map((p) => `${p.name} (${p.projectTitle})`).join(', ')}.`;
-    reply += `\n\n➡️ Want me to check margin or PO commitments?`;
-    return reply;
+/** Health-check payment insights from the same buckets as the payments card. */
+function buildHealthPaymentInsights(project, { parsedContext = {}, now = new Date() } = {}) {
+  if (!project) return { overdueLine: null, nextLine: null };
+  const buckets = collectPaymentBuckets({ parsedContext, projects: [], currentProject: project, now });
+  const money = (n) => `$${Math.round(Number(n || 0)).toLocaleString()}`;
+  let overdueLine = null;
+  if (buckets.overdue.length === 1) {
+    const late = buckets.overdue[0];
+    const when = formatPaymentWhen(late);
+    overdueLine = `${late.name} (${money(late.amount)}) is overdue${when ? `, it was due ${when}` : ''}. Follow up with the client.`;
+  } else if (buckets.overdue.length > 1) {
+    const total = buckets.overdue.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const names = buckets.overdue.map((payment) => payment.name);
+    const list = names.length === 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+    overdueLine = `${buckets.overdue.length} payments are overdue (${money(total)}): ${list}. Follow up with the client.`;
   }
+  const next = buckets.upcoming[0];
+  const nextWhen = next ? formatPaymentWhen(next) : '';
+  const nextLine = next
+    ? `Next payment: ${next.name}, ${money(next.amount)}${nextWhen ? `, due ${nextWhen}` : ''}.`
+    : null;
+  return { overdueLine, nextLine };
+}
 
-  if (overdue.length > 0) {
-    const first = overdue[0];
-    const dateStr = first.date ? (typeof first.date === 'string' ? first.date : new Date(first.date).toLocaleDateString()) : '';
-    let reply = `You have overdue payments. Next one due was **${first.name}** for **${first.projectTitle}** ($${Math.round(first.amount).toLocaleString()}${dateStr ? `, was due ${dateStr}` : ''}).`;
-    if (overdue.length > 1) reply += ` Plus ${overdue.length - 1} more overdue.`;
-    reply += `\n\n➡️ Want me to list all overdue or check margin?`;
-    return reply;
+/** One Today's Brief line for a job's overdue payments, or null when nothing is overdue. */
+function overduePaymentBriefLine(project, now = new Date()) {
+  if (!project) return null;
+  const title = project?.title || project?.name || 'Project';
+  const overdue = getProjectMilestones(project).filter((milestone) => {
+    if (isPaymentCollectedForAI(milestone)) return false;
+    const raw = getPaymentDateValue(milestone);
+    if (!raw) return false;
+    const dateOnly = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const due = dateOnly
+      ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      : new Date(raw);
+    return Number.isFinite(due.getTime()) && due < now;
+  });
+  if (overdue.length === 0) return null;
+  if (overdue.length === 1) {
+    return `${overdue[0]?.title || overdue[0]?.name || 'A payment'} is overdue on ${title}`;
   }
+  const total = overdue.reduce(
+    (sum, milestone) => sum + normalizeMoneyValue(milestone?.amount ?? milestone?.paymentAmount ?? 0),
+    0
+  );
+  return `${overdue.length} payments are overdue on ${title} ($${Math.round(total).toLocaleString()})`;
+}
 
-  if (unscheduled.length > 0) {
-    let reply = `No dated payments coming up. You have **${unscheduled.length}** unscheduled payment(s): ` +
-      unscheduled.slice(0, 3).map((u) => `${u.name} $${Math.round(u.amount).toLocaleString()}`).join(', ');
-    reply += `. Set dates in the Timeline tab for each project.`;
-    return reply;
+function formatPaymentWhen(payment) {
+  if (!payment?.date) return '';
+  const raw = payment.date instanceof Date ? '' : String(payment.date);
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const parsed = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : (payment.date instanceof Date ? payment.date : new Date(payment.date));
+  if (Number.isNaN(parsed.getTime())) return String(payment.date);
+  return parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function buildPaymentStatusReply({
+  upcoming = [],
+  overdue = [],
+  unscheduled = [],
+  collected = [],
+  collectedCount = 0,
+  finished = false,
+  fallbackProjectName = 'your project',
+} = {}) {
+  const owed = [
+    ...overdue.map((payment) => ({ ...payment, kind: 'overdue' })),
+    ...upcoming.map((payment) => ({ ...payment, kind: 'upcoming' })),
+    ...unscheduled.map((payment) => ({ ...payment, kind: 'unscheduled' })),
+  ];
+  const received = Array.isArray(collected) ? collected.filter((payment) => Number(payment?.amount || 0) > 0) : [];
+  const receivedBlock = received.length
+    ? [
+      'Already received:',
+      '',
+      ...received.map((payment) => {
+        const amount = `$${Math.round(Number(payment.amount || 0)).toLocaleString()}`;
+        const where = payment.projectTitle ? ` on ${payment.projectTitle}` : '';
+        return `• **${payment.name}** — ${amount}${where}, received`;
+      }),
+    ]
+    : [];
+  if (owed.length > 0) {
+    const lines = owed.map((payment) => {
+      const amount = `$${Math.round(Number(payment.amount || 0)).toLocaleString()}`;
+      const when = formatPaymentWhen(payment);
+      const timing = payment.kind === 'overdue'
+        ? (when ? `overdue, was due ${when}` : 'overdue')
+        : payment.kind === 'unscheduled'
+          ? 'no date set'
+          : (when ? `due ${when}` : 'no date set');
+      const where = payment.projectTitle ? ` on ${payment.projectTitle}` : '';
+      return `• **${payment.name}** — ${amount}${where}, ${timing}`;
+    });
+    const lead = overdue.length > 0
+      ? 'You have overdue payments still left to collect:'
+      : (owed.length === 1 ? '1 payment is still left to collect:' : `${owed.length} payments are still left to collect:`);
+    return [...receivedBlock, ...(receivedBlock.length ? [''] : []), lead, '', ...lines].join('\n');
   }
-
+  if (finished || collectedCount > 0) {
+    return `You've received all payments on **${fallbackProjectName}**. Nothing is left to collect.`;
+  }
   return `Payments are managed in the Timeline tab (${fallbackProjectName}). Open the project → Timeline to add or edit payment milestones and due dates.`;
 }
 
-function buildBudgetStatusReply({ projectName = 'This project', budget = 0, spent = 0 } = {}) {
+function paymentMoney(amount) {
+  return `$${Math.round(Number(amount || 0)).toLocaleString()}`;
+}
+
+function buildCollectedTotalReply(buckets, projectName) {
+  const received = (buckets?.collected || []).filter((payment) => Number(payment?.amount || 0) > 0);
+  if (received.length === 0) return `Nothing has been collected on **${projectName}** yet.`;
+  const total = received.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const lines = received.map((payment) => `• **${payment.name}** — ${paymentMoney(payment.amount)}, received`);
+  return [`You've collected **${paymentMoney(total)}** on **${projectName}**.`, '', ...lines].join('\n');
+}
+
+function buildIncomingTotalReply(buckets, projectName) {
+  const overdue = buckets?.overdue || [];
+  const upcoming = buckets?.upcoming || [];
+  const unscheduled = buckets?.unscheduled || [];
+  const owed = [...overdue, ...upcoming, ...unscheduled];
+  if (owed.length === 0) return `Nothing is still coming in on **${projectName}**.`;
+  const total = owed.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const lines = owed.map((payment) => {
+    const when = formatPaymentWhen(payment);
+    const late = overdue.includes(payment);
+    const timing = late
+      ? (when ? `overdue, was due ${when}` : 'overdue')
+      : (when ? `due ${when}` : 'no date set');
+    return `• **${payment.name}** — ${paymentMoney(payment.amount)}, ${timing}`;
+  });
+  return [`**${paymentMoney(total)}** is still coming in on **${projectName}**.`, '', ...lines].join('\n');
+}
+
+function buildWorryReply(projects = [], { now = new Date() } = {}) {
+  const source = (Array.isArray(projects) ? projects : []).filter(Boolean);
+  const active = source.filter((project) => {
+    const status = String(project?.status || project?.projectData?.status || '').toLowerCase();
+    return !['completed', 'complete', 'closed', 'done', 'finished'].includes(status);
+  });
+  const list = active.length ? active : source;
+  const rows = list.map((project) => {
+    const buckets = collectPaymentBuckets({ projects: [], currentProject: project, now });
+    const overdueTotal = buckets.overdue.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const snapshot = getProjectFinancialSnapshot({ project, parsedContext: {} });
+    return {
+      title: project?.title || project?.name || 'Project',
+      overdue: buckets.overdue,
+      overdueTotal,
+      margin: snapshot.projectedMarginPct,
+    };
+  });
+  rows.sort((a, b) => b.overdueTotal - a.overdueTotal || (Number(a.margin) || 99) - (Number(b.margin) || 99));
+  const top = rows[0];
+  if (!top) return 'No active jobs to compare yet.';
+  if (top.overdueTotal > 0) {
+    const names = top.overdue.map((payment) => payment.name);
+    const listText = names.length === 2 ? names.join(' and ') : names.join(', ');
+    const count = top.overdue.length === 1 ? '1 payment is' : `${top.overdue.length} payments are`;
+    return `**${top.title}**. ${count} overdue (${paymentMoney(top.overdueTotal)}): ${listText}. That is the job to follow up on first.`;
+  }
+  if (top.margin != null && Number(top.margin) < 15) {
+    return `**${top.title}**, because its margin is ${Number(top.margin).toFixed(1)}%, the thinnest of the active jobs.`;
+  }
+  return `Nothing stands out. **${top.title}** has no overdue payments.`;
+}
+
+function unknownFutureCostReply(message, project) {
+  const match = String(message || '').match(/\bwhat\s+(?:will|would|does)\s+(?:the\s+|an\s+|a\s+)?([a-z][\w\s-]{1,40}?)\s+cost\b/i);
+  if (!match) return null;
+  const subject = match[1].trim();
+  if (/^(?:labor|labour|materials?|this|it|the job|the project|my job|my project)$/i.test(subject)) return null;
+  const title = project?.title || project?.name;
+  const label = subject.charAt(0).toUpperCase() + subject.slice(1);
+  const where = title ? ` on **${title}**` : '';
+  return `I don't have a cost for ${label}${where}. I won't guess one.`;
+}
+
+function buildRemainingBudgetReply({ projectName = 'This project', snapshot = {} } = {}) {
+  if (!(snapshot.estimatedCost > 0) || snapshot.spent == null) return null;
+  const spent = Number(snapshot.spent);
+  const budget = Number(snapshot.estimatedCost);
+  const money = (amount) => `$${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const usedPct = budget > 0 ? (spent / budget) * 100 : 0;
+  if (snapshot.forecastMethod === 'completed') {
+    const unused = budget - spent;
+    const varianceLabel = Math.abs(unused) < 1
+      ? 'On budget'
+      : unused > 0
+        ? 'Finished under budget'
+        : 'Finished over budget';
+    const varianceValue = Math.abs(unused) < 1 ? '$0.00' : money(Math.abs(unused));
+    return [
+      `**Cost budget — ${projectName}** · Completed`,
+      '',
+      `- **Cost budget:** ${money(budget)}`,
+      `- **Spent:** ${money(spent)}`,
+      `- **${varianceLabel}:** ${varianceValue}`,
+      `- **Budget used:** ${usedPct.toFixed(1)}%`,
+      '',
+      'This job is finished, so this is the actual result.',
+    ].join('\n');
+  }
+  const remaining = Number(snapshot.remainingCostBudget ?? Math.max(0, budget - spent));
+  return [
+    `**Remaining cost budget for ${projectName}**`,
+    '',
+    `- **Cost budget:** ${money(budget)}`,
+    `- **Spent to date:** ${money(spent)}`,
+    `- **Remaining:** **${money(remaining)}**`,
+    `- **Budget used:** ${usedPct.toFixed(1)}%`,
+  ].join('\n');
+}
+
+function buildBudgetStatusReply({ projectName = 'This project', budget = 0, spent = 0, finished = false } = {}) {
   if (!(budget > 0)) return null;
   const overBy = spent - budget;
+  const spentText = `$${Math.round(spent).toLocaleString()}`;
+  const budgetText = `$${Math.round(budget).toLocaleString()}`;
   let reply;
-  if (overBy > 0) {
-    reply = `Yes — **${projectName}** is **$${Math.round(overBy).toLocaleString()} over budget** (spent $${Math.round(spent).toLocaleString()} of $${Math.round(budget).toLocaleString()} budget).`;
+  if (finished && overBy > 0) {
+    reply = `Yes — **${projectName}** finished **$${Math.round(overBy).toLocaleString()} over budget** (spent ${spentText} of ${budgetText}).`;
+  } else if (finished) {
+    reply = `No — **${projectName}** finished under budget (spent ${spentText} of ${budgetText}).`;
+  } else if (overBy > 0) {
+    reply = `Yes — **${projectName}** is **$${Math.round(overBy).toLocaleString()} over budget** (spent ${spentText} of ${budgetText} budget).`;
   } else {
     const remaining = budget - spent;
-    reply = `No — you're within budget for **${projectName}** (spent $${Math.round(spent).toLocaleString()} of $${Math.round(budget).toLocaleString()}, **$${Math.round(remaining).toLocaleString()}** remaining).`;
+    reply = `No — you're within budget for **${projectName}** (spent ${spentText} of ${budgetText}, **$${Math.round(remaining).toLocaleString()}** remaining).`;
   }
-  reply += `\n\n➡️ Want me to check margin or PO commitments?`;
+  if (!finished) reply += `\n\n➡️ Want me to check margin or PO commitments?`;
   return reply;
+}
+
+function buildPortfolioLosingMoneyReply(projects = [], parsedContext = {}) {
+  const rows = (Array.isArray(projects) ? projects : [])
+    .filter(Boolean)
+    .map((project) => analyzePortfolioProject(project, { parsedContext }));
+  const money = (n) => {
+    const amount = Number(n || 0);
+    const formatted = Math.abs(Math.round(amount)).toLocaleString();
+    return amount < 0 ? `-$${formatted}` : `$${formatted}`;
+  };
+  const losing = rows.filter((row) => Number(row.projectedProfit) < 0);
+  if (rows.length === 0) return 'No projects in this view yet.';
+  if (losing.length === 0) {
+    const finished = rows.filter((row) => row.isCompleted);
+    if (finished.length === rows.length) {
+      const net = finished.reduce((sum, row) => sum + Number(row.projectedProfit || 0), 0);
+      const job = finished.length === 1
+        ? `**${finished[0].title}** is finished with **${money(finished[0].projectedProfit)}** net profit.`
+        : `${finished.length} finished jobs, with **${money(net)}** net profit.`;
+      return `None of your jobs are losing money. ${job}`;
+    }
+    return 'None of your jobs are losing money.';
+  }
+  const lines = losing.map((row) => `• **${row.title}** — ${row.profitLabel || 'Profit'} ${money(row.projectedProfit)}`);
+  return [`${losing.length === 1 ? '1 job is' : `${losing.length} jobs are`} losing money:`, '', ...lines].join('\n');
 }
 
 function createProfitLeak({
@@ -1932,11 +2376,14 @@ function collectUpcomingCalendarEvents({
   return out;
 }
 
-function buildCalendarEventsReply({ events = [], filterLabel = null } = {}) {
+function buildCalendarEventsReply({ events = [], filterLabel = null, readOnly = false } = {}) {
   const list = Array.isArray(events) ? events : [];
   const suffix = filterLabel ? ` (${filterLabel})` : '';
   if (!list.length) {
-    return `### 📅 Upcoming events${suffix}\n\nNo matching events in your **Project Calendar** for **active projects** over the next several weeks.\n\n_Add events in **Project → Calendar**, or ask me to **schedule** one (e.g. “Schedule an inspection on 2026-04-01 for [project]”). Completed jobs are excluded._`;
+    const addLine = readOnly
+      ? '_Add events in **Project → Calendar**. Completed jobs are excluded._'
+      : '_Add events in **Project → Calendar**, or ask me to **schedule** one (e.g. “Schedule an inspection on 2026-04-01 for [project]”). Completed jobs are excluded._';
+    return `### 📅 Upcoming events${suffix}\n\nNo matching events in your **Project Calendar** for **active projects** over the next several weeks.\n\n${addLine}`;
   }
   let r = `### 📅 Your upcoming events${suffix}\n\n`;
   for (const ev of list.slice(0, 30)) {
@@ -1956,8 +2403,9 @@ function buildCalendarAndPaymentsCombinedReply({
   events = [],
   paymentBuckets = { upcoming: [], overdue: [], unscheduled: [] },
   filterLabel = null,
+  readOnly = false,
 } = {}) {
-  const calPart = buildCalendarEventsReply({ events, filterLabel });
+  const calPart = buildCalendarEventsReply({ events, filterLabel, readOnly });
   const dedupePayments = (items) => {
     const seen = new Set();
     return (Array.isArray(items) ? items : []).filter((payment) => {
@@ -2614,6 +3062,452 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
   }
 }
 
+/** Closing line for the original-estimate answer. Finished jobs use the actual result. */
+function finishedJobActualsNote(snapshot) {
+  if (
+    snapshot?.forecastMethod !== 'completed' ||
+    snapshot.spent == null ||
+    !Number.isFinite(Number(snapshot.projectedProfit))
+  ) {
+    return 'That is different from the current projected profit, which uses actual spend and progress.';
+  }
+  const profit = Math.round(Number(snapshot.projectedProfit));
+  const spent = Math.round(Number(snapshot.spent));
+  return `The finished result is $${profit.toLocaleString()} net profit on $${spent.toLocaleString()} spent.`;
+}
+
+const CENTRAL_COMMAND_INTENT_LABELS = new Set([
+  'profit',
+  'margin',
+  'labor_budget',
+  'material_budget',
+  'spent',
+  'forecast',
+  'payee',
+  'payment',
+  'collected',
+  'incoming',
+  'worth',
+  'remaining_budget',
+  'budget_status',
+  'unknown',
+]);
+
+function centralCommandIntentExcluded(text) {
+  return (
+    /\bhealth\s+check\b/i.test(text) ||
+    /\b(what[- ]if|scenario|typical friction|bad remodel|runs long)\b/i.test(text) ||
+    /\b(compare|calendar|receipt|1099|w-?9|w-?2)\b/i.test(text) ||
+    /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(text) ||
+    /\b(weather|rain|temperature|storm|snow)\b/i.test(text) ||
+    isPortfolioLosingMoneyQuery(text) ||
+    isPortfolioOverBudgetListQuery(text) ||
+    isPortfolioBudgetRisksQuery(text) ||
+    isCalendarEventsListQuery(text)
+  );
+}
+
+function isPaymentSnapshotIntent(text) {
+  return /\b(when am i getting paid|next payment|upcoming payments?|payments? due|my next payment|what payments?|review payments?|overdue payments?|payments? (?:are )?(?:due|overdue|coming)|getting paid|left to collect|still (?:owed|to collect))\b/i.test(text);
+}
+
+function isCollectedTotalIntent(text) {
+  if (/\b(mark|record|set)\b/i.test(text)) return false;
+  return /\b(?:how much (?:have )?(?:i|we) collected|collected so far|have i collected)\b/i.test(text);
+}
+
+function isIncomingPaymentIntent(text) {
+  return /\b(?:still coming in|coming in on|left to come in|still to come in|how much is still coming)\b/i.test(text);
+}
+
+function isWorryQuery(text) {
+  return /\b(?:which|what)\s+(?:job|project)\s+should\s+i\s+worry\b|\bworry about most\b|\bwhat should i worry about\b/i.test(text);
+}
+
+function isPercentChangeQuestion(text) {
+  const q = String(text || '');
+  if (!/\d+\s*%/.test(q)) return false;
+  return /\b(?:goes?\s+up|go(?:es)?\s+up|increase[sd]?|rise[sd]?|goes?\s+down|decrease[sd]?|drops?)\b/i.test(q);
+}
+
+function isCategoryBudgetQuestion(text) {
+  return categoryBudgetChoice(text) != null;
+}
+
+function categoryBudgetChoice(text) {
+  const labor = /\b(?:labor|labour)\b/i.test(text);
+  const material = /\bmaterials?\b/i.test(text);
+  if (!labor && !material) return null;
+  if (!/\b(budget|number|under|over|spent|cost)\b/i.test(text)) return null;
+  const direct = !/\b(under|over|am i|are we)\b/i.test(text);
+  return {
+    intent: labor && !material ? 'labor_budget' : 'material_budget',
+    payeeName: null,
+    ...(direct ? { direct: true } : {}),
+  };
+}
+
+function isRemainingBudgetSnapshotIntent(text) {
+  return (
+    /\b(?:remaining|left)\b[\s\S]{0,40}\b(?:cost|budget|spend|to spend)\b/i.test(text) ||
+    /\b(?:cost|budget)\b[\s\S]{0,24}\bleft\b/i.test(text) ||
+    /\bleft to spend\b/i.test(text)
+  );
+}
+
+function isBudgetStatusSnapshotIntent(text) {
+  return /\b(over|under|within)\s+budget\b|\bbudget status\b|\bam i over budget\b/i.test(text);
+}
+
+function isForecastSnapshotIntent(text) {
+  if (/\b(weather|rain|temperature|storm|snow)\b/i.test(text)) return false;
+  return /\bforecast\b/i.test(text) || /\bcosts keep coming\b/i.test(text) || /\bif costs keep\b/i.test(text);
+}
+
+function extractCentralCommandPayeeName(message) {
+  const text = String(message || '');
+  const cost = text.match(/\b(?:what|how much) did ([a-z][a-z'’-]{1,40}(?:\s+[a-z][a-z'’-]{1,40})?) cost\b/i);
+  const paid = text.match(/\b(?:pay|paid)\s+([a-z][a-z'’-]{1,40})\b/i);
+  const raw = (cost && cost[1]) || (paid && paid[1]) || '';
+  const name = raw.replace(/^(?:the|a|my|our)\s+/i, '').trim();
+  if (!name || /^(?:i|me|we|us|you|it|job|project|this|that|labor|material|materials)$/i.test(name)) return null;
+  return name;
+}
+
+/**
+ * Closed label for a money question that missed the exact cards.
+ * The label is not an answer. Dollar amounts stay in the snapshot reply.
+ */
+function classifyCentralCommandIntent(message) {
+  const text = String(message || '').trim();
+  if (!text || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text)) return null;
+  const payeeName = extractCentralCommandPayeeName(text);
+  if (payeeName && /\b(cost|charge|pay|paid)\b/i.test(text)) return { intent: 'payee', payeeName };
+  if (isWorryQuery(text)) return null;
+  if (isCollectedTotalIntent(text)) return { intent: 'collected', payeeName: null };
+  if (isIncomingPaymentIntent(text)) return { intent: 'incoming', payeeName: null };
+  if (isPaymentSnapshotIntent(text)) return { intent: 'payment', payeeName: null };
+  const category = categoryBudgetChoice(text);
+  if (category) return category;
+  if (isRemainingBudgetSnapshotIntent(text)) return { intent: 'remaining_budget', payeeName: null };
+  if (isBudgetStatusSnapshotIntent(text)) return { intent: 'budget_status', payeeName: null };
+  if (isForecastSnapshotIntent(text)) return { intent: 'forecast', payeeName: null };
+  if (/\b(worth it|worth doing|worth taking)\b/i.test(text)) return { intent: 'worth', payeeName: null };
+  if (/\b(make money|made money|profitable|come out ahead|making enough)\b/i.test(text)) return { intent: 'profit', payeeName: null };
+  if (/\bmargin\b/i.test(text)) return { intent: 'margin', payeeName: null };
+  if (/\b(spent|spend)\b/i.test(text)) return { intent: 'spent', payeeName: null };
+  return null;
+}
+
+function needsCentralCommandIntentModel(message) {
+  const text = String(message || '').trim();
+  if (!text || classifyCentralCommandIntent(text) || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text)) return false;
+  return /\b(money|profit|margin|budget|spent|spend|cost|paid|pay|labor|materials?|forecast|payment|overdue|collect)\b/i.test(text);
+}
+
+function parseCentralCommandIntentChoice(raw, message) {
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+  }
+  const intent = String(parsed?.intent || 'unknown').toLowerCase();
+  if (!CENTRAL_COMMAND_INTENT_LABELS.has(intent)) return { intent: 'unknown', payeeName: null };
+  let payeeName = parsed?.payeeName == null ? null : String(parsed.payeeName).trim();
+  if (!payeeName || !String(message || '').toLowerCase().includes(payeeName.toLowerCase())) payeeName = null;
+  if (intent === 'payee' && !payeeName) return { intent: 'unknown', payeeName: null };
+  return { intent, payeeName };
+}
+
+function projectForCentralCommandIntent(projects, parsedContext = {}) {
+  const list = Array.isArray(projects) ? projects.filter(Boolean) : [];
+  const id = parsedContext?.projectId;
+  if (id != null) {
+    const byId = list.find((project) => String(project?.id) === String(id));
+    if (byId) return byId;
+  }
+  if (parsedContext?.currentProject) {
+    const resolved = resolveProjectByQuery(list, parsedContext.currentProject, { minScore: 35 }).project;
+    if (resolved) return resolved;
+  }
+  return list.length === 1 ? list[0] : null;
+}
+
+function categoryBudgetAmount(project, parsedContext, kind) {
+  const isLabor = kind === 'labor';
+  const estimateData = project?.estimateData || project?.projectData?.estimateData || parsedContext?.estimateData || {};
+  const buckets = project?.buckets || project?.projectData?.buckets || parsedContext?.buckets || [];
+  const onThisJob = isCurrentProjectMatch(project, parsedContext);
+  let budget = 0;
+  if (!isLabor && onThisJob && Number(parsedContext?.materialBudgetDirect) > 0) {
+    return Number(parsedContext.materialBudgetDirect);
+  }
+  if (isLabor) {
+    budget = Number(estimateData.laborTotal || project?.laborTotal || parsedContext?.laborTotal || 0);
+    if (!(budget > 0)) {
+      const laborLines = Array.isArray(estimateData.laborLineItems) ? estimateData.laborLineItems : [];
+      budget = laborLines.reduce((sum, item) => sum + (Number(item?.total) || Number(item?.amount) || Number(item?.cost) || 0), 0);
+    }
+    if (!(budget > 0)) {
+      budget = (Array.isArray(buckets) ? buckets : []).reduce((sum, bucket) => {
+        const name = String(bucket?.name || '').toLowerCase();
+        return name.includes('labor') || name.includes('labour')
+          ? sum + Number(bucket?.budget || bucket?.bidBudget || 0)
+          : sum;
+      }, 0);
+    }
+    return budget;
+  }
+  const lineItems = Array.isArray(estimateData.materialLineItems) ? estimateData.materialLineItems : [];
+  const cart = Array.isArray(estimateData.materialsCart) ? estimateData.materialsCart : [];
+  if (lineItems.length > 0) {
+    budget = lineItems.reduce((sum, item) => sum + (Number(item?.total) || Number(item?.unitCost) * (Number(item?.quantity) || 0) || 0), 0);
+  } else if (cart.length > 0) {
+    budget = cart.reduce((sum, item) => sum + (Number(item?.total) || 0), 0);
+  }
+  if (!(budget > 0)) {
+    const materialBuckets = onThisJob && Array.isArray(parsedContext?.buckets) && parsedContext.buckets.length
+      ? parsedContext.buckets
+      : buckets;
+    budget = (Array.isArray(materialBuckets) ? materialBuckets : []).reduce((sum, bucket) => {
+      const name = String(bucket?.name || '').toLowerCase();
+      const isMaterial = name.includes('material') || name.includes('equipment');
+      return isMaterial ? sum + Number(bucket?.budget || bucket?.bidBudget || 0) : sum;
+    }, 0);
+  }
+  if (!(budget > 0)) {
+    budget = Number(estimateData.materialTotal || project?.materialTotal || parsedContext?.materialTotal || 0);
+  }
+  return budget;
+}
+
+function categoryBudgetReply(project, parsedContext, kind, options = {}) {
+  const isLabor = kind === 'labor';
+  const title = project?.title || project?.name || parsedContext?.currentProject || 'This project';
+  const expenses = Array.isArray(project?.expenses)
+    ? project.expenses
+    : (Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : (parsedContext?.expenses || []));
+  const onThisJob = isCurrentProjectMatch(project, parsedContext);
+  const budget = categoryBudgetAmount(project, parsedContext, kind);
+  const spent = !isLabor && onThisJob && Number(parsedContext?.materialBudgetDirect) > 0
+    ? Number(parsedContext.materialSpentDirect || 0)
+    : (Array.isArray(expenses) ? expenses : []).reduce((sum, expense) => {
+      const category = String(expense?.category || '').toLowerCase();
+      const counts = isLabor
+        ? category.includes('labor')
+        : category.length > 0 && !category.includes('labor');
+      return counts ? sum + Number(expense?.amount || 0) : sum;
+    }, 0);
+  if (!(budget > 0)) return null;
+  const snapshot = getProjectFinancialSnapshot({
+    project,
+    parsedContext: isCurrentProjectMatch(project, parsedContext) ? parsedContext : {},
+  });
+  const finished = snapshot.forecastMethod === 'completed' || isTerminalProjectStatus(project?.status || parsedContext?.status);
+  const under = spent <= budget;
+  const label = isLabor ? 'labor' : 'material';
+  if (options.direct) {
+    const lines = [
+      `**${isLabor ? 'Labor' : 'Material'} budget — ${title}**`,
+      '',
+      `• **Budget:** $${Math.round(budget).toLocaleString()}`,
+      `• **Spent:** $${Math.round(spent).toLocaleString()}`,
+    ];
+    if (!finished) lines.push(`• **Remaining:** $${Math.round(Math.max(0, budget - spent)).toLocaleString()}`);
+    if (!finished && spent <= 0) lines.push('', `No ${label} costs have been logged yet.`);
+    return lines.join('\n');
+  }
+  const lead = finished
+    ? `${under ? 'Yes' : 'No'}. **${title}** finished ${under ? 'under' : 'over'} the ${label} budget.`
+    : `${under ? 'Yes' : 'No'}. **${title}** is ${under ? 'under' : 'over'} the ${label} budget.`;
+  const lines = [
+    lead,
+    '',
+    `**${isLabor ? 'Labor' : 'Material'} Budget**`,
+    `• **Total Budget**: $${Math.round(budget).toLocaleString()}`,
+    `• **Spent**: $${Math.round(spent).toLocaleString()}`,
+  ];
+  if (!finished) lines.push(`• **Remaining**: $${Math.round(Math.max(0, budget - spent)).toLocaleString()}`);
+  return lines.join('\n');
+}
+
+function buildCentralCommandIntentReply(choice, { projects = [], parsedContext = {}, now = new Date() } = {}) {
+  const intent = choice?.intent;
+  if (!intent || intent === 'unknown') return null;
+  const project = projectForCentralCommandIntent(projects, parsedContext);
+  const isCurrent = !!(project && isCurrentProjectMatch(project, parsedContext));
+  if (intent === 'payee') {
+    const probe = choice.payeeName ? `How much did I pay ${choice.payeeName}?` : '';
+    return probe ? buildSeparatePayeeReply(probe, projects) : null;
+  }
+  if (intent === 'payment' || intent === 'collected' || intent === 'incoming') {
+    const paymentBuckets = collectPaymentBuckets({
+      parsedContext,
+      projects,
+      currentProject: project,
+      now,
+    });
+    const paymentName = project?.title || project?.name || parsedContext?.currentProject || parsedContext?.projectName || 'your projects';
+    if (intent === 'collected') return buildCollectedTotalReply(paymentBuckets, paymentName);
+    if (intent === 'incoming') return buildIncomingTotalReply(paymentBuckets, paymentName);
+    const status = String(project?.status || parsedContext?.status || '').toLowerCase();
+    return buildPaymentStatusReply({
+      upcoming: paymentBuckets.upcoming,
+      overdue: paymentBuckets.overdue,
+      unscheduled: paymentBuckets.unscheduled,
+      collected: paymentBuckets.collected,
+      collectedCount: paymentBuckets.collectedCount,
+      finished: ['completed', 'complete', 'closed', 'done', 'finished'].includes(status),
+      fallbackProjectName: project?.title || project?.name || parsedContext?.currentProject || parsedContext?.projectName || 'your project',
+    });
+  }
+  if (!project) return null;
+  if (intent === 'labor_budget') return categoryBudgetReply(project, parsedContext, 'labor', { direct: choice.direct === true });
+  if (intent === 'material_budget') return categoryBudgetReply(project, parsedContext, 'material', { direct: choice.direct === true });
+  if (intent === 'remaining_budget') {
+    const snapshot = getProjectFinancialSnapshot({
+      project,
+      parsedContext: isCurrent ? parsedContext : {},
+    });
+    return buildRemainingBudgetReply({
+      projectName: project?.title || project?.name || 'This project',
+      snapshot,
+    });
+  }
+  if (intent === 'budget_status') {
+    const snapshot = getProjectFinancialSnapshot({
+      project,
+      parsedContext: isCurrent ? parsedContext : {},
+    });
+    return buildBudgetStatusReply({
+      projectName: project?.title || project?.name || 'This project',
+      budget: Number(snapshot.estimatedCost || 0),
+      spent: Number(snapshot.spent || 0),
+      finished: snapshot.forecastMethod === 'completed',
+    });
+  }
+  if (intent === 'worth') {
+    const snapshot = getProjectFinancialSnapshot({
+      project,
+      parsedContext: isCurrent ? parsedContext : {},
+    });
+    const margin = snapshot.projectedMarginPct ?? snapshot.bidMarginPct;
+    if (margin == null) return null;
+    return buildMakingEnoughReply(
+      project?.title || project?.name || 'This project',
+      margin,
+      snapshot.dataQuality
+    );
+  }
+  if (intent === 'profit' || intent === 'margin') {
+    return buildMarginReplyForProject(project, { parsedContext, isCurrent })?.reply || null;
+  }
+  if (intent === 'forecast') {
+    return buildFinishedJobForecastReply(project, { parsedContext, isCurrent })
+      || buildLiveForecastReply(project, { parsedContext, isCurrent })
+      || null;
+  }
+  if (intent === 'spent') {
+    const snapshot = getProjectFinancialSnapshot({
+      project,
+      parsedContext: isCurrent ? parsedContext : {},
+    });
+    if (snapshot.spent == null) return null;
+    const title = project?.title || project?.name || 'This project';
+    const money = Number(snapshot.spent).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    return `**Spent — ${title}**\n\n• Spent: ${money}`;
+  }
+  return null;
+}
+
+/**
+ * Central Command money and payee questions that missed every built-in handler.
+ * These must not be written by the model.
+ */
+/** Synchronous snapshot answer. Null means a later handler may still own the question. */
+function buildPercentChangeReply(message, project, parsedContext = {}) {
+  if (!project || !isPercentChangeQuestion(message)) return null;
+  const pctMatch = String(message || '').match(/(\d+(?:\.\d+)?)\s*%/);
+  const pct = pctMatch ? Number(pctMatch[1]) : 0;
+  if (!(pct > 0) || pct > 100) return null;
+  const down = /\b(?:down|decrease|drop|lower)\b/i.test(message);
+  const isLabor = /\b(?:labor|labour)\b/i.test(message);
+  const isMaterial = /\bmaterials?\b/i.test(message);
+  const kind = isLabor && !isMaterial ? 'labor' : (isMaterial && !isLabor ? 'material' : null);
+  const title = project?.title || project?.name || 'This project';
+  const money = (n) => `$${Math.round(Number(n || 0)).toLocaleString()}`;
+  const snapshot = getProjectFinancialSnapshot({
+    project,
+    parsedContext: isCurrentProjectMatch(project, parsedContext) ? parsedContext : {},
+  });
+  const revenue = Number(snapshot.revenue || 0);
+  const baseProfit = snapshot.projectedProfit != null ? Number(snapshot.projectedProfit) : null;
+  const baseMargin = snapshot.projectedMarginPct != null ? Number(snapshot.projectedMarginPct) : null;
+  let base = 0;
+  let label = 'cost budget';
+  if (kind) {
+    base = categoryBudgetAmount(project, parsedContext, kind);
+    label = kind === 'labor' ? 'labor budget' : 'material budget';
+  } else {
+    base = Number(snapshot.estimatedCost || 0);
+  }
+  if (!(base > 0) || !(revenue > 0) || baseProfit == null) {
+    const which = kind === 'labor' ? 'labor budget' : kind === 'material' ? 'material budget' : 'cost budget';
+    return `I don't have a ${which} on **${title}**, so I won't guess what a ${pct}% change does.`;
+  }
+  const delta = base * (pct / 100);
+  const signed = down ? -delta : delta;
+  const newProfit = baseProfit - signed;
+  const newMargin = (newProfit / revenue) * 100;
+  const fromMargin = baseMargin != null ? baseMargin : ((baseProfit / revenue) * 100);
+  const drop = fromMargin - newMargin;
+  const verb = down ? 'decrease' : 'increase';
+  const direction = down ? 'rises' : 'drops';
+  const lines = [
+    `${kind === 'labor' ? 'Labor' : kind === 'material' ? 'Materials' : 'Cost'} is budgeted at **${money(base)}**. A ${pct}% ${verb} ${down ? 'removes' : 'adds'} **${money(delta)}** ${down ? 'from' : 'to'} cost.`,
+    '',
+    `• **Projected profit:** ${direction} from **${money(baseProfit)}** to **${money(newProfit)}**`,
+    `• **Projected margin:** ${direction} from **${fromMargin.toFixed(1)}%** to **${newMargin.toFixed(1)}%**`,
+    `• **Impact:** about ${Math.abs(drop).toFixed(1)} margin points`,
+  ];
+  if (snapshot.dataQuality?.hasActivity !== true) {
+    lines.push('', `No costs have been logged yet, so this uses the ${label}.`);
+  }
+  return lines.join('\n');
+}
+
+function trySnapshotTopicReply(message, ctx = {}) {
+  if (isPercentChangeQuestion(message)) {
+    const project = projectForCentralCommandIntent(ctx.projects, ctx.parsedContext);
+    const changeReply = project ? buildPercentChangeReply(message, project, ctx.parsedContext || {}) : null;
+    if (changeReply) return changeReply;
+  }
+  if (isWorryQuery(message)) {
+    return buildWorryReply(ctx.projects, { now: ctx.now || new Date() });
+  }
+  const choice = classifyCentralCommandIntent(message);
+  if (choice && choice.intent !== 'unknown') {
+    const reply = buildCentralCommandIntentReply(choice, ctx);
+    if (reply) return reply;
+  }
+  return unknownFutureCostReply(message, projectForCentralCommandIntent(ctx.projects, ctx.parsedContext));
+}
+
+function isUngroundedCentralCommandMoneyQuestion(message) {
+  const text = String(message || '');
+  if (/\bhealth\s+check\b/i.test(text)) return false;
+  if (/\b(what[- ]if|scenario|typical friction|bad remodel|runs long)\b/i.test(text)) return false;
+  if (/\b(compare|losing money|calendar|receipt|1099|w-9|w-2)\b/i.test(text)) return false;
+  return (
+    /\bmargin\b/i.test(text) ||
+    /\bforecast\b/i.test(text) ||
+    /\b(over|under)\s+budget\b/i.test(text) ||
+    /\bhow much (?:did|have) (?:i|we) pay\b/i.test(text) ||
+    /\bwho did i pay\b/i.test(text) ||
+    /\b(?:projected|expected)\s+profit\b/i.test(text) ||
+    /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(text)
+  );
+}
+
 module.exports = {
   normalizeAiMessageForIntent,
   isPortfolioLosingMoneyQuery,
@@ -2660,13 +3554,27 @@ module.exports = {
   computeMarginAtProgress,
   buildMarginAtProgressReply,
   buildMarginReplyForProject,
+  buildFinishedJobForecastReply,
+  buildLiveForecastReply,
+  buildSeparatePayeeReply,
+  finishedJobActualsNote,
+  isUngroundedCentralCommandMoneyQuestion,
+  classifyCentralCommandIntent,
+  needsCentralCommandIntentModel,
+  parseCentralCommandIntentChoice,
+  buildCentralCommandIntentReply,
+  trySnapshotTopicReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,
   resolveProjectByQuery,
   isCurrentProjectMatch,
   collectPaymentBuckets,
+  overduePaymentBriefLine,
+  buildHealthPaymentInsights,
   buildPaymentStatusReply,
+  buildRemainingBudgetReply,
   buildBudgetStatusReply,
+  buildPortfolioLosingMoneyReply,
   buildProjectProfitLeaks,
   buildDailyCommandCenter,
   buildProfitLeakPromptBlock,
