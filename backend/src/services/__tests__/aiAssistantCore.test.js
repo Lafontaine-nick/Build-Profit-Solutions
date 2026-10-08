@@ -39,6 +39,8 @@ const {
   parseCustomRemainingCostIncrease,
   buildRemainingCostIncreaseReply,
   isCalendarEventsListQuery,
+  buildCalendarAndPaymentsCombinedReply,
+  buildCentralCommandReadOnlyReply,
   isCalendarEventCreateQuery,
   shouldUseCalendarCreateParser,
 } = require('../aiAssistantCore');
@@ -246,6 +248,45 @@ describe('aiAssistantCore', () => {
 
     expect(parsed.needsMore).toBe('details_and_date');
     expect(parsed.ok).toBe(false);
+  });
+
+  test('a calendar question lists payment dates on the day they are due', () => {
+    expect(isCalendarEventsListQuery('What does my calendar look like?')).toBe(true);
+    const buckets = collectPaymentBuckets({
+      currentProject: {
+        id: '1790902852864',
+        title: 'Electrical Estimate Draft',
+        status: 'active',
+        milestones: [
+          { title: 'Week 2 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-09-29' },
+          { title: 'Week 3 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-10-06' },
+          { title: 'Week 4 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-10-13' },
+          { title: 'Final Holdback', amount: 1373, status: 'pending', plannedDate: '2026-11-03' },
+        ],
+      },
+      now: new Date('2026-10-08T18:00:00'),
+    });
+    const reply = buildCalendarAndPaymentsCombinedReply({ events: [], paymentBuckets: buckets, readOnly: true });
+    expect(reply).toContain('**Payment calendar**');
+    expect(reply).toContain('Week 2 Progress Payment');
+    expect(reply).toContain('was due September 29, 2026');
+    expect(reply).toContain('was due October 6, 2026');
+    expect(reply).toContain('due October 13, 2026');
+    expect(reply).toContain('due November 3, 2026');
+    expect(reply).not.toContain('Sep 28');
+    expect(reply).not.toContain('no scheduled milestones');
+    expect(reply).toContain('No inspection, delivery, or work events are on the calendar.');
+
+    const inspections = buildCalendarAndPaymentsCombinedReply({
+      events: [],
+      paymentBuckets: buckets,
+      filterLabel: 'Inspection',
+      readOnly: true,
+    });
+    expect(inspections.startsWith('No inspections are coming up.')).toBe(true);
+    expect(inspections).toContain('The dates I do have are payments:');
+    expect(inspections).toContain('was due September 29, 2026');
+    expect(inspections).not.toContain('**Payment calendar**');
   });
 
   test('routes calendar reads and creates as calendar capabilities', () => {
@@ -1210,6 +1251,88 @@ describe('aiAssistantCore', () => {
     expect(whatIf).toContain('8.4%');
     expect(whatIf).not.toContain('Margin Summary');
     expect(whatIf).not.toContain('change order');
+
+    const progress = replyFor('How far along is this job?');
+    expect(progress).toContain('**Electrical Estimate Draft** is **25%** complete.');
+    expect(progress).not.toContain('health check');
+
+    const none = replyFor('Any change orders on this job?');
+    expect(none).toBe('No change orders on **Electrical Estimate Draft**.');
+    expect(classifyCentralCommandIntent('Create a change order')).toBeNull();
+
+    const withOrder = trySnapshotTopicReply('Any change orders on this job?', {
+      projects: [{
+        ...current,
+        changeOrders: [{ title: 'Extra outlets', amount: 800, status: 'approved', approved: true }],
+      }],
+      parsedContext: { projectId: current.id, currentProject: current.title },
+      now: ctx.now,
+    });
+    expect(withOrder).toContain('1 change order on **Electrical Estimate Draft**');
+    expect(withOrder).toContain('**Extra outlets** — $800, approved');
+
+    expect(isCentralCommandMutationRequest('Do I have any open purchase orders?')).toBe(false);
+    expect(isCentralCommandMutationRequest('Create a purchase order')).toBe(true);
+    expect(classifyCentralCommandIntent('Create a purchase order')).toBeNull();
+    const noOrders = replyFor('Do I have any open purchase orders?');
+    expect(noOrders).toBe('No open purchase orders on **Electrical Estimate Draft**.');
+    expect(noOrders).not.toContain('health check');
+
+    const withPo = trySnapshotTopicReply('Do I have any open purchase orders?', {
+      projects: [{
+        ...current,
+        purchaseOrders: [
+          { poNumber: 'PO-100', vendor: 'Home Depot', amount: 420, status: 'Pending' },
+          { poNumber: 'PO-101', vendor: "Lowe's", amount: 80, status: 'Received' },
+        ],
+      }],
+      parsedContext: { projectId: current.id, currentProject: current.title },
+      now: ctx.now,
+    });
+    expect(withPo).toContain('1 open purchase order on **Electrical Estimate Draft**');
+    expect(withPo).toContain('**PO-100** — Home Depot, $420, pending');
+    expect(withPo).not.toContain('PO-101');
+
+    const markup = replyFor("What's my markup?");
+    expect(markup).toContain('**Markup:** 16.6%');
+    expect(markup).toContain('**Margin:** 14.2%');
+    expect(markup).toContain('**Cost budget:** $23,550');
+    expect(markup).toContain('**Contract:** $27,460');
+    expect(markup).not.toContain('19.2%');
+    expect(markup).not.toContain('16.1%');
+
+    const definition = replyFor('What is the difference between markup and margin?');
+    expect(definition).toContain('**Markup** is profit divided by cost');
+    expect(definition).toContain('**Margin** is profit divided by the selling price');
+    expect(definition).not.toContain('Margin Summary');
+    expect(definition).not.toContain('14.2%');
+    expect(definition).not.toContain('$3,910');
+
+    const cashFlow = replyFor('Why can a profitable job still have cash flow problems?');
+    expect(cashFlow).toContain('short on cash');
+    expect(cashFlow).toContain('**$3,910**');
+    expect(cashFlow).toContain('**$10,298**');
+    expect(cashFlow).not.toContain('Margin Summary');
+
+    const guarantee = replyFor('Can you guarantee this job will be profitable?');
+    expect(guarantee).toContain("I can't guarantee");
+    expect(guarantee).toContain('**14.2%**');
+    expect(guarantee).not.toContain('Margin Summary');
+
+    const lowest = replyFor('Which job has the lowest margin?');
+    expect(lowest).toContain('**Electrical Estimate Draft** has the lowest margin');
+    expect(lowest).toContain('**14.2%**');
+    expect(lowest).toContain('**Quiet Remodel**');
+    expect(lowest).not.toContain('Margin Summary');
+
+    expect(buildCentralCommandReadOnlyReply('Schedule an inspection for tomorrow', 'Electrical Estimate Draft'))
+      .toContain('Open the project Timeline for **Electrical Estimate Draft**');
+    expect(buildCentralCommandReadOnlyReply('Add a $500 lumber expense from Home Depot'))
+      .toContain('Open the project Budget');
+    expect(buildCentralCommandReadOnlyReply('Add a $500 lumber expense from Home Depot'))
+      .toContain('material');
+    expect(buildCentralCommandReadOnlyReply('Schedule an inspection for tomorrow'))
+      .not.toContain('Central Command is read-only');
   });
 
   test('a money question that missed a built-in path is not for the model', () => {

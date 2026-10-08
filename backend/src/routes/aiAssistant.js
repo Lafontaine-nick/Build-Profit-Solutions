@@ -78,6 +78,7 @@ const {
   parseCentralCommandIntentChoice,
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
+  buildCentralCommandReadOnlyReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,
   resolveProjectByQuery,
@@ -7313,7 +7314,10 @@ router.post('/stream', async (req, res) => {
       (isCentralCommandMutationRequest(message) || isCalendarWriteStream)
     ) {
       const reply = appendDataFreshness(
-        'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
+        buildCentralCommandReadOnlyReply(
+          message,
+          parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle
+        ),
         parsedContext
       );
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -8358,7 +8362,10 @@ router.post('/', async (req, res) => {
     ) {
       return res.json({
         reply: appendDataFreshness(
-          'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
+          buildCentralCommandReadOnlyReply(
+          message,
+          parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle
+        ),
           parsedContext
         ),
         actions: [],

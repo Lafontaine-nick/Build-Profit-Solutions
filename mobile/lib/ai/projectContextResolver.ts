@@ -78,6 +78,31 @@ export function isExplicitExpenseLogQuery(query: string): boolean {
   );
 }
 
+export function buildCentralCommandReadOnlyReply(message: string, projectName?: string): string {
+  const name = String(projectName || '').trim();
+  const job = name ? ` for **${name}**` : '';
+  const text = String(message || '');
+  if (/\b(inspection|delivery|meeting|appointment)\b/i.test(text)) {
+    return `I can't add that from here. Open the project Timeline${job} and put it on the calendar. I can still tell you what's already scheduled.`;
+  }
+  if (/\bpurchase\s+orders?\b|\bpo\b/i.test(text)) {
+    return `I can't create that from here. Open the project Budget${job} and add the purchase order there. I can still tell you which orders are already open.`;
+  }
+  if (/\b(labor|labour)\b/i.test(text)) {
+    return `I can't log that from here. Open the project Budget${job} and record it as labor. I can still tell you the labor budget and what's been spent.`;
+  }
+  if (/\b(material|materials|lumber|expense|spent|bought|purchased)\b/i.test(text)) {
+    return `I can't record that from here. Open the project Budget${job} and add it as material. I can still tell you the material budget and what's been spent.`;
+  }
+  if (/\bchange\s+orders?\b/i.test(text)) {
+    return `I can't create a change order from here. Add it on the project Budget${job}. I can still tell you whether this job already has change orders.`;
+  }
+  if (/\bpayments?\b/i.test(text)) {
+    return `I can't update a payment from here. Change it on the project Timeline${job}. I can still tell you what's overdue and what's coming in.`;
+  }
+  return `I can't change saved data from here. Open the project Budget${job} to record material, labor, or a purchase order, or the Timeline to add a date. I can still answer questions about the numbers.`;
+}
+
 export function isWriteOrMutationRequest(query: string): boolean {
   const text = String(query || '').toLowerCase();
   // Reading the schedule contains the word "schedule", but must not be
@@ -147,6 +172,18 @@ export function isSnapshotTopicQuery(query: string): boolean {
   if (/\b(?:collected so far|have i collected|how much (?:have )?(?:i|we) collected|still coming in|coming in on)\b/i.test(q)) return true;
   if (/\bworth it\b|\bworth doing\b/i.test(q)) return true;
   if (/\d+\s*%/.test(q) && /\b(?:goes?\s+up|go(?:es)?\s+up|increase[sd]?|rise[sd]?|goes?\s+down|decrease[sd]?)\b/i.test(q)) return true;
+  if (/\bhow far along\b|\bpercent(?:age)? complete\b|\bhow much progress\b|\b(?:what(?:'s| is)|how(?:'s| is)) (?:my |the |our )?(?:job |project )?progress\b/i.test(q)) return true;
+  if (/\bmarkup\b/i.test(q) && !/\b(difference|versus|vs\.?|between|explain|mean|means)\b/i.test(q)) return true;
+  if (
+    /\bchange\s+orders?\b/i.test(q) &&
+    !/\b(create|add|make|start|new|draft|record|approve|delete|remove|edit|update|need|want)\b/i.test(q) &&
+    /\b(any|have|has|list|show|what|which|there|do i|do we|how many|on this|on the|on my)\b/i.test(q)
+  ) return true;
+  if (
+    /\bpurchase\s+orders?\b/i.test(q) &&
+    !/\b(create|add|make|start|new|draft|record|approve|delete|remove|edit|update|need|want|place|mark)\b/i.test(q) &&
+    /\b(any|have|has|list|show|what|which|there|do i|do we|how many|on this|on the|on my|open)\b/i.test(q)
+  ) return true;
   return false;
 }
 
@@ -158,6 +195,9 @@ export function detectProjectIntent(query: string): ProjectIntent {
     return { type: 'other', needsProject: true, analysisType: 'unspecified' };
   }
   if (/\bwhich\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money\b|\b(?:projects?|jobs?)\s+losing\s+money\b|\bwhere am i losing money\b/i.test(lowerQuery)) {
+    return { type: 'other', needsProject: false, analysisType: 'unspecified' };
+  }
+  if (/\bcompare(?:\s+all)?\s+(?:my\s+)?active\s+(?:projects?|jobs?|work)\b/i.test(lowerQuery)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
   if (/\b(?:which|what)\s+(?:job|project)\s+should\s+i\s+worry\b|\bworry about most\b|\bwhat should i worry about\b/i.test(lowerQuery)) {
@@ -288,7 +328,7 @@ export const PORTFOLIO_ACTIVE_PROFIT_PATTERN =
   /\b(?:projected\s+)?(?:profit|margin|forecast)\b[\s\S]{0,40}\b(?:my\s+)?(?:active|current)\s+(?:jobs?|projects?)\b|\b(?:my\s+)?(?:active|current)\s+(?:jobs?|projects?)\b[\s\S]{0,40}\b(?:profit|margin|forecast)\b/i;
 
 /** Phrases that mean "all active projects" / compare scope — never ask "which project?"; send to backend so it can say "You have no active projects" if needed. */
-const PORTFOLIO_ACTIVE_PROJECTS_PATTERN = /\b(where am I losing money|losing money across|which\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money|(?:projects?|jobs?)\s+losing\s+money|profit leak|biggest profit leak|show me the biggest profit leak|across my active projects|across all active projects|compare (all )?my active projects|current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?))\b/i;
+const PORTFOLIO_ACTIVE_PROJECTS_PATTERN = /\b(where am I losing money|losing money across|which\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money|(?:projects?|jobs?)\s+losing\s+money|profit leak|biggest profit leak|show me the biggest profit leak|across my active projects|across all active projects|compare(?:\s+all)?\s+my\s+active\s+(?:projects?|jobs?|work)|current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?))\b/i;
 /** Phrases that mean "completed projects" / compare scope — never ask "which project?"; backend will list completed and where they lost/could have made more. */
 const PORTFOLIO_COMPLETED_PROJECTS_PATTERN = /\b(yes\s+)?(completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|profit\s+(on\s+)?completed)\b/i;
 /** Phrases that mean "which projects are over budget" — never ask "which project?"; backend will list active + completed over budget and by how much. */

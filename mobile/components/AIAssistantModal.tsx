@@ -59,6 +59,7 @@ import {
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
   isWriteOrMutationRequest,
+  buildCentralCommandReadOnlyReply,
   isExplicitExpenseLogQuery,
   SCENARIO_SELECTION_ID_PATTERN,
   type UIState,
@@ -3219,7 +3220,7 @@ const AIAssistantModal: React.FC<Props> = ({
           id: `${Date.now()}-read-only`,
           role: 'assistant',
           content:
-            `Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.\n\n_Numbers reflect your project data as of **${asOf}**. Pull to refresh if you’ve updated costs._`,
+            `${buildCentralCommandReadOnlyReply(messageToSend, parsedContext?.currentProject || parsedContext?.projectName)}\n\n_Numbers reflect your project data as of **${asOf}**. Pull to refresh if you’ve updated costs._`,
           timestamp: new Date(),
         },
       ]);

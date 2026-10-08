@@ -4,6 +4,7 @@ import {
   isConversationCancelQuery,
   isExplicitExpenseLogQuery,
   isWriteOrMutationRequest,
+  buildCentralCommandReadOnlyReply,
   resolveProjectContext,
   PORTFOLIO_ACTIVE_PROFIT_PATTERN,
 } from '@/lib/ai/projectContextResolver';
@@ -37,6 +38,15 @@ describe('projectContextResolver conversation routing', () => {
     expect(isExplicitExpenseLogQuery('How is it going today?')).toBe(false);
     expect(isExplicitExpenseLogQuery('How much of my cost budget have I spent?')).toBe(false);
     expect(isExplicitExpenseLogQuery('What type of labor is on this job?')).toBe(false);
+  });
+
+  test('a read-only refusal points to Budget or Timeline', () => {
+    expect(buildCentralCommandReadOnlyReply('Schedule an inspection for tomorrow', 'Electrical Estimate Draft'))
+      .toContain('Open the project Timeline for **Electrical Estimate Draft**');
+    expect(buildCentralCommandReadOnlyReply('Add a $500 lumber expense from Home Depot'))
+      .toContain('add it as material');
+    expect(buildCentralCommandReadOnlyReply('Create a purchase order'))
+      .toContain('purchase order');
   });
 
   test('recognizes cancel and read-only write requests', () => {
@@ -178,6 +188,10 @@ describe('projectContextResolver conversation routing', () => {
       'How much labor budget do I have left?',
       'Is this job worth it?',
       'What happens to my profit if labor goes up 10%?',
+      'How far along is this job?',
+      'Any change orders on this job?',
+      'Do I have any open purchase orders?',
+      "What's my markup?",
     ];
     for (const question of questions) {
       const result = detectProjectIntent(question);
@@ -195,6 +209,25 @@ describe('projectContextResolver conversation routing', () => {
     expect(result.type).toBe('other');
     expect(result.needsProject).toBe(true);
     expect(result.analysisType).toBe('unspecified');
+  });
+
+  test('compares active jobs without a health-check fork', () => {
+    const result = detectProjectIntent('Compare my active jobs');
+    expect(result.type).toBe('other');
+    expect(result.needsProject).toBe(false);
+    const resolved = resolveProjectContext(
+      'Compare my active jobs',
+      { currentScreen: 'AI Assistant Tab' },
+      [
+        { id: 'p1', title: 'Electrical Estimate Draft', status: 'in_progress', isActive: true },
+        { id: 'p2', title: 'Kitchen Remodel', status: 'won', isActive: true },
+      ]
+    );
+    expect(resolved.needsClarification).toBe(false);
+    expect(resolved.projectId).toBeNull();
+    const definition = detectProjectIntent('What is the difference between markup and margin?');
+    expect(definition.type).toBe('other');
+    expect(definition.type).not.toBe('project_analysis');
   });
 
   test('treats which job to worry about as a portfolio question', () => {
