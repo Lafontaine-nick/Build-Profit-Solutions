@@ -38,7 +38,7 @@ import {
   applyWorkspaceTimelineProgressToMaps,
   loadWorkspaceTimelineProgressByProjectId,
 } from '@/utils/workspaceTimelineProgress';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, PROJECT_WIDE_CONTAINER_CARD_INSET, getWideContainerInset } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
@@ -1007,12 +1007,12 @@ export default function ProjectsScreen() {
   };
 
   return (
-    <SafeAreaView
+    <View
       style={[
         styles.root,
+        { paddingTop: insets.top },
         Platform.OS === "web" && desktopWeb && styles.rootDesktopWeb,
       ]}
-      edges={['top']}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       <View style={{ flex: 1 }}>
@@ -1474,7 +1474,7 @@ export default function ProjectsScreen() {
           </FirstEstimateWalkthroughSheetShell>
         </View>
       ) : null}
-    </SafeAreaView>
+    </View>
   );
 }
 

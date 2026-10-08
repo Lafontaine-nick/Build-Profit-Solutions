@@ -1,6 +1,6 @@
 import { Tabs, useRouter, type Href } from 'expo-router';
 import React, { useMemo, useEffect, useRef, type ComponentType } from 'react';
-import { View, StyleSheet, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
+import { View, StyleSheet, useWindowDimensions, Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { HapticTab, PillHapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
 import { useTranslation } from 'react-i18next';
@@ -37,60 +37,44 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
   const showLeadsTab = canAccessEstimateAndLeads && isLeadsNetworkingReleased();
 
-  // Tabs are lazy: the first visit mounts a heavy screen on tap, which reads as a stutter.
-  // Preload them one at a time once Dashboard is idle so the first switch is instant.
+  // Tabs are lazy, and iOS detaches the hidden one: the first visit builds the page on tap (a blank-frame shutter).
+  // Mount each heavy tab once the Dashboard is idle. Retries cover a navigator that isn't ready yet.
   const prefetchedTabsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    const queue: { href: Href; delayMs: number }[] = [
-      { href: '/(tabs)/projects', delayMs: 800 },
-      ...(canAccessEstimateAndLeads ? [{ href: '/(tabs)/estimate-generator' as Href, delayMs: 2600 }] : []),
-      { href: '/(tabs)/assistant', delayMs: 4200 },
-    ].filter((item) => !prefetchedTabsRef.current.has(String(item.href)));
-    if (queue.length === 0) return;
+    let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const tasks: { cancel?: () => void }[] = [];
-    for (const item of queue) {
+    const prefetch = (href: Href, attempt = 0) => {
+      if (cancelled) return;
+      const key = String(href);
+      if (prefetchedTabsRef.current.has(key)) return;
+      try {
+        router.prefetch(href);
+        prefetchedTabsRef.current.add(key);
+      } catch {
+        if (attempt < 6) timers.push(setTimeout(() => prefetch(href, attempt + 1), 500));
+      }
+    };
+    timers.push(setTimeout(() => prefetch('/(tabs)/projects'), 600));
+    timers.push(setTimeout(() => prefetch('/(tabs)/assistant'), 4200));
+    if (canAccessEstimateAndLeads) {
       timers.push(
         setTimeout(() => {
-          tasks.push(
-            InteractionManager.runAfterInteractions(() => {
-              const key = String(item.href);
-              if (prefetchedTabsRef.current.has(key)) return;
-              prefetchedTabsRef.current.add(key);
-              try {
-                router.prefetch(item.href);
-              } catch {
-                prefetchedTabsRef.current.delete(key);
-              }
-            })
-          );
-        }, item.delayMs)
+          void import('@/app/(tabs)/estimate-generator')
+            .catch(() => undefined)
+            .then(() => prefetch('/(tabs)/estimate-generator'));
+        }, 1600)
       );
     }
     return () => {
+      cancelled = true;
       timers.forEach(clearTimeout);
-      tasks.forEach((task) => task.cancel?.());
     };
   }, [canAccessEstimateAndLeads, router]);
 
-  // Warm estimate AsyncStorage cache as soon as tabs mount; defer JS parse so Dashboard stays responsive.
+  // Warm estimate AsyncStorage cache as soon as tabs mount so the preloaded screen hydrates before the first tap.
   useEffect(() => {
     void warmEstimateStoragePreload();
-    let cancelled = false;
-    let clearTimer: (() => void) | undefined;
-    const task = InteractionManager.runAfterInteractions(() => {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        void import('@/app/(tabs)/estimate-generator').catch(() => undefined);
-      }, 2000);
-      clearTimer = () => clearTimeout(timer);
-    });
-    return () => {
-      cancelled = true;
-      task.cancel?.();
-      clearTimer?.();
-    };
   }, []);
 
   const screenOptions = useMemo(
@@ -220,7 +204,12 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   return (
     <>
       <ProfileCompletionReminder />
-      <Tabs initialRouteName="dashboard" screenOptions={screenOptions}>
+      <Tabs
+        initialRouteName="dashboard"
+        // iOS/Android detach a hidden tab, so the first visit flashes a blank frame while it reattaches.
+        detachInactiveScreens={Platform.OS === 'web'}
+        screenOptions={screenOptions}
+      >
       <Tabs.Screen
         name="dashboard"
         options={{

@@ -23092,9 +23092,12 @@ export default function EstimateGeneratorScreen() {
       .toUpperCase() || '👤';
 
   return (
-    <SafeAreaView
-      style={[s.container, Platform.OS === 'web' && desktopWeb && s.rootDesktopWeb]}
-      edges={['top']}
+    <View
+      style={[
+        s.container,
+        { paddingTop: insets.top },
+        Platform.OS === 'web' && desktopWeb && s.rootDesktopWeb,
+      ]}
     >
       <StatusBar barStyle="light-content" />
       <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
@@ -24095,6 +24098,6 @@ export default function EstimateGeneratorScreen() {
         onClose={() => setPricingFallbackVariant(null)}
       />
 
-    </SafeAreaView>
+    </View>
   );
 }
