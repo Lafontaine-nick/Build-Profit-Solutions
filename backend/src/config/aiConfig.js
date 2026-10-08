@@ -6,6 +6,7 @@ const MODEL_DEFAULTS = Object.freeze({
   assistant: Object.freeze({
     router: 'gpt-5.6-luna',
     response: 'gpt-5.6-terra',
+    centralCommand: 'gpt-6.1-sol',
     estimate: 'gpt-5.6-terra',
     vision: 'gpt-5.6-terra',
     transcription: 'whisper-1',
@@ -132,6 +133,7 @@ function getAiModels() {
     assistant: {
       router: process.env.AI_MODEL_ASSISTANT_ROUTER || MODEL_DEFAULTS.assistant.router,
       response: process.env.AI_MODEL_ASSISTANT_RESPONSE || MODEL_DEFAULTS.assistant.response,
+      centralCommand: process.env.AI_MODEL_CENTRAL_COMMAND || MODEL_DEFAULTS.assistant.centralCommand,
       estimate: process.env.AI_MODEL_ASSISTANT_ESTIMATE || process.env.AI_MODEL_ASSISTANT_RESPONSE || MODEL_DEFAULTS.assistant.estimate,
       vision: process.env.AI_MODEL_ASSISTANT_VISION || process.env.AI_MODEL_ASSISTANT_RESPONSE || MODEL_DEFAULTS.assistant.vision,
       transcription:

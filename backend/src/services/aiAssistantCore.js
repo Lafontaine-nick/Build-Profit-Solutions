@@ -32,8 +32,12 @@ const PORTFOLIO_FOCUS_TODAY_PATTERN =
   /\bwhat\s+should\s+i\s+focus(?:\s+on)?(?:\s+today)?\b|\bwhat\s+needs\s+attention\b|\bgive\s+me\s+my\s+top\s+priorities\b|\bwhat\s+are\s+my\s+top\s+priorities\b|\bneeds\s+my\s+attention\b|\bfocus\s+on\s+today\b/i;
 
 // Exclude "worst-case" (estimate scenario) — use worst(?!-) where relevant
+const LOWEST_MARGIN_PHRASE = String.raw`lowest\s+(?:(?:gross|profit)\s+){0,2}margin`;
 const PORTFOLIO_WORST_PROJECT_PATTERN =
-  /\b(?:which|what)\s+(?:job|project)\s+is\s+(?:the\s+)?worst(?!-)\b|\b(?:what|which)\s+is\s+(?:the\s+)?worst(?!-)\s+(?:job|project)\b|\b(?:worst(?!-)|lowest\s+margin)\s+(?:job|project)\b|\bwhich\s+(?:one|job|project)\s+has\s+(?:the\s+)?lowest\s+margin\b|\blowest\s+margin\s+(?:job|project|across)\b/i;
+  new RegExp(
+    String.raw`\b(?:which|what)\s+(?:job|project)\s+is\s+(?:the\s+)?worst(?!-)\b|\b(?:what|which)\s+is\s+(?:the\s+)?worst(?!-)\s+(?:job|project)\b|\b(?:worst(?!-)|${LOWEST_MARGIN_PHRASE})\s+(?:job|project)\b|\bwhich\s+(?:one|job|project)\s+has\s+(?:the\s+)?${LOWEST_MARGIN_PHRASE}\b|\b${LOWEST_MARGIN_PHRASE}\s+(?:job|project|across)\b`,
+    'i'
+  );
 
 function isPortfolioLosingMoneyQuery(message = '') {
   return PORTFOLIO_LOSING_MONEY_PATTERN.test(normalizeAiMessageForIntent(message));
@@ -403,6 +407,14 @@ const CENTRAL_COMMAND_READONLY_TOOLS = new Set([
   'get_timeline_items',
   'get_estimate',
   'run_scenario_analysis',
+  'get_project_budget',
+  'get_payment_schedule',
+  'get_change_orders',
+  'get_estimate_lines',
+  'get_purchase_orders',
+  'get_expenses',
+  'get_calendar',
+  'search_pricing_library',
 ]);
 
 function isCentralCommandReadOnlyTool(toolName) {
@@ -3118,6 +3130,7 @@ const CENTRAL_COMMAND_INTENT_LABELS = new Set([
   'change_orders',
   'purchase_orders',
   'markup',
+  'overhead',
   'remaining_budget',
   'budget_status',
   'unknown',
@@ -3203,14 +3216,127 @@ function isMarkupQuestion(text) {
   return true;
 }
 
+function statedDollarAmounts(text) {
+  return (String(text || '').match(/\$\s?[\d,]+(?:\.\d+)?/g) || [])
+    .map((raw) => Number(raw.replace(/[$,\s]/g, '')))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function statedMarginPercent(text) {
+  const match = String(text || '').match(/(\d+(?:\.\d+)?)\s*%\s*(?:gross\s+)?(?:profit\s+)?margin\b/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0 || value >= 100) return null;
+  return value;
+}
+
+/** A cost and a target margin the contractor stated. Not the saved job's margin card. */
+function isHypotheticalPriceQuestion(text) {
+  return statedDollarAmounts(text).length > 0 && statedMarginPercent(text) != null;
+}
+
+function isPriceRecalcFollowUp(text) {
+  const q = String(text || '');
+  if (isHypotheticalPriceQuestion(q)) return false;
+  return (
+    /\brecalculate\b/i.test(q) ||
+    (/\b(?:increased?|went up|added)\b/i.test(q) && /\$\s?[\d,]+/.test(q) && /\b(?:cost|material|price)\b/i.test(q))
+  );
+}
+
+function priceFromCostAndMargin(cost, marginPct) {
+  const price = cost / (1 - marginPct / 100);
+  return { price, profit: price - cost };
+}
+
+function buildHypotheticalPriceReply(message) {
+  const cost = statedDollarAmounts(message)[0];
+  const marginPct = statedMarginPercent(message);
+  if (!cost || marginPct == null) return null;
+  const { price, profit } = priceFromCostAndMargin(cost, marginPct);
+  return [
+    `Charge **${paymentMoney(price)}**.`,
+    `A **${marginPct}%** gross margin on **${paymentMoney(cost)}** of cost leaves **${paymentMoney(profit)}** of profit.`,
+    'That price is the cost divided by (1 − the margin). It is not a saved estimate.',
+  ].join('\n');
+}
+
+function buildPriceRecalcReply(message, history = []) {
+  if (!isPriceRecalcFollowUp(message)) return null;
+  const prior = [...(Array.isArray(history) ? history : [])]
+    .reverse()
+    .find((item) => item?.role === 'user' && isHypotheticalPriceQuestion(item.content || item.text || ''));
+  const priorText = prior?.content || prior?.text || '';
+  const base = statedDollarAmounts(priorText)[0];
+  const marginPct = statedMarginPercent(priorText);
+  const delta = statedDollarAmounts(message)[0];
+  if (!base || marginPct == null || !delta) return null;
+  const decreased = /\b(?:decreas|drop|down|less|reduc)/i.test(message);
+  const cost = decreased ? base - delta : base + delta;
+  if (!(cost > 0)) return null;
+  const { price, profit } = priceFromCostAndMargin(cost, marginPct);
+  const change = decreased ? 'minus' : 'plus';
+  return [
+    `Charge **${paymentMoney(price)}**.`,
+    `Cost is now **${paymentMoney(cost)}** (${paymentMoney(base)} ${change} **${paymentMoney(delta)}**).`,
+    `At a **${marginPct}%** gross margin, profit is **${paymentMoney(profit)}**.`,
+  ].join('\n');
+}
+
+function buildFocusTodayReply(projects, now = new Date()) {
+  const source = (Array.isArray(projects) ? projects : []).filter(Boolean);
+  const active = source.filter((project) => !isTerminalProjectStatus(project?.status || project?.projectData?.status));
+  const jobs = active.length ? active : source;
+  if (!jobs.length) return 'No jobs are loaded, so I cannot tell you what to focus on.';
+  const ranked = jobs.map((project) => {
+    const buckets = collectPaymentBuckets({ projects: [], currentProject: project, now });
+    const snapshot = getProjectFinancialSnapshot({ project, parsedContext: {} });
+    const overdueTotal = buckets.overdue.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    return { project, buckets, snapshot, overdueTotal };
+  }).sort((a, b) => b.overdueTotal - a.overdueTotal);
+  const top = ranked[0];
+  const title = top.project?.title || top.project?.name || 'This job';
+  const lines = [];
+  if (top.overdueTotal > 0) {
+    const names = top.buckets.overdue.map((payment) => payment.name);
+    const listText = names.length === 2 ? names.join(' and ') : names.join(', ');
+    lines.push(`**${listText}** ${names.length === 1 ? 'is' : 'are'} overdue on **${title}** (**${paymentMoney(top.overdueTotal)}**). Follow ${names.length === 1 ? 'that' : 'those'} up first.`);
+  } else {
+    lines.push(`No payments are overdue on **${title}**.`);
+  }
+  const next = top.buckets.upcoming[0];
+  if (next) {
+    const when = formatPaymentWhen(next);
+    lines.push(`**${next.name}** is due ${when || 'soon'} (**${paymentMoney(next.amount)}**).`);
+  }
+  const spent = Number(top.snapshot.spent || 0);
+  const budget = Number(top.snapshot.estimatedCost || 0);
+  if (spent <= 0) {
+    lines.push(`Nothing is over budget on **${title}**. No costs have been logged.`);
+  } else if (budget > 0 && spent > budget) {
+    lines.push(`**${title}** is over its cost budget. Spent is **${paymentMoney(spent)}**.`);
+  } else {
+    lines.push(`**${title}** is inside its cost budget. Spent is **${paymentMoney(spent)}**.`);
+  }
+  return ['Three things to focus on today:', '', ...lines.map((text, index) => `${index + 1}. ${text}`)].join('\n');
+}
+
 function isPercentChangeQuestion(text) {
   const q = String(text || '');
+  if (isHypotheticalPriceQuestion(q)) return false;
   if (!/\d+\s*%/.test(q)) return false;
   return /\b(?:goes?\s+up|go(?:es)?\s+up|increase[sd]?|rise[sd]?|goes?\s+down|decrease[sd]?|drops?)\b/i.test(q);
 }
 
 function isCategoryBudgetQuestion(text) {
   return categoryBudgetChoice(text) != null;
+}
+
+function isOverheadQuestion(text) {
+  const q = String(text || '');
+  if (!/\boverhead\b/i.test(q)) return false;
+  if (/\b(create|add|set|change|update|explain|difference)\b/i.test(q)) return false;
+  return true;
 }
 
 function categoryBudgetChoice(text) {
@@ -3269,6 +3395,7 @@ function classifyCentralCommandIntent(message) {
   if (isCollectedTotalIntent(text)) return { intent: 'collected', payeeName: null };
   if (isIncomingPaymentIntent(text)) return { intent: 'incoming', payeeName: null };
   if (isPaymentSnapshotIntent(text)) return { intent: 'payment', payeeName: null };
+  if (isOverheadQuestion(text)) return { intent: 'overhead', payeeName: null, direct: true };
   const category = categoryBudgetChoice(text);
   if (category) return category;
   if (isRemainingBudgetSnapshotIntent(text)) return { intent: 'remaining_budget', payeeName: null };
@@ -3277,7 +3404,7 @@ function classifyCentralCommandIntent(message) {
   if (isMarkupQuestion(text)) return { intent: 'markup', payeeName: null };
   if (/\b(worth it|worth doing|worth taking)\b/i.test(text)) return { intent: 'worth', payeeName: null };
   if (/\b(make money|made money|profitable|come out ahead|making enough)\b/i.test(text)) return { intent: 'profit', payeeName: null };
-  if (/\bmargin\b/i.test(text)) return { intent: 'margin', payeeName: null };
+  if (/\bmargin\b/i.test(text) && !isHypotheticalPriceQuestion(text)) return { intent: 'margin', payeeName: null };
   if (/\b(spent|spend)\b/i.test(text)) return { intent: 'spent', payeeName: null };
   return null;
 }
@@ -3361,6 +3488,82 @@ function categoryBudgetAmount(project, parsedContext, kind) {
     budget = Number(estimateData.materialTotal || project?.materialTotal || parsedContext?.materialTotal || 0);
   }
   return budget;
+}
+
+function positiveMoney(source, keys) {
+  if (!source) return 0;
+  for (const key of keys) {
+    const value = Number(source[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function overheadLineTotal(source) {
+  const lines = source?.overheadLineItems;
+  if (!Array.isArray(lines)) return 0;
+  return lines.reduce((sum, line) => sum + (Number(line?.amount ?? line?.total ?? line?.totalCost) || 0), 0);
+}
+
+function projectOverheadAmount(project, parsedContext = {}) {
+  const sources = [
+    parsedContext?.estimateData,
+    project?.estimateData,
+    project?.projectData?.estimateData,
+    project,
+    parsedContext,
+  ].filter(Boolean);
+  const pick = (...keys) => {
+    for (const source of sources) {
+      const amount = positiveMoney(source, keys);
+      if (amount > 0) return amount;
+    }
+    return 0;
+  };
+  const lineTotal = sources.reduce((max, source) => Math.max(max, overheadLineTotal(source)), 0);
+  const fromParts =
+    pick('insuranceOverhead') +
+    pick('equipmentMaintenance', 'equipmentMaintenanceOverhead') +
+    pick('facilities', 'facilitiesOverhead') +
+    pick('adminOverhead') +
+    pick('otherOverhead') +
+    lineTotal;
+  if (fromParts > 0) return fromParts;
+  const saved = pick('overheadTotal', 'projectOverhead', 'companyOverhead');
+  if (saved > 0) return saved;
+  const buckets = project?.buckets || project?.projectData?.buckets || parsedContext?.buckets || [];
+  return (Array.isArray(buckets) ? buckets : []).reduce((sum, bucket) => {
+    const name = String(bucket?.name || '').toLowerCase();
+    return name.includes('overhead') ? sum + Number(bucket?.budget || bucket?.bidBudget || 0) : sum;
+  }, 0);
+}
+
+function buildOverheadReply(project, parsedContext = {}) {
+  if (!project) return null;
+  const title = project?.title || project?.name || parsedContext?.currentProject || 'This project';
+  const budget = projectOverheadAmount(project, isCurrentProjectMatch(project, parsedContext) ? parsedContext : {});
+  const expenses = Array.isArray(project?.expenses)
+    ? project.expenses
+    : (Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : (parsedContext?.expenses || []));
+  const spent = (Array.isArray(expenses) ? expenses : []).reduce((sum, expense) => {
+    const category = String(expense?.category || '').toLowerCase();
+    return category.includes('overhead') ? sum + Number(expense?.amount || 0) : sum;
+  }, 0);
+  if (!(budget > 0) && spent <= 0) return `No project overhead is on **${title}**.`;
+  const snapshot = getProjectFinancialSnapshot({
+    project,
+    parsedContext: isCurrentProjectMatch(project, parsedContext) ? parsedContext : {},
+  });
+  const finished = snapshot.forecastMethod === 'completed' || isTerminalProjectStatus(project?.status || parsedContext?.status);
+  const lines = [
+    `**Overhead — ${title}**`,
+    '',
+    `• **Budget:** $${Math.round(budget).toLocaleString()}`,
+    `• **Spent:** $${Math.round(spent).toLocaleString()}`,
+  ];
+  if (!finished) lines.push(`• **Remaining:** $${Math.round(Math.max(0, budget - spent)).toLocaleString()}`);
+  if (!finished && spent <= 0) lines.push('', 'No overhead costs have been logged yet.');
+  return lines.join('\n');
 }
 
 function categoryBudgetReply(project, parsedContext, kind, options = {}) {
@@ -3447,6 +3650,7 @@ function buildCentralCommandIntentReply(choice, { projects = [], parsedContext =
   if (intent === 'progress') return buildProgressReply(project, parsedContext);
   if (intent === 'change_orders') return buildChangeOrderListReply(project, parsedContext);
   if (intent === 'purchase_orders') return buildPurchaseOrderListReply(project, parsedContext);
+  if (intent === 'overhead') return buildOverheadReply(project, parsedContext);
   if (intent === 'labor_budget') return categoryBudgetReply(project, parsedContext, 'labor', { direct: choice.direct === true });
   if (intent === 'material_budget') return categoryBudgetReply(project, parsedContext, 'material', { direct: choice.direct === true });
   if (intent === 'remaining_budget') {
@@ -3800,6 +4004,12 @@ function trySnapshotTopicReply(message, ctx = {}) {
   if (isPortfolioWorstProjectQuery(message)) {
     return buildLowestMarginReply(ctx.projects);
   }
+  if (isPortfolioFocusTodayQuery(message)) {
+    return buildFocusTodayReply(ctx.projects, ctx.now || new Date());
+  }
+  if (isHypotheticalPriceQuestion(message)) return buildHypotheticalPriceReply(message);
+  const priceRecalc = buildPriceRecalcReply(message, ctx.history);
+  if (priceRecalc) return priceRecalc;
   if (isPercentChangeQuestion(message)) {
     const project = projectForCentralCommandIntent(ctx.projects, ctx.parsedContext);
     const changeReply = project ? buildPercentChangeReply(message, project, ctx.parsedContext || {}) : null;
@@ -3814,6 +4024,283 @@ function trySnapshotTopicReply(message, ctx = {}) {
     if (reply) return reply;
   }
   return unknownFutureCostReply(message, projectForCentralCommandIntent(ctx.projects, ctx.parsedContext));
+}
+
+function buildCentralCommandJobIndex(projects) {
+  const list = Array.isArray(projects) ? projects : [];
+  if (!list.length) return 'JOB INDEX:\nNo jobs are loaded in this conversation.';
+  const lines = list.map((project) => {
+    const title = project?.title || project?.name || 'Untitled';
+    const status = resolveProjectStatus(project) || 'unknown';
+    const id = project?.id != null ? String(project.id) : '';
+    return `- ${title}${id ? ` (id ${id})` : ''} — ${status}`;
+  });
+  return `JOB INDEX (names and status only):\n${lines.join('\n')}`;
+}
+
+function centralCommandJobToolDefinitions() {
+  const properties = {
+    projectId: {
+      type: 'string',
+      description: 'Project id from the job index. Use the current job when the contractor says my or this job.',
+    },
+    projectName: {
+      type: 'string',
+      description: 'Project name when the contractor names a job.',
+    },
+  };
+  const tool = (name, description) => ({
+    type: 'function',
+    function: {
+      name,
+      description,
+      parameters: { type: 'object', properties },
+    },
+  });
+  return [
+    tool('get_project_budget', 'Read one job budget: contract, cost budget, spent, labor, material, and project overhead. Call this before stating a budget dollar amount.'),
+    tool('get_payment_schedule', 'Read one job payment schedule: collected, overdue, and upcoming amounts with dates. Call this before stating a payment amount or date.'),
+    tool('get_change_orders', 'Read change orders on one job. Call this before stating a change-order count or amount.'),
+  ];
+}
+
+function resolveCentralCommandToolProject(projects, parsedContext = {}, args = {}) {
+  const list = Array.isArray(projects) ? projects : [];
+  const id = args?.projectId || parsedContext?.projectId || parsedContext?.activeProjectId;
+  if (id != null && String(id).trim()) {
+    const byId = list.find((project) => String(project?.id) === String(id));
+    if (byId) return byId;
+  }
+  const name = args?.projectName || parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle;
+  if (name) {
+    const resolved = resolveProjectByQuery(list, name, { minScore: 35 });
+    if (resolved?.project) return resolved.project;
+  }
+  return list.length === 1 ? list[0] : null;
+}
+
+function buildCentralCommandBudgetToolResult(project, parsedContext = {}) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const context = isCurrentProjectMatch(project, parsedContext) ? parsedContext : {};
+  const snapshot = getProjectFinancialSnapshot({ project, parsedContext: context });
+  const roundMoney = (value) => (value == null || !Number.isFinite(Number(value)) ? null : Math.round(Number(value)));
+  const roundPct = (value) => (value == null || !Number.isFinite(Number(value)) ? null : Math.round(Number(value) * 10) / 10);
+  return {
+    success: true,
+    projectId: project.id != null ? String(project.id) : null,
+    projectName: project.title || project.name || 'This project',
+    contract: roundMoney(snapshot.revenue),
+    costBudget: roundMoney(snapshot.estimatedCost),
+    spent: roundMoney(snapshot.spent),
+    laborBudget: roundMoney(categoryBudgetAmount(project, context, 'labor')),
+    materialBudget: roundMoney(categoryBudgetAmount(project, context, 'material')),
+    overheadBudget: roundMoney(projectOverheadAmount(project, context)),
+    projectedProfit: roundMoney(snapshot.projectedProfit),
+    marginPct: roundPct(snapshot.projectedMarginPct),
+  };
+}
+
+function buildCentralCommandPaymentToolResult(project, parsedContext = {}, now = new Date()) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const context = isCurrentProjectMatch(project, parsedContext) ? parsedContext : {};
+  const buckets = collectPaymentBuckets({
+    parsedContext: context,
+    projects: [project],
+    currentProject: project,
+    now,
+    currentProjectIsCompleted: isTerminalProjectStatus(project?.status || context?.status),
+  });
+  const slim = (row) => ({
+    name: row?.name || 'Payment',
+    amount: Math.round(Number(row?.amount || 0)),
+    date: row?.date || null,
+  });
+  return {
+    success: true,
+    projectId: project.id != null ? String(project.id) : null,
+    projectName: project.title || project.name || 'This project',
+    collected: (buckets.collected || []).map(slim),
+    overdue: (buckets.overdue || []).map(slim),
+    upcoming: (buckets.upcoming || []).map(slim),
+  };
+}
+
+function buildCentralCommandChangeOrderToolResult(project) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const rows = [
+    ...(Array.isArray(project?.changeOrders) ? project.changeOrders : []),
+    ...(Array.isArray(project?.projectData?.changeOrders) ? project.projectData.changeOrders : []),
+  ];
+  return {
+    success: true,
+    projectId: project.id != null ? String(project.id) : null,
+    projectName: project.title || project.name || 'This project',
+    count: rows.length,
+    changeOrders: rows.map((row) => ({
+      title: row?.title || row?.name || row?.description || 'Change order',
+      amount: Math.round(Number(row?.amount || row?.total || 0)),
+      status: row?.status || 'unknown',
+    })),
+  };
+}
+
+function executeCentralCommandReadTool(name, args, { projects, parsedContext, now } = {}) {
+  const project = resolveCentralCommandToolProject(projects, parsedContext, args || {});
+  if (name === 'get_project_budget') return buildCentralCommandBudgetToolResult(project, parsedContext);
+  if (name === 'get_payment_schedule') return buildCentralCommandPaymentToolResult(project, parsedContext, now || new Date());
+  if (name === 'get_change_orders') return buildCentralCommandChangeOrderToolResult(project);
+  if (name === 'get_estimate_lines') return buildCentralCommandEstimateToolResult(project);
+  if (name === 'get_purchase_orders') return buildCentralCommandPurchaseOrderToolResult(project);
+  if (name === 'get_expenses') return buildCentralCommandExpenseToolResult(project);
+  if (name === 'get_calendar') return buildCentralCommandCalendarToolResult(project, now || new Date());
+  return { success: false, error: 'Unknown read tool' };
+}
+
+function lineMoney(line) {
+  return Math.round(Number(line?.total ?? line?.totalCost ?? line?.amount ?? line?.cost ?? 0));
+}
+
+function buildCentralCommandEstimateToolResult(project) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const estimate = project.estimateData || project.projectData?.estimateData || {};
+  const materials = Array.isArray(estimate.materialLineItems) ? estimate.materialLineItems : [];
+  const labor = Array.isArray(estimate.laborLineItems) ? estimate.laborLineItems : [];
+  const slim = (line) => ({
+    name: line?.name || line?.description || 'Line',
+    amount: lineMoney(line),
+  });
+  return {
+    success: true,
+    projectName: project.title || project.name || 'This project',
+    materialLines: materials.slice(0, 20).map(slim),
+    laborLines: labor.slice(0, 20).map(slim),
+  };
+}
+
+function buildCentralCommandPurchaseOrderToolResult(project) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const rows = [
+    ...(Array.isArray(project.purchaseOrders) ? project.purchaseOrders : []),
+    ...(Array.isArray(project.projectData?.purchaseOrders) ? project.projectData.purchaseOrders : []),
+  ];
+  const open = rows.filter((order) => isPurchaseOrderOpen(order));
+  return {
+    success: true,
+    projectName: project.title || project.name || 'This project',
+    openCount: open.length,
+    purchaseOrders: open.slice(0, 20).map((order) => ({
+      vendor: order?.vendor || order?.supplier || 'Vendor',
+      amount: Math.round(Number(order?.amount || order?.total || 0)),
+      status: order?.status || 'pending',
+    })),
+  };
+}
+
+function buildCentralCommandExpenseToolResult(project) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const rows = [
+    ...(Array.isArray(project.expenses) ? project.expenses : []),
+    ...(Array.isArray(project.projectData?.expenses) ? project.projectData.expenses : []),
+  ];
+  return {
+    success: true,
+    projectName: project.title || project.name || 'This project',
+    count: rows.length,
+    expenses: rows.slice(0, 20).map((expense) => ({
+      vendor: expense?.vendor || '',
+      category: expense?.category || '',
+      amount: Math.round(Number(expense?.amount || 0)),
+    })),
+  };
+}
+
+function buildCentralCommandCalendarToolResult(project, now = new Date()) {
+  if (!project) return { success: false, error: 'No project matched. Ask which job.' };
+  const events = [
+    ...(Array.isArray(project.calendarEvents) ? project.calendarEvents : []),
+    ...(Array.isArray(project.projectData?.calendarEvents) ? project.projectData.calendarEvents : []),
+  ].filter((event) => !event?.completed);
+  return {
+    success: true,
+    projectName: project.title || project.name || 'This project',
+    asOf: now.toISOString(),
+    events: events.slice(0, 20).map((event) => ({
+      title: event?.title || event?.type || 'Event',
+      date: event?.date || null,
+      type: event?.type || 'other',
+    })),
+  };
+}
+
+function centralCommandNeedsJobGrounding(message) {
+  const q = String(message || '');
+  if (!q.trim() || isCentralCommandConceptQuestion(q)) return false;
+  if (isHypotheticalPriceQuestion(q) || isPriceRecalcFollowUp(q)) return false;
+  const aboutBooks = /\b(?:job|project|budget|overhead|margin|payments?|estimate|spent|profit|invoice|retainage|allowance|contingency|change orders?)\b/i.test(q);
+  const possessive = /\b(?:my|our|this)\b/i.test(q);
+  return aboutBooks && possessive;
+}
+
+function centralCommandGroundedNumbers(toolResults) {
+  const allowed = new Set();
+  const text = (Array.isArray(toolResults) ? toolResults : []).map((result) => JSON.stringify(result)).join(' ');
+  const matches = text.match(/\d+(?:\.\d+)?/g) || [];
+  matches.forEach((raw) => {
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+    allowed.add(Math.round(value));
+    allowed.add(Math.round(value * 10) / 10);
+  });
+  return allowed;
+}
+
+function centralCommandReplyIsUngrounded(reply, toolResults) {
+  const amounts = String(reply || '').match(/\$\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s*%/g) || [];
+  if (!amounts.length) return false;
+  const allowed = centralCommandGroundedNumbers(toolResults);
+  return amounts.some((token) => {
+    const value = Number(String(token).replace(/[$,%\s]/g, '').replace(/,/g, ''));
+    if (!Number.isFinite(value)) return true;
+    return !allowed.has(Math.round(value)) && !allowed.has(Math.round(value * 10) / 10);
+  });
+}
+
+function isCentralCommandConceptQuestion(text) {
+  const q = String(text || '');
+  if (/\b(?:what(?:'s| is) my|how much|how many)\b/i.test(q)) return false;
+  return /\b(?:why|explain|what(?:'s| is) the difference|difference between|what does .{0,48} mean|what is (?:a|an) )\b/i.test(q);
+}
+
+function isCentralCommandFigureQuestion(text) {
+  const q = String(text || '');
+  if (isCentralCommandConceptQuestion(q)) return false;
+  return (
+    /\b(?:how much|how many|what(?:'s| is) (?:my|the|our)|when (?:is|are|does|do|did)|what date|which date)\b/i.test(q) ||
+    /\b(?:retainage|allowance|contingency|soft costs?|invoice)\b/i.test(q)
+  );
+}
+
+/**
+ * Null means an earlier handler owns the question, or it is ordinary chat.
+ * figure: ask for a number we did not wire. concept: explain the idea, with no job figures.
+ */
+function centralCommandFallbackKind(message) {
+  const text = String(message || '').trim();
+  if (!text) return null;
+  if (/\b(?:health\s+check|full breakdown)\b/i.test(text)) return null;
+  if (/\bwhat[- ]if\b/i.test(text) || isPercentChangeQuestion(text)) return null;
+  if (centralCommandIntentExcluded(text)) return null;
+  if (isMarkupMarginDefinitionQuestion(text) || isCashFlowConceptQuestion(text) || isProfitGuaranteeQuestion(text)) return null;
+  if (isCalendarEventCreateQuery(text)) return null;
+  if (isCentralCommandConceptQuestion(text)) return 'concept';
+  if (isCentralCommandFigureQuestion(text)) return 'figure';
+  return null;
+}
+
+function buildCentralCommandFigureFallback(projectName = '') {
+  const title = String(projectName || '').trim();
+  const job = title ? ` on **${title}**` : '';
+  return `I don't have that figure${job}, so I won't guess it. I can answer from the budget, the payments, or the calendar when those numbers are actually there.`;
 }
 
 function isUngroundedCentralCommandMoneyQuestion(message) {
@@ -3883,11 +4370,20 @@ module.exports = {
   buildSeparatePayeeReply,
   finishedJobActualsNote,
   isUngroundedCentralCommandMoneyQuestion,
+  centralCommandFallbackKind,
+  buildCentralCommandFigureFallback,
+  buildCentralCommandJobIndex,
+  centralCommandJobToolDefinitions,
+  executeCentralCommandReadTool,
+  centralCommandNeedsJobGrounding,
+  centralCommandReplyIsUngrounded,
   classifyCentralCommandIntent,
   needsCentralCommandIntentModel,
   parseCentralCommandIntentChoice,
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
+  isHypotheticalPriceQuestion,
+  isPriceRecalcFollowUp,
   buildCentralCommandReadOnlyReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,

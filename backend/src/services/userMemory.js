@@ -63,6 +63,8 @@ function emptyMemory() {
   return {
     preferredMarginPct: null,
     preferredMarkupPct: null,
+    preferredLaborRate: null,
+    primaryMarket: null,
     favoriteVendors: {},       // { vendorName: count }
     tradesUsed: {},            // { tradeName: count }
     projectAliases: {},        // { lowercaseAlias: canonicalProjectName }
@@ -143,12 +145,21 @@ function recordUserMemoryFromRequest({ userId, message, parsedContext, session }
   }
 
   // Preferred markup — "I usually markup 35%"
-  const markupMatch = msg.match(/\b(?:usually|typically|normally)\s+mark\s*up\s+(\d{1,2}(?:\.\d)?)\s*%/i) ||
-    msg.match(/\b(\d{1,2}(?:\.\d)?)\s*%\s*markup\b/i);
+  const markupMatch = msg.match(/\b(?:usually|typically|normally|standard)\s+mark\s*up\s+(?:is\s+)?(\d{1,2}(?:\.\d+)?)\s*%/i) ||
+    msg.match(/\bmarkup\s+is\s+(\d{1,2}(?:\.\d+)?)\s*%/i) ||
+    msg.match(/\b(\d{1,2}(?:\.\d+)?)\s*%\s*markup\b/i);
   if (markupMatch) {
     const pct = Number(markupMatch[1]);
     if (pct >= 5 && pct <= 80) memory.preferredMarkupPct = pct;
   }
+
+  const laborRateMatch = msg.match(/\blabor rate\s+is\s+\$?\s*(\d{2,3}(?:\.\d+)?)/i);
+  if (laborRateMatch) {
+    const rate = Number(laborRateMatch[1]);
+    if (rate >= 15 && rate <= 500) memory.preferredLaborRate = rate;
+  }
+  const marketMatch = msg.match(/\b(?:primary market|we work in|based in)\s+([A-Za-z .]{3,40})/i);
+  if (marketMatch) memory.primaryMarket = marketMatch[1].trim();
 
   // Topics — mirror what session tracking already did, but persist it.
   if (/\bmargin|profit|money|revenue|earning/i.test(msgLower)) memory.lastTopics = pushUnique(memory.lastTopics, 'profitability', MAX_RECENT_TOPICS);
@@ -227,7 +238,13 @@ function buildUserMemoryPromptBlock(memory) {
     lines.push(`- Typical target margin: ${memory.preferredMarginPct}%`);
   }
   if (typeof memory.preferredMarkupPct === 'number') {
-    lines.push(`- Typical markup: ${memory.preferredMarkupPct}%`);
+    lines.push(`- Typical markup: ${memory.preferredMarkupPct}% (company preference only)`);
+  }
+  if (typeof memory.preferredLaborRate === 'number') {
+    lines.push(`- Typical labor rate: $${memory.preferredLaborRate}/hour (company preference only)`);
+  }
+  if (memory.primaryMarket) {
+    lines.push(`- Primary market: ${memory.primaryMarket}`);
   }
   const topVendors = Object.entries(memory.favoriteVendors || {})
     .sort((a, b) => (b[1] || 0) - (a[1] || 0))
@@ -258,6 +275,7 @@ function buildUserMemoryPromptBlock(memory) {
 ━━━━━ USER PROFILE (persistent memory — use naturally, do NOT recite as a list) ━━━━━
 ${lines.join('\n')}
 GUIDANCE:
+→ These are company preferences. They never replace a dollar amount, percent, or date stored on a job.
 → Use these preferences to ground advice (e.g., if target margin is 22% and a bid is at 17%, flag it).
 → When the user mentions a nickname that matches a known project, resolve it without asking.
 → Do NOT quote this block back to the user — treat it as prior context you already knew.`;

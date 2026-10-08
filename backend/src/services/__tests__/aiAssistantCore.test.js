@@ -17,6 +17,12 @@ const {
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
   isUngroundedCentralCommandMoneyQuestion,
+  centralCommandFallbackKind,
+  buildCentralCommandFigureFallback,
+  buildCentralCommandJobIndex,
+  executeCentralCommandReadTool,
+  centralCommandNeedsJobGrounding,
+  centralCommandReplyIsUngrounded,
   isCentralCommandMutationRequest,
   appendDataFreshness,
   buildRemainingBudgetReply,
@@ -1293,6 +1299,27 @@ describe('aiAssistantCore', () => {
     expect(withPo).toContain('**PO-100** — Home Depot, $420, pending');
     expect(withPo).not.toContain('PO-101');
 
+    const noneOverhead = replyFor("What's my overhead?");
+    expect(noneOverhead).toBe('No project overhead is on **Electrical Estimate Draft**.');
+    expect(noneOverhead).not.toContain("won't guess");
+
+    const withOverhead = trySnapshotTopicReply("What's my overhead?", {
+      projects: [{
+        ...current,
+        estimateData: {
+          ...current.estimateData,
+          insuranceOverhead: 800,
+          facilities: 400,
+        },
+      }],
+      parsedContext: { projectId: current.id, currentProject: current.title },
+      now: ctx.now,
+    });
+    expect(withOverhead).toContain('**Overhead — Electrical Estimate Draft**');
+    expect(withOverhead).toContain('**Budget:** $1,200');
+    expect(withOverhead).toContain('**Spent:** $0');
+    expect(withOverhead).toContain('**Remaining:** $1,200');
+
     const markup = replyFor("What's my markup?");
     expect(markup).toContain('**Markup:** 16.6%');
     expect(markup).toContain('**Margin:** 14.2%');
@@ -1335,12 +1362,133 @@ describe('aiAssistantCore', () => {
       .not.toContain('Central Command is read-only');
   });
 
+  test('a stated price and a follow-up stay off the saved job, and focus today uses overdue payments', () => {
+    const current = {
+      id: '1790902852864',
+      title: 'Electrical Estimate Draft',
+      status: 'active',
+      progress: 25,
+      bidPrice: 27460,
+      estimatedCost: 23550,
+      actualCost: 0,
+      milestones: [
+        { title: 'Week 2 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-09-29' },
+        { title: 'Week 3 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-10-06' },
+        { title: 'Week 4 Progress Payment', amount: 5148.75, status: 'pending', plannedDate: '2026-10-13' },
+      ],
+    };
+    const quieter = {
+      id: 'quiet',
+      title: 'Quiet Remodel',
+      status: 'active',
+      bidPrice: 80000,
+      estimatedCost: 40000,
+      actualCost: 0,
+    };
+    const ctx = {
+      projects: [quieter, current],
+      parsedContext: { projectId: current.id, currentProject: current.title },
+      now: new Date('2026-10-08T18:00:00'),
+    };
+
+    expect(classifyCentralCommandIntent("What's my margin?").intent).toBe('margin');
+    expect(classifyCentralCommandIntent('I want a 25% gross profit margin on a project that costs me $80,000. What should I charge?')).toBeNull();
+    expect(centralCommandNeedsJobGrounding('My total project cost is $35,000 and I want a 25% gross profit margin.')).toBe(false);
+
+    const eighty = trySnapshotTopicReply(
+      'I want a 25% gross profit margin on a project that costs me $80,000. What should I charge?',
+      ctx
+    );
+    expect(eighty).toContain('$106,667');
+    expect(eighty).not.toContain('14.2%');
+    expect(eighty).not.toContain('Margin Summary');
+    expect(eighty).not.toContain('Electrical Estimate Draft');
+
+    const kitchen = "I'm pricing a kitchen remodel. My total project cost is $35,000 and I want a 25% gross profit margin. What should I charge the customer?";
+    const first = trySnapshotTopicReply(kitchen, ctx);
+    expect(first).toContain('$46,667');
+    expect(first).not.toContain('Electrical Estimate Draft');
+
+    const second = trySnapshotTopicReply(
+      'Actually, my material costs just increased by $3,500. Recalculate everything.',
+      { ...ctx, history: [{ role: 'user', content: kitchen }, { role: 'assistant', content: first }] }
+    );
+    expect(second).toContain('$51,333');
+    expect(second).toContain('$38,500');
+    expect(second).not.toContain('Electrical Estimate Draft');
+
+    const lowest = trySnapshotTopicReply('Which project has the lowest profit margin, and why?', ctx);
+    expect(lowest).toContain('**Electrical Estimate Draft** has the lowest margin');
+    expect(lowest).toContain('**14.2%**');
+    expect(lowest).toContain('**Quiet Remodel**');
+    expect(lowest).not.toContain('Margin Summary');
+
+    const focus = trySnapshotTopicReply(
+      'If you were managing my company, what are the three most important things to focus on today?',
+      ctx
+    );
+    expect(focus).toContain('Week 2 Progress Payment and Week 3 Progress Payment');
+    expect(focus).toContain('$10,298');
+    expect(focus).toContain('Week 4 Progress Payment');
+    expect(focus).toContain('October 13, 2026');
+    expect(focus).toContain('Nothing is over budget');
+    expect(focus).not.toContain('ZIP');
+  });
+
   test('a money question that missed a built-in path is not for the model', () => {
     expect(isUngroundedCentralCommandMoneyQuestion('How much did I pay Bob?')).toBe(true);
     expect(isUngroundedCentralCommandMoneyQuestion("What's my margin?")).toBe(true);
     expect(isUngroundedCentralCommandMoneyQuestion('Give me a health check')).toBe(false);
     expect(isUngroundedCentralCommandMoneyQuestion("What's on my calendar?")).toBe(false);
     expect(isUngroundedCentralCommandMoneyQuestion('What if costs go up 10%?')).toBe(false);
+  });
+
+  test('an unwired figure question refuses to guess, and a concept question is not a figure', () => {
+    expect(centralCommandFallbackKind("What's my retainage?")).toBe('figure');
+    expect(centralCommandFallbackKind('What is a committed cost?')).toBe('concept');
+    expect(centralCommandFallbackKind('Give me a health check')).toBeNull();
+    expect(centralCommandFallbackKind('What does my calendar look like?')).toBeNull();
+    expect(centralCommandFallbackKind("What's my margin?")).toBe('figure');
+    const reply = buildCentralCommandFigureFallback('Electrical Estimate Draft');
+    expect(reply).toContain("I don't have that figure on **Electrical Estimate Draft**");
+    expect(reply).toContain("I won't guess");
+    expect(reply).not.toMatch(/\$\d/);
+  });
+
+  test('a job index has no dollars, and a job figure must come from a tool', () => {
+    const project = {
+      id: '1790902852864',
+      title: 'Electrical Estimate Draft',
+      status: 'in_progress',
+      bidPrice: 27460,
+      estimatedCost: 23550,
+      estimateData: {
+        laborTotal: 16060,
+        materialTotal: 5190,
+        insuranceOverhead: 300,
+        facilities: 200,
+      },
+    };
+    const index = buildCentralCommandJobIndex([project]);
+    expect(index).toContain('Electrical Estimate Draft');
+    expect(index).toContain('1790902852864');
+    expect(index).not.toMatch(/\$/);
+    expect(index).not.toContain('27460');
+
+    const budget = executeCentralCommandReadTool('get_project_budget', {}, {
+      projects: [project],
+      parsedContext: { projectId: project.id, currentProject: project.title },
+    });
+    expect(budget.overheadBudget).toBe(500);
+    expect(budget.laborBudget).toBe(16060);
+    expect(centralCommandNeedsJobGrounding("What's my retainage?")).toBe(true);
+    expect(centralCommandNeedsJobGrounding('How should I cook a ribeye?')).toBe(false);
+    expect(centralCommandNeedsJobGrounding("What's 17% of $87,500?")).toBe(false);
+    expect(centralCommandReplyIsUngrounded('Project overhead is $2,300.', [budget])).toBe(true);
+    expect(centralCommandReplyIsUngrounded('Project overhead is $500.', [budget])).toBe(false);
+    expect(isCentralCommandReadOnlyTool('get_project_budget')).toBe(true);
+    expect(isCentralCommandReadOnlyTool('get_payment_schedule')).toBe(true);
+    expect(isCentralCommandReadOnlyTool('get_change_orders')).toBe(true);
   });
 
   test('an active job keeps a live profit forecast', () => {

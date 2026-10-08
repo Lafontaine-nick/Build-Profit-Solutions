@@ -1,5 +1,6 @@
 import {
   detectProjectIntent,
+  isUnwiredCentralCommandQuestion,
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
   isExplicitExpenseLogQuery,
@@ -209,6 +210,26 @@ describe('projectContextResolver conversation routing', () => {
     expect(result.type).toBe('other');
     expect(result.needsProject).toBe(true);
     expect(result.analysisType).toBe('unspecified');
+  });
+
+  test('an unwired money question does not open a health check', () => {
+    const overhead = detectProjectIntent("What's my overhead on this job?");
+    expect(overhead.type).toBe('other');
+    expect(overhead.type).not.toBe('project_analysis');
+    expect(isUnwiredCentralCommandQuestion("What's my overhead on this job?")).toBe(false);
+    expect(isUnwiredCentralCommandQuestion("What's my retainage?")).toBe(true);
+    expect(detectProjectIntent('Give me a health check').type).toBe('project_health');
+    expect(detectProjectIntent("What's my margin?").type).toBe('other');
+    expect(detectProjectIntent("I'm pricing a kitchen remodel. My total project cost is $35,000 and I want a 25% gross profit margin. What should I charge the customer?")).toEqual({
+      type: 'other',
+      needsProject: false,
+      analysisType: 'unspecified',
+    });
+    expect(detectProjectIntent('Actually, my material costs just increased by $3,500. Recalculate everything.')).toEqual({
+      type: 'other',
+      needsProject: false,
+      analysisType: 'unspecified',
+    });
   });
 
   test('compares active jobs without a health-check fork', () => {

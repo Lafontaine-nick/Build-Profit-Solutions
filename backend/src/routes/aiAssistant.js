@@ -73,11 +73,18 @@ const {
   buildSeparatePayeeReply,
   finishedJobActualsNote,
   isUngroundedCentralCommandMoneyQuestion,
+  centralCommandFallbackKind,
+  buildCentralCommandFigureFallback,
+  buildCentralCommandJobIndex,
+  centralCommandJobToolDefinitions,
+  executeCentralCommandReadTool,
+  centralCommandNeedsJobGrounding,
+  centralCommandReplyIsUngrounded,
   classifyCentralCommandIntent,
-  needsCentralCommandIntentModel,
-  parseCentralCommandIntentChoice,
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
+  isHypotheticalPriceQuestion,
+  isPriceRecalcFollowUp,
   buildCentralCommandReadOnlyReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,
@@ -127,6 +134,10 @@ const {
   buildCalendarAndPaymentsCombinedReply,
   parseCalendarEventCreate,
 } = require('../services/aiAssistantCore');
+const {
+  prepareCentralCommandAction,
+  answerCentralCommandWithSol,
+} = require('../services/centralCommandSol');
 
 function findProjectMentionedInMessage(projects, message) {
   const normalizedMessage = normalizeProjectSearchText(message);
@@ -733,9 +744,9 @@ function isWeatherConversationFollowUp(message = '', history = []) {
   const priorAssistant = [...(Array.isArray(history) ? history : [])]
     .reverse()
     .find((item) => item?.role === 'assistant');
-  return /\b(?:weather|forecast|rain|temperature|wind|painting|outdoor)\b/i.test(
-    String(priorAssistant?.content || priorAssistant?.text || '')
-  );
+  const prior = String(priorAssistant?.content || priorAssistant?.text || '');
+  // A financial card can say "forecast". That is not a weather conversation.
+  return /\b(?:weather|rain|temperature|wind)\b/i.test(prior);
 }
 
 function isRemainingBudgetQuery(message = '') {
@@ -1133,31 +1144,37 @@ async function runRouter(message, history, ctxSummary) {
 
 // A missed Central Command money question picks a label. The snapshot writes the card.
 async function answerCentralCommandFromIntent(message, { projects, parsedContext }) {
-  let choice = classifyCentralCommandIntent(message);
-  if (!choice && needsCentralCommandIntentModel(message)) {
-    try {
-      const completion = await createOpenAiChatCompletion(openai, {
-        model: aiModels.assistant.router,
-        response_format: aiRuntime.assistant.router.responseFormat,
-        temperature: 0,
-        max_tokens: 80,
-        messages: [
-          {
-            role: 'system',
-            content: 'Choose one intent for a construction job question. Return JSON only: {"intent":"profit|margin|labor_budget|material_budget|spent|forecast|payee|payment|remaining_budget|budget_status|unknown","payeeName":null}. payeeName is a person copied from the question, or null. Do not include dollar amounts or a written answer.',
-          },
-          { role: 'user', content: String(message || '') },
-        ],
-      });
-      choice = parseCentralCommandIntentChoice(completion.choices?.[0]?.message?.content || '{}', message);
-    } catch (error) {
-      console.warn('Central Command intent choice failed:', error.message);
-      choice = { intent: 'unknown', payeeName: null };
-    }
+  const choice = classifyCentralCommandIntent(message);
+  if (!choice || choice.intent === 'unknown') return null;
+  return buildCentralCommandIntentReply(choice, { projects, parsedContext }) || null;
+}
+
+async function explainCentralCommandConcept(message) {
+  const safe = "I can explain the idea, but I won't guess a dollar amount, a date, or a margin.";
+  try {
+    const completion = await withTimeout(createOpenAiChatCompletion(openai, {
+      model: aiModels.assistant.response,
+      temperature: 0.2,
+      max_tokens: 180,
+      messages: [
+        {
+          role: 'system',
+          content: 'Explain this construction idea the way you would to a contractor. Two to four sentences. Do not include a dollar amount, a percentage, a date, or a job name. Do not give tax, legal, or accounting advice. If the question needs a number from their books, say you will not guess one.',
+        },
+        { role: 'user', content: String(message || '') },
+      ],
+    }), 12000, 'central_command_concept');
+    const text = String(completion?.choices?.[0]?.message?.content || '').trim();
+    if (!text || /\$\s?\d|\d+(?:\.\d+)?\s*%|\b(?:19|20)\d{2}\b/.test(text)) return safe;
+    return text;
+  } catch (error) {
+    console.warn('Central Command concept fallback failed:', error.message);
+    return safe;
   }
-  if (!choice) return null;
-  if (choice.intent === 'unknown') return "I don't have that number in this job.";
-  return buildCentralCommandIntentReply(choice, { projects, parsedContext }) || "I don't have that number in this job.";
+}
+
+async function answerUnwiredCentralCommandQuestion() {
+  return null;
 }
 
 // Shared AI financial/project helpers live in ../services/aiAssistantCore.js
@@ -7313,8 +7330,15 @@ router.post('/stream', async (req, res) => {
       !isEstimateBudgetAdviceStream &&
       (isCentralCommandMutationRequest(message) || isCalendarWriteStream)
     ) {
+      const { memory: writeMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+      const prepared = prepareCentralCommandAction(message, {
+        projects: parsedContext?.allProjects || [],
+        parsedContext,
+        userMemory: writeMemory,
+        now: new Date(),
+      });
       const reply = appendDataFreshness(
-        buildCentralCommandReadOnlyReply(
+        prepared?.reply || buildCentralCommandReadOnlyReply(
           message,
           parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle
         ),
@@ -7322,7 +7346,7 @@ router.post('/stream', async (req, res) => {
       );
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
-      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: !(prepared?.actions || []).length, actions: prepared?.actions || [] })}\n\n`);
       res.end();
       return;
     }
@@ -7547,9 +7571,12 @@ router.post('/stream', async (req, res) => {
     const snapshotReplyStream = trySnapshotTopicReply(message, {
       projects: allProjects,
       parsedContext,
+      history,
     });
     if (snapshotReplyStream) {
-      const reply = appendDataFreshness(snapshotReplyStream, parsedContext);
+      const reply = (isHypotheticalPriceQuestion(message) || isPriceRecalcFollowUp(message))
+        ? snapshotReplyStream
+        : appendDataFreshness(snapshotReplyStream, parsedContext);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
@@ -8185,20 +8212,22 @@ router.post('/stream', async (req, res) => {
       projectName: parsedContext.currentProject || parsedContext.projectName,
       projectId: parsedContext.projectId,
       status: parsedContext.status || 'active',
-      bidTotal: Number(parsedContext.bidTotal || 0),
-      estimatedCost: Number(parsedContext.estimatedCost || 0),
-      actualCost: Number(parsedContext.actualCost || 0),
-      progress: Number(parsedContext.progress || 0),
-      bidMarginPct: typeof streamBidMarginPct === 'number' ? streamBidMarginPct : undefined,
+      bidTotal: isCentralCommandStream ? 0 : Number(parsedContext.bidTotal || 0),
+      estimatedCost: isCentralCommandStream ? 0 : Number(parsedContext.estimatedCost || 0),
+      actualCost: isCentralCommandStream ? 0 : Number(parsedContext.actualCost || 0),
+      progress: isCentralCommandStream ? 0 : Number(parsedContext.progress || 0),
+      bidMarginPct: isCentralCommandStream || typeof streamBidMarginPct !== 'number' ? undefined : streamBidMarginPct,
       aiPmMode, pmAlerts: [],
       screen,
       assistantMode: parsedContext.assistantMode || null,
       userMemory: userMemoryStream,
-      profitLeakBlock: streamProfitLeakBlock,
+      profitLeakBlock: isCentralCommandStream ? '' : streamProfitLeakBlock,
     });
     _recordUserMemorySafe({ userId: memoryUserIdStream, message: normalizedMessage, parsedContext, session });
 
-    if (isCommandCenter) {
+    if (isCentralCommandStream) {
+      streamSystemPrompt += `\n\n${buildCentralCommandJobIndex(allProjects)}`;
+    } else if (isCommandCenter) {
       const projectStatusBlock = buildProjectStatusBlock(parsedContext);
       if (projectStatusBlock) streamSystemPrompt += projectStatusBlock;
 
@@ -8223,7 +8252,7 @@ router.post('/stream', async (req, res) => {
       null,
       parsedContext
     );
-    if (streamMarginHint) streamSystemPrompt += `\n\n${streamMarginHint}`;
+    if (streamMarginHint && !isCentralCommandStream) streamSystemPrompt += `\n\n${streamMarginHint}`;
 
     const messages = [
       { role: 'system', content: streamSystemPrompt },
@@ -8246,13 +8275,41 @@ router.post('/stream', async (req, res) => {
       }
     }
 
-    if (isCentralCommandStream && isUngroundedCentralCommandMoneyQuestion(normalizedMessage || message)) {
-      const reply = appendDataFreshness("I don't have that number in this job.", parsedContext);
+    const unwiredStreamReply = isCentralCommandStream
+      ? await answerUnwiredCentralCommandQuestion(normalizedMessage || message, parsedContext)
+      : null;
+    if (unwiredStreamReply) {
+      const reply = appendDataFreshness(unwiredStreamReply, parsedContext);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
       res.end();
       return;
+    }
+
+    if (isCentralCommandStream && !/\b(?:health\s+check|full breakdown|full analysis)\b/i.test(message || '')) {
+      try {
+        const { memory: streamMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+        const solReply = await answerCentralCommandWithSol({
+          message: normalizedMessage || message,
+          projects: allProjects,
+          parsedContext,
+          userMemory: streamMemory,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+        });
+        if (solReply?.reply) {
+          const reply = appendDataFreshness(solReply.reply, parsedContext);
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+          res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: !(solReply.actions || []).length, actions: solReply.actions || [] })}\n\n`);
+          res.end();
+          return;
+        }
+      } catch (solError) {
+        console.warn('Central Command stream Sol failed:', solError.message);
+      }
     }
 
     // Set up SSE headers
@@ -8360,18 +8417,21 @@ router.post('/', async (req, res) => {
       !isEstimateBudgetAdvice &&
       (isCentralCommandMutationRequest(message) || isCalendarWrite)
     ) {
-      return res.json({
-        reply: appendDataFreshness(
-          buildCentralCommandReadOnlyReply(
-          message,
-          parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle
-        ),
-          parsedContext
-        ),
-        actions: [],
-        projectUpdateData: null,
-        readOnly: true,
+      const { memory: writeMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+      const prepared = prepareCentralCommandAction(message, {
+        projects: parsedContext?.allProjects || [],
+        parsedContext,
+        userMemory: writeMemory,
+        now: new Date(),
       });
+      if (prepared) {
+        return res.json({
+          reply: appendDataFreshness(prepared.reply, parsedContext),
+          actions: prepared.actions || [],
+          projectUpdateData: null,
+          readOnly: !(prepared.actions || []).length,
+        });
+      }
     }
 
     if (isCentralCommand && (isMarkupAdvice || isEstimateBudgetAdvice)) {
@@ -8711,13 +8771,18 @@ router.post('/', async (req, res) => {
 
     const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
 
-    const snapshotReply = trySnapshotTopicReply(req.body?.message ?? message, {
+    const snapshotMessage = req.body?.message ?? message;
+    const snapshotReply = trySnapshotTopicReply(snapshotMessage, {
       projects: allProjects,
       parsedContext,
+      history,
     });
     if (snapshotReply) {
+      const snapshotBody = (isHypotheticalPriceQuestion(snapshotMessage) || isPriceRecalcFollowUp(snapshotMessage))
+        ? snapshotReply
+        : appendDataFreshness(snapshotReply, parsedContext);
       return res.json({
-        reply: appendDataFreshness(snapshotReply, parsedContext),
+        reply: snapshotBody,
         actions: [],
         suggestedFollowUps: [],
       });
@@ -10343,14 +10408,23 @@ router.post('/', async (req, res) => {
       projectId,
       isPortfolio: screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab',
     });
+    const hideCentralCommandDollars = parsedContext?.assistantMode === 'central_command';
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
-      bidTotal, estimatedCost, actualCost,
-      contractValue, approvedChangeOrdersTotal,
-      bidMarginPct: typeof bidMarginPctForPrompt === 'number' ? bidMarginPctForPrompt : undefined,
-      materialBudget, materialSpent, materialRemaining,
-      laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
-      progress, aiPmMode, pmAlerts,
+      bidTotal: hideCentralCommandDollars ? 0 : bidTotal,
+      estimatedCost: hideCentralCommandDollars ? 0 : estimatedCost,
+      actualCost: hideCentralCommandDollars ? 0 : actualCost,
+      contractValue: hideCentralCommandDollars ? 0 : contractValue,
+      approvedChangeOrdersTotal: hideCentralCommandDollars ? 0 : approvedChangeOrdersTotal,
+      bidMarginPct: hideCentralCommandDollars || typeof bidMarginPctForPrompt !== 'number' ? undefined : bidMarginPctForPrompt,
+      materialBudget: hideCentralCommandDollars ? 0 : materialBudget,
+      materialSpent: hideCentralCommandDollars ? 0 : materialSpent,
+      materialRemaining: hideCentralCommandDollars ? 0 : materialRemaining,
+      laborBudget: hideCentralCommandDollars ? 0 : laborBudgetMain,
+      laborSpent: hideCentralCommandDollars ? 0 : laborSpentMain,
+      laborRemaining: hideCentralCommandDollars ? 0 : laborRemainingMain,
+      progress: hideCentralCommandDollars ? 0 : progress,
+      aiPmMode, pmAlerts,
       screen: parsedContext.screen || 'assistant_tab',
       assistantMode: parsedContext.assistantMode || null,
       aiScope,
@@ -10359,13 +10433,15 @@ router.post('/', async (req, res) => {
       calendarEvents,
       upcomingCalendarEvents,
       userMemory: userMemoryMain,
-      profitLeakBlock: profitLeakBlockMain,
+      profitLeakBlock: hideCentralCommandDollars ? '' : profitLeakBlockMain,
     });
     // Record observations after the prompt is built — never blocks the request.
     _recordUserMemorySafe({ userId: memoryUserIdMain, message: normalizedMessage, parsedContext, session });
 
     // Additive: projects-list intelligence block (Global AI Assistant + Projects screen).
-    if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
+    if (hideCentralCommandDollars) {
+      systemPrompt += `\n\n${buildCentralCommandJobIndex(allProjects)}`;
+    } else if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
       // Always inject project status block so AI knows active vs completed (users can delete/change status)
       const projectStatusBlock = buildProjectStatusBlock(parsedContext);
       if (projectStatusBlock) systemPrompt += projectStatusBlock;
@@ -10445,7 +10521,7 @@ router.post('/', async (req, res) => {
 
     // When user asks about margin, inject exact original + current margin so AI always states both
     const marginHint = buildMarginAnswerHint(normalizedMessage, allProjects, projectName, projectId, currentProjectData, parsedContext);
-    if (marginHint) {
+    if (marginHint && !hideCentralCommandDollars) {
       messages.splice(messages.length - 1, 0, { role: 'system', content: marginHint });
     }
 
@@ -11029,7 +11105,10 @@ router.post('/', async (req, res) => {
     // Final tool list: core + PM tools (when on) + Command Center tools (schedule queries when PM off)
     const allFunctions = [...coreTools, ...pmTools, ...commandCenterTools];
     const functions = parsedContext?.assistantMode === 'central_command'
-      ? allFunctions.filter((tool) => isCentralCommandReadOnlyTool(tool?.function?.name))
+      ? [
+        ...allFunctions.filter((tool) => isCentralCommandReadOnlyTool(tool?.function?.name)),
+        ...centralCommandJobToolDefinitions(),
+      ]
       : allFunctions;
 
     // Helper function to execute get_project_by_name (enhanced fuzzy matching, additive)
@@ -13846,12 +13925,65 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
       }
     }
 
-    if (isCentralCommand && isUngroundedCentralCommandMoneyQuestion(message || normalizedMessage)) {
+    const unwiredReply = isCentralCommand
+      ? await answerUnwiredCentralCommandQuestion(message || normalizedMessage, parsedContext)
+      : null;
+    if (unwiredReply) {
       return res.json({
-        reply: appendDataFreshness("I don't have that number in this job.", parsedContext),
+        reply: appendDataFreshness(unwiredReply, parsedContext),
         actions: [],
         projectUpdateData: null,
         readOnly: true,
+      });
+    }
+
+    if (isCentralCommand && !/\b(?:health\s+check|full breakdown|full analysis)\b/i.test(message || '')) {
+      try {
+        const solReply = await answerCentralCommandWithSol({
+          message: message || normalizedMessage,
+          projects: allProjects,
+          parsedContext,
+          userMemory: userMemoryMain,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+        });
+        if (solReply?.reply) {
+          return res.json({
+            reply: appendDataFreshness(solReply.reply, parsedContext),
+            actions: solReply.actions || [],
+            projectUpdateData: null,
+            readOnly: !(solReply.actions || []).length,
+          });
+        }
+      } catch (solError) {
+        console.warn('Central Command Sol failed:', solError.message);
+        if (centralCommandFallbackKind(message || normalizedMessage) === 'concept') {
+          return res.json({
+            reply: await explainCentralCommandConcept(message || normalizedMessage),
+            actions: [],
+            projectUpdateData: null,
+            readOnly: true,
+          });
+        }
+        if (centralCommandNeedsJobGrounding(message || normalizedMessage)) {
+          return res.json({
+            reply: appendDataFreshness(
+              buildCentralCommandFigureFallback(parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle || ''),
+              parsedContext
+            ),
+            actions: [],
+            projectUpdateData: null,
+            readOnly: true,
+          });
+        }
+      }
+    }
+
+    if (isCentralCommand && centralCommandNeedsJobGrounding(message || normalizedMessage)) {
+      messages.push({
+        role: 'system',
+        content: 'The contractor is asking for a figure from their jobs. Call get_project_budget, get_payment_schedule, or get_change_orders before you answer. State only numbers that appear in the tool result. If the tool result does not contain the figure, say you do not have it.',
       });
     }
 
@@ -13869,6 +14001,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
 
     let reply = completion.choices[0].message.content || '';
     let toolCalls = completion.choices[0].message.tool_calls || [];
+    const centralCommandToolResults = [];
 
     // CRITICAL: Post-process reply to remove invalid questions for scenario analysis
     const isScenarioAnalysisFlow = routerResult.domain === 'scenario_analysis' ||
@@ -14837,7 +14970,15 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
         }
 
         let functionResult;
-        if (functionName === 'get_project_by_name') {
+        if (['get_project_budget', 'get_payment_schedule', 'get_change_orders'].includes(functionName)) {
+          logPhase('tool_start', { functionName });
+          functionResult = executeCentralCommandReadTool(functionName, functionArgs, {
+            projects: allProjects,
+            parsedContext,
+            now: new Date(),
+          });
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
+        } else if (functionName === 'get_project_by_name') {
           logPhase('tool_start', { functionName });
           functionResult = await withTimeout(executeGetProjectByName(functionArgs), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
             success: false,
@@ -16186,6 +16327,7 @@ RULES:
           console.log('⚠️ Function failed, error message:', cleanResult.error);
         }
         
+        if (isCentralCommand && functionResult) centralCommandToolResults.push(functionResult);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -16851,6 +16993,16 @@ RULES:
 
     // Generate smart suggestions for follow-up
     const suggestedFollowUps = generateSmartSuggestions(message, reply, parsedContext, session);
+
+    if (
+      isCentralCommand &&
+      centralCommandNeedsJobGrounding(message || normalizedMessage) &&
+      centralCommandReplyIsUngrounded(reply, centralCommandToolResults)
+    ) {
+      reply = buildCentralCommandFigureFallback(
+        parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.projectTitle || ''
+      );
+    }
 
     const responseData = {
       reply,

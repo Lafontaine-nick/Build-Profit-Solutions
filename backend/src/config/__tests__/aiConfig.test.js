@@ -14,6 +14,7 @@ describe('aiConfig', () => {
       assistant: {
         router: 'gpt-5.6-luna',
         response: 'gpt-5.6-terra',
+        centralCommand: 'gpt-6.1-sol',
         estimate: 'gpt-5.6-terra',
         vision: 'gpt-5.6-terra',
         transcription: 'whisper-1',
@@ -133,6 +134,7 @@ describe('aiConfig', () => {
       assistant: {
         router: 'gpt-test-router',
         response: 'gpt-test-response',
+        centralCommand: 'gpt-6.1-sol',
         estimate: 'gpt-test-estimate',
         vision: 'gpt-test-vision',
         transcription: 'whisper-test',

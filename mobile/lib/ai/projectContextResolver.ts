@@ -166,7 +166,7 @@ export function isSnapshotTopicQuery(query: string): boolean {
   if (/\b(over|under|within)\s+budget\b|\bbudget status\b/i.test(q)) return true;
   if (/\bforecast\b/i.test(q) || /\bcosts keep coming\b/i.test(q) || /\bif costs keep\b/i.test(q)) return true;
   if (/\b(make money|made money|making enough|profitable|come out ahead)\b/i.test(q)) return true;
-  if (/\bmargin\b/i.test(q)) return true;
+  if (/\bmargin\b/i.test(q) && !isHypotheticalPriceQuery(q)) return true;
   if (/\b(?:what|how much) did\b[\s\S]{0,40}\bcost\b/i.test(q)) return true;
   if (/\b(?:materials?|labor|labour)\b[\s\S]{0,40}\bbudget\b|\bbudget\b[\s\S]{0,40}\b(?:materials?|labor|labour)\b/i.test(q)) return true;
   if (/\b(?:collected so far|have i collected|how much (?:have )?(?:i|we) collected|still coming in|coming in on)\b/i.test(q)) return true;
@@ -174,6 +174,7 @@ export function isSnapshotTopicQuery(query: string): boolean {
   if (/\d+\s*%/.test(q) && /\b(?:goes?\s+up|go(?:es)?\s+up|increase[sd]?|rise[sd]?|goes?\s+down|decrease[sd]?)\b/i.test(q)) return true;
   if (/\bhow far along\b|\bpercent(?:age)? complete\b|\bhow much progress\b|\b(?:what(?:'s| is)|how(?:'s| is)) (?:my |the |our )?(?:job |project )?progress\b/i.test(q)) return true;
   if (/\bmarkup\b/i.test(q) && !/\b(difference|versus|vs\.?|between|explain|mean|means)\b/i.test(q)) return true;
+  if (/\boverhead\b/i.test(q) && !/\b(create|add|set|change|explain|difference)\b/i.test(q)) return true;
   if (
     /\bchange\s+orders?\b/i.test(q) &&
     !/\b(create|add|make|start|new|draft|record|approve|delete|remove|edit|update|need|want)\b/i.test(q) &&
@@ -187,12 +188,44 @@ export function isSnapshotTopicQuery(query: string): boolean {
   return false;
 }
 
+/** A question with no wired card. Send it through so the server can refuse to guess. */
+export function isUnwiredCentralCommandQuestion(query: string): boolean {
+  const q = String(query || '');
+  if (/\b(?:health\s+check|full breakdown|what[- ]if|compare|calendar)\b/i.test(q)) return false;
+  if (/\bhow\s+much\b[\s\S]{0,60}\b(?:already\s+)?spent\b/i.test(q)) return false;
+  if (isSnapshotTopicQuery(q) || isPaymentStatusQuery(q) || isGeneralKnowledgeQuery(q)) return false;
+  if (/\b(?:why|explain|difference between|what is (?:a|an) |what does)\b/i.test(q) && !/\b(?:what(?:'s| is) my|how much)\b/i.test(q)) return true;
+  if (/\b(?:how much|how many|what(?:'s| is) my|when (?:is|are|does)|retainage|allowance|contingency)\b/i.test(q)) return true;
+  return false;
+}
+
+/** A stated cost plus a target gross margin. Not "what's my margin?" */
+export function isHypotheticalPriceQuery(query: string): boolean {
+  const q = String(query || '');
+  const hasCost = /\$\s?[\d,]+(?:\.\d+)?/.test(q);
+  const hasMargin = /(\d+(?:\.\d+)?)\s*%\s*(?:gross\s+)?(?:profit\s+)?margin\b/i.test(q);
+  return hasCost && hasMargin;
+}
+
+/** "Add $3,500 and recalculate" continues a price, it is not a health check. */
+export function isPriceRecalcQuery(query: string): boolean {
+  const q = String(query || '');
+  if (isHypotheticalPriceQuery(q)) return false;
+  return (
+    /\brecalculate\b/i.test(q) ||
+    (/\b(?:increased?|went up|added)\b/i.test(q) && /\$\s?[\d,]+/.test(q) && /\b(?:cost|material|price)\b/i.test(q))
+  );
+}
+
 export function detectProjectIntent(query: string): ProjectIntent {
   const lowerQuery = query.toLowerCase().trim();
   // CRITICAL: Scenario card tap sends only the id (e.g. job_runs_long_4). That string contains "job",
   // which would match projectKeywords and become project_analysis → "quick health check?" chips wrongly.
   if (SCENARIO_SELECTION_ID_PATTERN.test(query.trim())) {
     return { type: 'other', needsProject: true, analysisType: 'unspecified' };
+  }
+  if (isHypotheticalPriceQuery(query) || isPriceRecalcQuery(query)) {
+    return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
   if (/\bwhich\s+(?:projects?|jobs?)\s+(?:are\s+)?losing\s+money\b|\b(?:projects?|jobs?)\s+losing\s+money\b|\bwhere am i losing money\b/i.test(lowerQuery)) {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
@@ -210,6 +243,9 @@ export function detectProjectIntent(query: string): ProjectIntent {
     return { type: 'other', needsProject: false, analysisType: 'unspecified' };
   }
   if (isPaymentStatusQuery(query) || isSnapshotTopicQuery(query)) {
+    return { type: 'other', needsProject: true, analysisType: 'unspecified' };
+  }
+  if (isUnwiredCentralCommandQuestion(query)) {
     return { type: 'other', needsProject: true, analysisType: 'unspecified' };
   }
   const isExpenseFlow = isExplicitExpenseLogQuery(lowerQuery);
