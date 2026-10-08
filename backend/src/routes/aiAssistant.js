@@ -84,7 +84,11 @@ const {
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
   isHypotheticalPriceQuestion,
+  isHypotheticalMarkupQuestion,
   isPriceRecalcFollowUp,
+  isOpenPricingFollowUp,
+  shouldSkipSavedJobCards,
+  centralCommandSnapshotNeedsFreshness,
   buildCentralCommandReadOnlyReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,
@@ -7351,7 +7355,13 @@ router.post('/stream', async (req, res) => {
       return;
     }
 
-    if (isCentralCommandStream && (isMarkupAdviceStream || isEstimateBudgetAdviceStream)) {
+    if (
+      isCentralCommandStream &&
+      (isMarkupAdviceStream || isEstimateBudgetAdviceStream) &&
+      !isHypotheticalMarkupQuestion(message) &&
+      !isHypotheticalPriceQuestion(message) &&
+      !shouldSkipSavedJobCards(message)
+    ) {
       const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
       const guidance = isEstimateBudgetAdviceStream
         ? buildEstimateBudgetGuidanceReply({
@@ -7574,14 +7584,64 @@ router.post('/stream', async (req, res) => {
       history,
     });
     if (snapshotReplyStream) {
-      const reply = (isHypotheticalPriceQuestion(message) || isPriceRecalcFollowUp(message))
-        ? snapshotReplyStream
-        : appendDataFreshness(snapshotReplyStream, parsedContext);
+      const reply = centralCommandSnapshotNeedsFreshness(message, snapshotReplyStream)
+        ? appendDataFreshness(snapshotReplyStream, parsedContext)
+        : snapshotReplyStream;
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
       res.end();
       return;
+    }
+
+    if (isCentralCommandStream && isOpenPricingFollowUp(message, history)) {
+      try {
+        const { memory: followMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+        const followReply = await answerCentralCommandWithSol({
+          message,
+          projects: allProjects,
+          parsedContext,
+          userMemory: followMemory,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+          pricingFollowUp: true,
+        });
+        if (followReply?.reply) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+          res.write(`data: ${JSON.stringify({ type: 'token', content: followReply.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+          res.end();
+          return;
+        }
+      } catch (followError) {
+        console.warn('Central Command pricing follow-up failed:', followError.message);
+      }
+    }
+
+    if (isCentralCommandStream && shouldSkipSavedJobCards(message, allProjects)) {
+      try {
+        const { memory: statedMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+        const statedReply = await answerCentralCommandWithSol({
+          message,
+          projects: allProjects,
+          parsedContext,
+          userMemory: statedMemory,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+          statedFigures: true,
+        });
+        if (statedReply?.reply) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+          res.write(`data: ${JSON.stringify({ type: 'token', content: statedReply.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+          res.end();
+          return;
+        }
+      } catch (statedError) {
+        console.warn('Central Command stated-figures reply failed:', statedError.message);
+      }
     }
 
     if (isRemainingBudgetQuery(rawBodyMsgStream)) {
@@ -7639,7 +7699,13 @@ router.post('/stream', async (req, res) => {
     }
 
     // EARLY STREAM: Estimate Assistant — how much to charge / pricing guidance (must match POST / — streaming was skipping this and hitting the LLM)
-    if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawBodyMsgStream)) {
+    if (
+      isEstimateAssistantScreen(parsedContext) &&
+      matchesEstimatePriceGuidanceQuery(rawBodyMsgStream) &&
+      !isHypotheticalMarkupQuestion(message) &&
+      !isHypotheticalPriceQuestion(message) &&
+      !shouldSkipSavedJobCards(message)
+    ) {
       let currentProjectDataEstStream = null;
       const pidEstStream =
         parsedContext.projectId ||
@@ -8300,7 +8366,9 @@ router.post('/stream', async (req, res) => {
           model: aiModels.assistant.centralCommand,
         });
         if (solReply?.reply) {
-          const reply = appendDataFreshness(solReply.reply, parsedContext);
+          const reply = solReply.usedJobTools
+            ? appendDataFreshness(solReply.reply, parsedContext)
+            : solReply.reply;
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
           res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: !(solReply.actions || []).length, actions: solReply.actions || [] })}\n\n`);
@@ -8434,7 +8502,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    if (isCentralCommand && (isMarkupAdvice || isEstimateBudgetAdvice)) {
+    if (
+      isCentralCommand &&
+      (isMarkupAdvice || isEstimateBudgetAdvice) &&
+      !isHypotheticalMarkupQuestion(message) &&
+      !isHypotheticalPriceQuestion(message) &&
+      !shouldSkipSavedJobCards(message)
+    ) {
       const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
       const guidance = isEstimateBudgetAdvice
         ? buildEstimateBudgetGuidanceReply({
@@ -8486,7 +8560,13 @@ router.post('/', async (req, res) => {
     }
 
     // ── RUN-FIRST: Estimate — "what should I charge" / charging enough (before any other handler or LLM)
-    if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawMsgLower)) {
+    if (
+      isEstimateAssistantScreen(parsedContext) &&
+      matchesEstimatePriceGuidanceQuery(rawMsgLower) &&
+      !isHypotheticalMarkupQuestion(rawMsgFirst) &&
+      !isHypotheticalPriceQuestion(rawMsgFirst) &&
+      !shouldSkipSavedJobCards(rawMsgFirst)
+    ) {
       const allProjRf = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
       const pidRf =
         parsedContext.projectId ||
@@ -8778,14 +8858,66 @@ router.post('/', async (req, res) => {
       history,
     });
     if (snapshotReply) {
-      const snapshotBody = (isHypotheticalPriceQuestion(snapshotMessage) || isPriceRecalcFollowUp(snapshotMessage))
-        ? snapshotReply
-        : appendDataFreshness(snapshotReply, parsedContext);
+      const snapshotBody = centralCommandSnapshotNeedsFreshness(snapshotMessage, snapshotReply)
+        ? appendDataFreshness(snapshotReply, parsedContext)
+        : snapshotReply;
       return res.json({
         reply: snapshotBody,
         actions: [],
         suggestedFollowUps: [],
       });
+    }
+
+    if (isCentralCommand && isOpenPricingFollowUp(snapshotMessage, history)) {
+      try {
+        const { memory: followMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+        const followReply = await answerCentralCommandWithSol({
+          message: snapshotMessage,
+          projects: allProjects,
+          parsedContext,
+          userMemory: followMemory,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+          pricingFollowUp: true,
+        });
+        if (followReply?.reply) {
+          return res.json({
+            reply: followReply.reply,
+            actions: [],
+            suggestedFollowUps: [],
+            readOnly: true,
+          });
+        }
+      } catch (followError) {
+        console.warn('Central Command pricing follow-up failed:', followError.message);
+      }
+    }
+
+    if (isCentralCommand && shouldSkipSavedJobCards(snapshotMessage, allProjects)) {
+      try {
+        const { memory: statedMemory } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+        const statedReply = await answerCentralCommandWithSol({
+          message: snapshotMessage,
+          projects: allProjects,
+          parsedContext,
+          userMemory: statedMemory,
+          history,
+          openai,
+          model: aiModels.assistant.centralCommand,
+          statedFigures: true,
+        });
+        if (statedReply?.reply) {
+          return res.json({
+            reply: statedReply.reply,
+            actions: [],
+            suggestedFollowUps: [],
+            readOnly: true,
+          });
+        }
+      } catch (statedError) {
+        console.warn('Central Command stated-figures reply failed:', statedError.message);
+      }
     }
 
     if (isRemainingBudgetQuery(rawBodyMsg)) {
@@ -9508,7 +9640,10 @@ router.post('/', async (req, res) => {
       return res.json({ reply: reviewResult.reply, actions: [], suggestedFollowUps: reviewResult.suggestedFollowUps || [] });
     }
     if (isEstimateAssistantScreen(parsedContext)) {
-      const isEstimatePriceGuidance = matchesEstimatePriceGuidanceQuery(msgLowerEarly);
+      const isEstimatePriceGuidance = matchesEstimatePriceGuidanceQuery(msgLowerEarly)
+        && !isHypotheticalMarkupQuestion(message)
+        && !isHypotheticalPriceQuestion(message)
+        && !shouldSkipSavedJobCards(message);
       if (isEstimatePriceGuidance) {
         const priceGuidance = buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectName, bidTotal });
         trackEstimateSessionEvent(session, 'estimate_price_guidance', { prompt: msgLowerEarly });
@@ -13950,7 +14085,9 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
         });
         if (solReply?.reply) {
           return res.json({
-            reply: appendDataFreshness(solReply.reply, parsedContext),
+            reply: solReply.usedJobTools
+              ? appendDataFreshness(solReply.reply, parsedContext)
+              : solReply.reply,
             actions: solReply.actions || [],
             projectUpdateData: null,
             readOnly: !(solReply.actions || []).length,

@@ -3,6 +3,7 @@ const {
   answerCentralCommandWithSol,
   searchPricingLibrary,
   centralCommandReasoningEffort,
+  solReplyToCardProse,
 } = require('../centralCommandSol');
 
 const project = {
@@ -70,5 +71,19 @@ describe('centralCommandSol', () => {
     ]));
     expect(result.count).toBe(1);
     expect(result.rates[0].rate).toBe(4.5);
+  });
+
+  test('a table and a markdown link become short card lines', () => {
+    const prose = solReplyToCardProse([
+      '| Topic | Answer |',
+      '| --- | --- |',
+      '| LLC | Legal structure |',
+      '',
+      'See [IRS](https://www.irs.gov/forms).',
+    ].join('\n'));
+    expect(prose).toContain('- **LLC:** Legal structure');
+    expect(prose).not.toContain('|');
+    expect(prose).not.toContain('https://');
+    expect(prose).toContain('IRS');
   });
 });

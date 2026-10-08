@@ -57,6 +57,8 @@ import {
   resolveProjectContext, 
   requiresProjectContext,
   detectProjectIntent,
+  isHypotheticalPriceQuery,
+  isPriceRecalcQuery,
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
   isWriteOrMutationRequest,
@@ -966,6 +968,9 @@ type Props = {
   children?: React.ReactNode;
 };
 
+/** Reopening Central Command within this window reuses the brief instead of refetching (pull to refresh still works). */
+const BRIEF_REUSE_MS = 2 * 60 * 1000;
+
 const QUICK_ACTIONS = [
   "Add Material",
   "Add Labor",
@@ -1381,6 +1386,7 @@ const AIAssistantModal: React.FC<Props> = ({
 
   // Global AI Assistant: fetch greeting with portfolio insights when opening with empty conversation
   const greetingShownRef = useRef(false);
+  const lastBriefFetchedAtRef = useRef(0);
   const [briefRefreshing, setBriefRefreshing] = useState(false);
 
   /** `showSpinner` only for pull-to-refresh — a programmatic RefreshControl spinner pushes the whole list down and snaps it back. */
@@ -1421,6 +1427,7 @@ const AIAssistantModal: React.FC<Props> = ({
           biggestRisk: data.biggestRisk || null,
         });
         setBriefUpdatedAt(new Date());
+        lastBriefFetchedAtRef.current = Date.now();
       }
     } catch (_e) {
       // Keep existing brief on error
@@ -1440,12 +1447,29 @@ const AIAssistantModal: React.FC<Props> = ({
     if ((parsed.screen || '').toLowerCase() !== 'ai assistant tab') return;
     if (greetingShownRef.current) return;
     greetingShownRef.current = true;
+    if (todayBriefData && Date.now() - lastBriefFetchedAtRef.current < BRIEF_REUSE_MS) return;
     if (!todayBriefData) setBriefUpdatedAt(new Date());
 
     refreshTodayBrief().catch(() => {
       greetingShownRef.current = false;
     });
   }, [visible, messages.length, loading, initialQuestion, context, refreshTodayBrief, todayBriefData]);
+
+  // Central Command's tab is preloaded hidden: fetch the brief early so the first open shows it
+  // instead of the local fallback being swapped out (and the Biggest Risk card popping in).
+  const briefPrefetchedRef = useRef(false);
+  useEffect(() => {
+    if (visible || briefPrefetchedRef.current || !isContextReady || !context) return;
+    let screen = '';
+    try {
+      screen = String(JSON.parse(context)?.screen || '').toLowerCase();
+    } catch (_e) {
+      return;
+    }
+    if (screen !== 'ai assistant tab') return;
+    briefPrefetchedRef.current = true;
+    void refreshTodayBrief();
+  }, [visible, isContextReady, context, refreshTodayBrief]);
 
   // Reset greeting ref when modal closes so the brief refreshes on next open. Central Command keeps the
   // last server brief on screen until the refresh lands, instead of flashing the local fallback first.
@@ -4187,8 +4211,15 @@ const AIAssistantModal: React.FC<Props> = ({
           : data.reply;
       const responseText = typeof responseContent === 'string' ? responseContent : '';
       const isWeatherReply = /\b(?:current weather|weather for|conditions:|precipitation|feels like)\b/i.test(responseText);
+      const ownStatedPriceReply = /not a saved estimate/i.test(responseText)
+        || isHypotheticalPriceQuery(newMessage.content)
+        || isPriceRecalcQuery(newMessage.content)
+        || (/(\d+(?:\.\d+)?)\s*%\s*markup/i.test(newMessage.content) && /\$\s?[\d,]+/.test(newMessage.content));
+      const citesFigure = /\$\s?[\d,]+|\b\d+(?:\.\d+)?\s*%/.test(responseText);
       const containsNumericGuidance =
         !isWeatherReply &&
+        !ownStatedPriceReply &&
+        citesFigure &&
         /\b(?:markup|margin|projected profit|estimated cost|target bid|price range)\b/i.test(responseText);
       const finishedActualReply = /\b(?:this job is finished|is finished, so|actual result|finished result)\b/i.test(responseText);
       const noCostsLoggedReply = /no costs have been logged yet/i.test(responseText);

@@ -213,6 +213,8 @@ export function isPriceRecalcQuery(query: string): boolean {
   if (isHypotheticalPriceQuery(q)) return false;
   return (
     /\brecalculate\b/i.test(q) ||
+    /\b(?:reprice|redo|price it again|same margin|same markup)\b/i.test(q) ||
+    (/\b(?:instead|make (?:the |that )?cost|change (?:the |that )?cost)\b/i.test(q) && /\$\s?[\d,]+/.test(q)) ||
     (/\b(?:increased?|went up|added)\b/i.test(q) && /\$\s?[\d,]+/.test(q) && /\b(?:cost|material|price)\b/i.test(q))
   );
 }

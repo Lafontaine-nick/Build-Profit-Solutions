@@ -230,6 +230,11 @@ describe('projectContextResolver conversation routing', () => {
       needsProject: false,
       analysisType: 'unspecified',
     });
+    expect(detectProjectIntent('Make the cost $40,000 instead.')).toEqual({
+      type: 'other',
+      needsProject: false,
+      analysisType: 'unspecified',
+    });
   });
 
   test('compares active jobs without a health-check fork', () => {

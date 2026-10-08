@@ -68,11 +68,12 @@ function isCalculationFollowUpQuery(message = '') {
 
 function isExplicitExpenseLogQuery(message = '') {
   const text = String(message || '');
-  return (
+  if (
     /\b(log|record|add|create|enter|submit)\b[\s\S]{0,48}\b(expense|expenses)\b/i.test(text) ||
-    /\b(expense|expenses)\b[\s\S]{0,48}\b(log|record|add)\b/i.test(text) ||
-    (/\b(spent|bought|purchased)\b/i.test(text) && /\$?\d/.test(text))
-  );
+    /\b(expense|expenses)\b[\s\S]{0,48}\b(log|record|add)\b/i.test(text)
+  ) return true;
+  if (shouldSkipSavedJobCards(text)) return false;
+  return /\b(spent|bought|purchased)\b/i.test(text) && /\$?\d/.test(text);
 }
 
 function isExpenseTypeReply(message = '') {
@@ -104,6 +105,8 @@ function parseCustomRemainingCostIncrease(message = '', history = []) {
   if (/\b(?:go back to|original forecast|original numbers|baseline forecast)\b/i.test(text)) {
     return { type: 'restore' };
   }
+  if (/(\d+(?:\.\d+)?)\s*%\s*(?:gross\s+)?(?:profit\s+)?margin\b/i.test(text)) return null;
+  if (/(\d+(?:\.\d+)?)\s*%\s*markup\b/i.test(text)) return null;
   const pctMatch = text.match(/(\d+(?:\.\d+)?)\s*%/);
   const makeThat = /\b(?:make that|actually|instead|change (?:it|that) to)\b/i.test(text);
   const priorIncrease = Array.isArray(history)
@@ -3230,9 +3233,108 @@ function statedMarginPercent(text) {
   return value;
 }
 
+function statedMarkupPercent(text) {
+  const match = String(text || '').match(/(\d+(?:\.\d+)?)\s*%\s*markup\b/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0 || value >= 1000) return null;
+  return value;
+}
+
+function moneyAmountNear(text, pattern) {
+  const match = String(text || '').match(pattern);
+  if (!match) return null;
+  const value = Number(String(match[1]).replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** They already named the price and the cost and asked if that margin is right. */
+function isMarginCheckQuestion(text) {
+  const q = String(text || '');
+  if (statedDollarAmounts(q).length < 2) return false;
+  if (!/\b(?:is that|is this|is it|does that|would that)\b/i.test(q)) return false;
+  return statedMarginPercent(q) != null || statedMarkupPercent(q) != null;
+}
+
+function priceAndCostFromCheck(text) {
+  const q = String(text || '');
+  const price = moneyAmountNear(q, /\b(?:pay|pays|paid|price|charge|bid)\b[^$]{0,48}\$\s?([\d,]+(?:\.\d+)?)/i)
+    || moneyAmountNear(q, /\$\s?([\d,]+(?:\.\d+)?)[^.\n]{0,48}\b(?:price|payment|bid)\b/i);
+  const cost = moneyAmountNear(q, /\bcost(?:s| me| us)?\b[^$]{0,48}\$\s?([\d,]+(?:\.\d+)?)/i)
+    || moneyAmountNear(q, /\$\s?([\d,]+(?:\.\d+)?)[^.\n]{0,32}\b(?:cost|costs)\b/i);
+  if (!price || !cost) return null;
+  return { price, cost };
+}
+
+function buildMarginCheckReply(message) {
+  const figures = priceAndCostFromCheck(message);
+  if (!figures) return null;
+  const { price, cost } = figures;
+  const margin = ((price - cost) / price) * 100;
+  const markup = ((price - cost) / cost) * 100;
+  const askedMargin = statedMarginPercent(message);
+  const askedMarkup = statedMarkupPercent(message);
+  const askingMarkup = askedMarkup != null && askedMargin == null;
+  const actual = askingMarkup ? markup : margin;
+  const asked = askingMarkup ? askedMarkup : askedMargin;
+  const verdict = asked != null && Math.abs(actual - asked) < 0.15 ? 'Yes.' : 'No.';
+  return [
+    `${verdict} That is a **${margin.toFixed(1)}%** margin and a **${markup.toFixed(1)}%** markup.`,
+    `Profit is **${paymentMoney(price - cost)}** on a **${paymentMoney(price)}** price and a **${paymentMoney(cost)}** cost.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
+function isTargetMarginFollowUp(text) {
+  const q = String(text || '');
+  if (statedDollarAmounts(q).length > 0 || statedMarginPercent(q) == null) return false;
+  return /\b(?:what if|want|same|that|kitchen|instead)\b/i.test(q);
+}
+
+function priorPricingCost(history) {
+  const turns = [...(Array.isArray(history) ? history : [])].reverse();
+  for (const item of turns) {
+    const content = String(item?.content || item?.text || '');
+    if (item?.role === 'user' && isHypotheticalPriceQuestion(content) && !isMarginCheckQuestion(content)) {
+      const cost = statedDollarAmounts(content)[0];
+      if (cost) return cost;
+    }
+    if (item?.role === 'assistant') {
+      const match = content.match(/\$\s?([\d,]+(?:\.\d+)?)\s+of cost/i);
+      if (match) {
+        const cost = Number(match[1].replace(/,/g, ''));
+        if (cost > 0) return cost;
+      }
+    }
+  }
+  return null;
+}
+
+function buildTargetMarginFollowUpReply(message, history) {
+  if (!isTargetMarginFollowUp(message)) return null;
+  const marginPct = statedMarginPercent(message);
+  const cost = priorPricingCost(history);
+  if (!cost || marginPct == null) {
+    return "I don't have that cost in this chat, so I won't use a saved job.";
+  }
+  const { price, profit } = priceFromCostAndMargin(cost, marginPct);
+  return [
+    `Charge **${paymentMoney(price)}**.`,
+    `A **${marginPct}%** gross margin on **${paymentMoney(cost)}** of cost leaves **${paymentMoney(profit)}** of profit.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
 /** A cost and a target margin the contractor stated. Not the saved job's margin card. */
 function isHypotheticalPriceQuestion(text) {
+  if (isMarginCheckQuestion(text)) return false;
   return statedDollarAmounts(text).length > 0 && statedMarginPercent(text) != null;
+}
+
+/** A cost and a target markup the contractor stated. Not the saved job's price guidance. */
+function isHypotheticalMarkupQuestion(text) {
+  if (isMarkupMarginDefinitionQuestion(text) || statedMarginPercent(text) != null) return false;
+  return statedDollarAmounts(text).length > 0 && statedMarkupPercent(text) != null;
 }
 
 function isPriceRecalcFollowUp(text) {
@@ -3242,6 +3344,39 @@ function isPriceRecalcFollowUp(text) {
     /\brecalculate\b/i.test(q) ||
     (/\b(?:increased?|went up|added)\b/i.test(q) && /\$\s?[\d,]+/.test(q) && /\b(?:cost|material|price)\b/i.test(q))
   );
+}
+
+function priorStatedPrice(history) {
+  const turn = [...(Array.isArray(history) ? history : [])].reverse().find((item) => {
+    const content = item?.content || item?.text || '';
+    return item?.role === 'user' && (isHypotheticalPriceQuestion(content) || isHypotheticalMarkupQuestion(content));
+  });
+  return turn?.content || turn?.text || '';
+}
+
+/** A later wording of a price already stated in this chat. Job cards still win. */
+function isOpenPricingFollowUp(message, history) {
+  if (!priorStatedPrice(history)) return false;
+  if (isHypotheticalPriceQuestion(message) || isHypotheticalMarkupQuestion(message) || isPriceRecalcFollowUp(message)) return false;
+  const q = String(message || '');
+  if (/\b(?:what(?:'s| is) my|how much is my|overhead|which (?:project|job)|focus on today|weather|checking account)\b/i.test(q)) return false;
+  return /\$\s?[\d,]+|\b(?:recalculate|reprice|instead|again|redo|same|now|change|update)\b/i.test(q);
+}
+
+function centralCommandSnapshotNeedsFreshness(message, reply) {
+  if (
+    isHypotheticalPriceQuestion(message) ||
+    isHypotheticalMarkupQuestion(message) ||
+    isPriceRecalcFollowUp(message) ||
+    isMarginCheckQuestion(message) ||
+    isTargetMarginFollowUp(message) ||
+    isStatedProfitQuestion(message) ||
+    isStatedLaborCostQuestion(message) ||
+    isDailyBillRateQuestion(message) ||
+    isStatedQuantityCostQuestion(message)
+  ) return false;
+  if (isMarkupMarginDefinitionQuestion(message)) return false;
+  return /\$\s?[\d,]+|\b\d+(?:\.\d+)?\s*%/.test(String(reply || ''));
 }
 
 function priceFromCostAndMargin(cost, marginPct) {
@@ -3258,6 +3393,152 @@ function buildHypotheticalPriceReply(message) {
     `Charge **${paymentMoney(price)}**.`,
     `A **${marginPct}%** gross margin on **${paymentMoney(cost)}** of cost leaves **${paymentMoney(profit)}** of profit.`,
     'That price is the cost divided by (1 − the margin). It is not a saved estimate.',
+  ].join('\n');
+}
+
+function rateAndHours(text) {
+  const q = String(text || '');
+  const rate = moneyAmountNear(q, /\$\s?([\d,]+(?:\.\d+)?)[^.\n]{0,24}\b(?:an hour|per hour|\/\s*hr|hourly)\b/i)
+    || moneyAmountNear(q, /\b(?:rate|hourly)\b[^$]{0,32}\$\s?([\d,]+(?:\.\d+)?)/i);
+  const hoursMatch = q.match(/\b(\d+(?:\.\d+)?)\s*hours?\b/i);
+  const hours = hoursMatch ? Number(hoursMatch[1]) : null;
+  if (!rate || !(hours > 0)) return null;
+  return { rate, hours, cost: rate * hours };
+}
+
+function buildHypotheticalMarkupReply(message) {
+  const timed = rateAndHours(message);
+  const cost = timed ? timed.cost : statedDollarAmounts(message)[0];
+  const markupPct = statedMarkupPercent(message);
+  if (!cost || markupPct == null) return null;
+  const price = cost * (1 + markupPct / 100);
+  const profit = price - cost;
+  const lines = [];
+  if (timed) {
+    lines.push(`**${timed.hours}** hours at **${paymentMoney(timed.rate)}** is **${paymentMoney(cost)}** of cost.`);
+  }
+  lines.push(
+    `Charge **${paymentMoney(price)}**.`,
+    `A **${markupPct}%** markup on **${paymentMoney(cost)}** of cost leaves **${paymentMoney(profit)}** of profit.`,
+    'That price is the cost times (1 + the markup). It is not a saved estimate.',
+  );
+  return lines.join('\n');
+}
+
+function exactMoney(amount) {
+  const cents = Math.round(Number(amount) * 100) / 100;
+  const whole = Math.abs(cents - Math.round(cents)) < 0.001;
+  return whole
+    ? `$${Math.round(cents).toLocaleString('en-US')}`
+    : `$${cents.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function statedCrewDayLabor(text) {
+  const q = String(text || '');
+  const rate = moneyAmountNear(q, /\$\s?([\d,]+(?:\.\d+)?)\s*(?:a day|per day|\/\s*day|daily)\b/i)
+    || moneyAmountNear(q, /\b(?:a day|per day|daily)\b(?:\s+\w+){0,3}\s+\$\s?([\d,]+(?:\.\d+)?)/i);
+  const daysMatch = q.match(/\b(\d+(?:\.\d+)?)\s*days?\b/i);
+  const days = daysMatch ? Number(daysMatch[1]) : null;
+  if (!rate || !(days > 0)) return null;
+  const crewMatch = q.match(/\b(?:crew|team)\s+of\s+(\d+(?:\.\d+)?)\b/i)
+    || q.match(/\b(\d+(?:\.\d+)?)\s*(?:people|person|guys|workers|hands)\b/i);
+  const crew = crewMatch ? Number(crewMatch[1]) : 1;
+  if (!(crew > 0)) return null;
+  return { rate, days, crew, namedCrew: Boolean(crewMatch), cost: crew * days * rate };
+}
+
+/** A day rate and a duration the contractor stated. Not the saved job's labor budget. */
+function isStatedLaborCostQuestion(text) {
+  return statedCrewDayLabor(text) != null;
+}
+
+function buildStatedLaborCostReply(message) {
+  const timed = statedCrewDayLabor(message);
+  if (!timed) return null;
+  const lead = timed.namedCrew
+    ? `A crew of **${timed.crew}** for **${timed.days}** days at **${paymentMoney(timed.rate)}** a day is **${paymentMoney(timed.cost)}** of labor cost.`
+    : `**${timed.days}** days at **${paymentMoney(timed.rate)}** a day is **${paymentMoney(timed.cost)}** of labor cost.`;
+  return [lead, 'It is not a saved estimate.'].join('\n');
+}
+
+/** A total and a number of days, asking for the day rate. Not a rate already stated. */
+function dailyBillRate(text) {
+  const q = String(text || '');
+  if (statedCrewDayLabor(q)) return null;
+  if (!/\b(?:what|how much)\b[\s\S]{0,60}\b(?:per day|a day|each day|daily)\b/i.test(q)) return null;
+  if (!/\b(?:bill|charge|make|earn|need)\b/i.test(q)) return null;
+  const daysMatch = q.match(/\b(\d+(?:\.\d+)?)\s*days?\b/i);
+  const total = statedDollarAmounts(q)[0];
+  const days = daysMatch ? Number(daysMatch[1]) : null;
+  if (!total || !(days > 0)) return null;
+  return { days, total, rate: total / days };
+}
+
+function isDailyBillRateQuestion(text) {
+  return dailyBillRate(text) != null;
+}
+
+function buildDailyBillRateReply(message) {
+  const timed = dailyBillRate(message);
+  if (!timed) return null;
+  return [
+    `Bill **${exactMoney(timed.rate)}** a day.`,
+    `**${exactMoney(timed.total)}** over **${timed.days}** days is **${exactMoney(timed.rate)}** a day.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
+function quantityUnitLabel(raw, qty) {
+  const unit = String(raw || '').toLowerCase();
+  if (/^(feet|foot|ft)$/.test(unit)) return qty === 1 ? 'foot' : 'feet';
+  const singular = unit.replace(/s$/, '');
+  return qty === 1 ? singular : `${singular}s`;
+}
+
+function statedQuantityCost(text) {
+  const q = String(text || '');
+  const qtyMatch = q.match(/\b(\d+(?:\.\d+)?)\s*(feet|foot|ft|sheets?|pieces?|squares?|yards?|gallons?|bags?|boxes|rolls?|boards?)\b/i);
+  const priceMatch = q.match(/\$\s?([\d,]+(?:\.\d+)?)\s*(?:each|apiece|a|per|\/)\s*([a-z]+)?/i);
+  if (!qtyMatch || !priceMatch) return null;
+  const qty = Number(qtyMatch[1]);
+  const price = Number(String(priceMatch[1]).replace(/,/g, ''));
+  if (!(qty > 0) || !(price > 0)) return null;
+  const rawUnit = String(qtyMatch[2]).toLowerCase();
+  const priceWord = String(priceMatch[2] || '').toLowerCase();
+  const perFoot = /^(feet|foot|ft)$/.test(rawUnit) || /^(feet|foot|ft)$/.test(priceWord);
+  const priceUnit = perFoot ? 'a foot' : 'each';
+  return { qty, unit: quantityUnitLabel(rawUnit, qty), priceUnit, price, total: qty * price };
+}
+
+/** A count and a unit price the contractor stated. Not the saved job's material budget. */
+function isStatedQuantityCostQuestion(text) {
+  return statedQuantityCost(text) != null;
+}
+
+function buildStatedQuantityCostReply(message) {
+  const item = statedQuantityCost(message);
+  if (!item) return null;
+  return [
+    `**${item.qty}** ${item.unit} at **${exactMoney(item.price)}** ${item.priceUnit} is **${exactMoney(item.total)}**.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
+function isStatedProfitQuestion(text) {
+  const q = String(text || '');
+  if (!/\bprofit\b/i.test(q) || statedDollarAmounts(q).length < 2) return false;
+  return /\b(?:sell|sale|price|charge|pay)\b/i.test(q) && /\b(?:spend|spent|cost)\b/i.test(q);
+}
+
+function buildStatedProfitReply(message) {
+  const price = moneyAmountNear(message, /\b(?:sell|sale|price|charge|pay)\b[^$]{0,32}\$\s?([\d,]+(?:\.\d+)?)/i);
+  const cost = moneyAmountNear(message, /\b(?:spend|spent|cost)\b[^$]{0,32}\$\s?([\d,]+(?:\.\d+)?)/i);
+  if (!price || !cost) return null;
+  const profit = price - cost;
+  return [
+    `Profit is **${paymentMoney(profit)}**.`,
+    `That is a **${paymentMoney(price)}** sale minus **${paymentMoney(cost)}** spent.`,
+    'It is not a saved estimate.',
   ].join('\n');
 }
 
@@ -3340,6 +3621,7 @@ function isOverheadQuestion(text) {
 }
 
 function categoryBudgetChoice(text) {
+  if (isStatedLaborCostQuestion(text) || isDailyBillRateQuestion(text) || isStatedQuantityCostQuestion(text)) return null;
   const labor = /\b(?:labor|labour)\b/i.test(text);
   const material = /\bmaterials?\b/i.test(text);
   if (!labor && !material) return null;
@@ -3353,6 +3635,7 @@ function categoryBudgetChoice(text) {
 }
 
 function isRemainingBudgetSnapshotIntent(text) {
+  if (isStatedProfitQuestion(text)) return false;
   return (
     /\b(?:remaining|left)\b[\s\S]{0,40}\b(?:cost|budget|spend|to spend)\b/i.test(text) ||
     /\b(?:cost|budget)\b[\s\S]{0,24}\bleft\b/i.test(text) ||
@@ -3383,9 +3666,34 @@ function extractCentralCommandPayeeName(message) {
  * Closed label for a money question that missed the exact cards.
  * The label is not an answer. Dollar amounts stay in the snapshot reply.
  */
+function bringsOwnFigures(text) {
+  const q = String(text || '');
+  if (statedDollarAmounts(q).length > 0) return true;
+  return /\b\d+(?:\.\d+)?\s*(?:feet|foot|ft|sheets?|pieces?|gallons?|boards?|days?|hours?|weeks?)\b/i.test(q);
+}
+
+function asksAboutSavedJob(text, projects) {
+  const q = String(text || '');
+  if (/\b(?:my|our|this|the)\s+(?:job|project|estimate)\b/i.test(q)) return true;
+  if (/\b(?:what(?:'s| is)|how much(?: is)?)\s+(?:my|our)\b/i.test(q)) return true;
+  if (/\b(?:my|our)\s+(?:margin|markup|overhead|budget|labor|labour|materials?|profit|payments?|spent|cost)\b/i.test(q)) return true;
+  if (/\b(?:left to spend|have i collected|still coming in|over budget|under budget)\b/i.test(q)) return true;
+  const titles = (Array.isArray(projects) ? projects : [])
+    .map((project) => String(project?.title || project?.name || '').trim())
+    .filter((title) => title.length > 3);
+  const lower = q.toLowerCase();
+  return titles.some((title) => lower.includes(title.toLowerCase()));
+}
+
+/** Own dollars or quantities, and the question is not about a saved job. */
+function shouldSkipSavedJobCards(text, projects) {
+  return bringsOwnFigures(text) && !asksAboutSavedJob(text, projects);
+}
+
 function classifyCentralCommandIntent(message) {
   const text = String(message || '').trim();
   if (!text || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text) || isMarkupMarginDefinitionQuestion(text)) return null;
+  if (shouldSkipSavedJobCards(text)) return null;
   const payeeName = extractCentralCommandPayeeName(text);
   if (payeeName && /\b(cost|charge|pay|paid)\b/i.test(text)) return { intent: 'payee', payeeName };
   if (isWorryQuery(text)) return null;
@@ -3404,14 +3712,14 @@ function classifyCentralCommandIntent(message) {
   if (isMarkupQuestion(text)) return { intent: 'markup', payeeName: null };
   if (/\b(worth it|worth doing|worth taking)\b/i.test(text)) return { intent: 'worth', payeeName: null };
   if (/\b(make money|made money|profitable|come out ahead|making enough)\b/i.test(text)) return { intent: 'profit', payeeName: null };
-  if (/\bmargin\b/i.test(text) && !isHypotheticalPriceQuestion(text)) return { intent: 'margin', payeeName: null };
-  if (/\b(spent|spend)\b/i.test(text)) return { intent: 'spent', payeeName: null };
+  if (/\bmargin\b/i.test(text) && !isHypotheticalPriceQuestion(text) && !isMarginCheckQuestion(text) && !isTargetMarginFollowUp(text)) return { intent: 'margin', payeeName: null };
+  if (/\b(spent|spend)\b/i.test(text) && !isStatedProfitQuestion(text)) return { intent: 'spent', payeeName: null };
   return null;
 }
 
 function needsCentralCommandIntentModel(message) {
   const text = String(message || '').trim();
-  if (!text || classifyCentralCommandIntent(text) || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text) || isMarkupMarginDefinitionQuestion(text)) return false;
+  if (!text || shouldSkipSavedJobCards(text) || classifyCentralCommandIntent(text) || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text) || isMarkupMarginDefinitionQuestion(text)) return false;
   return /\b(money|profit|margin|budget|spent|spend|cost|paid|pay|labor|materials?|forecast|payment|overdue|collect)\b/i.test(text);
 }
 
@@ -3935,6 +4243,20 @@ function buildProfitGuaranteeReply(project, parsedContext = {}, now = new Date()
   return lines.join('\n');
 }
 
+function lowestMarginJobLabel(row, rows) {
+  const sharedTitle = rows.filter((item) => item.title === row.title).length > 1;
+  if (sharedTitle && row.finished) return `${row.title} (finished)`;
+  return row.title;
+}
+
+function lowestMarginReason(row) {
+  const profit = Number(row.profit);
+  const revenue = Number(row.revenue);
+  if (!Number.isFinite(profit) || !(revenue > 0)) return '';
+  const basis = row.finished ? 'it finished with' : 'the estimate shows';
+  return `, because ${basis} **${paymentMoney(profit)}** profit on a **${paymentMoney(revenue)}** contract`;
+}
+
 function buildLowestMarginReply(projects = []) {
   const rows = [];
   for (const project of Array.isArray(projects) ? projects : []) {
@@ -3947,17 +4269,21 @@ function buildLowestMarginReply(projects = []) {
       title: project?.title || project?.name || 'This project',
       margin,
       finished,
+      profit: snapshot.projectedProfit,
+      revenue: snapshot.revenue,
     });
   }
   if (!rows.length) return "I don't have a margin on your jobs yet, so I won't guess which one is lowest.";
   rows.sort((a, b) => a.margin - b.margin);
   const lowest = rows[0];
   const state = lowest.finished ? 'finished' : 'in progress';
+  const name = lowestMarginJobLabel(lowest, rows);
+  const why = lowestMarginReason(lowest);
   if (rows.length === 1) {
-    return `**${lowest.title}** is the only job I can score. It's ${state}, at **${lowest.margin.toFixed(1)}%** margin.`;
+    return `**${name}** is the only job I can score. It's ${state}, at **${lowest.margin.toFixed(1)}%** margin${why}.`;
   }
   const next = rows[1];
-  return `**${lowest.title}** has the lowest margin. It's ${state}, at **${lowest.margin.toFixed(1)}%**. Next is **${next.title}** at **${next.margin.toFixed(1)}%**.`;
+  return `**${name}** has the lowest margin. It's ${state}, at **${lowest.margin.toFixed(1)}%**${why}. Next is **${lowestMarginJobLabel(next, rows)}** at **${next.margin.toFixed(1)}%**.`;
 }
 
 function buildCentralCommandReadOnlyReply(message = '', projectName = '') {
@@ -4007,7 +4333,14 @@ function trySnapshotTopicReply(message, ctx = {}) {
   if (isPortfolioFocusTodayQuery(message)) {
     return buildFocusTodayReply(ctx.projects, ctx.now || new Date());
   }
+  if (isStatedProfitQuestion(message)) return buildStatedProfitReply(message);
+  if (isMarginCheckQuestion(message)) return buildMarginCheckReply(message);
+  if (isTargetMarginFollowUp(message)) return buildTargetMarginFollowUpReply(message, ctx.history);
   if (isHypotheticalPriceQuestion(message)) return buildHypotheticalPriceReply(message);
+  if (isHypotheticalMarkupQuestion(message)) return buildHypotheticalMarkupReply(message);
+  if (isStatedLaborCostQuestion(message)) return buildStatedLaborCostReply(message);
+  if (isDailyBillRateQuestion(message)) return buildDailyBillRateReply(message);
+  if (isStatedQuantityCostQuestion(message)) return buildStatedQuantityCostReply(message);
   const priceRecalc = buildPriceRecalcReply(message, ctx.history);
   if (priceRecalc) return priceRecalc;
   if (isPercentChangeQuestion(message)) {
@@ -4018,6 +4351,7 @@ function trySnapshotTopicReply(message, ctx = {}) {
   if (isWorryQuery(message)) {
     return buildWorryReply(ctx.projects, { now: ctx.now || new Date() });
   }
+  if (shouldSkipSavedJobCards(message, ctx.projects)) return null;
   const choice = classifyCentralCommandIntent(message);
   if (choice && choice.intent !== 'unknown') {
     const reply = buildCentralCommandIntentReply(choice, ctx);
@@ -4235,7 +4569,7 @@ function buildCentralCommandCalendarToolResult(project, now = new Date()) {
 function centralCommandNeedsJobGrounding(message) {
   const q = String(message || '');
   if (!q.trim() || isCentralCommandConceptQuestion(q)) return false;
-  if (isHypotheticalPriceQuestion(q) || isPriceRecalcFollowUp(q)) return false;
+  if (isHypotheticalPriceQuestion(q) || isHypotheticalMarkupQuestion(q) || isPriceRecalcFollowUp(q) || shouldSkipSavedJobCards(q)) return false;
   const aboutBooks = /\b(?:job|project|budget|overhead|margin|payments?|estimate|spent|profit|invoice|retainage|allowance|contingency|change orders?)\b/i.test(q);
   const possessive = /\b(?:my|our|this)\b/i.test(q);
   return aboutBooks && possessive;
@@ -4383,7 +4717,11 @@ module.exports = {
   buildCentralCommandIntentReply,
   trySnapshotTopicReply,
   isHypotheticalPriceQuestion,
+  isHypotheticalMarkupQuestion,
   isPriceRecalcFollowUp,
+  isOpenPricingFollowUp,
+  shouldSkipSavedJobCards,
+  centralCommandSnapshotNeedsFreshness,
   buildCentralCommandReadOnlyReply,
   normalizeProjectSearchText,
   rankProjectsByQuery,

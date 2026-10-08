@@ -256,22 +256,59 @@ function prepareCentralCommandAction(message, { projects, parsedContext, userMem
   return null;
 }
 
-function solInstructions({ projects, userMemory }) {
+function solInstructions({ projects, userMemory, pricingFollowUp = false, statedFigures = false }) {
   const memory = buildUserMemoryPromptBlock(userMemory);
+  const pricing = statedFigures
+    ? `The contractor already put the numbers in this question.
+Use only those numbers. Do not mention a saved job. Do not call a tool.
+Answer the arithmetic in 2 to 4 short sentences. Bold the dollar amounts.`
+    : pricingFollowUp
+    ? `This message continues a price the contractor already stated in the conversation.
+Use only that cost and that margin or markup. Do not mention a saved job.
+If they change the cost, keep the same margin or markup.
+A gross margin price is cost divided by (1 minus the margin). A markup price is cost times (1 plus the markup).
+Answer in 2 to 4 short sentences. Bold the dollar amounts.`
+    : `When the contractor states their own cost and a gross margin, the price is that cost divided by (1 minus the margin).
+When they state a markup, the price is that cost times (1 plus the markup).
+A later change to that cost stays on those numbers, not on a saved job.`;
   return `You are Build Profit AI inside Central Command.
-Answer general questions normally.
+Answer general questions normally. A general question is not about one of their jobs.
 The job index has names and status only.
 Before you state a dollar amount, percent, or payment date from their jobs, call a job tool and use only figures from that tool result.
-Use web search for current public information such as weather, prices, or codes, and name the source.
+Use web search for current public information such as weather, prices, or codes. Name the source in a short sentence.
 Use search_pricing_library for the contractor's saved rates.
 Company preferences are not the numbers stored on a job.
 prepare_job_action only prepares a change. Say that it still needs confirmation. Do not say it was saved.
 If a tool does not contain the figure, say you do not have it.
-When the contractor states their own cost and a gross margin, the price is that cost divided by (1 minus the margin). A later change to that cost stays on those numbers, not on a saved job.
-Write short sentences. Use **bold** for dollar amounts. Do not use markdown tables or markdown links.
+Write the way a job card reads: 2 to 6 short sentences. Bold dollar amounts with **. Use a bullet only to list several facts.
+Do not use a title, a markdown table, or a markdown link.
+${pricing}
 
 ${buildCentralCommandJobIndex(projects)}
 ${memory || ''}`;
+}
+
+function solReplyToCardProse(text) {
+  const lines = String(text || '').split('\n');
+  const converted = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) continue;
+    if (trimmed.includes('|') && (trimmed.startsWith('|') || trimmed.split('|').length >= 3)) {
+      const cells = trimmed.split('|').map((cell) => cell.trim()).filter(Boolean);
+      if (cells.length >= 2) {
+        converted.push(`- **${cells[0]}:** ${cells.slice(1).join(', ')}`);
+        continue;
+      }
+    }
+    converted.push(line);
+  }
+  return converted
+    .join('\n')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function answerCentralCommandWithSol({
@@ -284,13 +321,15 @@ async function answerCentralCommandWithSol({
   model = 'gpt-6.1-sol',
   now = new Date(),
   listEntries,
+  pricingFollowUp = false,
+  statedFigures = false,
 }) {
-  const prepared = prepareCentralCommandAction(message, { projects, parsedContext, userMemory, now });
+  const prepared = statedFigures ? null : prepareCentralCommandAction(message, { projects, parsedContext, userMemory, now });
   if (prepared) return prepared;
   if (!openai?.responses?.create) return null;
 
-  const tools = centralCommandSolTools();
-  const prior = (Array.isArray(history) ? history : []).slice(-6)
+  const tools = (pricingFollowUp || statedFigures) ? [] : centralCommandSolTools();
+  const prior = (Array.isArray(history) ? history : []).slice(-8)
     .filter((turn) => turn?.role && turn?.content)
     .map((turn) => ({
       role: turn.role === 'assistant' ? 'assistant' : 'user',
@@ -300,29 +339,27 @@ async function answerCentralCommandWithSol({
   let previousResponseId = null;
   const toolResults = [];
   const actions = [];
+  let usedJobTools = false;
   let reply = '';
+  const jobToolNames = new Set(READ_TOOLS.map(([name]) => name));
 
   for (let round = 0; round < 4; round += 1) {
+    const request = {
+      model,
+      instructions: solInstructions({ projects, userMemory, pricingFollowUp, statedFigures }),
+      input,
+      reasoning: { effort: centralCommandReasoningEffort(message) },
+      previous_response_id: previousResponseId,
+    };
+    if (tools.length) request.tools = tools;
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions: solInstructions({ projects, userMemory }),
-        input,
-        tools,
-        reasoning: { effort: centralCommandReasoningEffort(message) },
-        previous_response_id: previousResponseId,
-      });
+      response = await openai.responses.create(request);
     } catch (error) {
       const webSearchRejected = /web_search/i.test(String(error?.message || ''));
-      if (!webSearchRejected || round > 0) throw error;
-      response = await openai.responses.create({
-        model,
-        instructions: solInstructions({ projects, userMemory }),
-        input,
-        tools: tools.filter((tool) => tool.type !== 'web_search_preview'),
-        reasoning: { effort: centralCommandReasoningEffort(message) },
-      });
+      if (!webSearchRejected || round > 0 || !tools.length) throw error;
+      request.tools = tools.filter((tool) => tool.type !== 'web_search_preview');
+      response = await openai.responses.create(request);
     }
     previousResponseId = response?.id || previousResponseId;
     const calls = (response?.output || []).filter((item) => item?.type === 'function_call');
@@ -344,6 +381,7 @@ async function answerCentralCommandWithSol({
         if (result.action) actions.push(result.action);
       } else {
         result = executeCentralCommandReadTool(call.name, args, { projects, parsedContext, now });
+        if (jobToolNames.has(call.name) && result?.success) usedJobTools = true;
       }
       toolResults.push(result);
       outputs.push({
@@ -357,11 +395,11 @@ async function answerCentralCommandWithSol({
 
   const confirmation = toolResults.map((result) => result?.confirmation).find(Boolean);
   if (confirmation) reply = confirmation;
-  if (centralCommandNeedsJobGrounding(message) && centralCommandReplyIsUngrounded(reply, toolResults)) {
+  if (!pricingFollowUp && !statedFigures && centralCommandNeedsJobGrounding(message) && centralCommandReplyIsUngrounded(reply, toolResults)) {
     reply = buildCentralCommandFigureFallback(parsedContext?.currentProject || parsedContext?.projectName || '');
-    return { reply, actions: [] };
+    return { reply, actions: [], usedJobTools: false };
   }
-  return { reply, actions };
+  return { reply: solReplyToCardProse(reply), actions, usedJobTools };
 }
 
 module.exports = {
@@ -369,4 +407,5 @@ module.exports = {
   answerCentralCommandWithSol,
   searchPricingLibrary,
   centralCommandReasoningEffort,
+  solReplyToCardProse,
 };

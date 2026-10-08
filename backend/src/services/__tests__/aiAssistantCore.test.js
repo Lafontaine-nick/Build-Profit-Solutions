@@ -22,6 +22,10 @@ const {
   buildCentralCommandJobIndex,
   executeCentralCommandReadTool,
   centralCommandNeedsJobGrounding,
+  isOpenPricingFollowUp,
+  shouldSkipSavedJobCards,
+  isExplicitExpenseLogQuery,
+  centralCommandSnapshotNeedsFreshness,
   centralCommandReplyIsUngrounded,
   isCentralCommandMutationRequest,
   appendDataFreshness,
@@ -1417,11 +1421,136 @@ describe('aiAssistantCore', () => {
     expect(second).toContain('$38,500');
     expect(second).not.toContain('Electrical Estimate Draft');
 
+    const markupPrice = trySnapshotTopicReply(
+      'I want a 25% markup on an $80,000 cost. What should I charge?',
+      ctx
+    );
+    expect(markupPrice).toContain('$100,000');
+    expect(markupPrice).toContain('$20,000');
+    expect(markupPrice).not.toContain('Electrical Estimate Draft');
+    expect(markupPrice).not.toContain('Price guidance');
+    expect(markupPrice).not.toContain('16.1%');
+
     const lowest = trySnapshotTopicReply('Which project has the lowest profit margin, and why?', ctx);
     expect(lowest).toContain('**Electrical Estimate Draft** has the lowest margin');
     expect(lowest).toContain('**14.2%**');
+    expect(lowest).toContain('**$3,910**');
     expect(lowest).toContain('**Quiet Remodel**');
     expect(lowest).not.toContain('Margin Summary');
+
+    const finishedTwin = {
+      ...current,
+      id: 'finished-twin',
+      status: 'completed',
+      actualCost: 20200,
+      bidPrice: 37546,
+      estimatedCost: 20200,
+    };
+    const sameName = trySnapshotTopicReply('Which project has the lowest profit margin, and why?', {
+      ...ctx,
+      projects: [finishedTwin, current],
+    });
+    expect(sameName).toContain('**Electrical Estimate Draft** has the lowest margin');
+    expect(sameName).toContain('**Electrical Estimate Draft (finished)**');
+    expect(sameName).toContain('because the estimate shows **$3,910** profit');
+
+    const priceHistory = [{ role: 'user', content: "I'm pricing a kitchen remodel. My total project cost is $35,000 and I want a 25% gross profit margin. What should I charge the customer?" }];
+    expect(isOpenPricingFollowUp('Make the cost $40,000 instead.', priceHistory)).toBe(true);
+    expect(isOpenPricingFollowUp("What's my margin?", priceHistory)).toBe(false);
+    expect(centralCommandSnapshotNeedsFreshness(
+      "What's the difference between markup and margin?",
+      'Markup is profit divided by cost. Margin is profit divided by the selling price.'
+    )).toBe(false);
+    expect(centralCommandSnapshotNeedsFreshness("What's my margin?", 'Projected profit: $3,910')).toBe(true);
+
+    const check = trySnapshotTopicReply(
+      'My customer will pay $90,000 and the job will cost me $80,000. Is that a 25% margin?',
+      ctx
+    );
+    expect(check).toContain('No.');
+    expect(check).toContain('**11.1%** margin');
+    expect(check).toContain('**12.5%** markup');
+    expect(check).not.toContain('$120,000');
+    expect(check).not.toContain('Electrical Estimate Draft');
+    expect(parseCustomRemainingCostIncrease('What if I want a 30% margin on that same kitchen?')).toBeNull();
+
+    const noKitchen = trySnapshotTopicReply('What if I want a 30% margin on that same kitchen?', ctx);
+    expect(noKitchen).toContain("I don't have that cost in this chat");
+    expect(noKitchen).not.toContain('Electrical Estimate Draft');
+    expect(noKitchen).not.toContain('remaining costs');
+
+    const kitchenAgain = trySnapshotTopicReply('What if I want a 30% margin on that same kitchen?', {
+      ...ctx,
+      history: [{ role: 'user', content: kitchen }],
+    });
+    expect(kitchenAgain).toContain('$50,000');
+    expect(kitchenAgain).not.toContain('Electrical Estimate Draft');
+    expect(parseCustomRemainingCostIncrease('What if remaining costs increase by 10%?')?.percent).toBe(10);
+
+    const profitLeft = trySnapshotTopicReply(
+      'How much profit is left if I sell at $90,000 and spend $80,000?',
+      ctx
+    );
+    expect(profitLeft).toContain('**$10,000**');
+    expect(profitLeft).not.toContain('Remaining cost budget');
+    expect(profitLeft).not.toContain('Electrical Estimate Draft');
+    expect(classifyCentralCommandIntent('How much profit is left if I sell at $90,000 and spend $80,000?')).toBeNull();
+    expect(classifyCentralCommandIntent("What's left to spend?").intent).toBe('remaining_budget');
+
+    const hourly = trySnapshotTopicReply(
+      'If my labor rate is $75 an hour and the task takes 6 hours, what do I charge at a 20% markup?',
+      ctx
+    );
+    expect(hourly).toContain('**$450**');
+    expect(hourly).toContain('**$540**');
+    expect(hourly).not.toContain('Charge **$90**');
+    expect(hourly).not.toContain('Electrical Estimate Draft');
+
+    const crew = trySnapshotTopicReply("A crew of 3 for 2 days at $400 a day. What's the labor cost?", ctx);
+    expect(crew).toContain('**$2,400**');
+    expect(crew).toContain('It is not a saved estimate.');
+    expect(crew).not.toContain('$16,060');
+    expect(crew).not.toContain('Electrical Estimate Draft');
+    expect(classifyCentralCommandIntent("A crew of 3 for 2 days at $400 a day. What's the labor cost?")).toBeNull();
+    expect(classifyCentralCommandIntent('How much labor budget do I have left?').intent).toBe('labor_budget');
+    expect(centralCommandSnapshotNeedsFreshness(
+      "A crew of 3 for 2 days at $400 a day. What's the labor cost?",
+      crew
+    )).toBe(false);
+
+    const dayRate = trySnapshotTopicReply(
+      'If I work 5 days and want to take home $2,000, what do I need to bill per day?',
+      ctx
+    );
+    expect(dayRate).toContain('**$400**');
+    expect(dayRate).not.toContain('$10,000');
+    expect(dayRate).not.toContain('Electrical Estimate Draft');
+    expect(classifyCentralCommandIntent('If I work 5 days and want to take home $2,000, what do I need to bill per day?')).toBeNull();
+
+    const wire = trySnapshotTopicReply(
+      "I need 120 feet of wire at $1.85 a foot. What's that material cost?",
+      ctx
+    );
+    expect(wire).toContain('**$222**');
+    expect(wire).toContain('**$1.85**');
+    expect(wire).not.toContain('$5,190');
+    expect(wire).not.toContain('Electrical Estimate Draft');
+    expect(classifyCentralCommandIntent("I need 120 feet of wire at $1.85 a foot. What's that material cost?")).toBeNull();
+    expect(classifyCentralCommandIntent("What's my material budget?").intent).toBe('material_budget');
+
+    const fuelTotal = "I spent $640 on fuel and $210 on dump fees. What's the total?";
+    expect(shouldSkipSavedJobCards(fuelTotal)).toBe(true);
+    expect(shouldSkipSavedJobCards("What's my margin?")).toBe(false);
+    expect(shouldSkipSavedJobCards('How much labor budget do I have left?')).toBe(false);
+    expect(trySnapshotTopicReply(fuelTotal, ctx)).toBeNull();
+    expect(classifyCentralCommandIntent(fuelTotal)).toBeNull();
+    expect(classifyCentralCommandIntent('How much have I spent?').intent).toBe('spent');
+    expect(isExplicitExpenseLogQuery(fuelTotal)).toBe(false);
+    expect(isExplicitExpenseLogQuery('Add a $500 expense')).toBe(true);
+    expect(centralCommandSnapshotNeedsFreshness(
+      "I need 120 feet of wire at $1.85 a foot. What's that material cost?",
+      wire
+    )).toBe(false);
 
     const focus = trySnapshotTopicReply(
       'If you were managing my company, what are the three most important things to focus on today?',
