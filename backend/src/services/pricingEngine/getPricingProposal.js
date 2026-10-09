@@ -56,13 +56,17 @@ function resolveSupplierZipContext(draft, zipCode = '') {
 async function getPricingProposal(params) {
   const {
     draft,
-    userId = 'dev-user-1',
+    userId,
     projectLocation = '',
     zipCode = '',
     savedTemplates = [],
     companyDefaultRates = null,
     mode = 'suggest',
   } = params;
+
+  if (!userId) {
+    throw new Error('userId is required');
+  }
 
   const supplierZipCtx = resolveSupplierZipContext(draft, zipCode);
   const context = {

@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { captureCrash } from '@/lib/crashReporting';
 
 interface Props {
   children: ReactNode;
@@ -34,6 +35,7 @@ class ErrorBoundaryClass extends Component<Props & { theme: typeof FALLBACK_THEM
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
     console.error('[ErrorBoundary]', msg, stack, errorInfo?.componentStack);
+    captureCrash(error);
   }
 
   handleRetry = () => {

@@ -14,48 +14,17 @@ const {
   approveCalibrationSuggestions,
 } = require('../services/contractorPricingMemory');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
-const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped, listLibraryEntries } = require('../services/contractorPricingMemory/storage');
+const {
+  updateEntry,
+  deleteEntry,
+  deleteEntriesForProject,
+  getLibraryGrouped,
+  listLibraryEntries,
+  flushPricingPersists,
+} = require('../services/contractorPricingMemory/storage');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { requireEntitlement } = require('../middleware/requireEntitlement');
-
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    req.user = { userId: 'dev-user-1' };
-    return next();
-  }
-
-  try {
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    // Clerk session tokens use RS256 and cannot be verified with the app's
-    // local JWT_SECRET. Match the shared auth middleware by reading the
-    // Clerk subject so pricing memory stays attached to the same account
-    // after the app is closed and reopened.
-    try {
-      const jwt = require('jsonwebtoken');
-      const decoded = jwt.decode(token);
-      if (decoded && decoded.sub) {
-        req.user = {
-          userId: decoded.sub,
-          email: decoded.email || decoded.primary_email_address || null,
-          role: decoded.role || 'contractor',
-        };
-        return next();
-      }
-    } catch (decodeError) {
-      console.warn('contractorPricingMemory: could not decode token', decodeError.message);
-    }
-    console.warn('contractorPricingMemory: invalid token, dev user', error.message);
-    req.user = { userId: 'dev-user-1' };
-    next();
-  }
-};
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 router.use(authenticateToken);
 
@@ -64,7 +33,7 @@ router.get('/settings', (req, res) => {
   res.json({ success: true, settings: getSettings(userId) });
 });
 
-router.patch('/settings', (req, res) => {
+router.patch('/settings', async (req, res) => {
   const userId = req.user.userId;
   const allowed = [
     'pricingMemoryEnabled',
@@ -81,6 +50,7 @@ router.patch('/settings', (req, res) => {
     if (req.body[key] !== undefined) patch[key] = Boolean(req.body[key]);
   }
   const settings = updateSettings(userId, patch);
+  await flushPricingPersists();
   res.json({ success: true, settings });
 });
 
@@ -111,9 +81,10 @@ router.get('/rates', (req, res) => {
   });
 });
 
-router.delete('/clear', (req, res) => {
+router.delete('/clear', async (req, res) => {
   const userId = req.user.userId;
   clearMemory(userId);
+  await flushPricingPersists();
   res.json({ success: true, message: 'Pricing memory cleared for this account.' });
 });
 
@@ -121,7 +92,7 @@ router.delete('/clear', (req, res) => {
  * POST /capture — call after apply, submit, won, completed, or saved template.
  * Body: { draft?, bid?, meta: { bidStatus, isTestBid?, projectId?, markupPct?, marginPct?, region? } }
  */
-router.post('/capture', (req, res) => {
+router.post('/capture', async (req, res) => {
   try {
     const userId = req.user.userId;
     const result = capturePricingMemory(userId, {
@@ -129,6 +100,7 @@ router.post('/capture', (req, res) => {
       bid: req.body.bid,
       meta: req.body.meta || {},
     });
+    await flushPricingPersists();
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('pricing memory capture:', err);
@@ -164,7 +136,7 @@ router.get('/library', (req, res) => {
   res.json({ success: true, sections, total: sections.reduce((n, s) => n + s.items.length, 0) });
 });
 
-router.patch('/rates/:id', (req, res) => {
+router.patch('/rates/:id', async (req, res) => {
   const userId = req.user.userId;
   const { unitRate, scopeItemName, category, unitType } = req.body || {};
   const updated = updateEntry(userId, req.params.id, {
@@ -174,19 +146,22 @@ router.patch('/rates/:id', (req, res) => {
     unitType,
   });
   if (!updated) return res.status(404).json({ error: 'Rate not found' });
+  await flushPricingPersists();
   res.json({ success: true, rate: updated });
 });
 
-router.delete('/rates/:id', (req, res) => {
+router.delete('/rates/:id', async (req, res) => {
   const userId = req.user.userId;
   const result = deleteEntry(userId, req.params.id);
   if (!result.deleted) return res.status(404).json({ error: 'Rate not found' });
+  await flushPricingPersists();
   res.json({ success: true });
 });
 
-router.delete('/project/:projectId', (req, res) => {
+router.delete('/project/:projectId', async (req, res) => {
   const userId = req.user.userId;
   const result = deleteEntriesForProject(userId, req.params.projectId);
+  await flushPricingPersists();
   res.json({ success: true, ...result });
 });
 
@@ -256,10 +231,11 @@ router.post('/suggest-missing', (req, res) => {
  *   draft?, bid?, applyActualsToMemory?, captureCompleted?
  * }
  */
-router.post('/closeout-calibration', (req, res) => {
+router.post('/closeout-calibration', async (req, res) => {
   try {
     const userId = req.user.userId;
     const result = runCloseoutCalibration(userId, req.body || {});
+    await flushPricingPersists();
     res.json({ success: true, ...result });
   } catch (err) {
     const status = /required|must be true/i.test(err.message) ? 400 : 500;
@@ -272,7 +248,7 @@ router.post('/closeout-calibration', (req, res) => {
  * POST /calibration/approve — apply rate suggestions from close-out (manager+).
  * Body: { suggestions: [...], suggestionIds?: string[], role?: string }
  */
-router.post('/calibration/approve', (req, res) => {
+router.post('/calibration/approve', async (req, res) => {
   try {
     const userId = req.user.userId;
     const result = approveCalibrationSuggestions(userId, {
@@ -280,6 +256,7 @@ router.post('/calibration/approve', (req, res) => {
       suggestionIds: req.body?.suggestionIds || [],
       role: req.body?.role || 'manager',
     });
+    await flushPricingPersists();
     res.json({ success: true, ...result });
   } catch (err) {
     const status = /cannot approve/i.test(err.message) ? 403 : 500;

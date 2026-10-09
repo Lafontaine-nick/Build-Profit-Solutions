@@ -104,6 +104,7 @@ export default {
     },
     plugins: [
       'expo-dev-client',
+      '@sentry/react-native',
       'expo-router',
       'expo-web-browser',
       [

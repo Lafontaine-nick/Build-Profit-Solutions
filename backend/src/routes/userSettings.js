@@ -2,32 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getPool } = require('../services/database');
 const { loadUsers } = require('../services/leadStorage');
-
-// Middleware to verify JWT token (optional for development)
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    // For development: allow requests without auth
-    // In production, you should require authentication
-    req.user = { userId: 'dev-user-1' }; // Default dev user
-    return next();
-  }
-
-  try {
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    // For development: allow requests with invalid tokens
-    // In production, you should reject invalid tokens
-    console.warn('Invalid token, using dev user:', error.message);
-    req.user = { userId: 'dev-user-1' }; // Default dev user
-    next();
-  }
-};
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 // Get user settings
 router.get('/', authenticateToken, async (req, res) => {

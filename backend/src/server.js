@@ -426,12 +426,21 @@ const hasWebScrapingApi = Boolean(
   webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE'
 );
 
+const { hydrateDurableStores } = require('./services/durableStores');
+
 // Create HTTP servers for both ports
 const server1 = http.createServer(app);
 const server2 = http.createServer(app);
 
-// Start server on primary port (3001)
-server1.listen(PORT, '0.0.0.0', () => {
+async function startServers() {
+  try {
+    await hydrateDurableStores();
+  } catch (error) {
+    console.error('Durable store startup failed:', error);
+  }
+
+  // Start server on primary port (3001)
+  server1.listen(PORT, '0.0.0.0', () => {
   console.log(`\n${'='.repeat(60)}`);
   logServerInfo(PORT);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -467,5 +476,8 @@ server2.listen(PORT2, '0.0.0.0', () => {
   }
   throw err;
 });
+}
+
+startServers();
 
 module.exports = app; 

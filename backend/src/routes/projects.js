@@ -3,65 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { loadProjects, saveProjects } = require('../services/leadStorage');
 const { purgeWorkspaceProjectReferences } = require('../services/workspaceStorage');
-
-// Middleware to verify JWT token or Clerk token
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  // First, try to verify as backend JWT token (for backward compatibility)
-  try {
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    console.log('✅ Auth: JWT token verified successfully');
-    return next();
-  } catch (jwtError) {
-    // If JWT verification fails, try to verify as Clerk token
-    try {
-        const jwt = require('jsonwebtoken');
-        // Clerk tokens are JWTs, but we need to verify them with Clerk's API
-        // For now, we'll decode the token to get user info (Clerk tokens contain user data)
-        // In production, you should verify with Clerk's API or use @clerk/backend SDK
-        const decoded = jwt.decode(token);
-        
-        console.log('🔍 Auth: Attempting Clerk token decode', {
-          hasDecoded: !!decoded,
-          hasSub: decoded && !!decoded.sub,
-          tokenLength: token.length,
-          tokenPreview: token.substring(0, 20) + '...'
-        });
-        
-        if (decoded && decoded.sub) {
-          // Extract user info from Clerk token
-          // Clerk tokens have 'sub' as the user ID
-          req.user = {
-            userId: decoded.sub,
-            email: decoded.email || decoded.primary_email_address || null,
-            role: decoded.role || 'contractor'
-          };
-          console.log('✅ Auth: Clerk token decoded successfully', { userId: decoded.sub });
-          return next();
-        } else {
-          console.warn('⚠️ Auth: Clerk token decoded but missing sub field', { decoded: decoded ? Object.keys(decoded) : null });
-        }
-      } catch (clerkError) {
-        console.error('❌ Auth: Clerk token decoding error:', clerkError.message);
-      }
-    
-    // If both verifications fail, return error
-    console.error('❌ Auth: Token verification failed completely', {
-      jwtError: jwtError.message,
-      tokenLength: token.length,
-      tokenPreview: token.substring(0, 30) + '...'
-    });
-    return res.status(403).json({ error: 'Invalid or expired token' });
-  }
-};
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 // Load projects from disk on startup
 let projects = loadProjects();
@@ -191,7 +133,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
       }
     }
 
-    saveProjects(projects);
+    await saveProjects(projects);
 
     const userProjects = projects.filter((p) => p.userId === userId);
     res.json({
@@ -301,7 +243,7 @@ router.post('/', authenticateToken, [
     };
     
     projects.push(newProject);
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.status(201).json({
       success: true,
@@ -365,7 +307,7 @@ router.put('/:id', authenticateToken, [
       ...updates,
     };
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.json({
       success: true,
@@ -400,7 +342,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     projects.splice(projectIndex, 1);
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     purgeWorkspaceProjectReferences(userId, id);
     
     res.json({
@@ -509,7 +451,7 @@ router.post('/:id/expenses', authenticateToken, [
       };
       
       projects.push(newProject);
-      saveProjects(projects);
+      await saveProjects(projects);
       
       projectIndex = projects.length - 1;
       console.log('✅ Expense: Created new project entry', {
@@ -585,7 +527,7 @@ router.post('/:id/expenses', authenticateToken, [
     
     projects[projectIndex].updatedAt = new Date().toISOString();
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     // Return updated project data for client sync
     res.status(201).json({
@@ -675,7 +617,7 @@ router.post('/:id/budget', authenticateToken, [
     projects[projectIndex].remaining = projects[projectIndex].totalBudget - projects[projectIndex].totalSpent;
     projects[projectIndex].updatedAt = new Date().toISOString();
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.status(201).json({
       success: true,
@@ -755,7 +697,7 @@ router.post('/:id/phases', authenticateToken, [
     projects[projectIndex].phases.push(phase);
     projects[projectIndex].updatedAt = new Date().toISOString();
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.status(201).json({
       success: true,
@@ -839,7 +781,7 @@ router.post('/:id/phases/:phaseId/tasks', authenticateToken, [
     projects[projectIndex].phases[phaseIndex].tasks.push(task);
     projects[projectIndex].updatedAt = new Date().toISOString();
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.status(201).json({
       success: true,
@@ -928,7 +870,7 @@ router.put('/:id/phases/:phaseId/tasks/:taskId', authenticateToken, [
     
     projects[projectIndex].updatedAt = new Date().toISOString();
     
-    saveProjects(projects); // Persist to disk
+    await saveProjects(projects); // Persist to disk
     
     res.json({
       success: true,
@@ -1066,7 +1008,7 @@ router.post('/:id/milestones', authenticateToken, async (req, res) => {
     if (!projects[projectIndex].milestones) projects[projectIndex].milestones = [];
     projects[projectIndex].milestones.push(milestone);
     projects[projectIndex].updatedAt = new Date().toISOString();
-    saveProjects(projects);
+    await saveProjects(projects);
 
     res.status(201).json({ success: true, data: milestone, message: `Milestone "${title}" added.` });
   } catch (error) {
@@ -1104,7 +1046,7 @@ router.patch('/:id/milestones/complete', authenticateToken, async (req, res) => 
     }
 
     projects[projectIndex].updatedAt = new Date().toISOString();
-    saveProjects(projects);
+    await saveProjects(projects);
     res.json({ success: true, message: `Milestone marked complete.`, data: projects[projectIndex].milestones });
   } catch (error) {
     console.error('Error marking milestone complete:', error);
@@ -1144,7 +1086,7 @@ router.post('/:id/estimate/line-items', authenticateToken, async (req, res) => {
     if (!projects[projectIndex].estimateData.materialLineItems) projects[projectIndex].estimateData.materialLineItems = [];
     projects[projectIndex].estimateData.materialLineItems.push(lineItem);
     projects[projectIndex].updatedAt = new Date().toISOString();
-    saveProjects(projects);
+    await saveProjects(projects);
 
     res.status(201).json({ success: true, data: lineItem, message: `"${name}" added to estimate.` });
   } catch (error) {

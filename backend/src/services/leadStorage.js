@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { getPool } = require('./database');
 
 // Storage file paths
 const STORAGE_DIR = path.join(__dirname, '../../storage');
@@ -80,27 +81,127 @@ if (!fs.existsSync(PROJECTS_FILE)) {
   fs.writeFileSync(PROJECTS_FILE, JSON.stringify([], null, 2));
 }
 
-function loadProjects() {
+let projectCache = null;
+let projectSchemaPromise = null;
+
+function readProjectFile() {
   try {
     const data = fs.readFileSync(PROJECTS_FILE, 'utf8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     console.error('❌ Error loading projects:', error);
     return [];
   }
 }
 
-/**
- * Save projects to disk
- */
-function saveProjects(projects) {
+function writeProjectFile(projects) {
   try {
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
-    return true;
   } catch (error) {
     console.error('❌ Error saving projects:', error);
-    return false;
   }
+}
+
+function loadProjects() {
+  if (projectCache == null) {
+    projectCache = readProjectFile();
+  }
+  return projectCache;
+}
+
+async function ensureProjectSchema() {
+  if (!process.env.DATABASE_URL) return null;
+  if (!projectSchemaPromise) {
+    const pool = getPool();
+    projectSchemaPromise = pool
+      .query(`
+        CREATE TABLE IF NOT EXISTS synced_projects (
+          user_id TEXT NOT NULL DEFAULT '',
+          project_id TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, project_id)
+        );
+      `)
+      .then(() => pool)
+      .catch((error) => {
+        projectSchemaPromise = null;
+        throw error;
+      });
+  }
+  return projectSchemaPromise;
+}
+
+async function persistProjectList(projects) {
+  const pool = await ensureProjectSchema();
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const keys = [];
+    for (const project of projects) {
+      const projectId = String(project?.id || '').trim();
+      if (!projectId) continue;
+      const userId = String(project?.userId || '');
+      keys.push(`${userId}\u0000${projectId}`);
+      await client.query(
+        `INSERT INTO synced_projects (user_id, project_id, payload, updated_at)
+         VALUES ($1, $2, $3::jsonb, NOW())
+         ON CONFLICT (user_id, project_id)
+         DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+        [userId, projectId, JSON.stringify(project)]
+      );
+    }
+    if (keys.length === 0) {
+      await client.query('DELETE FROM synced_projects');
+    } else {
+      await client.query(
+        `DELETE FROM synced_projects
+         WHERE (user_id || chr(0) || project_id) <> ALL($1::text[])`,
+        [keys]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function hydrateProjectsFromDatabase() {
+  if (!process.env.DATABASE_URL) {
+    projectCache = readProjectFile();
+    return;
+  }
+  const pool = await ensureProjectSchema();
+  const result = await pool.query('SELECT payload FROM synced_projects');
+  if (result.rows.length > 0) {
+    projectCache = result.rows.map((row) => row.payload);
+    writeProjectFile(projectCache);
+    console.log(`✅ Loaded ${projectCache.length} projects from Postgres`);
+    return;
+  }
+  const fromFile = readProjectFile();
+  projectCache = fromFile;
+  if (fromFile.length > 0) {
+    await persistProjectList(fromFile);
+    console.log(`✅ Moved ${fromFile.length} projects from disk into Postgres`);
+  }
+}
+
+/**
+ * Save projects to disk and, when DATABASE_URL is set, to Postgres.
+ */
+async function saveProjects(projects) {
+  projectCache = Array.isArray(projects) ? projects : [];
+  writeProjectFile(projectCache);
+  if (process.env.DATABASE_URL) {
+    await persistProjectList(projectCache);
+  }
+  return true;
 }
 
 /**
@@ -153,6 +254,7 @@ module.exports = {
   saveUnifiedLeads,
   loadProjects,
   saveProjects,
+  hydrateProjectsFromDatabase,
   loadUsers,
   saveUsers,
   PROJECT_LEADS_FILE,

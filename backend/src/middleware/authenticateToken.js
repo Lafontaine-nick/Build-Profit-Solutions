@@ -1,12 +1,21 @@
 const jwt = require('jsonwebtoken');
 
+function unverifiedClerkDecodeAllowed() {
+  if (process.env.NODE_ENV === 'production') return false;
+  if (String(process.env.RENDER || '').toLowerCase() === 'true') return false;
+  return true;
+}
+
 function userFromClerkJwt(decoded, headerEmail) {
   if (!decoded || !decoded.sub) return null;
-  const clerkEmail =
+  let clerkEmail =
     decoded.email ||
     (typeof decoded.primary_email_address === 'string'
       ? decoded.primary_email_address
       : null);
+  if (!clerkEmail && Array.isArray(decoded.email_addresses)) {
+    clerkEmail = decoded.email_addresses[0]?.email_address || null;
+  }
   return {
     userId: decoded.sub,
     email: clerkEmail || headerEmail,
@@ -15,9 +24,9 @@ function userFromClerkJwt(decoded, headerEmail) {
 }
 
 /**
- * Shared auth: backend JWT first, then Clerk (verify when online, decode fallback).
- * Matches projects.js / contractorPricingMemory.js so AI routes work in local dev
- * when Clerk's remote verify endpoint is unreachable.
+ * Backend JWT first, then a verified Clerk session.
+ * An unverified decode is only for local development when Clerk cannot be reached.
+ * Production and Render reject it.
  */
 async function authenticateToken(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -35,6 +44,7 @@ async function authenticateToken(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = {
       ...decoded,
+      userId: decoded.userId || decoded.sub,
       email: decoded.email || headerEmail,
     };
     return next();
@@ -54,16 +64,14 @@ async function authenticateToken(req, res, next) {
       }
     } catch (clerkError) {
       console.error('Clerk token verify error:', clerkError.message);
-      // Local dev fallback: Clerk session tokens are JWTs; decode `sub` when
-      // verifyToken cannot reach Clerk (offline Mac, proxy, DNS, etc.).
-      const decoded = jwt.decode(token);
-      const user = userFromClerkJwt(decoded, headerEmail);
-      if (user) {
-        if (process.env.NODE_ENV !== 'production') {
+      if (unverifiedClerkDecodeAllowed()) {
+        const decoded = jwt.decode(token);
+        const user = userFromClerkJwt(decoded, headerEmail);
+        if (user) {
           console.warn('Clerk verify unavailable; accepted decoded Clerk JWT for local dev');
+          req.user = user;
+          return next();
         }
-        req.user = user;
-        return next();
       }
     }
 
@@ -71,4 +79,7 @@ async function authenticateToken(req, res, next) {
   }
 }
 
-module.exports = { authenticateToken };
+module.exports = {
+  authenticateToken,
+  unverifiedClerkDecodeAllowed,
+};

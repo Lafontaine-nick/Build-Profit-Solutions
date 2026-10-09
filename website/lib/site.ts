@@ -6,7 +6,9 @@ export const siteConfig = {
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://buildprofitsolutions.com",
   webAppUrl:
     process.env.NEXT_PUBLIC_WEB_APP_URL ?? "https://app.buildprofitsolutions.com",
-  iosAppUrl: process.env.NEXT_PUBLIC_IOS_APP_URL ?? "#download",
+  iosAppUrl:
+    process.env.NEXT_PUBLIC_IOS_APP_URL ??
+    "https://apps.apple.com/app/id6761603832",
   androidAppUrl: process.env.NEXT_PUBLIC_ANDROID_APP_URL ?? "#download",
   contactEmail:
     process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "support@buildprofitsolutions.com",
@@ -24,9 +26,9 @@ function trimTrailingSlash(url: string) {
 
 const webAppBase = trimTrailingSlash(siteConfig.webAppUrl);
 
-/** Set NEXT_PUBLIC_PRELAUNCH=false in Vercel when sign-up and billing are ready. */
+/** Set NEXT_PUBLIC_PRELAUNCH=true to hide sign-up and purchase buttons. */
 export const siteLaunch = {
-  isPrelaunch: process.env.NEXT_PUBLIC_PRELAUNCH !== "false",
+  isPrelaunch: process.env.NEXT_PUBLIC_PRELAUNCH === "true",
 };
 
 /** Flip both when Business plan + Team workspace ship together. */

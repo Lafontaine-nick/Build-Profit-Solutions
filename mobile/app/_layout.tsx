@@ -38,6 +38,9 @@ import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
 import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
 import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
+import { initCrashReporting } from '@/lib/crashReporting';
+
+initCrashReporting();
 
 // Web + Safari: native screen containers from react-native-screens can swallow pointer events
 // with Expo Router + bottom tabs. JS screens restore reliable Pressable / tab hit testing.

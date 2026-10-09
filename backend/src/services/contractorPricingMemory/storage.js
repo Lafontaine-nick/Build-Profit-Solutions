@@ -35,26 +35,129 @@ function userStorePath(userId) {
   return path.join(DATA_DIR, `${safeUserId(userId)}.json`);
 }
 
-function loadUserStore(userId) {
+const memoryCache = new Map();
+const pendingPersists = new Set();
+let pricingSchemaPromise = null;
+
+function normalizeStore(raw) {
+  return {
+    settings: { ...DEFAULT_SETTINGS, ...(raw?.settings || {}) },
+    entries: Array.isArray(raw?.entries) ? raw.entries : [],
+  };
+}
+
+function readUserFile(userId) {
   ensureDataDir();
   const file = userStorePath(userId);
   try {
     if (fs.existsSync(file)) {
-      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return {
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings || {}) },
-        entries: Array.isArray(raw.entries) ? raw.entries : [],
-      };
+      return normalizeStore(JSON.parse(fs.readFileSync(file, 'utf8')));
     }
   } catch (e) {
     console.warn('contractorPricingMemory: could not read store', e.message);
   }
-  return { settings: { ...DEFAULT_SETTINGS }, entries: [] };
+  return normalizeStore(null);
+}
+
+function loadUserStore(userId) {
+  const key = String(userId || 'anonymous');
+  if (memoryCache.has(key)) return memoryCache.get(key);
+  const store = readUserFile(key);
+  memoryCache.set(key, store);
+  return store;
+}
+
+function trackPersist(promise) {
+  pendingPersists.add(promise);
+  promise.finally(() => pendingPersists.delete(promise)).catch(() => {});
+  return promise;
+}
+
+async function flushPricingPersists() {
+  const current = [...pendingPersists];
+  if (current.length === 0) return;
+  await Promise.all(current);
+}
+
+async function ensurePricingSchema() {
+  if (!process.env.DATABASE_URL) return null;
+  if (!pricingSchemaPromise) {
+    const pool = getPool();
+    pricingSchemaPromise = pool
+      .query(`
+        CREATE TABLE IF NOT EXISTS contractor_pricing_memory_documents (
+          user_id TEXT PRIMARY KEY,
+          payload JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `)
+      .then(() => pool)
+      .catch((error) => {
+        pricingSchemaPromise = null;
+        throw error;
+      });
+  }
+  return pricingSchemaPromise;
+}
+
+async function persistPricingDocument(userId, store) {
+  const pool = await ensurePricingSchema();
+  if (!pool) return;
+  const key = String(userId || 'anonymous');
+  await pool.query(
+    `INSERT INTO contractor_pricing_memory_documents (user_id, payload, updated_at)
+     VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (user_id)
+     DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+    [key, JSON.stringify(store)]
+  );
 }
 
 function saveUserStore(userId, store) {
+  const key = String(userId || 'anonymous');
+  memoryCache.set(key, store);
   ensureDataDir();
-  fs.writeFileSync(userStorePath(userId), JSON.stringify(store, null, 2), 'utf8');
+  fs.writeFileSync(userStorePath(key), JSON.stringify(store, null, 2), 'utf8');
+  if (process.env.DATABASE_URL) {
+    trackPersist(persistPricingDocument(key, store));
+  }
+}
+
+async function hydratePricingMemoryFromDatabase() {
+  if (!process.env.DATABASE_URL) return;
+  const pool = await ensurePricingSchema();
+  const result = await pool.query(
+    'SELECT user_id, payload FROM contractor_pricing_memory_documents'
+  );
+  const seen = new Set();
+  for (const row of result.rows) {
+    const key = String(row.user_id);
+    const store = normalizeStore(row.payload);
+    memoryCache.set(key, store);
+    ensureDataDir();
+    fs.writeFileSync(userStorePath(key), JSON.stringify(store, null, 2), 'utf8');
+    seen.add(key);
+  }
+  ensureDataDir();
+  if (!fs.existsSync(DATA_DIR)) return;
+  for (const name of fs.readdirSync(DATA_DIR)) {
+    if (!name.endsWith('.json')) continue;
+    const fileId = name.slice(0, -5);
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(DATA_DIR, name), 'utf8'));
+      const store = normalizeStore(raw);
+      const key = String(store.entries[0]?.userId || fileId);
+      if (seen.has(key)) continue;
+      memoryCache.set(key, store);
+      await persistPricingDocument(key, store);
+      seen.add(key);
+    } catch (error) {
+      console.warn('contractorPricingMemory: skipped file during postgres move', error.message);
+    }
+  }
+  if (seen.size > 0) {
+    console.log(`✅ Pricing memory ready for ${seen.size} account(s) in Postgres`);
+  }
 }
 
 function newEntryId() {
@@ -247,53 +350,10 @@ function getLibraryGrouped(userId) {
   return Object.values(byTrade).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-async function tryPersistToPostgres(userId, entries) {
-  const pool = getPool();
-  if (!pool || entries.length === 0) return;
-
+async function tryPersistToPostgres(userId) {
+  if (!process.env.DATABASE_URL) return;
   try {
-    const check = await pool.query(
-      `SELECT 1 FROM information_schema.tables WHERE table_name = 'contractor_pricing_memory' LIMIT 1`
-    );
-    if (check.rows.length === 0) return;
-
-    for (const e of entries) {
-      await pool.query(
-        `INSERT INTO contractor_pricing_memory (
-          user_id, company_id, project_type, trade, category, scope_item_name, unit_type,
-          quantity, unit_rate, labor_amount, material_amount, subcontractor_amount, equipment_amount,
-          total_amount, markup_pct, margin_pct, region, pricing_source, bid_status,
-          project_id, estimate_id, actual_job_cost, final_profit_margin, is_test_bid, use_count, last_used_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW())`,
-        [
-          e.userId,
-          e.companyId,
-          e.projectType,
-          e.trade,
-          e.category,
-          e.scopeItemName,
-          e.unitType,
-          e.quantity,
-          e.unitRate,
-          e.laborAmount,
-          e.materialAmount,
-          e.subcontractorAmount,
-          e.equipmentAmount,
-          e.totalAmount,
-          e.markupPct,
-          e.marginPct,
-          e.region,
-          e.pricingSource,
-          e.bidStatus,
-          e.projectId,
-          e.estimateId,
-          e.actualJobCost,
-          e.finalProfitMargin,
-          e.isTestBid,
-          e.useCount || 1,
-        ]
-      );
-    }
+    await persistPricingDocument(userId, loadUserStore(userId));
   } catch (err) {
     console.warn('contractorPricingMemory: postgres persist skipped', err.message);
   }
@@ -316,4 +376,6 @@ module.exports = {
   getLibraryGrouped,
   tryPersistToPostgres,
   normalizeScopeKey,
+  hydratePricingMemoryFromDatabase,
+  flushPricingPersists,
 };
