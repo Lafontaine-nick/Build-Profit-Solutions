@@ -443,7 +443,6 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         style={[
           estimateStep1InputCardStyle(Colors, darkMode, {
             marginBottom: 8,
-            marginHorizontal: -8,
           }),
           disabled ? { opacity: 0.55 } : null,
         ]}

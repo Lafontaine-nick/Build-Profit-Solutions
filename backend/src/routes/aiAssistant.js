@@ -7920,7 +7920,7 @@ router.post('/stream', async (req, res) => {
         return;
       }
     }
-    const isSimpleProfitStream = !msgForProfitStream.includes('forecast') && !isDelayScenarioStream && (
+    const isSimpleProfitStream = !shouldSkipSavedJobCards(message) && !msgForProfitStream.includes('forecast') && !isDelayScenarioStream && (
       /\b(projected|expected|estimated)\s+profit\b/i.test(msgForProfitStream) ||
       /\bprofit\s+(?:for|on)\s+(?:this\s+)?job\b/i.test(msgForProfitStream)
     );
@@ -9096,7 +9096,7 @@ router.post('/', async (req, res) => {
     const isProjectedProfitQ = /\b(projected|expected|estimated)\s+profit\b/i.test(rawBodyMsg) ||
       /\bwhat is my\s+profit\b/i.test(rawBodyMsg) || /\bwhat'?s my\s+profit\b/i.test(rawBodyMsg) ||
       /\bprofit\s+(?:for|on)\s+(?:this\s+)?job\b/i.test(rawBodyMsg);
-    if (isProjectedProfitQ && !rawBodyMsg.includes('forecast')) {
+    if (isProjectedProfitQ && !rawBodyMsg.includes('forecast') && !shouldSkipSavedJobCards(req.body?.message || message)) {
       const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
       let proj = currentProjectData || (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) || (projectName ? resolveProjectByQuery(projectsList, projectName, { minScore: 35 }).project : null);
       const names = projectsList.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);

@@ -109,7 +109,6 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   reviewBox: {
-    marginHorizontal: -8,
     marginBottom: 12,
   },
   titleRow: {

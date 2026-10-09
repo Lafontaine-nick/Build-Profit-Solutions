@@ -411,18 +411,22 @@ export default function LandingScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.logoOuter}
                 >
-                  <View style={styles.logoInner}>
-                    <View pointerEvents="none" style={styles.logoGloss} />
-            <Image
+                  <LinearGradient
+                    colors={darkMode ? ["#1C1C1C", "#000000"] : [Colors.bg, Colors.bg]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.logoInner}
+                  >
+                    <Image
                       source={
                         darkMode
-                          ? require("../assets/images/bps-logo-updated.png")
-                          : require("../assets/images/bps-logo-updated-light.png")
+                          ? require("../assets/images/bps-logo-house-dark.png")
+                          : require("../assets/images/bps-logo-house-light.png")
                       }
-              style={styles.logoImage}
+                      style={styles.logoImage}
                       resizeMode="contain"
                     />
-                  </View>
+                  </LinearGradient>
                 </LinearGradient>
               </View>
             </View>
@@ -674,9 +678,9 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "transparent",
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.45,
-    shadowRadius: 22,
+    shadowColor: "#22CCA6",
+    shadowOpacity: darkMode ? 0.38 : 0.28,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
     elevation: darkMode ? 8 : 6,
   },
@@ -684,7 +688,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     width: 116,
     height: 116,
     borderRadius: 58,
-    padding: 3,
+    padding: 2,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -692,26 +696,17 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: Colors.bg,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
   },
   logoImage: {
-    width: 176,
-    height: 176,
+    width: 80,
+    height: 80,
+    // Roof peak stays on the vertical center line; lift so the peak and the floor corners
+    // clear the ring equally (the house's enclosing circle sits below its box center).
+    transform: [{ translateY: -4.5 }],
   },
-  logoGloss: {
-    position: "absolute",
-    top: -4,
-    left: -4,
-    right: -4,
-    height: "55%",
-    borderTopLeftRadius: 999,
-    borderTopRightRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.03)", // very subtle white sheen
-  },
-
   titleGlow: {
     position: "absolute",
     left: -16,

@@ -59,6 +59,7 @@ import {
   detectProjectIntent,
   isHypotheticalPriceQuery,
   isPriceRecalcQuery,
+  isStatedPriceProposal,
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
   isWriteOrMutationRequest,
@@ -4214,6 +4215,7 @@ const AIAssistantModal: React.FC<Props> = ({
       const ownStatedPriceReply = /not a saved estimate/i.test(responseText)
         || isHypotheticalPriceQuery(newMessage.content)
         || isPriceRecalcQuery(newMessage.content)
+        || isStatedPriceProposal(newMessage.content, messages)
         || (/(\d+(?:\.\d+)?)\s*%\s*markup/i.test(newMessage.content) && /\$\s?[\d,]+/.test(newMessage.content));
       const citesFigure = /\$\s?[\d,]+|\b\d+(?:\.\d+)?\s*%/.test(responseText);
       const containsNumericGuidance =
@@ -6389,6 +6391,7 @@ const AIAssistantModal: React.FC<Props> = ({
             {!overlayBlocksKeyboard ? (
             <View style={[styles.inputContainer, {
               marginHorizontal: 0,
+              paddingHorizontal: Platform.OS === "web" ? 0 : aiWideColumnPadding,
               paddingBottom: keyboardOpen ? 6 : Math.max(insets.bottom, 10) + 6,
               paddingTop: 6,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
@@ -7443,8 +7446,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    /** Gradient ring + device curve; avoids clipping the send control at the right edge */
-    paddingRight: 6,
+    /** Web: gradient ring + device curve; avoids clipping the send control at the right edge. Native gets the column gutter instead. */
+    paddingRight: Platform.OS === "web" ? 6 : 0,
   },
   centralInputRowCompact: {
     alignItems: "center",

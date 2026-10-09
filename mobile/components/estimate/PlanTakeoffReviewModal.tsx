@@ -346,7 +346,6 @@ function DisclosureList({
     borderRadius: 14,
     borderColor,
     backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
-    marginHorizontal: -8,
     overflow: 'hidden' as const,
   };
   const blocks: Array<
@@ -445,7 +444,6 @@ function ReviewPanel({
           borderRadius: 14,
           padding: 14,
           marginBottom: 12,
-          marginHorizontal: -8,
           borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
           backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
         },
@@ -3507,7 +3505,7 @@ const styles = StyleSheet.create({
   reconcileStatus: { fontSize: 12.5, fontWeight: '700', marginTop: 3 },
   reconcileHint: { fontSize: 11.5, lineHeight: 16, marginTop: 10 },
   footer: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
   },

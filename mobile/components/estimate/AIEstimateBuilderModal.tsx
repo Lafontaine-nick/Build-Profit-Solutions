@@ -1058,7 +1058,6 @@ export default function AIEstimateBuilderModal({
       <View
         style={estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
-          marginHorizontal: embedded ? -8 : undefined,
         })}
       >
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>

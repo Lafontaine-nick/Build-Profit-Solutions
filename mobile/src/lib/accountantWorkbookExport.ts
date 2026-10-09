@@ -543,7 +543,7 @@ export function generateAccountantWorkbookBase64(args: {
   const summaryRows: (string | number | null | undefined)[][] = [
     ['BUILD PROFIT SOLUTIONS'],
     ['Accountant Workbook'],
-    ['Tax-ready export · CPA review package · Project-first job costing'],
+    ['Bookkeeping export for CPA review. Not a tax filing.'],
     [],
     [`Tax Year: ${year}`],
     [`Date Range: ${payload.dateRangeLabel}`],

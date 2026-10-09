@@ -129,7 +129,7 @@ export const features = [
   {
     title: "Closeout & Tax Prep",
     description:
-      "Keep receipts, vendors, project costs, and CPA-ready summaries organized so closeout and tax preparation are less painful.",
+      "Keep receipts, vendors, project costs, and summaries for your CPA organized so closeout and tax preparation are less painful.",
     bullets: [
       "Tax center",
       "Receipt and vendor organization",
@@ -196,7 +196,7 @@ export const trustCards = [
 ];
 
 export const taxDisclaimer =
-  "Build Profit Solutions helps organize project costs, receipts, vendors, and CPA-ready summaries. It does not replace a licensed CPA, tax professional, attorney, or financial advisor.";
+  "Build Profit Solutions helps organize project costs, receipts, vendors, and summaries for your CPA. It does not provide tax advice, file returns, or replace a licensed CPA, tax professional, attorney, or financial advisor.";
 
 export const productTourSteps = [
   {
@@ -222,7 +222,7 @@ export const productTourSteps = [
   {
     title: "Export records when the job is done",
     description:
-      "Generate proposal documents, project summaries, and CPA-ready records for review.",
+      "Generate proposal documents, project summaries, and records for your CPA to review.",
   },
 ];
 

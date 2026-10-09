@@ -35,7 +35,7 @@ const PORTFOLIO_FOCUS_TODAY_PATTERN =
 const LOWEST_MARGIN_PHRASE = String.raw`lowest\s+(?:(?:gross|profit)\s+){0,2}margin`;
 const PORTFOLIO_WORST_PROJECT_PATTERN =
   new RegExp(
-    String.raw`\b(?:which|what)\s+(?:job|project)\s+is\s+(?:the\s+)?worst(?!-)\b|\b(?:what|which)\s+is\s+(?:the\s+)?worst(?!-)\s+(?:job|project)\b|\b(?:worst(?!-)|${LOWEST_MARGIN_PHRASE})\s+(?:job|project)\b|\bwhich\s+(?:one|job|project)\s+has\s+(?:the\s+)?${LOWEST_MARGIN_PHRASE}\b|\b${LOWEST_MARGIN_PHRASE}\s+(?:job|project|across)\b`,
+    String.raw`\b(?:which|what)\s+(?:job|project)\s+is\s+(?:the\s+)?worst(?!-)\b|\b(?:what|which)\s+is\s+(?:the\s+)?worst(?!-)\s+(?:job|project)\b|\b(?:worst(?!-)|${LOWEST_MARGIN_PHRASE})\s+(?:job|project)\b|\bwhich\s+(?:one|job|project)\s+has\s+(?:the\s+)?${LOWEST_MARGIN_PHRASE}\b|\bwhich\b(?:\s+\w+){0,8}\s+has\s+(?:the\s+)?${LOWEST_MARGIN_PHRASE}\b|\b${LOWEST_MARGIN_PHRASE}\s+(?:job|project|across)\b`,
     'i'
   );
 
@@ -3128,6 +3128,7 @@ const CENTRAL_COMMAND_INTENT_LABELS = new Set([
   'payment',
   'collected',
   'incoming',
+  'collection_window',
   'worth',
   'progress',
   'change_orders',
@@ -3176,6 +3177,54 @@ function isCollectedTotalIntent(text) {
 
 function isIncomingPaymentIntent(text) {
   return /\b(?:still coming in|coming in on|left to come in|still to come in|how much is still coming)\b/i.test(text);
+}
+
+function collectionWindowDays(text) {
+  const match = String(text || '').match(/\bnext\s+(\d+)\s+days\b/i);
+  const days = match ? Number(match[1]) : 0;
+  return days > 0 && days <= 366 ? days : null;
+}
+
+function isCollectionWindowQuestion(text) {
+  if (!collectionWindowDays(text)) return false;
+  return /\b(?:collect(?:ing|ion|ions)?|coming in)\b/i.test(text);
+}
+
+function paymentCalendarDay(payment) {
+  const raw = payment?.date instanceof Date ? '' : String(payment?.date || '');
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dateOnly) return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  const parsed = payment?.date instanceof Date ? payment.date : new Date(payment?.date);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function buildCollectionWindowReply(buckets, days, now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(start);
+  end.setDate(end.getDate() + Number(days || 0));
+  const overdue = buckets?.overdue || [];
+  const owed = [
+    ...overdue,
+    ...(buckets?.upcoming || []).filter((payment) => {
+      const day = paymentCalendarDay(payment);
+      return day && day.getTime() <= end.getTime();
+    }),
+  ];
+  if (owed.length === 0) return `Nothing is scheduled to collect in the next ${days} days.`;
+  const total = owed.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const titles = [...new Set(owed.map((payment) => payment.projectTitle).filter(Boolean))];
+  const where = titles.length === 1 ? ` on **${titles[0]}**` : '';
+  const lines = owed.map((payment) => {
+    const when = formatPaymentWhen(payment);
+    const late = overdue.includes(payment);
+    const timing = late
+      ? (when ? `overdue, was due ${when}` : 'overdue')
+      : (when ? `due ${when}` : 'no date set');
+    const job = titles.length > 1 && payment.projectTitle ? ` on ${payment.projectTitle}` : '';
+    return `• **${payment.name}** — ${paymentMoney(payment.amount)}${job}, ${timing}`;
+  });
+  return [`**${paymentMoney(total)}** is expected in the next ${days} days${where}.`, '', ...lines].join('\n');
 }
 
 function isWorryQuery(text) {
@@ -3300,7 +3349,9 @@ function priorPricingCost(history) {
       if (cost) return cost;
     }
     if (item?.role === 'assistant') {
-      const match = content.match(/\$\s?([\d,]+(?:\.\d+)?)\s+of cost/i);
+      const updated = content.match(/cost is now\s+\*{0,2}\$\s?([\d,]+(?:\.\d+)?)/i);
+      const ofCost = content.match(/\$\s?([\d,]+(?:\.\d+)?)\s+of cost/i);
+      const match = updated || ofCost;
       if (match) {
         const cost = Number(match[1].replace(/,/g, ''));
         if (cost > 0) return cost;
@@ -3373,7 +3424,9 @@ function centralCommandSnapshotNeedsFreshness(message, reply) {
     isStatedProfitQuestion(message) ||
     isStatedLaborCostQuestion(message) ||
     isDailyBillRateQuestion(message) ||
-    isStatedQuantityCostQuestion(message)
+    isStatedQuantityCostQuestion(message) ||
+    isStatedGrossNetQuestion(message) ||
+    isStatedBuildProfitQuestion(message)
   ) return false;
   if (isMarkupMarginDefinitionQuestion(message)) return false;
   return /\$\s?[\d,]+|\b\d+(?:\.\d+)?\s*%/.test(String(reply || ''));
@@ -3613,8 +3666,87 @@ function isCategoryBudgetQuestion(text) {
   return categoryBudgetChoice(text) != null;
 }
 
+function dollarNearLabel(text, labelPattern) {
+  const q = String(text || '');
+  const label = q.match(labelPattern);
+  if (!label || label.index == null) return null;
+  const labelAt = label.index;
+  const labelEnd = labelAt + label[0].length;
+  let best = null;
+  let bestDist = 41;
+  for (const match of q.matchAll(/\$\s?([\d,]+(?:\.\d+)?)/g)) {
+    const value = Number(String(match[1]).replace(/,/g, ''));
+    if (!(value > 0) || match.index == null) continue;
+    const dollarEnd = match.index + match[0].length;
+    const between = dollarEnd <= labelAt ? q.slice(dollarEnd, labelAt) : q.slice(labelEnd, match.index);
+    if (/[.!?]/.test(between)) continue;
+    const dist = dollarEnd <= labelAt ? labelAt - dollarEnd : match.index - labelEnd;
+    const afterLabel = match.index >= labelEnd;
+    if (dist >= 0 && (dist < bestDist || (dist === bestDist && afterLabel))) {
+      bestDist = dist;
+      best = value;
+    }
+  }
+  return best;
+}
+
+/** A contract, direct costs, and overhead the contractor stated. Not the saved job's overhead card. */
+function statedGrossNetProfit(text) {
+  const q = String(text || '');
+  if (!/\bprofit\b/i.test(q) || !/\boverhead\b/i.test(q)) return null;
+  const contract = dollarNearLabel(q, /\b(?:contract|bid|price)\b/i);
+  const direct = dollarNearLabel(q, /\bdirect\s+costs?\b/i) || dollarNearLabel(q, /\bcosts?\b/i);
+  const overhead = dollarNearLabel(q, /\boverhead\b/i);
+  if (!contract || !direct || !overhead || direct === contract || overhead === contract) return null;
+  return { contract, direct, overhead, gross: contract - direct, net: contract - direct - overhead };
+}
+
+function isStatedGrossNetQuestion(text) {
+  return statedGrossNetProfit(text) != null;
+}
+
+function buildStatedGrossNetReply(message) {
+  const figures = statedGrossNetProfit(message);
+  if (!figures) return null;
+  return [
+    `Gross profit is **${paymentMoney(figures.gross)}**. Net profit is **${paymentMoney(figures.net)}**.`,
+    `That is a **${paymentMoney(figures.contract)}** contract minus **${paymentMoney(figures.direct)}** in direct costs, then minus **${paymentMoney(figures.overhead)}** in overhead.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
+function statedBuildProfit(text) {
+  const q = String(text || '');
+  if (!/\bprofit\b/i.test(q)) return null;
+  const feetMatch = q.match(/\b([\d,]+(?:\.\d+)?)\s*-?\s*square[\s-]*f(?:oo|ee)t\b/i);
+  const rate = moneyAmountNear(q, /\$\s?([\d,]+(?:\.\d+)?)\s*(?:per|a|\/)\s*square\s*foot/i);
+  const sale = dollarNearLabel(q, /\b(?:sell(?:ing)?|sale)\b/i);
+  const land = dollarNearLabel(q, /\bland\b/i);
+  const soft = dollarNearLabel(q, /\bsoft\s+costs?\b/i);
+  const feet = feetMatch ? Number(feetMatch[1].replace(/,/g, '')) : null;
+  if (!(feet > 0) || !rate || !sale || !land || !soft) return null;
+  const build = feet * rate;
+  const cost = build + land + soft;
+  return { feet, rate, build, land, soft, sale, cost, profit: sale - cost };
+}
+
+function isStatedBuildProfitQuestion(text) {
+  return statedBuildProfit(text) != null;
+}
+
+function buildStatedBuildProfitReply(message) {
+  const figures = statedBuildProfit(message);
+  if (!figures) return null;
+  return [
+    `Projected profit is **${paymentMoney(figures.profit)}**.`,
+    `The build is **${paymentMoney(figures.build)}** (${figures.feet.toLocaleString('en-US')} square feet at **${paymentMoney(figures.rate)}**). Land is **${paymentMoney(figures.land)}** and soft costs are **${paymentMoney(figures.soft)}**. The sale is **${paymentMoney(figures.sale)}**.`,
+    'It is not a saved estimate.',
+  ].join('\n');
+}
+
 function isOverheadQuestion(text) {
   const q = String(text || '');
+  if (isStatedGrossNetQuestion(q)) return false;
   if (!/\boverhead\b/i.test(q)) return false;
   if (/\b(create|add|set|change|update|explain|difference)\b/i.test(q)) return false;
   return true;
@@ -3675,8 +3807,10 @@ function bringsOwnFigures(text) {
 function asksAboutSavedJob(text, projects) {
   const q = String(text || '');
   if (/\b(?:my|our|this|the)\s+(?:job|project|estimate)\b/i.test(q)) return true;
-  if (/\b(?:what(?:'s| is)|how much(?: is)?)\s+(?:my|our)\b/i.test(q)) return true;
-  if (/\b(?:my|our)\s+(?:margin|markup|overhead|budget|labor|labour|materials?|profit|payments?|spent|cost)\b/i.test(q)) return true;
+  if (/\b(?:on|for)\s+(?:this|my|our|the)\s+(?:job|project)\b/i.test(q)) return true;
+  const ownFigures = bringsOwnFigures(q);
+  if (!ownFigures && /\b(?:what(?:'s| is)|how much(?: is)?)\s+(?:my|our)\b/i.test(q)) return true;
+  if (!ownFigures && /\b(?:my|our)\s+(?:margin|markup|overhead|budget|labor|labour|materials?|profit|payments?|spent|cost)\b/i.test(q)) return true;
   if (/\b(?:left to spend|have i collected|still coming in|over budget|under budget)\b/i.test(q)) return true;
   const titles = (Array.isArray(projects) ? projects : [])
     .map((project) => String(project?.title || project?.name || '').trim())
@@ -3687,12 +3821,14 @@ function asksAboutSavedJob(text, projects) {
 
 /** Own dollars or quantities, and the question is not about a saved job. */
 function shouldSkipSavedJobCards(text, projects) {
+  if (isCollectionWindowQuestion(text)) return false;
   return bringsOwnFigures(text) && !asksAboutSavedJob(text, projects);
 }
 
 function classifyCentralCommandIntent(message) {
   const text = String(message || '').trim();
   if (!text || centralCommandIntentExcluded(text) || isPercentChangeQuestion(text) || isMarkupMarginDefinitionQuestion(text)) return null;
+  if (isCollectionWindowQuestion(text)) return { intent: 'collection_window', payeeName: null, days: collectionWindowDays(text) };
   if (shouldSkipSavedJobCards(text)) return null;
   const payeeName = extractCentralCommandPayeeName(text);
   if (payeeName && /\b(cost|charge|pay|paid)\b/i.test(text)) return { intent: 'payee', payeeName };
@@ -3933,7 +4069,7 @@ function buildCentralCommandIntentReply(choice, { projects = [], parsedContext =
     const probe = choice.payeeName ? `How much did I pay ${choice.payeeName}?` : '';
     return probe ? buildSeparatePayeeReply(probe, projects) : null;
   }
-  if (intent === 'payment' || intent === 'collected' || intent === 'incoming') {
+  if (intent === 'payment' || intent === 'collected' || intent === 'incoming' || intent === 'collection_window') {
     const paymentBuckets = collectPaymentBuckets({
       parsedContext,
       projects,
@@ -3943,6 +4079,7 @@ function buildCentralCommandIntentReply(choice, { projects = [], parsedContext =
     const paymentName = project?.title || project?.name || parsedContext?.currentProject || parsedContext?.projectName || 'your projects';
     if (intent === 'collected') return buildCollectedTotalReply(paymentBuckets, paymentName);
     if (intent === 'incoming') return buildIncomingTotalReply(paymentBuckets, paymentName);
+    if (intent === 'collection_window') return buildCollectionWindowReply(paymentBuckets, choice.days, now);
     const status = String(project?.status || parsedContext?.status || '').toLowerCase();
     return buildPaymentStatusReply({
       upcoming: paymentBuckets.upcoming,
@@ -4334,6 +4471,8 @@ function trySnapshotTopicReply(message, ctx = {}) {
     return buildFocusTodayReply(ctx.projects, ctx.now || new Date());
   }
   if (isStatedProfitQuestion(message)) return buildStatedProfitReply(message);
+  if (isStatedGrossNetQuestion(message)) return buildStatedGrossNetReply(message);
+  if (isStatedBuildProfitQuestion(message)) return buildStatedBuildProfitReply(message);
   if (isMarginCheckQuestion(message)) return buildMarginCheckReply(message);
   if (isTargetMarginFollowUp(message)) return buildTargetMarginFollowUpReply(message, ctx.history);
   if (isHypotheticalPriceQuestion(message)) return buildHypotheticalPriceReply(message);
@@ -4350,6 +4489,16 @@ function trySnapshotTopicReply(message, ctx = {}) {
   }
   if (isWorryQuery(message)) {
     return buildWorryReply(ctx.projects, { now: ctx.now || new Date() });
+  }
+  if (isCollectionWindowQuestion(message)) {
+    const project = projectForCentralCommandIntent(ctx.projects, ctx.parsedContext);
+    const paymentBuckets = collectPaymentBuckets({
+      parsedContext: ctx.parsedContext || {},
+      projects: ctx.projects,
+      currentProject: project,
+      now: ctx.now || new Date(),
+    });
+    return buildCollectionWindowReply(paymentBuckets, collectionWindowDays(message), ctx.now || new Date());
   }
   if (shouldSkipSavedJobCards(message, ctx.projects)) return null;
   const choice = classifyCentralCommandIntent(message);

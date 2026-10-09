@@ -435,7 +435,7 @@ export function PlanTakeoffPendingConfirmationStrip({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 16, marginHorizontal: -8 },
+  wrap: { marginBottom: 16 },
   eyebrow: {
     color: '#fbbf24',
     fontSize: 11,

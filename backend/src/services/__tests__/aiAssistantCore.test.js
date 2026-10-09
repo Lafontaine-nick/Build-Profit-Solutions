@@ -1215,6 +1215,28 @@ describe('aiAssistantCore', () => {
     expect(incoming).toContain('overdue, was due September 29, 2026');
     expect(incoming).toContain('**Holdback** — $1,373, due November 3, 2026');
 
+    const windowQ = 'How much money am I expecting to collect from customers in the next 30 days?';
+    const windowReply = replyFor(windowQ);
+    expect(classifyCentralCommandIntent(windowQ).intent).toBe('collection_window');
+    expect(windowReply).toContain('**$16,819** is expected in the next 30 days');
+    expect(windowReply).toContain('**Electrical Estimate Draft**');
+    expect(windowReply).toContain('Week 2 Progress Payment');
+    expect(windowReply).toContain('Week 4 Progress Payment');
+    expect(windowReply).toContain('**Holdback** — $1,373, due November 3, 2026');
+    expect(windowReply).not.toContain("don't have");
+
+    const later = {
+      ...current,
+      milestones: [
+        ...current.milestones,
+        { title: 'Spring Draw', amount: 9000, status: 'pending', plannedDate: '2026-12-01' },
+      ],
+    };
+    const laterReply = trySnapshotTopicReply(windowQ, { ...ctx, projects: [quiet, later] });
+    expect(laterReply).toContain('**$16,819**');
+    expect(laterReply).not.toContain('Spring Draw');
+    expect(classifyCentralCommandIntent('How much is still coming in on this job?').intent).toBe('incoming');
+
     const material = replyFor("What's my material budget?");
     expect(material).toContain('**Material budget — Electrical Estimate Draft**');
     expect(material).toContain('**Budget:** $5,190');
@@ -1431,6 +1453,15 @@ describe('aiAssistantCore', () => {
     expect(markupPrice).not.toContain('Price guidance');
     expect(markupPrice).not.toContain('16.1%');
 
+    const lowestWording = 'Which of my projects currently has the lowest profit margin?';
+    const lowestNow = trySnapshotTopicReply(lowestWording, ctx);
+    expect(classifyCentralCommandIntent(lowestWording)).toBeNull();
+    expect(lowestNow).toContain('**Electrical Estimate Draft** has the lowest margin');
+    expect(lowestNow).toContain('**14.2%**');
+    expect(lowestNow).toContain('**$3,910**');
+    expect(lowestNow).not.toContain('Margin Summary');
+    expect(classifyCentralCommandIntent("What's my margin?").intent).toBe('margin');
+
     const lowest = trySnapshotTopicReply('Which project has the lowest profit margin, and why?', ctx);
     expect(lowest).toContain('**Electrical Estimate Draft** has the lowest margin');
     expect(lowest).toContain('**14.2%**');
@@ -1485,6 +1516,22 @@ describe('aiAssistantCore', () => {
     });
     expect(kitchenAgain).toContain('$50,000');
     expect(kitchenAgain).not.toContain('Electrical Estimate Draft');
+
+    const kitchenBid = "I'm bidding a kitchen remodel. My total costs are $40,000, and I want a 25% profit margin. What should I charge?";
+    const afterIncrease = trySnapshotTopicReply('What if I only wanted a 20% profit margin instead?', {
+      ...ctx,
+      history: [
+        { role: 'user', content: kitchenBid },
+        { role: 'assistant', content: 'Charge **$53,333**.\nA **25%** gross margin on **$40,000** of cost leaves **$13,333** of profit.' },
+        { role: 'user', content: 'Actually, my material costs just increased by $5,000. Recalculate my price.' },
+        { role: 'assistant', content: 'Charge **$60,000**.\nCost is now **$45,000** ($40,000 plus **$5,000**).\nAt a **25%** gross margin, profit is **$15,000**.' },
+      ],
+    });
+    expect(afterIncrease).toContain('**$56,250**');
+    expect(afterIncrease).toContain('**$45,000**');
+    expect(afterIncrease).toContain('**$11,250**');
+    expect(afterIncrease).not.toContain('$50,000');
+    expect(afterIncrease).not.toContain('Electrical Estimate Draft');
     expect(parseCustomRemainingCostIncrease('What if remaining costs increase by 10%?')?.percent).toBe(10);
 
     const profitLeft = trySnapshotTopicReply(
@@ -1547,6 +1594,21 @@ describe('aiAssistantCore', () => {
     expect(classifyCentralCommandIntent('How much have I spent?').intent).toBe('spent');
     expect(isExplicitExpenseLogQuery(fuelTotal)).toBe(false);
     expect(isExplicitExpenseLogQuery('Add a $500 expense')).toBe(true);
+
+    const grossNet = 'I have a $250,000 contract with $175,000 in direct costs and $30,000 in overhead. What\'s my gross and net profit?';
+    const grossReply = trySnapshotTopicReply(grossNet, ctx);
+    expect(grossReply).toContain('**$75,000**');
+    expect(grossReply).toContain('**$45,000**');
+    expect(grossReply).not.toContain('Electrical Estimate Draft');
+    expect(classifyCentralCommandIntent(grossNet)).toBeNull();
+    expect(classifyCentralCommandIntent("What's my overhead?").intent).toBe('overhead');
+
+    const house = "I'm building a 2,200-square-foot house at $150 per square foot and selling it for $750,000. Land costs $175,000, and soft costs are $65,000. What's my projected profit?";
+    const houseReply = trySnapshotTopicReply(house, ctx);
+    expect(houseReply).toContain('**$180,000**');
+    expect(houseReply).toContain('**$330,000**');
+    expect(houseReply).not.toContain('Electrical Estimate Draft');
+    expect(houseReply).not.toContain('$3,910');
     expect(centralCommandSnapshotNeedsFreshness(
       "I need 120 feet of wire at $1.85 a foot. What's that material cost?",
       wire

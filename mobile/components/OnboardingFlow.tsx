@@ -235,13 +235,18 @@ function OnboardingFlowCore({
             end={{ x: 1, y: 1 }}
             style={styles.heroIconRing}
           >
-            <View style={styles.heroIconInner}>
+            <LinearGradient
+              colors={['#1C1C1C', '#000000']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={styles.heroIconInner}
+            >
               <Image
-                source={require('../assets/images/bps-logo-updated.png')}
+                source={require('../assets/images/bps-logo-house-dark.png')}
                 style={styles.heroLogoImage}
                 resizeMode="contain"
               />
-            </View>
+            </LinearGradient>
           </LinearGradient>
         </View>
         <Text
@@ -783,7 +788,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    padding: 3,
+    padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -791,14 +796,16 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 999,
-    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   heroLogoImage: {
-    width: 152,
-    height: 152,
+    width: 68,
+    height: 68,
+    // Roof peak stays on the vertical center line; lift so the peak and the floor corners
+    // clear the ring equally (the house's enclosing circle sits below its box center).
+    transform: [{ translateY: -3.8 }],
   },
   body: {
     fontSize: 16,

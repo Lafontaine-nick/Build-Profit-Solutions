@@ -1970,7 +1970,6 @@ export default function EstimatePlanImportStrip({
       style={[
         estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
-          marginHorizontal: -8,
         }),
         importing || disabled || (plumbingPlanDisabled && showPlanRouting)
           ? { opacity: 0.55 }

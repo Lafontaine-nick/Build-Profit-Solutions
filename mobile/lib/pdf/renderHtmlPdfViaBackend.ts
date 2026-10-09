@@ -6,8 +6,10 @@ import { fromByteArray } from 'base64-js';
 import { resolveBackendRestApiBaseUrl } from '../../utils/resolveBackendRestApiUrl';
 import { getNetworkInfo } from '../../utils/networkDetection';
 import { triggerBrowserPdfDownload } from '../../utils/triggerBrowserPdfDownload';
+import * as SecureStore from 'expo-secure-store';
 import { clerkAuthService } from '@/services/clerkAuth';
-import { getAuthTokenWithFallback } from '@/utils/authTokenHelper';
+import { getAuthTokenWithFallback, syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
+import { fetchWorkspaceClerkToken } from '@/utils/workspaceAuthBridge';
 
 const ensureApiSuffix = (url: string) => {
   const trimmed = String(url || '').trim().replace(/\/$/, '');
@@ -296,6 +298,77 @@ export async function probePdfBackendReadiness(): Promise<PdfBackendReadiness> {
   return { reachable: false, chromeReady: false, serverHint: lastErr || undefined };
 }
 
+const PDF_AUTH_TIMEOUT_MS = 8000;
+
+function isJwtExpired(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return false;
+    const decoded = JSON.parse(
+      decodeURIComponent(
+        Array.from(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+          .map((char) => `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`)
+          .join(''),
+      ),
+    );
+    return typeof decoded.exp === 'number' && decoded.exp <= Date.now() / 1000;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clerk session JWTs expire in about a minute. Ask Clerk for a live token first,
+ * then the same saved-token fallbacks the rest of the app already uses.
+ */
+async function resolvePdfAuthToken(): Promise<string | null> {
+  const remember = (token: string | null) => {
+    if (token && !isJwtExpired(token)) {
+      void syncClerkTokenToAsyncStorage(token).catch(() => {});
+      return token;
+    }
+    return null;
+  };
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const live = await Promise.race([
+      fetchWorkspaceClerkToken(),
+      new Promise<string | null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), PDF_AUTH_TIMEOUT_MS);
+      }),
+    ]);
+    const fresh = remember(live);
+    if (fresh) return fresh;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+
+  const stored = await getAuthTokenWithFallback(async () => clerkAuthService.getToken());
+  if (stored) return stored;
+
+  try {
+    return remember(await SecureStore.getItemAsync('__clerk_client_jwt'));
+  } catch {
+    return null;
+  }
+}
+
+function userFacingPdfError(attemptErrors: string[]): string {
+  const blob = attemptErrors.join('\n');
+  if (/Access token required|Invalid or expired token|Sign in required/i.test(blob)) {
+    return 'Sign in required to generate the PDF. Confirm you are logged in, then try again.';
+  }
+  if (/Could not find Chrome|puppeteer|sparticuz/i.test(blob)) {
+    return 'The PDF server is still starting. Wait a moment and try again.';
+  }
+  if (/Network request failed|Failed to fetch|ECONNREFUSED|AbortError|aborted/i.test(blob)) {
+    return 'Could not reach the server to build the PDF. Check your connection and try again.';
+  }
+  return 'Could not generate the PDF. Try again in a moment.';
+}
+
 /**
  * Same pipeline as contract PDFs: `POST /api/contracts/render-pdf` + Puppeteer Chrome print.
  * Web: triggers a browser download and returns null. Native: writes cache file, optionally shares, returns path.
@@ -325,7 +398,7 @@ export async function renderHtmlPdfViaBackend(
     });
   }
   const attemptErrors: string[] = [];
-  const authToken = (await getAuthTokenWithFallback()) ?? clerkAuthService.getToken();
+  const authToken = await resolvePdfAuthToken();
   if (!authToken) {
     throw new Error(
       'Sign in required to generate PDFs. Confirm you are logged in, reload the app, then try again.',
@@ -426,7 +499,8 @@ export async function renderHtmlPdfViaBackend(
   }
 
   const hint = buildBackendPdfFailureHint(attemptErrors);
-  throw new Error(
-    `Could not render PDF. ${hint}\nAttempts:\n${attemptErrors.map((e, i) => `  ${i + 1}. ${e}`).join('\n')}`,
+  console.warn(
+    `HTML→PDF export failed.\n${hint}\nAttempts:\n${attemptErrors.map((e, i) => `  ${i + 1}. ${e}`).join('\n')}`,
   );
+  throw new Error(userFacingPdfError(attemptErrors));
 }

@@ -6,7 +6,6 @@ import {
   ContractBuildOptions,
   ContractPdfMode,
   ContractTemplateState,
-  BUILDER_FEE_LABEL,
   computeClientPricingBreakdown,
   DEFAULT_PROJECT_ASSUMPTION_BULLETS,
   getScheduleSummaryForContract,
@@ -117,7 +116,7 @@ function renderMeasurementCardsHtml(
         .join("");
       return `<div class="measurements-card">
           <div class="measurements-card-title">${esc(card.title.toUpperCase())}</div>
-          ${rows}
+          <div class="measurements-columns">${rows}</div>
         </div>`;
     })
     .join("")}`;
@@ -129,7 +128,7 @@ function renderMeasurementLinesHtml(
   if (!lines.length) return "";
   return `<h3 class="appendix-context-title">Measurements</h3>
         <div class="measurements-card">
-          ${lines
+          <div class="measurements-columns">${lines
             .map(
               (line) => `
             <div class="measurements-row">
@@ -137,7 +136,7 @@ function renderMeasurementLinesHtml(
               <span class="measurements-value">${esc(line.quantity)}</span>
             </div>`
             )
-            .join("")}
+            .join("")}</div>
         </div>`;
 }
 
@@ -185,20 +184,167 @@ function resolveCoverSummaryDisplay(scopeSummary: string, displayBullets: string
   return (narrative || fallback).slice(0, 520);
 }
 
-function classifyScopeBullet(item: string): "title" | "detail" {
-  const text = item.trim();
-  if (text.length <= 72 && !text.includes(".") && !text.includes(":")) return "title";
-  return "detail";
+/** Estimator notes that should not appear on a client agreement. */
+const INTERNAL_SCOPE_SENTENCE =
+  /homerun|circuit card|separate attribute|do not also|own included|not a standard receptacle and not|count devices, not|specialty\s*\/\s*confirm/i;
+
+const CLIENT_SCOPE_COPY: Record<string, string> = {
+  "main panel":
+    "New main electrical panel, installed and terminated for this project. Service size is listed with the plan quantities.",
+  "standard receptacles": "Standard 120V duplex outlets, including the device, box, and plate.",
+  "gfci receptacles": "GFCI receptacles at kitchens, baths, garages, and other wet locations.",
+  "single-pole switch": "Single-pole switches, including the device, box, and plate.",
+  "recessed / canless / wafer light":
+    "Recessed, canless, or wafer lights, including the fixture and hanging.",
+  "ceiling fan": "Ceiling fan fixtures, with or without a light kit, including hanging the fan.",
+  "exhaust fan":
+    "Electrical connection for exhaust fans. Ducting, roof or wall venting, and HVAC work are not included.",
+  "bathroom exhaust fan electrical install":
+    "Electrical connection for bathroom exhaust fans. Ducting, roof or wall venting, and HVAC work are not included.",
+};
+
+function isScopeTitleLine(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 0 && trimmed.length <= 72 && !/[.:]/.test(trimmed) && !trimmed.includes("—");
 }
 
-function renderScopeBulletList(bullets: string[]): string {
-  if (!bullets.length) return "";
-  return `<ul class="bullet-list flush appendix-scope-bullets">${bullets
-    .map((bullet) => {
-      const kind = classifyScopeBullet(bullet);
-      return `<li class="scope-bullet scope-bullet--${kind}">${esc(bullet)}</li>`;
-    })
-    .join("")}</ul>`;
+function isScopeNarrativeLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || INTERNAL_SCOPE_SENTENCE.test(trimmed)) return false;
+  return /generated from imported|in accordance with the imported|subject to confirmation|scope includes \d/i.test(
+    trimmed,
+  );
+}
+
+function inferScopeTitle(detail: string): string {
+  if (/^ceiling fan|ceiling fan fixtures/i.test(detail)) return "Ceiling fan";
+  if (/exhaust|ducting|\bhvac\b/i.test(detail)) return "Exhaust fan";
+  if (/ceiling fan/i.test(detail)) return "Ceiling fan";
+  const lead = detail.split(/[.]/)[0]?.trim() || detail.trim();
+  return lead.length > 48 ? `${lead.slice(0, 45).trim()}…` : lead;
+}
+
+function detailBelongsToTitle(title: string, detail: string): boolean {
+  const inferred = inferScopeTitle(detail).toLowerCase();
+  const titleKey = title.trim().toLowerCase();
+  if (inferred === titleKey) return true;
+  if (CLIENT_SCOPE_COPY[inferred] && inferred !== titleKey) return false;
+  return true;
+}
+
+function coverQuantityLabel(label: string): string {
+  const key = label.trim().toLowerCase();
+  if (key === "recessed / canless / wafer light") return "Recessed lights";
+  if (key === "single-pole switch") return "Single-pole switches";
+  return label;
+}
+
+function toClientScopeSentence(title: string, detail: string): string {
+  const known = CLIENT_SCOPE_COPY[title.trim().toLowerCase()];
+  if (known && (!detail.trim() || INTERNAL_SCOPE_SENTENCE.test(detail))) return known;
+  const kept = detail
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence && !INTERNAL_SCOPE_SENTENCE.test(sentence))
+    .join(" ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (kept) return kept;
+  if (known) return known;
+  return "Included in this agreement. The quantity is listed with the plan quantities.";
+}
+
+const CLIENT_LINE_ITEM_NAME: Record<string, string> = {
+  "bathroom exhaust fan electrical install": "Exhaust fan",
+  "exhaust fan electrical install": "Exhaust fan",
+};
+
+function clientLineItemName(name: string): string {
+  return CLIENT_LINE_ITEM_NAME[name.trim().toLowerCase()] || name;
+}
+
+function renderTermWithLead(term: string): string {
+  const match = /^([^:]{2,40}):\s+(.+)$/s.exec(term);
+  if (!match) return esc(term);
+  return `<strong class="term-lead">${esc(match[1])}:</strong> ${esc(match[2])}`;
+}
+
+function formatAddressForPdf(raw?: string): string {
+  let text = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!text || text === "N/A") return text;
+  text = text.replace(/\bSt\.(?=[A-Za-z])/g, "St. ");
+  text = text.replace(/\b([A-Za-z][A-Za-z']*)\b/g, (word) => {
+    if (word.length === 2 && word === word.toUpperCase()) return word;
+    const lower = word.toLowerCase();
+    if (lower === "of" || lower === "and" || lower === "the") return lower;
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  });
+  return text;
+}
+
+function renderScopeForPdf(bullets: string[]): string {
+  const narrative: string[] = [];
+  const items: Array<{ title: string; detail: string }> = [];
+  const list = bullets.map((bullet) => bullet.trim()).filter(Boolean);
+  let index = 0;
+  while (index < list.length) {
+    const current = list[index];
+    if (isScopeNarrativeLine(current)) {
+      narrative.push(current);
+      index += 1;
+      continue;
+    }
+    if (isScopeTitleLine(current)) {
+      const next = list[index + 1];
+      if (next && !isScopeTitleLine(next) && !isScopeNarrativeLine(next) && detailBelongsToTitle(current, next)) {
+        items.push({ title: current, detail: toClientScopeSentence(current, next) });
+        index += 2;
+      } else {
+        items.push({ title: current, detail: toClientScopeSentence(current, "") });
+        index += 1;
+      }
+      continue;
+    }
+    const title = inferScopeTitle(current);
+    items.push({ title, detail: toClientScopeSentence(title, current) });
+    index += 1;
+  }
+
+  const seen = new Set<string>();
+  const uniqueItems = items.filter((item) => {
+    const key = item.title.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const narrativeHtml = narrative.length
+    ? `<p class="appendix-scope-text">${esc(narrative.join(" "))}</p>`
+    : "";
+  const itemsHtml = uniqueItems.length
+    ? `<ul class="scope-items">${uniqueItems
+        .map(
+          (item) =>
+            `<li class="scope-item"><div class="scope-item-title">${esc(item.title)}</div><div class="scope-item-detail">${esc(item.detail)}</div></li>`,
+        )
+        .join("")}</ul>`
+    : "";
+  return `${narrativeHtml}${itemsHtml}`;
+}
+
+function coverQuantityRows(
+  doc: ContractDoc,
+): Array<{ label: string; quantity: string }> {
+  const fromCards = (doc.scope.measurementCards || []).flatMap((card) =>
+    card.lines
+      .filter((line) => !line.sectionHeader && !line.note && String(line.quantity || "").trim())
+      .map((line) => ({ label: line.label, quantity: String(line.quantity) })),
+  );
+  if (fromCards.length) return fromCards.slice(0, 10);
+  return (doc.scope.measurementLines || [])
+    .filter((line) => String(line.quantity || "").trim())
+    .slice(0, 10)
+    .map((line) => ({ label: line.label, quantity: String(line.quantity) }));
 }
 
 const hasMeaningfulLicenseNumber = (value?: string) => {
@@ -315,7 +461,9 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const startDate = formatDate(sanitizedDoc.summary.startDate);
   const validThrough = formatDate(sanitizedDoc.summary.expiresDate);
   const scheduleRail = getScheduleSummaryForContract(sanitizedDoc);
-  const projectAddress = sanitizedDoc.owner.address || sanitizedDoc.summary.siteAddress;
+  const projectAddress = formatAddressForPdf(
+    sanitizedDoc.owner.address || sanitizedDoc.summary.siteAddress,
+  );
   const contractCopy = normalizeProjectContractCopy(sanitizedDoc, options);
   const displayScopeBullets = dedupeScopeBulletsForDisplay(contractCopy.includedWorkBullets || []);
   const coverSummary = resolveCoverSummaryDisplay(contractCopy.scopeSummary, displayScopeBullets);
@@ -333,20 +481,28 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const projectTypeDisplay = contractCopy.projectTypeLabel;
   const paymentStructureLabel =
     sanitizedDoc.milestones.length > 0
-      ? `${sanitizedDoc.milestones.length} scheduled payment${sanitizedDoc.milestones.length === 1 ? "" : "s"}`
+      ? `${sanitizedDoc.milestones.length} payment${sanitizedDoc.milestones.length === 1 ? "" : "s"}`
       : "No payment schedule";
   const pricingRows = [
-    { label: "Materials", value: materialsSubtotal },
-    { label: "Labor", value: laborSubtotal },
-    { label: "Project costs (permits, plans, engineering, equipment)", value: directCostsSubtotal },
-    { label: BUILDER_FEE_LABEL, value: builderFeeAmount },
+    { label: "Materials", hint: "", value: materialsSubtotal },
+    { label: "Labor", hint: "", value: laborSubtotal },
+    {
+      label: "Project costs",
+      hint: "Permits, plans, engineering, equipment",
+      value: directCostsSubtotal,
+    },
+    {
+      label: "Project management",
+      hint: "Scheduling, supervision, documentation",
+      value: builderFeeAmount,
+    },
   ];
   const hasLineItemAppendix =
     (sanitizedDoc.scope.materialLineItems?.length || 0) > 0 ||
     (sanitizedDoc.scope.laborLineItems?.length || 0) > 0 ||
     (sanitizedDoc.allowances?.length || 0) > 0;
   const groupedMaterials = (sanitizedDoc.scope.materialLineItems || []).reduce(
-    (acc: Record<string, typeof sanitizedDoc.scope.materialLineItems>, item) => {
+    (acc: Record<string, NonNullable<typeof sanitizedDoc.scope.materialLineItems>>, item) => {
       const key = item.section || item.category || "Materials";
       if (!acc[key]) acc[key] = [];
       acc[key].push(item);
@@ -355,7 +511,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     {},
   );
   const groupedLabor = (sanitizedDoc.scope.laborLineItems || []).reduce(
-    (acc: Record<string, typeof sanitizedDoc.scope.laborLineItems>, item) => {
+    (acc: Record<string, NonNullable<typeof sanitizedDoc.scope.laborLineItems>>, item) => {
       const key = item.category || "Labor";
       if (!acc[key]) acc[key] = [];
       acc[key].push(item);
@@ -365,6 +521,94 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   );
   const hasMaterialGroups = Object.keys(groupedMaterials).length > 0;
   const hasLaborGroups = Object.keys(groupedLabor).length > 0;
+
+  const combinedLineItems = (() => {
+    const materialItems = sanitizedDoc.scope.materialLineItems || [];
+    const laborItems = sanitizedDoc.scope.laborLineItems || [];
+    if (!materialItems.length || !laborItems.length) return null;
+    if (usesSqftLayout(materialItems) || usesSqftLayout(laborItems)) return null;
+    const keyFor = (description?: string) =>
+      String(description || "")
+        .replace(/\s*[—-]\s*(materials?|labor)\s*$/i, "")
+        .trim()
+        .toLowerCase();
+    const rows = new Map<
+      string,
+      { name: string; quantity: number; unit: string; materials: number; labor: number }
+    >();
+    const add = (
+      item: { description?: string; quantity?: number; unit?: string },
+      field: "materials" | "labor",
+      amount: number,
+    ) => {
+      const key = keyFor(item.description);
+      if (!key) return false;
+      const quantity = Number(item.quantity || 0);
+      const existing = rows.get(key);
+      if (!existing) {
+        rows.set(key, {
+          name: String(item.description || "")
+            .replace(/\s*[—-]\s*(materials?|labor)\s*$/i, "")
+            .trim(),
+          quantity,
+          unit: String(item.unit || "").trim(),
+          materials: field === "materials" ? amount : 0,
+          labor: field === "labor" ? amount : 0,
+        });
+        return true;
+      }
+      if (quantity > 0 && existing.quantity > 0 && quantity !== existing.quantity) return false;
+      if (!existing.quantity && quantity > 0) existing.quantity = quantity;
+      if (!existing.unit && item.unit) existing.unit = String(item.unit).trim();
+      existing[field] += amount;
+      return true;
+    };
+    for (const item of materialItems) {
+      if (!add(item, "materials", Number(item.materials || 0))) return null;
+    }
+    for (const item of laborItems) {
+      if (!add(item, "labor", Number(item.labor || 0))) return null;
+    }
+    return Array.from(rows.values());
+  })();
+
+  const renderCombinedLineItemsHtml = combinedLineItems
+    ? `<div class="appendix-block${combinedLineItems.length <= 14 ? " appendix-block--keep" : ""}">
+        <table class="appendix-table appendix-table--combined">
+          <thead>
+            <tr>
+              <th style="width:34%;">Item</th>
+              <th class="center" style="width:9%;">Qty</th>
+              <th class="center" style="width:9%;">Unit</th>
+              <th class="num" style="width:16%;">Materials</th>
+              <th class="num" style="width:16%;">Labor</th>
+              <th class="num" style="width:16%;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${combinedLineItems
+              .map(
+                (row) => `
+                <tr>
+                  <td class="item-name">${esc(clientLineItemName(row.name))}</td>
+                  <td class="center">${formatPdfWholeNumber(row.quantity)}</td>
+                  <td class="center">${esc(row.unit || "—")}</td>
+                  <td class="num">${money(row.materials)}</td>
+                  <td class="num">${money(row.labor)}</td>
+                  <td class="num">${money(row.materials + row.labor)}</td>
+                </tr>`,
+              )
+              .join("")}
+            <tr class="subtotal-row">
+              <td colspan="3">Subtotal</td>
+              <td class="num">${money(combinedLineItems.reduce((sum, row) => sum + row.materials, 0))}</td>
+              <td class="num">${money(combinedLineItems.reduce((sum, row) => sum + row.labor, 0))}</td>
+              <td class="num">${money(combinedLineItems.reduce((sum, row) => sum + row.materials + row.labor, 0))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`
+    : "";
   const allowanceItems = sanitizedDoc.allowances || [];
   const renderAllowanceHtml =
     allowanceItems.length > 0
@@ -555,11 +799,11 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <td class="num">${money(laborSubtotal)}</td>
           </tr>
           <tr>
-            <td>Project costs (permits, plans, engineering, equipment)</td>
+            <td>Project costs<span class="price-hint">Permits, plans, engineering, equipment</span></td>
             <td class="num">${money(directCostsSubtotal)}</td>
           </tr>
           <tr>
-            <td>${esc(BUILDER_FEE_LABEL)}</td>
+            <td>Project management<span class="price-hint">Scheduling, supervision, documentation</span></td>
             <td class="num">${money(builderFeeAmount)}</td>
           </tr>
           <tr class="subtotal-row">
@@ -640,8 +884,9 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <div class="cover-story-block">
               <div class="cover-kicker">Prepared by</div>
               <div class="cover-detail-value">${esc(company)}</div>
-              <div class="cover-detail-subvalue">${esc(contractorName)}${displayContractorTitle ? ` · ${esc(displayContractorTitle)}` : ""}</div>
-              ${options.branding.businessAddress ? `<div class="cover-address cover-address--compact">${esc(options.branding.businessAddress)}</div>` : ""}
+              <div class="cover-detail-subvalue">${esc(contractorName)}</div>
+              ${displayContractorTitle ? `<div class="cover-detail-subvalue">${esc(displayContractorTitle)}</div>` : ""}
+              ${options.branding.businessAddress ? `<div class="cover-address cover-address--compact">${esc(formatAddressForPdf(options.branding.businessAddress))}</div>` : ""}
             </div>
           </div>
 
@@ -649,6 +894,21 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <div class="cover-summary-label">Project summary</div>
             <p>${esc(coverSummary)}</p>
           </div>
+          ${(() => {
+            const quantities = coverQuantityRows(sanitizedDoc);
+            if (!quantities.length) return "";
+            return `<div class="cover-quantities">
+              <div class="cover-summary-label">Plan quantities</div>
+              <div class="cover-quantity-grid">
+                ${quantities
+                  .map(
+                    (row) =>
+                      `<div class="cover-quantity"><span class="cover-quantity-label">${esc(coverQuantityLabel(row.label))}</span><span class="cover-quantity-value">${esc(row.quantity)}</span></div>`,
+                  )
+                  .join("")}
+              </div>
+            </div>`;
+          })()}
 
           ${
             trustItems.length
@@ -681,24 +941,28 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           ? `<div class="line-item-detail-block">
           <h3 class="appendix-section-title">Line-item detail</h3>
           ${
-            hasMaterialGroups
-              ? `<h4 class="line-item-subhead">General materials</h4>
+            renderCombinedLineItemsHtml
+              ? renderCombinedLineItemsHtml
+              : `${
+                  hasMaterialGroups
+                    ? `<h4 class="line-item-subhead">General materials</h4>
           ${renderMaterialGroupsHtml}`
-              : ""
-          }
+                    : ""
+                }
           ${
             hasLaborGroups
               ? `<h4 class="line-item-subhead">Labor</h4>
           ${renderLaborGroupsHtml}`
               : ""
+          }`
           }
           ${renderAllowanceHtml}
         </div>`
           : `<p class="subtle-p">No line-item breakdown was attached; reconciliation below follows the contract summary only.</p>`
         : "";
 
-    const includedWorkHtml = renderScopeBulletList(displayScopeBullets);
-    const showScopeNarrative = displayScopeBullets.length === 0;
+    const includedWorkHtml = renderScopeForPdf(displayScopeBullets);
+    const showScopeNarrative = !includedWorkHtml;
     const measurementLines = sanitizedDoc.scope.measurementLines || [];
     const measurementCards = sanitizedDoc.scope.measurementCards || [];
     const measurementsHtml =
@@ -723,8 +987,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         <h3 class="appendix-context-title">Scope &amp; included work</h3>
         ${showScopeNarrative ? `<p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>` : ""}
         ${includedWorkHtml}
-        ${measurementsHtml}
       </div>
+      ${measurementsHtml ? `<div class="measurements-block">${measurementsHtml}</div>` : ""}
 
       <div class="section-block section-block--split">
         <div>
@@ -735,7 +999,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                 .map(
                   (row) => `
                   <tr>
-                    <td>${esc(row.label)}</td>
+                    <td>${esc(row.label)}${row.hint ? `<span class="price-hint">${esc(row.hint)}</span>` : ""}</td>
                     <td class="num">${money(row.value)}</td>
                   </tr>`,
                 )
@@ -763,19 +1027,27 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   };
 
   const paymentPage = () => {
+    const milestoneNote = (milestone: (typeof sanitizedDoc.milestones)[number]) => {
+      const paymentName = milestone.name || "Scheduled payment";
+      const rawNote = String(milestone.description || "").trim();
+      return !rawNote || rawNote.toLowerCase() === paymentName.toLowerCase() || rawNote === "Pending"
+        ? ""
+        : rawNote;
+    };
+    const showNotes = sanitizedDoc.milestones.some((milestone) => milestoneNote(milestone));
     return `
     <section class="page page--payment">
       <div class="section-head">
         <h2 class="section-title">Payment schedule</h2>
       </div>
-      <table class="schedule-table schedule-table--wide">
+      <table class="schedule-table schedule-table--wide${showNotes ? "" : " schedule-table--no-notes"}">
         <thead>
           <tr>
             <th class="col-pay">Payment</th>
             <th class="center col-pct">Pct.</th>
             <th class="num col-amt">Amount</th>
             <th class="center col-due">Due date / condition</th>
-            <th class="center col-note">Notes</th>
+            ${showNotes ? `<th class="center col-note">Notes</th>` : ""}
           </tr>
         </thead>
         <tbody>
@@ -792,17 +1064,19 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                           : totalBid > 0
                             ? (amount / totalBid) * 100
                             : 0;
+                    const paymentName = milestone.name || "Scheduled payment";
+                    const note = milestoneNote(milestone) || "—";
                     return `
                       <tr>
-                        <td>${esc(milestone.name || "Scheduled payment")}</td>
+                        <td class="pay-name">${esc(paymentName)}</td>
                         <td class="center">${pct ? `${pct.toFixed(1)}%` : "—"}</td>
                         <td class="num">${money(amount)}</td>
                         <td class="center">${esc(formatDate(milestone.scheduledDate) || "TBD")}</td>
-                        <td class="center">${esc(milestone.description || milestone.status || "—")}</td>
+                        ${showNotes ? `<td class="center">${esc(note)}</td>` : ""}
                       </tr>`;
                   })
                   .join("")
-              : `<tr><td colspan="5" class="empty-row payment-empty">
+              : `<tr><td colspan="${showNotes ? 5 : 4}" class="empty-row payment-empty">
                   <div class="payment-empty-title">Payment schedule to be agreed</div>
                   <div class="payment-empty-sub">Attach milestone payments in the estimate before client delivery.</div>
                 </td></tr>`
@@ -812,7 +1086,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <td class="center schedule-total-pct">${displayPaymentPct}</td>
             <td class="num">${money(totalBid)}</td>
             <td class="center"></td>
-            <td class="center"></td>
+            ${showNotes ? `<td class="center"></td>` : ""}
           </tr>
         </tbody>
       </table>
@@ -865,7 +1139,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       <div class="section-block">
         <h3 class="block-title">Business terms</h3>
         <ol class="legal-list">
-          ${businessTermsForPdf.map((term) => `<li>${esc(stripEditorListPrefix(term))}</li>`).join("")}
+          ${businessTermsForPdf.map((term) => `<li>${renderTermWithLead(stripEditorListPrefix(term))}</li>`).join("")}
         </ol>
       </div>
 
@@ -972,6 +1246,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     section.page + section.page {
       page-break-before: always;
       break-before: page;
+    }
+    section.page--scope-pricing-flow + section.page--payment {
+      page-break-before: auto;
+      break-before: auto;
+      margin-top: 28px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .page {
       position: relative;
@@ -1161,6 +1442,71 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       line-height: 1.48;
       max-height: none;
     }
+    .cover-quantities {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .cover-quantity-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .cover-quantity {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fbfcfe;
+    }
+    .cover-quantity-label {
+      flex: 1;
+      min-width: 0;
+      font-size: 9pt;
+      font-weight: 600;
+      line-height: 1.25;
+      color: ${bodyText};
+    }
+    .cover-quantity-value {
+      font-size: 9.5pt;
+      font-weight: 700;
+      color: ${brandDark};
+      white-space: nowrap;
+    }
+    .price-hint {
+      display: block;
+      margin-top: 1px;
+      font-size: 8pt;
+      font-weight: 500;
+      color: ${muted};
+      line-height: 1.3;
+    }
+    .scope-items {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+    }
+    .scope-item {
+      padding: 8px 0 9px;
+      border-bottom: 1px solid #e8ecf1;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .scope-item:last-child { border-bottom: none; }
+    .scope-item-title {
+      font-size: 10pt;
+      font-weight: 700;
+      color: ${brandDark};
+    }
+    .scope-item-detail {
+      margin-top: 2px;
+      font-size: 9.5pt;
+      line-height: 1.45;
+      color: ${bodyText};
+    }
     .trust-badges {
       margin-top: 16px;
       display: flex;
@@ -1196,10 +1542,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       border-bottom: 1px solid #e5e7eb;
     }
     .boxed-summary .meta-row {
+      align-items: baseline;
       padding: 7px 0;
       border-bottom: 1px solid #eef2f7;
     }
     .boxed-summary .meta-row:last-child { border-bottom: none; }
+    .boxed-summary .meta-label { white-space: nowrap; }
+    .boxed-summary .meta-value { text-align: right; min-width: 0; overflow-wrap: anywhere; }
     .cover-rail-note {
       margin-top: 12px;
       font-size: 8.6pt;
@@ -1249,6 +1598,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     }
     .bullet-list.flush, .legal-list { padding-left: 20px; }
     .bullet-list li, .legal-list li { margin-bottom: 5px; orphans: 2; widows: 2; }
+    .legal-list .term-lead { font-weight: 700; color: ${brandDark}; }
     .notice-strip {
       padding: 8px 10px;
       margin-bottom: 12px;
@@ -1330,11 +1680,16 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
-    .col-pay { width: 18%; }
+    .col-pay { width: 30%; }
     .col-pct { width: 10%; }
-    .col-amt { width: 18%; }
-    .col-due { width: 20%; }
-    .col-note { width: 34%; }
+    .col-amt { width: 16%; }
+    .col-due { width: 22%; }
+    .col-note { width: 22%; }
+    .schedule-table--no-notes .col-pay { width: 38%; }
+    .schedule-table--no-notes .col-pct { width: 14%; }
+    .schedule-table--no-notes .col-amt { width: 22%; }
+    .schedule-table--no-notes .col-due { width: 26%; }
+    .schedule-table td.pay-name { white-space: nowrap; font-weight: 600; }
     .schedule-table tbody tr:nth-child(even) td {
       background: #fafbfc;
     }
@@ -1537,6 +1892,12 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       border-bottom: 1px solid #e5e7eb;
     }
     .measurements-row:last-child { border-bottom: none; }
+    .measurements-block { margin: 0 0 12px; break-inside: avoid; page-break-inside: avoid; }
+    .page--scope-pricing-flow .section-block--split { break-inside: avoid; page-break-inside: avoid; }
+    .measurements-block .appendix-context-title { margin-top: 0; }
+    .measurements-columns { column-count: 2; column-gap: 28px; }
+    .measurements-columns .measurements-row { break-inside: avoid; page-break-inside: avoid; }
+    .measurements-columns .measurements-section-header { break-after: avoid; page-break-after: avoid; break-inside: avoid; }
     .measurements-label { color: ${muted}; font-weight: 600; }
     .measurements-value { color: ${bodyText}; font-weight: 700; text-align: right; }
     .appendix-section-title {
@@ -1620,6 +1981,14 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       border-bottom: 1px solid #e8ecf1;
       font-size: 9pt;
     }
+    .appendix-table td.num,
+    .simple-table td.num { white-space: nowrap; }
+    .appendix-table--combined th:first-child,
+    .appendix-table--recon th:first-child { text-align: left; }
+    .appendix-block--keep { break-inside: avoid; page-break-inside: avoid; }
+    .appendix-table--combined td { padding: 8px 8px; }
+    .appendix-table--combined td.item-name { font-weight: 600; color: ${brandDark}; }
+    .appendix-table--combined tbody tr:nth-child(even):not(.subtotal-row) td { background: #fafbfc; }
     .appendix-table th {
       background: #f8fafc;
       font-size: 7.5pt;

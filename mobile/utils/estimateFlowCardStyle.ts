@@ -140,9 +140,9 @@ export function estimateFlowCardStyle(
   };
 }
 
-/** Negative horizontal inset so cards align with Confirm Scope scope rows (scroll padding 16 − 8). */
+/** Cards stay inside the parent 16pt gutter — same inset as Projects and Dashboard. */
 export function estimateFlowScopeCardAlignStyle(): ViewStyle {
-  return { marginHorizontal: -8 };
+  return {};
 }
 
 /** Solid primary CTAs — Continue to review, Generate Estimate Draft, Apply. */

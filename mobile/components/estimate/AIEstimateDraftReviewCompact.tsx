@@ -75,10 +75,8 @@ type Props = {
   markupPct?: number;
 };
 
-const flowCard = (Colors: Colors, darkMode: boolean) => ({
-  ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
-  marginHorizontal: -8,
-});
+const flowCard = (Colors: Colors, darkMode: boolean) =>
+  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 });
 const flowDivider = (darkMode: boolean) => estimateFlowDividerColor(darkMode);
 
 const STEP3_STATUS_COLORS = {

@@ -265,9 +265,7 @@ const getSegmentStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     backgroundColor: 'transparent',
   },
   segmentTabActive: {
-    backgroundColor: 'rgba(45, 204, 154, 0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 204, 154, 0.55)',
+    backgroundColor: '#2dcc9a',
   },
   segmentTabInner: {
     flexDirection: 'row',
@@ -280,7 +278,8 @@ const getSegmentStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: Colors.sub,
   },
   segmentLabelActive: {
-    color: PROFILE_MINT_TEXT,
+    color: '#050B13',
+    fontWeight: '700',
   },
 });
 
@@ -294,7 +293,7 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
     onPress();
   };
 
-  const iconColor = isActive ? PROFILE_MINT_TEXT : Colors.sub;
+  const iconColor = isActive ? '#050B13' : Colors.sub;
   const labelStyle = isActive
     ? [styles.segmentLabel, styles.segmentLabelActive]
     : styles.segmentLabel;

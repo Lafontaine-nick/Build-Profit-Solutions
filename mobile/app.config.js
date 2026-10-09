@@ -45,18 +45,23 @@ export default {
     runtimeVersion: '1.0.0',
     sdkVersion: '54.0.0',
     orientation: 'portrait',
-    icon: './assets/images/icon.png',
+    icon: './assets/images/bps-app-icon.png',
     scheme: appScheme,
     userInterfaceStyle: 'automatic',
     splash: {
-      image: './assets/images/splash-icon.png',
+      image: './assets/images/bps-splash-icon.png',
       resizeMode: 'contain',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#000000',
     },
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: true,
       bundleIdentifier: iosBundleIdentifier,
+      icon: {
+        light: './assets/images/bps-app-icon.png',
+        dark: './assets/images/bps-app-icon-dark.png',
+        tinted: './assets/images/bps-app-icon-tinted.png',
+      },
       // Must increase for every App Store Connect upload (TestFlight). EAS can auto-increment; see eas.json.
       buildNumber: '2',
       // Reanimated 4+ requires New Architecture; required for EAS iOS pod install.
@@ -68,19 +73,20 @@ export default {
           'Allow camera access to scan product barcodes and QR codes for estimates, budgets, change orders, and purchase orders.',
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
         NSPhotoLibraryUsageDescription:
-          'Allow access to your photo library to attach screenshots to beta feedback and upload project images.',
+          'Allow access to your photo library to add project photos, receipts, and estimate images.',
         // Allow contract PDF fetch to http://<Mac-LAN>:3001 from TestFlight/device (ATS blocks cleartext to LAN by default).
         NSAppTransportSecurity: {
           NSAllowsLocalNetworking: true,
         },
         NSLocalNetworkUsageDescription:
-          'Build Profit Solutions uses your local network to reach your development server on Wi‑Fi for receipts, estimates, and the API.',
+          'Build Profit Solutions uses your local network to reach a server on your Wi-Fi for receipts, estimates, and the API.',
       },
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: './assets/images/adaptive-icon.png',
-        backgroundColor: '#ffffff',
+        foregroundImage: './assets/images/bps-adaptive-icon.png',
+        monochromeImage: './assets/images/bps-adaptive-icon-monochrome.png',
+        backgroundColor: '#000000',
       },
       package: androidPackage,
       // Match iOS: PDF export POST to http://<dev-machine>:3001 on a physical device.
@@ -93,13 +99,26 @@ export default {
       ],
     },
     web: {
-      favicon: './assets/images/favicon.png',
+      favicon: './assets/images/bps-favicon.png',
       bundler: 'metro',
     },
     plugins: [
       'expo-dev-client',
       'expo-router',
       'expo-web-browser',
+      [
+        'expo-splash-screen',
+        {
+          image: './assets/images/bps-splash-icon.png',
+          imageWidth: 120,
+          resizeMode: 'contain',
+          backgroundColor: '#000000',
+          dark: {
+            image: './assets/images/bps-splash-icon.png',
+            backgroundColor: '#000000',
+          },
+        },
+      ],
       [
         'expo-location',
         {
@@ -118,7 +137,7 @@ export default {
         'expo-image-picker',
         {
           photosPermission:
-            'Allow access to your photos to attach screenshots to beta feedback and upload project images.',
+            'Allow access to your photos to add project photos, receipts, and estimate images.',
         },
       ],
     ],

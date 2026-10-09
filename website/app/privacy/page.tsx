@@ -57,7 +57,7 @@ export default function PrivacyPage() {
           <LegalSection title="Tax Center and financial records">
             <p>
               Build Profit Solutions includes organization tools such as the Tax
-              Center to help users stay organized and tax-ready. We do not provide
+              Center to help users stay organized for tax preparation. We do not provide
               tax, legal, or financial advice, and we do not file taxes on your
               behalf.
             </p>

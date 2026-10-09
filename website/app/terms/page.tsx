@@ -69,7 +69,7 @@ export default function TermsPage() {
               Build Profit Solutions provides software tools for estimating, job
               costing, organization, and project management. We do not provide tax,
               legal, accounting, or financial advice. Features such as the Tax
-              Center are designed to help users stay organized and tax-ready, not
+              Center are designed to help users stay organized for tax preparation, not
               to replace a CPA, attorney, or financial advisor.
             </p>
             <p>

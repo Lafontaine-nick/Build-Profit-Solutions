@@ -11488,15 +11488,17 @@ export default function EstimateGeneratorScreen() {
             .toISOString()
             .split('T')[0]
         : undefined);
-    const formattedSiteAddress = [
-      String(bidData.customerAddress || '').trim(),
-      [String(bidData.customerCity || '').trim(), String(bidData.customerState || '').trim()]
-        .filter(Boolean)
-        .join(', '),
-      String(bidData.customerZip || '').trim(),
+    const siteStreet = String(bidData.customerAddress || '').trim();
+    const siteCityState = [
+      String(bidData.customerCity || '').trim(),
+      String(bidData.customerState || '').trim(),
     ]
       .filter(Boolean)
-      .join(' ')
+      .join(', ');
+    const siteZip = String(bidData.customerZip || '').trim();
+    const formattedSiteAddress = [siteStreet, [siteCityState, siteZip].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', ')
       .replace(/\s+,/g, ',')
       .trim() || 'N/A';
 
@@ -22833,7 +22835,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <ScrollView
                   style={{ flex: 1 }}
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 }}
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                 >
@@ -22855,17 +22857,24 @@ export default function EstimateGeneratorScreen() {
                     onResetAll={resetContractLanguageDraftsToTemplate}
                   />
                 </ScrollView>
+                <Text
+                  style={{
+                    textAlign: 'center',
+                    color: Colors.sub,
+                    fontSize: 12,
+                    fontWeight: '500',
+                    lineHeight: 17,
+                    paddingHorizontal: 24,
+                    paddingTop: 8,
+                    paddingBottom: Math.max(insets.bottom, 16),
+                  }}
+                >
+                  Template wording only, not legal advice. Review it before sending to a client.
+                </Text>
               </View>
             </Modal>
 
             <View style={{ marginBottom: ESTIMATE_FLOW_CARD_GAP }}>
-              {allChecklistItemsComplete && !shouldGateAdvanced && (
-                <View style={{ alignItems: 'center', gap: 4, marginBottom: 10 }}>
-                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Pricing validated</Text>
-                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Payments balanced</Text>
-                  <Text style={{ color: '#2dcc9a', fontSize: 13, fontWeight: '600' }}>Required fields complete</Text>
-                </View>
-              )}
               <View style={{ gap: 10 }}>
                 <TouchableOpacity
                   onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract()}

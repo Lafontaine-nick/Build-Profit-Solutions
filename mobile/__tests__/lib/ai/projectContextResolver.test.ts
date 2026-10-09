@@ -1,5 +1,6 @@
 import {
   detectProjectIntent,
+  isStatedPriceProposal,
   isUnwiredCentralCommandQuestion,
   isGeneralKnowledgeQuery,
   isConversationCancelQuery,
@@ -281,5 +282,15 @@ describe('projectContextResolver conversation routing', () => {
     );
     expect(result.needsClarification).toBe(false);
     expect(result.projectId).toBeNull();
+  });
+
+  test('a proposal for a calculated price is not a logged-bills figure', () => {
+    const history = [
+      { role: 'assistant', content: 'Charge **$56,250**.\nA **20%** gross margin on **$45,000** of cost leaves **$11,250** of profit.\nIt is not a saved estimate.' },
+    ];
+    expect(isStatedPriceProposal('Write a professional proposal explaining that price to the homeowner.', history)).toBe(true);
+    expect(isStatedPriceProposal('Make the proposal shorter, more conversational, and easier for the homeowner to understand.', history)).toBe(true);
+    expect(isStatedPriceProposal("What's my margin?", history)).toBe(false);
+    expect(isStatedPriceProposal('Write a professional proposal explaining that price to the homeowner.', [])).toBe(false);
   });
 });

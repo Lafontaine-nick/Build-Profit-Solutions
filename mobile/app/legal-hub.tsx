@@ -25,7 +25,7 @@ type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 /**
  * Legal Hub Screen
  * - Terms of Use with specific sections for Yelp, Home Depot, Lowes
- * - Privacy Policy placeholder
+ * - Privacy Policy
  * - Tax Center disclosure (exports, AI insight, CPA review)
  * - Data Sources & Attributions
  * - Deep linkable sections for compliance
@@ -346,7 +346,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
         </P>
         <P theme={theme}>
           These Terms apply to all users in the United States and internationally. Your
-          relationship is solely with Build Profit Solutions, LLC, a Nevada company.
+          relationship is solely with Build Profit Solutions LLC, a Utah company.
         </P>
       </Section>
 
@@ -448,7 +448,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
         <H2 theme={theme}>8. Intellectual Property</H2>
         <P theme={theme}>
           All content, features, designs, workflows, databases, and functionality are owned by
-          Build Profit Solutions, LLC and are protected by intellectual property laws. You may not
+          Build Profit Solutions LLC and are protected by intellectual property laws. You may not
           copy, reproduce, modify, or create derivative works based on BPS.
         </P>
       </Section>
@@ -526,7 +526,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
       <Section id="15" highlight={highlightSection === '15'} theme={theme}>
         <H2 theme={theme}>15. Corporate Shield Protection</H2>
         <P theme={theme}>
-          You agree that all claims shall be brought solely against Build Profit Solutions, LLC, and
+          You agree that all claims shall be brought solely against Build Profit Solutions LLC, and
           not against its individual owners, officers, or employees.
         </P>
       </Section>
@@ -543,7 +543,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
         <H2 theme={theme}>17. Arbitration Agreement</H2>
         <P theme={theme}>
           Any dispute arising from these Terms or your use of the App shall be resolved exclusively
-          through binding arbitration in Clark County, Nevada, under the rules of the American
+          through binding arbitration in Washington County, Utah, under the rules of the American
           Arbitration Association.
         </P>
         <P theme={theme}>
@@ -556,7 +556,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
       <Section id="18" highlight={highlightSection === '18'} theme={theme}>
         <H2 theme={theme}>18. Governing Law</H2>
         <P theme={theme}>
-          These Terms are governed by the laws of the State of Nevada, without regard to conflict of
+          These Terms are governed by the laws of the State of Utah, without regard to conflict of
           law principles.
         </P>
       </Section>
@@ -591,7 +591,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
         <BulletList
           items={[
             'Email: legal@buildprofitsolutions.com',
-            'Address: [Insert Your Nevada Business Address]',
+            'Build Profit Solutions LLC, 3288 Red Rock Dr, Santa Clara, UT 84765',
           ]}
           theme={theme}
         />
@@ -622,7 +622,7 @@ function PrivacyPolicyContent({ theme }: { theme: any }) {
             'Project Data: Estimates, bids, materials lists, project details',
             'Usage Data: Feature usage, interactions, crash logs',
             'Device Info: IP address, OS version, app version, region/ZIP',
-            'Payment Info: Processed securely by Stripe (we do NOT store card numbers)',
+            'Payment Info: App Store subscriptions are processed by Apple. Web subscriptions are processed by Stripe. We do not store card numbers.',
             'We do NOT collect: Social Security numbers, government IDs, biometrics, bank account numbers',
           ]}
           theme={theme}
@@ -725,7 +725,7 @@ function PrivacyPolicyContent({ theme }: { theme: any }) {
         <BulletList
           items={[
             'Email: privacy@buildprofitsolutions.com',
-            'Address: [Your Nevada Business Address]',
+            'Build Profit Solutions LLC, 3288 Red Rock Dr, Santa Clara, UT 84765',
           ]}
           theme={theme}
         />
@@ -852,7 +852,7 @@ function TaxCenterDisclosureContent({ theme }: { theme: any }) {
         </P>
         <P theme={theme}>
           {
-            'Any labels such as "tax-ready," "CPA-ready," "Potential 1099 Review," or similar wording are informational only and do not mean that a tax document is complete, accurate, legally sufficient, IRS-approved, or ready to file without professional review.'
+            'Report names and labels, including Potential 1099 Review, are informational only. They do not mean a document is complete, accurate, legally sufficient, IRS-approved, or ready to file without professional review.'
           }
         </P>
       </Section>

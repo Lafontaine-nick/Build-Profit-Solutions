@@ -651,10 +651,10 @@ export default function TaxCenterScreen() {
               <BackButton darkMode={darkMode} onPress={() => router.back()} />
             </View>
           <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>TAX-READY REPORT</Text>
+            <Text style={styles.kicker}>FOR YOUR CPA</Text>
             <Text style={styles.title}>Tax Center</Text>
             <Text style={[styles.headerSubtitle, styles.headerCenteredText]}>
-              CPA-ready summaries, receipt backup, and vendor review from your project data.
+              Summaries, receipt backup, and vendor review from your project data. Not a tax filing.
             </Text>
           </View>
         </View>
@@ -672,7 +672,7 @@ export default function TaxCenterScreen() {
               />
               <View style={styles.readinessStatusText}>
                 <Text style={styles.readinessHeadline}>
-                  {readiness.allReady ? 'Tax Center Ready' : 'Needs review'}
+                  {readiness.allReady ? 'Ready for CPA review' : 'Needs review'}
                 </Text>
                 <Text style={styles.readinessBlurb}>
                   {readiness.allReady
@@ -1097,7 +1097,7 @@ export default function TaxCenterScreen() {
             <View style={styles.disclaimer}>
               <MaterialIcons name="info-outline" size={18} color="#FBBF24" />
               <Text style={styles.disclaimerText}>
-                Not tax advice. Confirm these figures with your CPA before filing.
+                Not tax advice and not a filing. Confirm these figures with your CPA before you file.
               </Text>
             </View>
           </TaxGradientFrame>

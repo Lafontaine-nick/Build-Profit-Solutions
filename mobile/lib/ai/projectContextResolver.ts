@@ -207,6 +207,18 @@ export function isHypotheticalPriceQuery(query: string): boolean {
   return hasCost && hasMargin;
 }
 
+/** A proposal that explains a price already calculated in this chat. Not a saved-job figure. */
+export function isStatedPriceProposal(
+  query: string,
+  history: { role?: string; content?: string }[] = [],
+): boolean {
+  const q = String(query || '');
+  if (!/\b(?:proposal|that price)\b/i.test(q)) return false;
+  return history.some((item) =>
+    item?.role === 'assistant' && /not a saved estimate|cost is now/i.test(String(item?.content || ''))
+  );
+}
+
 /** "Add $3,500 and recalculate" continues a price, it is not a health check. */
 export function isPriceRecalcQuery(query: string): boolean {
   const q = String(query || '');

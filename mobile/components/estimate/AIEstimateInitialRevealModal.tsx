@@ -635,7 +635,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 18,
     marginBottom: 14,
-    marginHorizontal: -8,
     overflow: 'hidden',
   },
   heroTopRow: {
@@ -722,7 +721,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     marginBottom: 14,
-    marginHorizontal: -8,
     paddingVertical: 4,
   },
   detailedReviewLinkText: {
@@ -731,7 +729,6 @@ const styles = StyleSheet.create({
   },
   contentCard: {
     overflow: 'hidden',
-    marginHorizontal: -8,
   },
   block: {
     paddingHorizontal: 16,

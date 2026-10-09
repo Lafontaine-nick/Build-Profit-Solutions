@@ -13813,7 +13813,6 @@ function InsulationAssemblyCard({
       style={{
         alignSelf: 'stretch',
         marginTop: 12,
-        marginHorizontal: -6,
         marginBottom: 12,
         padding: 12,
         borderRadius: 14,
@@ -30041,7 +30040,6 @@ export default function AIEstimateScopeAssumptionsModal({
           activeOpacity={0.8}
           style={{
             alignSelf: 'stretch',
-            marginHorizontal: -10,
             marginBottom: 12,
             paddingHorizontal: 16,
             paddingVertical: 14,
@@ -32170,7 +32168,6 @@ const styles = StyleSheet.create({
   },
   shell: { flex: 1 },
   quickMeasurements: {
-    marginHorizontal: -8,
     marginBottom: 14,
   },
   quickMeasurementsHeader: {
@@ -32362,7 +32359,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   card: {
-    marginHorizontal: -8,
     marginBottom: 12,
   },
   scopeCardTitle: {
