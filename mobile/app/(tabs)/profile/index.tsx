@@ -54,15 +54,7 @@ import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
-import {
-  clearAllOnboardingCompletionKeys,
-  clearOnboardingCompleteForUser,
-} from '@/lib/onboardingStorage';
-import {
-  FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
-  FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
-} from '@/lib/firstEstimateWalkthroughStorage';
-import { resetActiveProjectWalkthroughStorage } from '@/lib/activeProjectWalkthroughStorage';
+import { clearAllOnboardingCompletionKeys } from '@/lib/onboardingStorage';
 // Conditionally import Clerk - only if configured
 let useClerkAuth: any = null;
 let useUser: any = null;
@@ -1111,13 +1103,8 @@ export default function ProfileScreen() {
     router.push('/profile/help-support');
   }, []);
 
-  const handleTermsOfService = useCallback(() => {
-    router.push('/legal-hub?tab=terms');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, []);
-
-  const handlePrivacyPolicy = useCallback(() => {
-    router.push('/legal-hub?tab=privacy');
+  const handleLegal = useCallback(() => {
+    router.push('/legal-hub');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, []);
 
@@ -2565,14 +2552,14 @@ export default function ProfileScreen() {
             {renderSettingItem(
               'payment-methods',
               'payment',
-              'Payment Methods',
+              Platform.OS === 'ios' ? 'Subscription' : 'Payment & Billing',
               () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 handlePaymentMethods();
               },
               true,
               undefined,
-              'Payouts & client payments'
+              Platform.OS === 'ios' ? 'App Store plan' : 'Plan, invoices, and cards'
             )}
           </>
         ))}
@@ -2750,59 +2737,6 @@ export default function ProfileScreen() {
           </>
         ), true)}
 
-        {/* App & Data */}
-        {renderSection('App & Data', (
-          <>
-            {renderSettingItem(
-              'restart-setup',
-              'refresh',
-              'Restart setup guide',
-              () => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                Alert.alert(
-                  'Restart setup guide?',
-                  'This will show the onboarding flow again and clear current estimate data on this device. Continue?',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Restart',
-                      onPress: async () => {
-                        try {
-                          if (clerkUser?.id) {
-                            await clearOnboardingCompleteForUser(clerkUser.id);
-                          } else {
-                            await clearAllOnboardingCompletionKeys();
-                          }
-                          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
-                          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
-                          await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
-                          await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
-                          await AsyncStorage.setItem('bps.forceEstimateOnboarding', 'true');
-                          await AsyncStorage.removeItem('bps.currentBid.v2');
-                          await AsyncStorage.removeItem('bps.currentBid');
-                          await AsyncStorage.removeItem('bps.currentBid.v1');
-                          await AsyncStorage.removeItem('bps.firstEstimateCreated');
-                          await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
-                          await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
-                          await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
-                          await resetActiveProjectWalkthroughStorage();
-                          router.push('/onboarding');
-                        } catch (error) {
-                          console.error('Error restarting setup guide:', error);
-                          Alert.alert('Error', 'Failed to restart setup guide.');
-                        }
-                      },
-                    },
-                  ]
-                );
-              },
-              true,
-              undefined,
-              'Replay onboarding and estimate walkthrough'
-            )}
-          </>
-        ))}
-
         {/* Legal & Support */}
         {renderSection('Legal & Support', (
           <>
@@ -2816,14 +2750,18 @@ export default function ProfileScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 router.push('/profile/beta-feedback');
               })}
-            {renderSettingItem('terms', 'description', 'Terms of Service', () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              handleTermsOfService();
-            })}
-            {renderSettingItem('privacy', 'privacy-tip', 'Privacy Policy', () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              handlePrivacyPolicy();
-            })}
+            {renderSettingItem(
+              'legal',
+              'policy',
+              'Legal',
+              () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleLegal();
+              },
+              true,
+              undefined,
+              'Terms, privacy, and policies'
+            )}
             <TouchableOpacity
               style={styles.settingItem}
               onPress={() => {

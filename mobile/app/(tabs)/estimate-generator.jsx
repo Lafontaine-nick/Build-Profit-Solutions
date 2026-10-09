@@ -7103,6 +7103,8 @@ export default function EstimateGeneratorScreen() {
         `Materials: ${materials} items`,
         `Labor: ${labor} items`,
         `Est. total: ${money(template.estimatedBidTotal || 0)}`,
+        '',
+        'This estimate already has line items. Update this bid replaces its materials, labor, markup, and costs. New bid starts a separate estimate and leaves this one in Saved bids.',
       ].join('\n');
 
       if (!bidHasLineItems) {
@@ -7113,11 +7115,11 @@ export default function EstimateGeneratorScreen() {
       Alert.alert('Apply this template?', preview, [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Materials + labor only',
+          text: 'Update this bid',
           onPress: () => runTemplateApply(template, 'materials_labor'),
         },
         {
-          text: 'Create new bid',
+          text: 'New bid',
           onPress: () => runTemplateApply(template, 'create_new'),
         },
       ]);

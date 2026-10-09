@@ -13,7 +13,7 @@ export default function TermsPage() {
     <PageShell>
       <section className="px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
         <SectionHeading eyebrow="Legal" title="Terms of Service" compact>
-          Last updated: May 23, 2026
+          Last updated: October 9, 2026
         </SectionHeading>
         <LegalPageBody>
           <p>
@@ -35,13 +35,27 @@ export default function TermsPage() {
           <LegalSection title="Accounts and subscriptions">
             <p>
               You are responsible for maintaining the confidentiality of your account
-              credentials and for activity under your account. Subscription plans,
-              billing, renewals, and cancellations are handled according to the plan
-              selected at checkout and the billing provider&apos;s process.
+              credentials and for activity under your account. You must be at least
+              18 years old to use the Service.
             </p>
             <p>
-              You may upgrade, downgrade, or cancel according to the options
-              available in the app unless otherwise stated at purchase.
+              Subscriptions bought in the iOS app are charged to your Apple ID by
+              Apple and renew until you cancel in your Apple ID subscription
+              settings at least 24 hours before the current period ends. Refund
+              requests for those purchases are handled by Apple. Build Profit
+              Solutions cannot issue App Store refunds.
+            </p>
+            <p>
+              Subscriptions bought on the website are processed by Stripe. Cancel
+              those subscriptions in the website billing settings. Cancellation
+              stops future charges, and access continues through the end of the
+              period already paid. Website subscription payments are final and
+              non-refundable except where applicable law requires a refund.
+            </p>
+            <p>
+              A free trial applies only when the offer shown at checkout includes
+              one. If no trial is shown, billing starts when you confirm the
+              subscription.
             </p>
           </LegalSection>
 

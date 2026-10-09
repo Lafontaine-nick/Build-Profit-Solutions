@@ -491,10 +491,10 @@ function OnboardingFlowCore({
         await setPendingOpenBuildWithAi();
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.replace('/(tabs)/estimate-generator');
+      router.replace(Platform.OS === 'ios' ? '/sample-tour' : '/(tabs)/estimate-generator');
     } catch (error) {
       console.error('Error completing onboarding:', error);
-      router.replace('/(tabs)/estimate-generator');
+      router.replace(Platform.OS === 'ios' ? '/sample-tour' : '/(tabs)/estimate-generator');
     }
   };
 

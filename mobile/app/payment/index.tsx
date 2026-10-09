@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Linking,
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,9 +29,13 @@ import {
   resolveBestPlanIdFromSubscriptions,
 } from '@/utils/resolveSubscriptionPlan';
 import { useAppleBilling } from '@/hooks/useAppleBilling';
-import { FOUNDING_PROFESSIONAL_FEATURES } from '@/constants/billingCatalog';
+import { openAppleSubscriptionManagement } from '@/services/appleBillingService';
+import { ENTITLEMENT_FOUNDING_FULL, FOUNDING_PROFESSIONAL_FEATURES } from '@/constants/billingCatalog';
 
 const CACHED_PLAN_KEY = 'bps.cachedPlanId';
+const IOS_MINT = '#2dcc9a';
+const IOS_CARD_DARK = '#1C1D20';
+const IOS = Platform.OS === 'ios';
 
 function BillingPageFrame({
   framed,
@@ -81,6 +86,7 @@ export default function PaymentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planCatalog, setPlanCatalog] = useState(() => stripeService.getMockSubscriptionPlans());
+  const [previewActive, setPreviewActive] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
@@ -145,19 +151,24 @@ export default function PaymentScreen() {
   }, []);
 
   // Use same theme system as profile page
-  const theme = useMemo(() => ({
-    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
-    text: Colors.text,
-    subtext: Colors.sub,
-    accent: Colors.primary,
-    border: Colors.line,
-    divider: Colors.line,
-    success: '#4ADE80',
-    warning: '#FACC15',
-    error: '#F87171',
-    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-  }), [Colors]);
+  const theme = useMemo(() => {
+    const iosApp = Platform.OS === 'ios';
+    return {
+      background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+      card: iosApp && darkMode ? IOS_CARD_DARK : Colors.surface2,
+      text: Colors.text,
+      subtext: Colors.sub,
+      accent: iosApp ? IOS_MINT : Colors.primary,
+      border: Colors.line,
+      divider: Colors.line,
+      success: iosApp ? IOS_MINT : '#4ADE80',
+      warning: '#FACC15',
+      error: '#F87171',
+      iconBg: iosApp
+        ? (darkMode ? '#3A3A3C' : '#e2e8f0')
+        : (Colors.iconBg || 'rgba(67, 206, 162, 0.15)'),
+    };
+  }, [Colors, darkMode]);
 
   const isIosBilling = Platform.OS === 'ios';
 
@@ -168,8 +179,43 @@ export default function PaymentScreen() {
 
   const handlePaymentManagement = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS === 'ios') {
+      try {
+        openAppleSubscriptionManagement();
+      } catch {
+        void Linking.openURL('https://apps.apple.com/account/subscriptions');
+      }
+      return;
+    }
     router.push('/payment/manage-subscriptions');
   };
+
+  const iosActiveDetails = useMemo(() => {
+    const entitlement = appleBilling.customerInfo?.entitlements.active?.[ENTITLEMENT_FOUNDING_FULL];
+    const productId = entitlement?.productIdentifier || '';
+    const previewing = previewActive && !entitlement?.isActive;
+    const annual = previewing ? false : productId.includes('annual');
+    const pkg = annual ? appleBilling.packages.annual : appleBilling.packages.monthly;
+    const price = pkg?.product.priceString || (annual ? '$990.00' : '$99.00');
+    let renewsLabel = previewing ? 'Renews Nov 9, 2026' : '';
+    if (!previewing && entitlement?.expirationDate) {
+      const date = new Date(entitlement.expirationDate);
+      if (!Number.isNaN(date.getTime())) {
+        const formatted = date.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        renewsLabel = entitlement.willRenew === false ? `Access ends ${formatted}` : `Renews ${formatted}`;
+      }
+    }
+    return {
+      periodLabel: annual ? 'Annual' : 'Monthly',
+      perLabel: annual ? 'per year' : 'per month',
+      price,
+      renewsLabel,
+    };
+  }, [appleBilling.customerInfo, appleBilling.packages, previewActive]);
 
   const handleViewInvoices = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -432,11 +478,13 @@ export default function PaymentScreen() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
-              Payment & Billing
+              {isIosBilling ? 'Subscription' : 'Payment & Billing'}
             </Text>
-            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-              App Store subscription
-            </Text>
+            {isIosBilling ? null : (
+              <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                Plan, invoices, and cards
+              </Text>
+            )}
           </View>
         </View>
 
@@ -470,7 +518,7 @@ export default function PaymentScreen() {
                 {error}
               </Text>
             </View>
-          ) : currentPlan ? (
+          ) : currentPlan && !isIosBilling ? (
             <>
               {loading ? (
                 <Text style={[styles.loadingText, { color: theme.subtext, marginBottom: 8 }]}>
@@ -500,14 +548,58 @@ export default function PaymentScreen() {
                 ))}
               </View>
             </>
+          ) : currentPlan || previewActive ? (
+            <>
+              <View style={styles.currentPlanHeader}>
+                <View style={[styles.iconContainer, { backgroundColor: theme.iconBg }]}>
+                  <MaterialIcons name='workspace-premium' size={24} color={theme.accent} />
+                </View>
+                <View style={styles.currentPlanInfo}>
+                  <Text style={[styles.currentPlanLabel, { color: theme.subtext }]}>Current Plan</Text>
+                  <Text style={[styles.currentPlanName, { color: theme.text }]}>Founding Professional</Text>
+                  <Text style={styles.iosStatusLine}>
+                    <Text style={{ color: theme.accent, fontWeight: '700' }}>Active</Text>
+                    <Text style={{ color: theme.subtext }}>{` · ${iosActiveDetails.periodLabel}`}</Text>
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.iosPrice, { color: theme.text }]}>{iosActiveDetails.price}</Text>
+              <Text style={[styles.iosPer, { color: theme.subtext }]}>{iosActiveDetails.perLabel}</Text>
+              {iosActiveDetails.renewsLabel ? (
+                <Text style={[styles.iosRenews, { color: theme.subtext }]}>{iosActiveDetails.renewsLabel}</Text>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.planActionButton, { backgroundColor: theme.accent }]}
+                onPress={handlePaymentManagement}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.planActionText}>Manage Subscription</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.restoreLink}
+                onPress={handleSubscriptionPlans}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.restoreLinkText, { color: theme.accent }]}>Change Plan</Text>
+              </TouchableOpacity>
+              {__DEV__ && previewActive ? (
+                <TouchableOpacity
+                  style={styles.previewLink}
+                  onPress={() => setPreviewActive(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.previewLinkText, { color: theme.subtext }]}>Show empty state</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           ) : (
             <>
               <View style={styles.currentPlanHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: darkMode ? theme.iconBg : 'rgba(67, 206, 162, 0.25)' }]}>
-                  <MaterialIcons name='workspace-premium' size={24} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
+                <View style={[styles.iconContainer, { backgroundColor: darkMode || IOS ? theme.iconBg : 'rgba(67, 206, 162, 0.25)' }]}>
+                  <MaterialIcons name='workspace-premium' size={24} color={IOS ? theme.accent : theme.subtext} style={{ opacity: IOS ? 1 : 0.85 }} />
                 </View>
                 <View style={styles.currentPlanInfo}>
-                  <Text style={[styles.currentPlanLabel, { color: darkMode ? "#FFFFFF" : "#000000" }]}>Current Plan</Text>
+                  <Text style={[styles.currentPlanLabel, { color: IOS ? theme.subtext : darkMode ? "#FFFFFF" : "#000000" }]}>Current Plan</Text>
                   <Text style={[styles.currentPlanName, { color: theme.text }]}>No Active Plan</Text>
                 </View>
               </View>
@@ -538,21 +630,36 @@ export default function PaymentScreen() {
                       Restore Purchases
                     </Text>
                   </TouchableOpacity>
+                  {__DEV__ ? (
+                    <TouchableOpacity
+                      style={styles.previewLink}
+                      onPress={() => setPreviewActive(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.previewLinkText, { color: theme.subtext }]}>Preview active plan</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </>
               ) : null}
             </>
           )}
         </View>
 
-        {/* Subscription rows stay available once a plan is active. */}
-        {currentPlan || !isIosBilling ? (
+        {/* Web billing rows. iOS actions live on the plan card. */}
+        {!isIosBilling ? (
+        <>
+        {IOS ? (
+          <Text style={[styles.iosGroupTitle, { color: theme.subtext }]}>Subscription</Text>
+        ) : null}
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.sectionHeader, { borderBottomColor: theme.divider }]}>
-            <MaterialIcons name='star' size={22} color={theme.accent} />
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Subscription
-            </Text>
-          </View>
+          {IOS ? null : (
+            <View style={[styles.sectionHeader, { borderBottomColor: theme.divider }]}>
+              <MaterialIcons name='star' size={22} color={theme.accent} />
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Subscription
+              </Text>
+            </View>
+          )}
 
           <TouchableOpacity
             style={[
@@ -585,7 +692,7 @@ export default function PaymentScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.settingItem, { borderBottomColor: theme.divider }]}
+            style={[styles.settingItem, { borderBottomColor: theme.divider }, IOS && { borderBottomWidth: 0 }]}
             onPress={handlePaymentManagement}
             activeOpacity={0.7}
           >
@@ -614,6 +721,7 @@ export default function PaymentScreen() {
             />
           </TouchableOpacity>
         </View>
+        </>
         ) : null}
 
         {/* App Store receipts live in Apple subscription settings. */}
@@ -734,42 +842,60 @@ const styles = StyleSheet.create({
     padding: 1,
     marginBottom: 16,
   },
-  headerRow: {
-    position: 'relative',
-    width: '100%',
-    minHeight: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 52,
-    marginBottom: 12,
-  },
-  headerCopy: {
-    width: '100%',
-    alignItems: 'center',
-    paddingHorizontal: 52,
-  },
-  screenTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
+  headerRow: IOS
+    ? {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '100%',
+        marginTop: 52,
+        marginBottom: 8,
+      }
+    : {
+        position: 'relative',
+        width: '100%',
+        minHeight: 64,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 52,
+        marginBottom: 12,
+      },
+  headerCopy: IOS
+    ? { flex: 1 }
+    : {
+        width: '100%',
+        alignItems: 'center',
+        paddingHorizontal: 52,
+      },
+  screenTitle: IOS
+    ? {
+        fontSize: 28,
+        fontWeight: '700',
+        letterSpacing: -0.3,
+      }
+    : {
+        fontSize: 22,
+        fontWeight: '800',
+        letterSpacing: -0.3,
+        textAlign: 'center',
+      },
   headerSubtitle: {
     marginTop: 4,
     fontSize: 14,
     lineHeight: 18,
     textAlign: 'center',
   },
-  backButton: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  backButton: IOS
+    ? { marginRight: 12 }
+    : {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+      },
   contentCard: {
     borderRadius: 23,
     overflow: 'visible',
@@ -781,35 +907,44 @@ const styles = StyleSheet.create({
   },
   // Current Plan Card
   currentPlanCard: {
-    borderRadius: 20,
+    borderRadius: IOS ? 16 : 20,
     marginBottom: 24,
-    padding: 24,
+    padding: IOS ? 20 : 24,
     borderWidth: 1,
   },
   currentPlanHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: IOS ? 16 : 20,
   },
   iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: IOS ? 44 : 56,
+    height: IOS ? 44 : 56,
+    borderRadius: IOS ? 12 : 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: IOS ? 14 : 16,
   },
   currentPlanInfo: {
     flex: 1,
   },
-  currentPlanLabel: {
-    fontSize: 13,
-    color: '#CFE6FF',
-    marginBottom: 4,
-  },
+  currentPlanLabel: IOS
+    ? {
+        fontSize: 11,
+        fontWeight: '600',
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+        marginBottom: 4,
+      }
+    : {
+        fontSize: 13,
+        color: '#CFE6FF',
+        marginBottom: 4,
+      },
   currentPlanName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: IOS ? 20 : 16,
+    fontWeight: IOS ? '700' : '600',
+    letterSpacing: IOS ? -0.2 : 0,
     color: '#FFFFFF',
   },
   currentPlanDetails: {
@@ -827,11 +962,12 @@ const styles = StyleSheet.create({
   },
   planEmptyText: {
     marginLeft: 0,
-    lineHeight: 18,
+    lineHeight: IOS ? 20 : 18,
+    fontSize: IOS ? 14 : 13,
   },
   planActionButton: {
     marginTop: 20,
-    borderRadius: 14,
+    borderRadius: IOS ? 999 : 14,
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
@@ -839,7 +975,15 @@ const styles = StyleSheet.create({
   planActionText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#04120C',
+    color: IOS ? '#050B13' : '#04120C',
+  },
+  iosGroupTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    marginLeft: 8,
+    textTransform: 'uppercase',
   },
   restoreLink: {
     marginTop: 14,
@@ -850,6 +994,36 @@ const styles = StyleSheet.create({
   restoreLinkText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  iosStatusLine: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  iosPrice: {
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  iosPer: {
+    marginTop: 2,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  iosRenews: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  previewLink: {
+    marginTop: 8,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewLinkText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -863,7 +1037,7 @@ const styles = StyleSheet.create({
   },
   // Section Styles
   section: {
-    borderRadius: 20,
+    borderRadius: IOS ? 16 : 20,
     marginBottom: 20,
     borderWidth: 1,
     overflow: 'hidden',
@@ -885,8 +1059,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingHorizontal: IOS ? 16 : 20,
+    paddingVertical: IOS ? 14 : 18,
+    minHeight: IOS ? 56 : undefined,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },

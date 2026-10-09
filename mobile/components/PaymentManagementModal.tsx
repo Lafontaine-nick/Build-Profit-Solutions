@@ -509,7 +509,6 @@ export default function PaymentManagementModal({
           },
         ]}
       >
-        <Text style={[styles.footerText, { color: theme.subtext }]}>Start with a 7-day free trial</Text>
         <Text style={[styles.footerText, { color: theme.subtext }]}>Cancel anytime • No setup fees</Text>
       </View>
     </>

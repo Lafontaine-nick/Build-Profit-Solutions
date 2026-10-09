@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   SafeAreaView,
@@ -9,72 +10,225 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import BackButton from '@/components/ui/BackButton';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import WebPageShell from '@/components/layout/WebPageShell';
-import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
+
+type Feature = {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  title: string;
+  body: string;
+};
+
+const FEATURES: Feature[] = [
+  {
+    icon: 'calculate',
+    title: 'AI-Powered Estimating',
+    body: 'Generate fast, accurate estimates using real-time material pricing, labor calculations, overhead, and markup automatically suggested by AI.',
+  },
+  {
+    icon: 'smart-toy',
+    title: 'AI Assistant',
+    body: 'Ask questions, request calculations, troubleshoot issues, and get professional-grade guidance instantly—all directly inside the app.',
+  },
+  {
+    icon: 'filter-alt',
+    title: 'Lead Management & Sales Pipeline',
+    body: 'Track inquiries, communication, and conversions with AI-powered insights that highlight your strongest opportunities.',
+  },
+  {
+    icon: 'folder',
+    title: 'Project Tracking & Documentation',
+    body: 'Keep tasks, schedules, files, and project status organized with AI-supported reminders and suggested next steps.',
+  },
+  {
+    icon: 'insights',
+    title: 'Job Costing & Financial Insights',
+    body: 'Instantly see profitability trends and budget health. AI flags unexpected costs, waste, or margin risks in real time.',
+  },
+  {
+    icon: 'groups',
+    title: 'Find Subcontractors',
+    body: 'Discover verified subs in the BPS directory, compare options, and build competitive bids with AI-assisted labor cost suggestions.',
+  },
+  {
+    icon: 'hub',
+    title: 'All-In-One Workflow',
+    body: 'Manage every part of your construction business—from the first lead to the final payout—inside a single intelligent platform.',
+  },
+];
+
+const ABOUT_PARAGRAPHS = [
+  'Build Profit Solutions is an AI-driven construction management platform built for contractors, subcontractors, builders, and real-estate investors. Our mission is to give you smarter tools, faster workflows, and clearer insights, helping you bid confidently and run your business with precision.',
+  "Powered by advanced AI, BPS automates time-consuming tasks, reduces human error, and helps you make better decisions—whether you're estimating a project, analyzing job costs, or managing leads.",
+  'From the field to the office, our platform empowers construction professionals to operate with the speed, accuracy, and efficiency of a full back-office team.',
+];
 
 export default function AboutScreen() {
   const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
-  /** Align header with profile chrome; `0` matches `chromeFrame` `marginHorizontal: 0` on web. */
-  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins(0);
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
-  const theme = useMemo(
-    () => ({
-      background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-      card: Colors.surface2,
-      text: Colors.text,
-      subtext: Colors.sub,
-      accent: Colors.primary,
-      border: Colors.line,
-    }),
-    [Colors]
+  const version = Constants.expoConfig?.version || '1.0.0';
+  const dividerColor = darkMode ? 'rgba(255,255,255,0.1)' : Colors.line;
+  const iconTileBg = darkMode ? '#3A3A3C' : '#e2e8f0';
+  const sectionCardStyle = [
+    styles.sectionCard,
+    {
+      backgroundColor: darkMode ? '#1C1D20' : Colors.surface2,
+      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+    },
+  ];
+
+  const sectionHeader = (icon: keyof typeof MaterialIcons.glyphMap, title: string) => (
+    <View style={[styles.sectionHeader, { borderBottomColor: dividerColor }]}>
+      <MaterialIcons name={icon} size={22} color={Colors.primary} />
+      <Text style={[styles.sectionTitle, { color: Colors.text }]}>{title}</Text>
+    </View>
+  );
+
+  const aboutSections = (
+    <>
+      <View style={sectionCardStyle}>
+        <View style={styles.heroRow}>
+          <View
+            style={[
+              styles.logoTile,
+              {
+                backgroundColor: darkMode ? '#000000' : Colors.bg,
+                borderColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line,
+              },
+            ]}
+          >
+            <Image
+              source={
+                darkMode
+                  ? require('../../../assets/images/bps-logo-house-dark.png')
+                  : require('../../../assets/images/bps-logo-house-light.png')
+              }
+              style={styles.logoImage}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
+          </View>
+          <View style={styles.heroText}>
+            <Text style={[styles.appTitle, { color: Colors.text }]}>Build Profit Solutions</Text>
+            <Text style={[styles.tagline, { color: Colors.sub }]}>
+              All-in-One AI-Powered Construction Management Platform
+            </Text>
+            <Text style={[styles.version, { color: Colors.sub }]}>Version {version}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={sectionCardStyle}>
+        {sectionHeader('info-outline', 'About')}
+        <View style={styles.sectionBody}>
+          {ABOUT_PARAGRAPHS.map((paragraph, index) => (
+            <Text
+              key={index}
+              style={[
+                styles.bodyText,
+                { color: Colors.sub },
+                index === ABOUT_PARAGRAPHS.length - 1 && styles.lastParagraph,
+              ]}
+            >
+              {paragraph}
+            </Text>
+          ))}
+        </View>
+      </View>
+
+      <View style={sectionCardStyle}>
+        {sectionHeader('auto-awesome', 'What You Can Do with BPS')}
+        {FEATURES.map((feature, index) => (
+          <View
+            key={feature.title}
+            style={[
+              styles.featureRow,
+              {
+                borderBottomColor: dividerColor,
+                borderBottomWidth: index === FEATURES.length - 1 ? 0 : 1,
+              },
+            ]}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: iconTileBg }]}>
+              <MaterialIcons name={feature.icon} size={20} color={Colors.primary} />
+            </View>
+            <View style={styles.featureText}>
+              <Text style={[styles.featureTitle, { color: Colors.text }]}>{feature.title}</Text>
+              <Text style={[styles.featureBody, { color: Colors.sub }]}>{feature.body}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={sectionCardStyle}>
+        {sectionHeader('flag', 'Our Mission')}
+        <View style={styles.sectionBody}>
+          <Text style={[styles.bodyText, styles.lastParagraph, { color: Colors.sub }]}>
+            To combine construction expertise with cutting-edge AI, delivering professional-grade
+            tools that help contractors win more work, grow profitably, and operate with complete
+            confidence.
+          </Text>
+        </View>
+      </View>
+    </>
   );
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <LinearGradient colors={theme.background} style={styles.container}>
+      <LinearGradient colors={[Colors.bg, Colors.bg, Colors.bg]} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.pageShell}>
-            {/* Header */}
-            <View
-              style={[
-                styles.headerRow,
-                Platform.OS === 'web' ? webHelpHeaderMargins : styles.headerRowNativeMargins,
-              ]}
-            >
-              <View style={styles.backButtonWrapper}>
+          {Platform.OS === 'web' ? (
+            <HelpSupportSubpageWebHeader
+              title="About"
+              darkMode={darkMode}
+              lightBg={Colors.bg}
+              webHelpHeaderMargins={webHelpHeaderMargins}
+            />
+          ) : (
+            <View style={styles.headerRow}>
+              <View style={styles.backButton}>
                 <BackButton darkMode={darkMode} onPress={() => router.back()} />
               </View>
-              <View style={styles.titleContainer}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>
                   About
                 </Text>
+                <Text style={[styles.headerSubtitle, { color: Colors.sub }]}>
+                  Our platform and mission
+                </Text>
               </View>
-              <View style={styles.backButtonWrapper} />
             </View>
+          )}
 
-            {/* Same chrome as Profile / Getting Started: shell → gradient 1px → card + hairline */}
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{
-                paddingTop: Platform.OS === 'web' ? 0 : 16,
-                paddingBottom: tabScrollBottomInset,
-                paddingHorizontal: 0,
-              }}
-              showsVerticalScrollIndicator={true}
-            >
-              <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingTop: Platform.OS === 'web' ? 0 : 16,
+              paddingBottom: tabScrollBottomInset,
+              paddingHorizontal: 0,
+            }}
+            showsVerticalScrollIndicator={true}
+          >
+            <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
+              {Platform.OS === 'web' ? (
                 <LinearGradient
-                  colors={["#2DFFC4", "#00A6FF"]}
+                  colors={['#2DFFC4', '#00A6FF']}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.chromeFrame}
@@ -84,132 +238,19 @@ export default function AboutScreen() {
                       styles.contentCard,
                       {
                         backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                        borderColor: theme.border,
+                        borderColor: Colors.line,
                         borderWidth: 1,
                       },
                     ]}
                   >
-                    <View style={styles.scrollContent}>
-                      {/* Header Section */}
-                      <View style={styles.headerSection}>
-                        <Text style={[styles.appTitle, { color: theme.text }]}>
-                          Build Profit Solutions
-                        </Text>
-                        <Text style={[styles.subtitle, { color: theme.subtext }]}>
-                          All-in-One AI-Powered Construction Management Platform
-                        </Text>
-                        <Text style={[styles.version, { color: theme.subtext }]}>
-                          Version {Constants.expoConfig?.version || '1.0.0'}
-                        </Text>
-                      </View>
-
-                      {/* Section: About */}
-                      <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                        <Text style={[styles.sectionTitle, { color: theme.text }]}>About</Text>
-                        <Text style={[styles.bodyText, { color: theme.subtext }]}>
-                          Build Profit Solutions is an AI-driven construction management
-                          platform built for contractors, subcontractors, builders, and
-                          real-estate investors. Our mission is to give you smarter tools,
-                          faster workflows, and clearer insights, helping you bid
-                          confidently and run your business with precision.
-                        </Text>
-                        <Text style={[styles.bodyText, { color: theme.subtext }]}>
-                          Powered by advanced AI, BPS automates time-consuming tasks,
-                          reduces human error, and helps you make better decisions—whether
-                          you're estimating a project, analyzing job costs, or managing
-                          leads.
-                        </Text>
-                        <Text style={[styles.bodyText, { color: theme.subtext }]}>
-                          From the field to the office, our platform empowers construction
-                          professionals to operate with the speed, accuracy, and efficiency
-                          of a full back-office team.
-                        </Text>
-                      </View>
-
-                      {/* Section: What You Can Do */}
-                      <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                        <Text style={[styles.sectionTitle, { color: theme.text }]}>What You Can Do with BPS</Text>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>AI-Powered Estimating</Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Generate fast, accurate estimates using real-time material
-                            pricing, labor calculations, overhead, and markup automatically
-                            suggested by AI.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>AI Assistant</Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Ask questions, request calculations, troubleshoot issues, and
-                            get professional-grade guidance instantly—all directly inside the
-                            app.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>
-                            Lead Management & Sales Pipeline
-                          </Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Track inquiries, communication, and conversions with AI-powered
-                            insights that highlight your strongest opportunities.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>
-                            Project Tracking & Documentation
-                          </Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Keep tasks, schedules, files, and project status organized with
-                            AI-supported reminders and suggested next steps.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>
-                            Job Costing & Financial Insights
-                          </Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Instantly see profitability trends and budget health. AI flags
-                            unexpected costs, waste, or margin risks in real time.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>Find Subcontractors</Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Discover verified subs in the BPS directory, compare options, and build competitive
-                            bids with AI-assisted labor cost suggestions.
-                          </Text>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>All-In-One Workflow</Text>
-                          <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Manage every part of your construction business—from the first
-                            lead to the final payout—inside a single intelligent platform.
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Section: Mission */}
-                      <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                        <Text style={[styles.sectionTitle, { color: theme.text }]}>Our Mission</Text>
-                        <Text style={[styles.bodyText, { color: theme.subtext }]}>
-                          To combine construction expertise with cutting-edge AI, delivering
-                          professional-grade tools that help contractors win more work, grow
-                          profitably, and operate with complete confidence.
-                        </Text>
-                      </View>
-                    </View>
+                    <View style={styles.content}>{aboutSections}</View>
                   </View>
                 </LinearGradient>
-              </WebPageShell>
-            </ScrollView>
-          </View>
+              ) : (
+                <View style={styles.content}>{aboutSections}</View>
+              )}
+            </WebPageShell>
+          </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -217,126 +258,154 @@ export default function AboutScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  gradient: {
     flex: 1,
   },
   safeArea: {
     flex: 1,
   },
-  pageShell: {
-    flex: 1,
-    width: '100%',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 12,
-    position: 'relative',
-  },
-  headerRowNativeMargins: {
-    marginHorizontal: PHONE_CARD_GUTTER,
-  },
-  backButtonWrapper: {
-    width: 44,
-    zIndex: 1,
-    alignItems: 'center',
-  },
-  backButtonBorder: {
-    width: 42,
-    height: 42,
-    borderRadius: 20,
-    padding: 1,
-    overflow: "hidden",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  titleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  screenTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: 0.15,
-    textAlign: 'center',
-  },
-  /** Same chrome frame as Profile / Getting Started (`#2DFFC4` → `#00A6FF`, 1px stroke via padding). */
-  chromeFrame: {
-    borderRadius: 24,
-    padding: 1,
-    marginBottom: 16,
-    ...Platform.select({
-      web: { marginHorizontal: 0 },
-      default: { marginHorizontal: PHONE_CARD_GUTTER },
-    }),
-  },
   contentCard: {
     borderRadius: 23,
     overflow: 'visible',
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+  content: {
+    paddingHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
+    paddingBottom: 8,
   },
-  headerSection: {
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
+  },
+  headerRow: {
+    position: 'relative',
+    minHeight: 64,
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'center',
     marginTop: 8,
-  },
-  appTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    textAlign: 'center',
     marginBottom: 4,
+    marginHorizontal: Platform.OS === 'web' ? 8 : PHONE_CARD_GUTTER,
   },
-  subtitle: {
-    fontSize: 13,
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 52,
+  },
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
     textAlign: 'center',
-    marginBottom: 4,
-    opacity: 0.85,
   },
-  version: {
-    fontSize: 13,
+  headerSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
     textAlign: 'center',
-    opacity: 0.85,
   },
-  section: {
-    marginBottom: 24,
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionCard: {
     borderRadius: 16,
+    marginBottom: 16,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 4,
+    marginLeft: 12,
+  },
+  sectionBody: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+  },
+  logoTile: {
+    width: 60,
+    height: 60,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginRight: 14,
+  },
+  logoImage: {
+    width: 46,
+    height: 46,
+    transform: [{ translateY: -2.6 }],
+  },
+  heroText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  appTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  tagline: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  version: {
+    fontSize: 13,
+    marginTop: 4,
+    opacity: 0.65,
   },
   bodyText: {
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 8,
-    opacity: 0.85,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 10,
   },
-  featureItem: {
-    marginBottom: 16,
+  lastParagraph: {
+    marginBottom: 0,
   },
-  bulletTitle: {
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  featureText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  featureTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  bulletText: {
+  featureBody: {
     fontSize: 13,
-    lineHeight: 20,
-    opacity: 0.85,
+    lineHeight: 19,
   },
 });
-

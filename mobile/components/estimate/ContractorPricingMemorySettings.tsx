@@ -11,7 +11,6 @@ import {
 } from '@/utils/contractorPricingMemory';
 import { clearAllSavedPricingData, countSavedPricingSources } from '@/utils/estimateSavedPricingCleanup';
 import ContractorPricingLibraryModal from '@/components/estimate/ContractorPricingLibraryModal';
-import SavedBidTemplatesBrowserModal from '@/components/estimate/SavedBidTemplatesBrowserModal';
 
 const MINT = '#2dcc9a';
 const DANGER = '#f87171';
@@ -25,7 +24,6 @@ export default function ContractorPricingMemorySettings() {
   const [rateCount, setRateCount] = useState(0);
   const [templateCount, setTemplateCount] = useState(0);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,20 +166,11 @@ export default function ContractorPricingMemorySettings() {
         'Suggest your approved rates',
         'pricingMemoryEnabled'
       )}
-      {toggleRow('science', 'Exclude test/demo bids', 'Skip test and demo bids', 'excludeTestBids')}
       {browseRow(
         'library-books',
         'Pricing library',
         rateCount === 0 ? 'View and manage saved rates' : `${rateCount} saved rate${rateCount === 1 ? '' : 's'}`,
         () => setShowLibrary(true)
-      )}
-      {browseRow(
-        'content-copy',
-        'Bid templates',
-        templateCount === 0
-          ? 'Manage reusable estimates'
-          : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
-        () => setShowTemplates(true)
       )}
       <TouchableOpacity
         onPress={handleClear}
@@ -202,13 +191,6 @@ export default function ContractorPricingMemorySettings() {
         visible={showLibrary}
         onClose={() => {
           setShowLibrary(false);
-          void load();
-        }}
-      />
-      <SavedBidTemplatesBrowserModal
-        visible={showTemplates}
-        onClose={() => {
-          setShowTemplates(false);
           void load();
         }}
       />

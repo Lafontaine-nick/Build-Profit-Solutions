@@ -167,7 +167,7 @@ export default function LegalHubScreen() {
                     numberOfLines={1}
                     style={[styles.tabText, { color: activeTab === 'tax' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                   >
-                    Tax Disclosure
+                    Tax
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -287,7 +287,7 @@ export default function LegalHubScreen() {
                   numberOfLines={1}
                   style={[styles.tabText, { color: activeTab === 'tax' ? '#04120C' : (darkMode ? '#e2e8f0' : '#000000') }]}
                 >
-                  Tax Disclosure
+                  Tax
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -335,7 +335,7 @@ export default function LegalHubScreen() {
 function TermsOfUseContent({ highlightSection, theme }: { highlightSection: string | null; theme: any }) {
   return (
     <View>
-      <SectionHeader title="Terms of Use" subtitle="Effective: November 2025" theme={theme} />
+      <SectionHeader title="Terms of Use" subtitle="Effective: October 9, 2026" theme={theme} />
 
       <Section id="1" highlight={highlightSection === '1'} theme={theme}>
         <H2 theme={theme}>1. Acceptance of Terms</H2>
@@ -395,28 +395,32 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
       </Section>
 
       <Section id="5" highlight={highlightSection === '5'} theme={theme}>
-        <H2 theme={theme}>5. Payment, Free Trial, and Subscriptions</H2>
+        <H2 theme={theme}>5. Payment and Subscriptions</H2>
         <P theme={theme}>Certain features of BPS require a paid subscription.</P>
         <H3 theme={theme}>5.1 Free Trial</H3>
         <P theme={theme}>
-          New users may receive a 7-day free trial. No charges are applied until the trial ends.
-          Your subscription will automatically renew unless cancelled before the trial expires.
+          A free trial applies only when the offer shown at checkout includes one. If no trial is
+          shown, billing starts when you confirm the subscription. When a trial is included, cancel
+          before it ends to avoid the first charge.
         </P>
-        <H3 theme={theme}>5.2 Billing</H3>
+        <H3 theme={theme}>5.2 App Store Purchases</H3>
         <P theme={theme}>
-          Billing is automatic and recurring. Subscription payments become non-refundable once the
-          trial period has ended, except where required by law. Partially used billing periods and
-          renewal charges are not refundable.
+          Subscriptions bought in the iOS app are charged to your Apple ID by Apple. They renew
+          automatically at the price and length shown by Apple until you cancel in your Apple ID
+          subscription settings at least 24 hours before the current period ends. Refund requests
+          for those purchases are handled by Apple. BPS cannot issue App Store refunds.
         </P>
-        <H3 theme={theme}>5.3 App Store Purchases</H3>
+        <H3 theme={theme}>5.3 Website Purchases</H3>
         <P theme={theme}>
-          If you subscribe through the Apple App Store or Google Play Store, billing and refund
-          requests must be handled directly through Apple or Google according to their policies.
+          Subscriptions bought on the website are processed by Stripe. Cancel those subscriptions
+          in the website billing settings. Cancellation stops future charges, and access continues
+          through the end of the period already paid. Website subscription payments are final and
+          non-refundable except where applicable law requires a refund.
         </P>
-        <H3 theme={theme}>5.4 Payment Processing</H3>
+        <H3 theme={theme}>5.4 Other App Stores</H3>
         <P theme={theme}>
-          Web subscriptions are processed securely through Stripe or another authorized payment
-          processor.
+          If a subscription is offered through another app store, such as Google Play, billing and
+          refunds for that purchase are handled by that store.
         </P>
       </Section>
 
@@ -604,7 +608,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
 function PrivacyPolicyContent({ theme }: { theme: any }) {
   return (
     <View>
-      <SectionHeader title="Privacy Policy" subtitle="Effective: November 2025" theme={theme} />
+      <SectionHeader title="Privacy Policy" subtitle="Effective: October 9, 2026" theme={theme} />
 
       <Section theme={theme}>
         <P theme={theme}>
@@ -619,11 +623,12 @@ function PrivacyPolicyContent({ theme }: { theme: any }) {
         <BulletList
           items={[
             'Account Information: Name, email, phone number, business details',
-            'Project Data: Estimates, bids, materials lists, project details',
-            'Usage Data: Feature usage, interactions, crash logs',
+            'Project Data: Estimates, bids, materials lists, project details, and project photos',
+            'Receipts: Receipt images you add, and text extracted from those images',
+            'Usage Data: Feature usage, interactions, and crash reports',
             'Device Info: IP address, OS version, app version, region/ZIP',
-            'Payment Info: App Store subscriptions are processed by Apple. Web subscriptions are processed by Stripe. We do not store card numbers.',
-            'We do NOT collect: Social Security numbers, government IDs, biometrics, bank account numbers',
+            'Payment Info: App Store subscriptions are processed by Apple. Website subscriptions are processed by Stripe. We do not store card numbers.',
+            'We do not collect: Social Security numbers, government IDs, biometrics, or bank account numbers',
           ]}
           theme={theme}
         />
@@ -649,9 +654,13 @@ function PrivacyPolicyContent({ theme }: { theme: any }) {
         <H2 theme={theme}>3. Data Sharing & Disclosure</H2>
         <BulletList
           items={[
-            'Service Providers: Hosting, payments, authentication',
-            'Third-Party APIs: Yelp, Home Depot, Lowe\'s, AI providers',
-            'Legal Compliance: When required by law',
+            'Sign-in: Clerk',
+            'App Store subscriptions: Apple and RevenueCat',
+            'Website payments: Stripe',
+            'Crash reports: Sentry',
+            'Hosting and the AI providers used to run features you choose',
+            'Lookup sources such as Yelp, Home Depot, and Lowe\'s when those lookups are enabled',
+            'Legal compliance: when required by law',
           ]}
           theme={theme}
         />
@@ -738,73 +747,66 @@ function PrivacyPolicyContent({ theme }: { theme: any }) {
 function RefundPolicyContent({ theme }: { theme: any }) {
   return (
     <View>
-      <SectionHeader title="Refund Policy" subtitle="Effective: November 2025" theme={theme} />
+      <SectionHeader title="Refund Policy" subtitle="Effective: October 9, 2026" theme={theme} />
 
       <Section theme={theme}>
         <P theme={theme}>
-          Build Profit Solutions ("BPS", "we", "our") offers a 7-day free trial to all new
-          subscribers. During the trial period, users receive full access to the platform with no
-          charges applied until the trial ends.
+          A free trial applies only when the subscription offer at checkout includes one. If a trial
+          is shown, cancel before it ends to avoid the first charge. If no trial is shown, billing
+          starts when you confirm the subscription.
         </P>
       </Section>
 
       <Section theme={theme}>
+        <H2 theme={theme}>1. App Store Subscriptions</H2>
         <P theme={theme}>
-          Because you are given the opportunity to fully evaluate the service before billing begins,
-          all subscription payments are final and non-refundable once the trial period has ended,
-          except where required by applicable law.
+          Subscriptions purchased in the iOS app are billed by Apple. Refund requests for those
+          purchases are decided and issued by Apple under Apple's policies. BPS cannot refund an
+          App Store purchase.
+        </P>
+        <P theme={theme}>
+          Cancel an App Store subscription in your Apple ID subscription settings. Cancellation
+          stops the next renewal. You keep access until the end of the period already paid for.
         </P>
       </Section>
 
       <Section theme={theme}>
-        <H2 theme={theme}>1. No Refunds After Trial Period</H2>
+        <H2 theme={theme}>2. Website Subscriptions</H2>
         <P theme={theme}>
-          After the 7-day trial concludes and your first subscription payment is processed:
+          Subscriptions purchased on the website are processed by Stripe. Those payments are final
+          and non-refundable once charged, except where applicable law requires a refund. Partially
+          used billing periods and renewal charges are not refunded by BPS. This applies to both
+          monthly and annual website plans.
         </P>
-        <BulletList
-          items={[
-            'Payments are non-refundable',
-            'Partially used billing periods are not eligible for refunds',
-            'Renewal charges are non-refundable',
-          ]}
-          theme={theme}
-        />
-        <P theme={theme}>This applies to both monthly and annual plans.</P>
-      </Section>
-
-      <Section theme={theme}>
-        <H2 theme={theme}>2. Subscriptions Purchased Through Apple or Google</H2>
         <P theme={theme}>
-          If your subscription was initiated through the Apple App Store or Google Play Store, all
-          refunds must be handled directly through Apple or Google, according to their policies. BPS
-          is not able to issue refunds for App Store or Google Play transactions.
+          Cancel a website subscription in the website billing settings. Cancellation stops future
+          charges and does not refund a payment already made. Access continues through the end of
+          the current billing period.
         </P>
       </Section>
 
       <Section theme={theme}>
-        <H2 theme={theme}>3. Cancellation Policy</H2>
+        <H2 theme={theme}>3. Other App Stores</H2>
         <P theme={theme}>
-          You may cancel your subscription at any time in the Payment & Billing section of your
-          account or through your app-store subscription settings. Cancellation stops future charges
-          but does not generate a refund for any past payments. You will retain access to premium
-          features until the end of the current billing cycle.
+          If a subscription is offered through another app store, such as Google Play, refunds for
+          that purchase are handled by that store. BPS cannot issue those refunds.
         </P>
       </Section>
 
       <Section theme={theme}>
         <H2 theme={theme}>4. Chargebacks</H2>
         <P theme={theme}>
-          Initiating a chargeback without first contacting BPS Support may result in temporary or
-          permanent suspension of your account. We strongly recommend contacting us first to resolve
-          any billing concerns.
+          For a website subscription, contact BPS Support before starting a chargeback. Starting a
+          chargeback without doing that may result in suspension of the account. For an App Store
+          subscription, request the refund from Apple.
         </P>
       </Section>
 
       <Section theme={theme}>
         <H2 theme={theme}>5. Exceptions Required by Law</H2>
         <P theme={theme}>
-          In situations where applicable consumer protection laws require a refund, BPS will comply
-          and process the refund accordingly.
+          Where applicable law requires a refund that BPS is allowed to issue, BPS will comply.
+          Refunds for App Store purchases remain Apple's to decide.
         </P>
       </Section>
 
@@ -828,7 +830,7 @@ function RefundPolicyContent({ theme }: { theme: any }) {
 function TaxCenterDisclosureContent({ theme }: { theme: any }) {
   return (
     <View>
-      <SectionHeader title="Tax Center Disclosure" subtitle="Effective: November 2025" theme={theme} />
+      <SectionHeader title="Tax Center Disclosure" subtitle="Effective: October 9, 2026" theme={theme} />
 
       <Section theme={theme}>
         <H2 theme={theme}>1. Bookkeeping and Tax-Preparation Support Only</H2>

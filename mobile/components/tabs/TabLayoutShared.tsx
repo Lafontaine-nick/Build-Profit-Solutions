@@ -1,5 +1,5 @@
 import { Tabs, useRouter, type Href } from 'expo-router';
-import React, { useMemo, useEffect, useRef, type ComponentType } from 'react';
+import React, { useMemo, useEffect, useRef, useSyncExternalStore, type ComponentType } from 'react';
 import { View, StyleSheet, useWindowDimensions, Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { HapticTab, PillHapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
@@ -19,6 +19,11 @@ import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
 import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
+import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
+import {
+  isIosPaywallDevBypass,
+  subscribeIosPaywallDevBypass,
+} from '@/lib/iosSubscriptionGate';
 
 export type TabLayoutSharedProps = {
   PillTabBarBackground: ComponentType;
@@ -36,6 +41,24 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
   const showLeadsTab = canAccessEstimateAndLeads && isLeadsNetworkingReleased();
+  const { hasFoundingFull, canUseBusinessWorkspace, initialized, loading } = useBusinessEntitlement();
+  const devPaywallBypass = useSyncExternalStore(
+    subscribeIosPaywallDevBypass,
+    isIosPaywallDevBypass,
+    () => false
+  );
+  const subscriptionRequired =
+    Platform.OS === 'ios' &&
+    initialized &&
+    !loading &&
+    !devPaywallBypass &&
+    !hasFoundingFull &&
+    !canUseBusinessWorkspace;
+
+  useEffect(() => {
+    if (!subscriptionRequired) return;
+    router.replace('/payment/plans?required=1');
+  }, [router, subscriptionRequired]);
 
   // Tabs are lazy, and iOS detaches the hidden one: the first visit builds the page on tap (a blank-frame shutter).
   // Mount each heavy tab once the Dashboard is idle. Retries cover a navigator that isn't ready yet.
@@ -200,6 +223,10 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
       }),
     [PillTabBarBackground, darkMode, desktopWebSidebar, hasAlerts, sidebarBg, sidebarBorder, tabInactiveColor]
   );
+
+  if (Platform.OS === 'ios' && (!initialized || loading || subscriptionRequired)) {
+    return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
+  }
 
   return (
     <>

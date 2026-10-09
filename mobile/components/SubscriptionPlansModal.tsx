@@ -41,6 +41,10 @@ import { PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
 import { isAppleBillingAvailable } from '@/services/appleBillingService';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 import { FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
+import { setIosPaywallDevBypass } from '@/lib/iosSubscriptionGate';
+
+const IOS = Platform.OS === 'ios';
+const IOS_MINT = '#2dcc9a';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -70,6 +74,8 @@ interface SubscriptionPlansModalProps {
   visible?: boolean;
   onClose?: () => void;
   mode?: 'modal' | 'screen';
+  /** iOS launch gate: no way into the app until a subscription is active. */
+  required?: boolean;
   /** After Business checkout, return user to this project tab (e.g. Team upgrade from project detail). */
   returnToProjectId?: string;
   returnTab?: string;
@@ -80,6 +86,7 @@ export default function SubscriptionPlansModal({
   visible = false,
   onClose,
   mode = 'modal',
+  required = false,
   returnToProjectId,
   returnTab = 'Budget',
   onUpgradeComplete,
@@ -222,19 +229,19 @@ export default function SubscriptionPlansModal({
   const theme = useMemo(
     () => ({
       background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-      card: Colors.surface2,
+      card: IOS && darkMode ? '#1C1D20' : Colors.surface2,
       cardDark: Colors.cardDark,
       text: Colors.text,
       subtext: Colors.sub,
-      accent: Colors.primary,
+      accent: IOS ? IOS_MINT : Colors.primary,
       border: Colors.line,
       divider: Colors.line,
-      success: '#4ADE80',
+      success: IOS ? IOS_MINT : '#4ADE80',
       warning: '#FACC15',
       error: '#ef4444',
       iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
     }),
-    [Colors]
+    [Colors, darkMode]
   );
 
   const isScreenMode = mode === 'screen';
@@ -248,7 +255,13 @@ export default function SubscriptionPlansModal({
     return { marginLeft: inset, marginRight: inset };
   }, [layoutWidth]);
 
+  useEffect(() => {
+    if (!required || !hasFoundingFull) return;
+    router.replace('/(tabs)/dashboard');
+  }, [required, hasFoundingFull, router]);
+
   const handleClose = () => {
+    if (required) return;
     if (onClose) {
       onClose();
     } else if (isScreenMode) {
@@ -800,9 +813,11 @@ export default function SubscriptionPlansModal({
     );
   };
 
-  const subtitleCopy = useIosBilling
-    ? 'Founding Professional on the App Store.'
-    : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
+  const subtitleCopy = required
+    ? 'One plan unlocks every feature in the app.'
+    : useIosBilling
+      ? 'Founding Professional on the App Store.'
+      : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
   const plansBody = (
     <>
@@ -826,6 +841,22 @@ export default function SubscriptionPlansModal({
         plans.map(renderPlan)
       )}
 
+      {required && __DEV__ ? (
+        <TouchableOpacity
+          style={styles.devSkip}
+          activeOpacity={0.7}
+          onPress={() => {
+            setIosPaywallDevBypass(true);
+            router.replace('/(tabs)/dashboard');
+          }}
+        >
+          <Text style={[styles.devSkipText, { color: theme.subtext }]}>Continue without subscribing</Text>
+          <Text style={[styles.devSkipHint, { color: theme.subtext }]}>
+            Simulator only. This button is not in the App Store build.
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
       {useIosBilling ? null : (
         <View
           style={[
@@ -837,10 +868,10 @@ export default function SubscriptionPlansModal({
           ]}
         >
           <Text style={[styles.footerText, { color: theme.text }]}>
-            Start with a 7-day free trial
+            Cancel anytime
           </Text>
           <Text style={[styles.footerMuted, { color: theme.subtext }]}>
-            Cancel anytime · No setup fees
+            No setup fees
           </Text>
         </View>
       )}
@@ -885,9 +916,11 @@ export default function SubscriptionPlansModal({
             },
           ]}
         >
-          <View style={styles.backButton}>
-            <BackButton darkMode={darkMode} onPress={() => handleClose()} />
-          </View>
+          {required ? null : (
+            <View style={styles.backButton}>
+              <BackButton darkMode={darkMode} onPress={() => handleClose()} />
+            </View>
+          )}
           <View style={styles.headerCopy}>
             <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
             <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
@@ -952,42 +985,65 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerRow: {
-    position: 'relative',
-    minHeight: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
-  },
-  headerCopy: {
-    width: '100%',
-    alignItems: 'center',
-    paddingHorizontal: 48,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  screenTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
-  backButton: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 2,
-  },
+  headerRow: IOS
+    ? {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+        marginHorizontal: PHONE_CARD_GUTTER,
+      }
+    : {
+        position: 'relative',
+        minHeight: 64,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 8,
+        ...(Platform.OS === 'web' ? {} : { marginHorizontal: PHONE_CARD_GUTTER }),
+      },
+  headerCopy: IOS
+    ? { flex: 1 }
+    : {
+        width: '100%',
+        alignItems: 'center',
+        paddingHorizontal: 48,
+      },
+  headerSubtitle: IOS
+    ? {
+        fontSize: 14,
+        lineHeight: 19,
+        marginTop: 2,
+      }
+    : {
+        fontSize: 14,
+        lineHeight: 20,
+        marginTop: 6,
+        textAlign: 'center',
+      },
+  screenTitle: IOS
+    ? {
+        fontSize: 28,
+        fontWeight: '700',
+        letterSpacing: -0.3,
+      }
+    : {
+        fontSize: 22,
+        fontWeight: '800',
+        letterSpacing: -0.3,
+        textAlign: 'center',
+      },
+  backButton: IOS
+    ? { marginRight: 12 }
+    : {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 2,
+      },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1201,5 +1257,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.85,
     letterSpacing: 0.1,
+  },
+  devSkip: {
+    marginTop: 18,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  devSkipText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  devSkipHint: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
   },
 });

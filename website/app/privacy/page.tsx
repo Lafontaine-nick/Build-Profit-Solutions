@@ -13,7 +13,7 @@ export default function PrivacyPage() {
     <PageShell>
       <section className="px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
         <SectionHeading eyebrow="Legal" title="Privacy Policy" compact>
-          Last updated: May 23, 2026
+          Last updated: October 9, 2026
         </SectionHeading>
         <LegalPageBody>
           <p>
@@ -27,9 +27,10 @@ export default function PrivacyPage() {
             <p>We may collect the following types of information:</p>
             <ul className="list-disc space-y-2 pl-5">
               <li>Account information such as name, email address, and login details</li>
-              <li>Business and project information you enter, including estimates, budgets, expenses, receipts, and client/project records</li>
-              <li>Payment and subscription information processed through our payment provider</li>
-              <li>Usage data such as app interactions, device type, and general analytics</li>
+              <li>Business and project information you enter, including estimates, budgets, expenses, client and project records, and project photos</li>
+              <li>Receipt images you add, and text extracted from those images</li>
+              <li>Payment and subscription status. App Store subscriptions are processed by Apple. Website subscriptions are processed by Stripe. We do not store card numbers.</li>
+              <li>Usage data such as app interactions, device type, and crash reports</li>
               <li>Support communications when you contact us</li>
             </ul>
           </LegalSection>
@@ -65,11 +66,12 @@ export default function PrivacyPage() {
 
           <LegalSection title="How we share information">
             <p>
-              We do not sell your personal information. We may share information
-              with service providers that help us operate the platform, such as
-              authentication, hosting, analytics, and payment processing providers.
-              These providers are permitted to use information only as needed to
-              perform services for us.
+              We do not sell your personal information. We share information with
+              service providers only as needed to run the Service. Sign-in is
+              handled by Clerk. App Store subscriptions are processed by Apple and
+              RevenueCat. Website payments are processed by Stripe. Crash reports
+              are sent to Sentry. Hosting and AI providers process the project
+              information needed to run the features you use.
             </p>
             <p>
               We may also disclose information if required by law, to protect rights
@@ -100,7 +102,8 @@ export default function PrivacyPage() {
           <LegalSection title="Children">
             <p>
               Build Profit Solutions is intended for business and professional use
-              and is not directed to children under 13.
+              by people 18 and older. We do not knowingly collect information from
+              children.
             </p>
           </LegalSection>
 
