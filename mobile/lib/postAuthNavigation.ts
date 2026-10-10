@@ -3,8 +3,8 @@ import { shouldShowWalkthrough } from './walkthroughStateTypes';
 import { applyWorkspaceMemberFirstRunIfNeeded } from './workspaceMemberOnboarding';
 
 /**
- * Intended first-run flow: Landing (Get started) → Auth (sign in / create account) →
- * Onboarding → Dashboard. Returning users who completed or skipped onboarding skip straight to the dashboard.
+ * Intended first-run flow: Landing (Get started) → Create account →
+ * Onboarding → sample tour → required plan. Returning users who finished or skipped onboarding go to the dashboard, and iOS still requires a subscription.
  *
  * Invited workspace members skip owner-style onboarding and go straight to shared projects.
  */

@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import Purchases, {
+  INTRO_ELIGIBILITY_STATUS,
   type CustomerInfo,
   type Offerings,
   type PurchasesOffering,
@@ -180,6 +181,26 @@ export async function getFoundingOffering(): Promise<{
   );
 
   return { offering, packages };
+}
+
+/**
+ * Product ids whose free trial this Apple ID can still use. Apple gives one trial per subscription
+ * group, so anyone who already had one is not eligible. Errors count as not eligible so the paywall
+ * never promises a trial the purchase sheet won't honor.
+ */
+export async function getTrialEligibleProductIds(productIds: string[]): Promise<Set<string>> {
+  if (!isAppleBillingAvailable() || productIds.length === 0) return new Set();
+  try {
+    await configureAppleBilling();
+    const result = await getPurchasesModule().checkTrialOrIntroductoryPriceEligibility(productIds);
+    return new Set(
+      productIds.filter(
+        (id) => result[id]?.status === INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE,
+      ),
+    );
+  } catch {
+    return new Set();
+  }
 }
 
 export function formatApplePackageDisplayPrice(

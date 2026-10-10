@@ -27,7 +27,7 @@ export const ENTITLEMENT_TO_PLAN_ID: Record<string, string> = {
   [ENTITLEMENT_FOUNDING_FULL]: 'premium',
 };
 
-export const FOUNDING_PLAN_DISPLAY_NAME = 'Founding Professional';
+export const FOUNDING_PLAN_DISPLAY_NAME = 'Professional';
 
 /** Shown until App Store pricing is returned for the founding monthly product. */
 export const FOUNDING_PROFESSIONAL_FALLBACK_PRICE = '$99/month';

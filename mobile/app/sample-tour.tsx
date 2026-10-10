@@ -38,20 +38,20 @@ const PROJECT_TABS: SegmentNavItem[] = [
 ];
 
 const SAMPLE_FORECAST = {
-  contractValue: 27460,
-  adjustedBudget: 23550,
+  contractValue: 27611.5,
+  adjustedBudget: 24010,
   actualExpenses: 0,
   committedPOs: 0,
-  forecastFinalCost: 23550,
-  projectedProfit: 3910,
-  currentProjectedProfit: 3910,
+  forecastFinalCost: 24010,
+  projectedProfit: 3601.5,
+  currentProjectedProfit: 3601.5,
   spendToDateMarginPct: 100,
-  projectedMarginPct: 14.24,
+  projectedMarginPct: 13.04,
   allocatedCompanyOverhead: 0,
-  originalEstimateProfit: 3910,
-  originalEstimateMarginPct: 14.24,
-  remainingCostBudget: 23550,
-  estimatedProfit: 3910,
+  originalEstimateProfit: 3601.5,
+  originalEstimateMarginPct: 13.04,
+  remainingCostBudget: 24010,
+  estimatedProfit: 3601.5,
   profitVarianceVsEstimate: 0,
   scheduleProgressPct: 0,
   costBudgetUsedPct: 0,
@@ -261,30 +261,24 @@ function EstimatesSample() {
       <Text style={styles.summaryTitle}>Electrical Estimate Draft</Text>
       <Text style={styles.summaryAmount}>$27,611.50</Text>
       <Text style={styles.summaryLine}>Estimated bid (incl. markup) · 15% markup</Text>
-      <Text style={styles.summaryLine}>Needs review — 4 items to check · 12 items</Text>
-      <Text style={styles.summaryReview}>Review items</Text>
+      <Text style={styles.summaryLine}>Reviewed · 5 scope items</Text>
       <View style={{ marginTop: 22 }}>
         <StackRow label="Hard costs" value="$24,010.00" />
         <StackRow label="Builder margin (15%)" value="$3,601.50" />
         <StackRow label="Projected net profit" caption="13.0% projected net margin" value="$3,601.50" profit />
       </View>
       <View style={styles.continueBlock}>
-        <Text style={styles.continueTitle}>Continue the bid</Text>
+        <Text style={styles.continueTitle}>Before you send</Text>
         <Text style={styles.continueBody}>
-          Add these if you want them. Send to Projects shows after you come back to Summary.
+          Add the customer and a payment schedule, then send the bid for signature.
         </Text>
         <View style={styles.continueList}>
-          <View style={styles.continueRow}>
-            <MaterialIcons name="radio-button-unchecked" size={16} color="#8eecc9" />
-            <Text style={styles.continueRowText}>Customer information</Text>
-          </View>
-          <View style={styles.continueRow}>
-            <MaterialIcons name="radio-button-unchecked" size={16} color="#8eecc9" />
-            <Text style={styles.continueRowText}>Payment schedule</Text>
-          </View>
-        </View>
-        <View style={styles.continueButton}>
-          <Text style={styles.continueButtonText}>Continue · Customer information</Text>
+          {['Customer information', 'Payment schedule', 'Send to customer'].map((label) => (
+            <View key={label} style={styles.continueRow}>
+              <MaterialIcons name="radio-button-unchecked" size={16} color="#8eecc9" />
+              <Text style={styles.continueRowText}>{label}</Text>
+            </View>
+          ))}
         </View>
       </View>
     </Card>
@@ -303,25 +297,23 @@ function ProjectsSample() {
       <Card style={styles.overviewCard}>
         <Text style={styles.overviewTitle}>Project overview</Text>
         <BudgetProfitMixCard
-          adjustedContractValue={27460}
+          adjustedContractValue={27611.5}
           spentToDate={0}
           committedPOsTotal={0}
-          adjustedCostBudget={23550}
+          adjustedCostBudget={24010}
           profitForecast={SAMPLE_FORECAST}
           marginTop={0}
         />
       </Card>
       <Card>
         <Text style={styles.budgetTitle}>Contract & cost</Text>
-        <Text style={styles.budgetAmount}>$27,460.00</Text>
-        <Text style={styles.budgetCaption}>Contract (incl. markup) · 20% markup</Text>
+        <Text style={styles.budgetAmount}>$27,611.50</Text>
+        <Text style={styles.budgetCaption}>Contract (incl. markup) · 15% markup</Text>
         <View style={{ marginTop: 14 }}>
-          <StackRow label="Hard costs + equipment" caption="Materials, labor, and equipment" value="$21,750.00" />
-          <StackRow label="Soft costs" value="$300.00" />
-          <StackRow label="Contingency" value="$1,000.00" />
-          <StackRow label="Builder margin (20%)" value="$4,410.00" />
-          <StackRow label="Project overhead" value="-$500.00" />
-          <StackRow label="Projected profit" caption="14.2% projected net margin" value="$3,910.00" profit />
+          <StackRow label="Materials" value="$5,645.00" />
+          <StackRow label="Labor" value="$18,365.00" />
+          <StackRow label="Builder margin (15%)" value="$3,601.50" />
+          <StackRow label="Projected profit" caption="13.0% projected net margin" value="$3,601.50" profit />
         </View>
       </Card>
     </>
@@ -340,21 +332,21 @@ function AssistantSample() {
         <Text style={styles.assistantHeading}>Price guidance for Electrical Estimate Draft</Text>
         <Text style={styles.assistantBody}>
           <Text style={styles.assistantBold}>Verdict: </Text>
-          Maybe - the price is close, but missing-cost risk still makes it feel thin.
+          Maybe - the price is close, but 15% leaves little room if costs run over.
         </Text>
         <View style={styles.grid}>
-          <GridStat label="Estimated cost" value="$23,050" />
-          <GridStat label="Current bid" value="$27,460" />
-          <GridStat label="Current markup" value="20%" mint />
-          <GridStat label="Current margin" value="16.1%" mint />
+          <GridStat label="Estimated cost" value="$24,010" />
+          <GridStat label="Current bid" value="$27,612" />
+          <GridStat label="Current markup" value="15%" mint />
+          <GridStat label="Current margin" value="13.0%" mint />
         </View>
         <Text style={[styles.assistantBody, { marginTop: 12 }]}>
           Your current price is workable, but not especially protected.
         </Text>
         <Text style={[styles.assistantBody, { marginTop: 12 }]}>
           <Text style={styles.assistantBold}>Markup recommendation: </Text>
-          about <Text style={styles.assistantBold}>20% markup</Text> is a reasonable target for this general
-          residential project.
+          about <Text style={styles.assistantBold}>20% markup</Text> ($28,812) is a reasonable target for this
+          residential electrical job.
         </Text>
       </View>
     </>
@@ -377,31 +369,31 @@ function TaxCenterSample() {
           Review missing items before sending reports to your CPA or entering totals into tax software.
         </Text>
         <View style={styles.readinessStatusRow}>
-          <MaterialIcons name="warning-amber" size={28} color={AMBER} />
+          <MaterialIcons name="check-circle" size={28} color={MINT} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.readinessHeadline}>Needs review</Text>
-            <Text style={styles.readinessBlurb}>{'17 expenses missing receipts\n2 contractors missing a W-9'}</Text>
+            <Text style={styles.readinessHeadline}>Ready for your CPA</Text>
+            <Text style={styles.readinessBlurb}>{'Every expense has a receipt\nW-9s on file for all 1099 contractors'}</Text>
           </View>
         </View>
         <View style={styles.checklistBox}>
           <CheckRow label="Revenue reviewed" tone="done" />
           <CheckRow label="Payment & expense dates reviewed" tone="done" />
           <CheckRow label="Expenses categorized" tone="done" />
-          <CheckRow label="Receipts attached" tone="attention" />
-          <CheckRow label="W-9s from 1099 contractors" tone="attention" />
-          <CheckRow label="Accountant export ready" tone="pending" />
+          <CheckRow label="Receipts attached" tone="done" />
+          <CheckRow label="W-9s from 1099 contractors" tone="done" />
+          <CheckRow label="Accountant export ready" tone="done" />
         </View>
       </Card>
       <Card>
         <Text style={styles.beforeExportTitle}>Before You Export</Text>
-        <MissingRow label="Missing receipts" count={17} />
-        <MissingRow label="Contractors missing W-9" count={2} />
+        <MissingRow label="Missing receipts" />
+        <MissingRow label="Contractors missing W-9" />
         <MissingRow label="Potential 1099 review" />
       </Card>
       <Card>
         <View style={styles.summaryGrid}>
           <TaxSummaryCard label="Revenue Collected" value="$37,550.00" icon="payments" helper="Payments received this year." onPress={noop} />
-          <TaxSummaryCard label="Outstanding Receivables" value="$27,460.00" icon="account-balance-wallet" helper="Still owed. Not income until received." onPress={noop} />
+          <TaxSummaryCard label="Outstanding Receivables" value="$27,611.50" icon="account-balance-wallet" helper="Still owed. Not income until received." onPress={noop} />
           <TaxSummaryCard label="Expenses Paid" value="$20,200.00" icon="receipt-long" helper="Bills paid this year." onPress={noop} />
           <TaxSummaryCard label="Committed Costs" value="$0.00" icon="inventory" helper="Unpaid purchase orders. Not an expense yet." onPress={noop} />
           <TaxSummaryCard label="Net Income" value="$17,350.00" icon="trending-up" helper="Received minus paid." onPress={noop} />
@@ -414,11 +406,10 @@ function TaxCenterSample() {
               { label: 'W-2', value: '$2,000.00' },
             ]}
             icon="groups"
-            helper="2 W-9s needed"
-            helperTone="warn"
+            helper="W-9s on file"
             onPress={noop}
           />
-          <TaxSummaryCard label="Receipt Count" value="0" icon="fact-check" helper="Receipts attached this year." onPress={noop} />
+          <TaxSummaryCard label="Receipt Count" value="48" icon="fact-check" helper="Receipts attached this year." onPress={noop} />
         </View>
       </Card>
     </>
@@ -426,10 +417,10 @@ function TaxCenterSample() {
 }
 
 const PAGES: { key: string; caption: string; render: () => React.ReactNode }[] = [
-  { key: 'dashboard', caption: 'Your bids, active jobs, and profit in one place.', render: () => <DashboardSample /> },
   { key: 'build', caption: 'Describe the job. AI drafts the scope and the price.', render: () => <BuildWithAiSample /> },
   { key: 'estimates', caption: 'Review the bid, then send it to the customer.', render: () => <EstimatesSample /> },
   { key: 'projects', caption: 'Track spending and profit on every job.', render: () => <ProjectsSample /> },
+  { key: 'dashboard', caption: 'Your bids, active jobs, and profit in one place.', render: () => <DashboardSample /> },
   { key: 'assistant', caption: 'Ask about a bid, a cost, or a schedule.', render: () => <AssistantSample /> },
   { key: 'tax', caption: 'Year-end numbers ready for your CPA.', render: () => <TaxCenterSample /> },
 ];
@@ -609,7 +600,6 @@ const styles = StyleSheet.create({
   summaryTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
   summaryAmount: { color: MINT, fontSize: 36, fontWeight: '900', letterSpacing: -0.8, marginTop: 10 },
   summaryLine: { color: SLATE, fontSize: 13, fontWeight: '500', lineHeight: 18, marginTop: 8 },
-  summaryReview: { color: SLATE, fontSize: 13, fontWeight: '600', marginTop: 10 },
   stackRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -628,17 +618,6 @@ const styles = StyleSheet.create({
   continueList: { marginTop: 12, gap: 8 },
   continueRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   continueRowText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  continueButton: {
-    marginTop: 14,
-    backgroundColor: MINT,
-    borderRadius: 14,
-    minHeight: 50,
-    paddingVertical: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  continueButtonText: { color: '#050B13', fontSize: 16, fontWeight: '800' },
-
   projectTitle: {
     flex: 1,
     textAlign: 'center',

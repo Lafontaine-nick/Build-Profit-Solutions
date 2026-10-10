@@ -91,7 +91,7 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     if (appleBilling.entitled) {
-      setCurrentPlan({ name: 'Founding Professional', features: FOUNDING_PROFESSIONAL_FEATURES });
+      setCurrentPlan({ name: 'Professional', features: FOUNDING_PROFESSIONAL_FEATURES });
       setSubscriptionStatus('active');
     } else {
       setCurrentPlan(null);
@@ -556,7 +556,7 @@ export default function PaymentScreen() {
                 </View>
                 <View style={styles.currentPlanInfo}>
                   <Text style={[styles.currentPlanLabel, { color: theme.subtext }]}>Current Plan</Text>
-                  <Text style={[styles.currentPlanName, { color: theme.text }]}>Founding Professional</Text>
+                  <Text style={[styles.currentPlanName, { color: theme.text }]}>Professional</Text>
                   <Text style={styles.iosStatusLine}>
                     <Text style={{ color: theme.accent, fontWeight: '700' }}>Active</Text>
                     <Text style={{ color: theme.subtext }}>{` · ${iosActiveDetails.periodLabel}`}</Text>
@@ -606,7 +606,7 @@ export default function PaymentScreen() {
               <View style={styles.currentPlanDetails}>
                 <Text style={[styles.planDetailText, styles.planEmptyText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   {isIosBilling
-                    ? 'Subscribe to Founding Professional through the App Store to unlock the full platform.'
+                    ? 'Subscribe to Professional through the App Store to unlock the full platform.'
                     : 'Subscribe to a plan to unlock premium features'}
                 </Text>
               </View>

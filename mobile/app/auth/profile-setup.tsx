@@ -232,7 +232,7 @@ export default function ProfileSetupScreen() {
             onPress: () => {
               // Force app to reload so AuthGate re-checks and navigates appropriately
               // The AuthGate will see the updated profile and allow access to main app
-              router.replace('/');
+              router.replace('/(tabs)/dashboard');
             },
           },
         ]

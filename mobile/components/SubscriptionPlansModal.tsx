@@ -24,7 +24,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useClerk, useUser } from '@clerk/clerk-react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 import WebPageShell, {
@@ -42,6 +42,10 @@ import { isAppleBillingAvailable } from '@/services/appleBillingService';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 import { FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
 import { setIosPaywallDevBypass } from '@/lib/iosSubscriptionGate';
+import { requestDashboardAfterIntro } from '@/lib/iosIntroNavigation';
+import { consumeOpenEstimatesAfterPaywall } from '@/lib/onboardingStorage';
+import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
+import { useUserRole } from '@/contexts/UserRoleContext';
 
 const IOS = Platform.OS === 'ios';
 const IOS_MINT = '#2dcc9a';
@@ -95,12 +99,13 @@ export default function SubscriptionPlansModal({
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
+  const { signOut: clerkSignOut } = useClerk();
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
   const foundingPlanBase = useMemo(
     () => ({
       id: 'founding',
-      name: 'Founding Professional',
+      name: 'Professional',
       features: [] as string[],
       stripePriceId: 'apple-app-store',
       description: 'Full platform access for one contractor account.',
@@ -124,7 +129,36 @@ export default function SubscriptionPlansModal({
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [detectingCurrentPlan, setDetectingCurrentPlan] = useState(true);
   const { hasFoundingFull, refresh: refreshEntitlement } = useBusinessEntitlement();
+  const { refresh: refreshWalkthrough } = useWalkthroughState();
+  const { userRole, setUserRole, setUserRoleData } = useUserRole();
   const useIosBilling = Platform.OS === 'ios' && isAppleBillingAvailable();
+
+  const openAppAfterRequiredPaywall = async () => {
+    if (!userRole) {
+      await setUserRole('contractor');
+      await setUserRoleData({
+        role: 'contractor',
+        userId: clerkUser?.id || 'user',
+        permissions: [
+          'view_leads',
+          'accept_leads',
+          'reject_leads',
+          'update_lead_status',
+          'view_analytics',
+          'manage_profile',
+        ],
+        preferences: {
+          notifications: true,
+          emailUpdates: true,
+          smsAlerts: false,
+        },
+      });
+    }
+    const openEstimates = Platform.OS === 'ios' && (await consumeOpenEstimatesAfterPaywall());
+    requestDashboardAfterIntro();
+    await refreshWalkthrough();
+    router.replace(openEstimates ? '/(tabs)/estimate-generator' : '/(tabs)/dashboard');
+  };
 
   let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
@@ -257,8 +291,8 @@ export default function SubscriptionPlansModal({
 
   useEffect(() => {
     if (!required || !hasFoundingFull) return;
-    router.replace('/(tabs)/dashboard');
-  }, [required, hasFoundingFull, router]);
+    void openAppAfterRequiredPaywall();
+  }, [required, hasFoundingFull]);
 
   const handleClose = () => {
     if (required) return;
@@ -816,7 +850,7 @@ export default function SubscriptionPlansModal({
   const subtitleCopy = required
     ? 'One plan unlocks every feature in the app.'
     : useIosBilling
-      ? 'Founding Professional on the App Store.'
+      ? 'Professional on the App Store.'
       : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
   const plansBody = (
@@ -847,13 +881,47 @@ export default function SubscriptionPlansModal({
           activeOpacity={0.7}
           onPress={() => {
             setIosPaywallDevBypass(true);
-            router.replace('/(tabs)/dashboard');
+            void openAppAfterRequiredPaywall();
           }}
         >
           <Text style={[styles.devSkipText, { color: theme.subtext }]}>Continue without subscribing</Text>
           <Text style={[styles.devSkipHint, { color: theme.subtext }]}>
             Simulator only. This button is not in the App Store build.
           </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {required && useIosBilling ? (
+        <TouchableOpacity
+          style={styles.signOutLink}
+          activeOpacity={0.7}
+          hitSlop={8}
+          onPress={() => {
+            Alert.alert('Sign out?', 'You can sign back in anytime to subscribe.', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Sign out',
+                style: 'destructive',
+                onPress: () => {
+                  void (async () => {
+                    try {
+                      await clerkSignOut();
+                    } catch {
+                      /* still clear local auth below */
+                    }
+                    try {
+                      await clerkAuthService.signOut();
+                    } catch {
+                      /* non-blocking */
+                    }
+                    router.replace('/');
+                  })();
+                },
+              },
+            ]);
+          }}
+        >
+          <Text style={[styles.signOutText, { color: theme.subtext }]}>Sign out</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -901,32 +969,38 @@ export default function SubscriptionPlansModal({
     </LinearGradient>
   );
 
-  const content = (
-    <LinearGradient colors={theme.background} style={styles.container}>
-      {isScreenMode && (
-        <View
-          style={[
-            styles.headerRow,
-            webPaymentScreenHeaderMargins,
-            {
-              // Web: safe-area insets are usually 0 in Safari/Chrome — add space below the tab bar.
-              paddingTop:
-                Platform.OS === 'web' ? Math.max(insets.top, 12) + 36 : 0,
-              marginTop: Platform.OS === 'ios' ? 52 : 0,
-            },
-          ]}
-        >
-          {required ? null : (
-            <View style={styles.backButton}>
-              <BackButton darkMode={darkMode} onPress={() => handleClose()} />
-            </View>
-          )}
-          <View style={styles.headerCopy}>
-            <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
-            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
-          </View>
+  /** iOS: the title scrolls with the plans instead of sitting over them. */
+  const iosScrollingHeader = isScreenMode && Platform.OS === 'ios';
+
+  const screenHeader = (
+    <View
+      style={[
+        styles.headerRow,
+        webPaymentScreenHeaderMargins,
+        {
+          // Web: safe-area insets are usually 0 in Safari/Chrome — add space below the tab bar.
+          paddingTop:
+            Platform.OS === 'web' ? Math.max(insets.top, 12) + 36 : 0,
+          marginTop: Platform.OS === 'ios' ? (iosScrollingHeader ? 20 : 52) : 0,
+        },
+        iosScrollingHeader && { marginHorizontal: 0, marginBottom: 16 },
+      ]}
+    >
+      {required ? null : (
+        <View style={styles.backButton}>
+          <BackButton darkMode={darkMode} onPress={() => handleClose()} />
         </View>
       )}
+      <View style={styles.headerCopy}>
+        <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
+        <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
+      </View>
+    </View>
+  );
+
+  const content = (
+    <LinearGradient colors={theme.background} style={styles.container}>
+      {isScreenMode && !iosScrollingHeader ? screenHeader : null}
       {!isScreenMode && (
         <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -943,10 +1017,12 @@ export default function SubscriptionPlansModal({
         style={[
           styles.content,
           isScreenMode && Platform.OS === 'web' && { paddingHorizontal: 0 },
+          iosScrollingHeader && { marginTop: insets.top },
         ]}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {iosScrollingHeader ? screenHeader : null}
         {!isScreenMode ? (
           <Text style={[styles.subtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
         ) : (
@@ -1257,6 +1333,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.85,
     letterSpacing: 0.1,
+  },
+  signOutLink: {
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  signOutText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   devSkip: {
     marginTop: 18,

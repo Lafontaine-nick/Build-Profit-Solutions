@@ -17,6 +17,7 @@ import {
 } from '@/constants/billingCatalog';
 import {
   getFoundingOffering,
+  getTrialEligibleProductIds,
   isAppleBillingAvailable,
   openAppleSubscriptionManagement,
   purchaseApplePackage,
@@ -24,6 +25,7 @@ import {
   type AppleBillingPackage,
 } from '@/services/appleBillingService';
 import { fetchBillingEntitlement } from '@/services/billingEntitlementService';
+import { syncTrialReminder } from '@/services/trialReminder';
 
 type Props = {
   colors: {
@@ -48,6 +50,10 @@ type PlanOption = {
   currencyCode: string;
   pkg: PurchasesPackage | null;
   intro: string | null;
+  /** e.g. "7-day" — set only when this Apple ID can still use a free trial. */
+  trialLabel: string | null;
+  /** e.g. "7 days" */
+  trialLength: string | null;
 };
 
 function offeringsUnavailableMessage(message: string): string | null {
@@ -67,8 +73,26 @@ const PRIVACY_URL = 'https://buildprofitsolutions.com/privacy';
 
 /** Simulator has no StoreKit products; these mirror App Store Connect so the layout can be reviewed. */
 const DEV_PREVIEW_PLANS: PlanOption[] = [
-  { key: 'annual', priceString: '$990.00', price: 990, currencyCode: 'USD', pkg: null, intro: null },
-  { key: 'monthly', priceString: '$99.00', price: 99, currencyCode: 'USD', pkg: null, intro: null },
+  {
+    key: 'annual',
+    priceString: '$990.00',
+    price: 990,
+    currencyCode: 'USD',
+    pkg: null,
+    intro: null,
+    trialLabel: '7-day',
+    trialLength: '7 days',
+  },
+  {
+    key: 'monthly',
+    priceString: '$99.00',
+    price: 99,
+    currencyCode: 'USD',
+    pkg: null,
+    intro: null,
+    trialLabel: '7-day',
+    trialLength: '7 days',
+  },
 ];
 
 function unitLabel(unit: string | undefined, count: number): string {
@@ -79,13 +103,23 @@ function unitLabel(unit: string | undefined, count: number): string {
 
 function introOfferCopy(pkg: PurchasesPackage, per: 'year' | 'month'): string | null {
   const intro = pkg.product.introPrice;
-  if (!intro) return null;
+  if (!intro || Number(intro.price) === 0) return null;
   const count = Number(intro.periodNumberOfUnits || 1) * Number(intro.cycles || 1);
   const length = `${count} ${unitLabel(intro.periodUnit, count)}`;
-  if (Number(intro.price) === 0) {
-    return `Free for ${length}, then ${pkg.product.priceString} per ${per}.`;
-  }
   return `${intro.priceString} for ${length}, then ${pkg.product.priceString} per ${per}.`;
+}
+
+function freeTrialFor(pkg: PurchasesPackage): { label: string; length: string } | null {
+  const intro = pkg.product.introPrice;
+  if (!intro || Number(intro.price) !== 0) return null;
+  let count = Number(intro.periodNumberOfUnits || 1) * Number(intro.cycles || 1);
+  let unit = String(intro.periodUnit || '').toLowerCase();
+  if (unit === 'week') {
+    count *= 7;
+    unit = 'day';
+  }
+  const word = unitLabel(unit, 1);
+  return { label: `${count}-${word}`, length: `${count} ${unitLabel(unit, count)}` };
 }
 
 function formatMoney(amount: number, currencyCode: string, wholeOnly = false): string {
@@ -110,10 +144,10 @@ function planKeyFor(pkg: PurchasesPackage, meta: AppleBillingPackage | undefined
 }
 
 const FEATURES = [
-  'Build with AI estimates & AI Assistant',
-  'Plan/PDF takeoff, photo scope & supplier pricing',
+  'AI estimates & AI Assistant',
+  'Photo & plan takeoff, supplier pricing',
   'Job costing, budgets & change orders',
-  'Branded estimate PDFs, photos & daily logs',
+  'Branded PDFs, photos & daily logs',
   'Tax Center & receipt scanning',
   'Unlimited projects',
 ];
@@ -133,6 +167,7 @@ export default function IosFoundingSubscriptionPanel({
   const [error, setError] = useState<string | null>(null);
   const [priceNotice, setPriceNotice] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [trialEligibleIds, setTrialEligibleIds] = useState<Set<string>>(new Set());
 
   const loadOfferings = useCallback(async () => {
     if (!isAppleBillingAvailable()) {
@@ -148,6 +183,9 @@ export default function IosFoundingSubscriptionPanel({
       const available = offering?.availablePackages || [];
       setPackages(nextPackages);
       setRcPackages(available);
+      setTrialEligibleIds(
+        await getTrialEligibleProductIds(available.map((pkg) => pkg.product.identifier)),
+      );
       if (nextPackages.length === 0) {
         setPriceNotice('Prices show on a device or TestFlight build.');
       }
@@ -175,6 +213,7 @@ export default function IosFoundingSubscriptionPanel({
     for (const pkg of rcPackages) {
       const key = planKeyFor(pkg, packages.find((p) => p.id === pkg.identifier));
       if (!key || out.some((p) => p.key === key)) continue;
+      const trial = trialEligibleIds.has(pkg.product.identifier) ? freeTrialFor(pkg) : null;
       out.push({
         key,
         priceString: pkg.product.priceString,
@@ -182,10 +221,12 @@ export default function IosFoundingSubscriptionPanel({
         currencyCode: pkg.product.currencyCode || 'USD',
         pkg,
         intro: introOfferCopy(pkg, key === 'annual' ? 'year' : 'month'),
+        trialLabel: trial?.label ?? null,
+        trialLength: trial?.length ?? null,
       });
     }
     return out.sort((a, b) => (a.key === 'annual' ? -1 : b.key === 'annual' ? 1 : 0));
-  }, [rcPackages, packages]);
+  }, [rcPackages, packages, trialEligibleIds]);
 
   const isPreview = __DEV__ && !loading && storePlans.length === 0;
   const plans = isPreview ? DEV_PREVIEW_PLANS : storePlans;
@@ -214,14 +255,17 @@ export default function IosFoundingSubscriptionPanel({
     setPurchasing(true);
     setError(null);
     try {
-      const { serverSynced } = await purchaseApplePackage(selectedPlan.pkg);
+      const { customerInfo, serverSynced } = await purchaseApplePackage(selectedPlan.pkg);
+      void syncTrialReminder(customerInfo).catch(() => {});
       if (!serverSynced) {
         throw new Error('Purchase completed but server verification failed. Tap Restore Purchases.');
       }
       onEntitlementRefreshed?.();
       Alert.alert(
         'Welcome!',
-        `${FOUNDING_PLAN_DISPLAY_NAME} is active. Your founding access stays at this rate while your subscription remains continuously active.`,
+        selectedPlan.trialLength
+          ? `Your ${selectedPlan.trialLength} free trial has started. Every feature is unlocked.`
+          : `${FOUNDING_PLAN_DISPLAY_NAME} is active. Every feature is unlocked.`,
       );
     } catch (e: any) {
       if (e?.code === 'PURCHASE_CANCELLED') {
@@ -248,7 +292,7 @@ export default function IosFoundingSubscriptionPanel({
       if (!serverSynced) {
         const latest = await fetchBillingEntitlement().catch(() => null);
         if (!latest?.isActive) {
-          Alert.alert('No active subscription found', 'No founding subscription was restored for this Apple ID.');
+          Alert.alert('No active subscription found', 'No Professional subscription was restored for this Apple ID.');
           return;
         }
       }
@@ -311,12 +355,9 @@ export default function IosFoundingSubscriptionPanel({
         </Text>
         <Text style={[styles.planPer, { color: colors.subtext }]}>{annual ? 'per year' : 'per month'}</Text>
         {annual && annualSavings ? (
-          <>
-            <Text style={[styles.planNote, { color: colors.accent }]}>Save {annualSavings.saved} a year</Text>
-            <Text style={[styles.planSubNote, { color: colors.subtext }]} numberOfLines={1}>
-              {annualSavings.perMonth}/mo equivalent
-            </Text>
-          </>
+          <Text style={[styles.planNote, { color: colors.accent }]} numberOfLines={1}>
+            Only {annualSavings.perMonth}/mo
+          </Text>
         ) : (
           <Text style={[styles.planNote, { color: colors.subtext }]}>Billed monthly</Text>
         )}
@@ -382,16 +423,26 @@ export default function IosFoundingSubscriptionPanel({
               <ActivityIndicator color={ON_ACCENT} />
             ) : (
               <Text style={styles.primaryButtonText}>
-                {selectedPlan ? `Subscribe for ${selectedPlan.priceString}/${per}` : 'Subscribe'}
+                {selectedPlan?.trialLabel
+                  ? `Start ${selectedPlan.trialLabel} free trial`
+                  : selectedPlan
+                    ? `Subscribe for ${selectedPlan.priceString}/${per}`
+                    : 'Subscribe'}
               </Text>
             )}
           </TouchableOpacity>
-          {selectedPlan?.intro ? (
-            <Text style={[styles.helper, styles.centerText, { color: colors.subtext }]}>{selectedPlan.intro}</Text>
-          ) : null}
-          <Text style={[styles.helper, styles.centerText, { color: colors.subtext }]}>
-            Founding rate stays locked while your subscription is active. Cancel anytime.
-          </Text>
+          {selectedPlan?.trialLength ? (
+            <Text style={[styles.helper, styles.centerText, { color: colors.subtext }]}>
+              <Text style={[styles.trialTerms, { color: colors.text }]}>
+                {selectedPlan.trialLength} free, then {selectedPlan.priceString}/{per}.
+              </Text>
+              {' Cancel anytime before then and you won’t be charged.'}
+            </Text>
+          ) : (
+            <Text style={[styles.helper, styles.centerText, { color: colors.subtext }]}>
+              {selectedPlan?.intro ? `${selectedPlan.intro} ` : ''}Cancel anytime.
+            </Text>
+          )}
           {isPreview ? (
             <Text style={[styles.previewNote, { color: colors.subtext }]}>
               Preview prices. Real App Store prices show on a device or TestFlight build.
@@ -439,9 +490,12 @@ export default function IosFoundingSubscriptionPanel({
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
       <Text style={[styles.legal, { color: colors.subtext }]}>
-        Payment is charged to your Apple ID when you confirm. Your subscription renews automatically
-        at the same price each month or year unless you cancel at least 24 hours before the current
-        period ends. Manage or cancel anytime in your Apple ID subscription settings.
+        {plans.some((p) => p.trialLength)
+          ? 'If you start a free trial, payment is charged to your Apple ID when the trial ends unless you cancel at least 24 hours before it ends. '
+          : 'Payment is charged to your Apple ID when you confirm. '}
+        Your subscription renews automatically at the same price each month or year unless you cancel
+        at least 24 hours before the current period ends. Manage or cancel anytime in your Apple ID
+        subscription settings.
       </Text>
 
       <View style={styles.legalLinks}>
@@ -488,6 +542,9 @@ const styles = StyleSheet.create({
   headerSub: {
     fontSize: 14,
     marginTop: 2,
+  },
+  trialTerms: {
+    fontWeight: '700',
   },
   body: {
     fontSize: 14,
@@ -540,10 +597,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 8,
-  },
-  planSubNote: {
-    fontSize: 11,
-    marginTop: 2,
   },
   primaryButton: {
     borderRadius: 999,

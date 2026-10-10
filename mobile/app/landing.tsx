@@ -154,10 +154,10 @@ function ClerkLandingHeroContent({
       if (goDashboard && clerkLoaded && !clerkTimedOut) {
         router.replace("/(tabs)/dashboard");
       } else {
-        router.push("/auth?mode=signin");
+        router.push("/auth?mode=signup");
       }
     } catch {
-      router.push("/auth?mode=signin");
+      router.push("/auth?mode=signup");
     } finally {
       setOpeningDashboard(false);
     }
@@ -213,7 +213,7 @@ function DefaultGetStartedCTA({
       label={t("landing.getStartedButton")}
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push("/auth?mode=signin");
+        router.push("/auth?mode=signup");
       }}
     />
   );

@@ -15,7 +15,6 @@ import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import ErrorBoundary from '../components/ErrorBoundary';
 import notificationService from '../services/notificationService';
 import { NotificationProvider } from '../contexts/NotificationContext';
-import ProfileCompletionReminderRouteGuard from '../components/ProfileCompletionReminderRouteGuard';
 import { LanguageProvider } from '../contexts/LanguageContext';
 import { useUserRole } from '../contexts/UserRoleContext';
 import { useAuth, useUser } from '@clerk/clerk-react';
@@ -38,6 +37,7 @@ import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
 import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
 import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
+import { consumeDashboardAfterIntro, peekDashboardAfterIntro } from '../lib/iosIntroNavigation';
 import { initCrashReporting } from '@/lib/crashReporting';
 
 initCrashReporting();
@@ -78,6 +78,13 @@ function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
       {children}
     </View>
   );
+}
+
+function OpenDashboardAfterIntro() {
+  useEffect(() => {
+    consumeDashboardAfterIntro();
+  }, []);
+  return null;
 }
 
 function AuthGateWithClerk() {
@@ -297,6 +304,8 @@ function AuthGateWithClerk() {
         initialRouteName="onboarding"
       >
         <Stack.Screen name="onboarding" />
+        <Stack.Screen name="sample-tour" />
+        <Stack.Screen name="payment/plans" />
       </Stack>
     );
   }
@@ -304,6 +313,7 @@ function AuthGateWithClerk() {
   if (needsProfileSetup === true) {
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="auth/profile-setup" />
+      <Stack.Screen name="(tabs)" />
     </Stack>;
   }
 
@@ -316,13 +326,22 @@ function AuthGateWithClerk() {
   if (!userRole) {
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="role-selection" />
+      <Stack.Screen name="(tabs)" />
     </Stack>;
   }
 
   // Signed-in returning users always land on the marketing homepage (`index`). Get Started → app
   // (skip sign-in only when “stay signed in” is on) is handled in `landing.tsx`.
+  // A new iOS user who just subscribed opens the dashboard instead.
+  const openDashboard = Platform.OS === 'ios' && peekDashboardAfterIntro();
   return (
-    <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index" />
+    <>
+      {openDashboard ? <OpenDashboardAfterIntro /> : null}
+      <Stack
+        screenOptions={{ headerShown: false, gestureEnabled: false }}
+        initialRouteName={openDashboard ? '(tabs)' : 'index'}
+      />
+    </>
   );
 }
 
@@ -396,6 +415,8 @@ function AuthGateWithoutClerk() {
         initialRouteName="onboarding"
       >
         <Stack.Screen name="onboarding" />
+        <Stack.Screen name="sample-tour" />
+        <Stack.Screen name="payment/plans" />
       </Stack>
     );
   }
@@ -450,7 +471,6 @@ export default function RootLayout() {
                           <NotificationProvider>
                             <ThemeAwareLayout>
                               <ToastProvider>
-                                <ProfileCompletionReminderRouteGuard />
                                 <AuthGate useClerk={false} />
                               </ToastProvider>
                             </ThemeAwareLayout>
@@ -490,7 +510,6 @@ export default function RootLayout() {
                               <BetaFeedbackProvider>
                                 <ThemeAwareLayout>
                                   <ToastProvider>
-                                    <ProfileCompletionReminderRouteGuard />
                                     <AuthGate useClerk={true} />
                                   </ToastProvider>
                                 </ThemeAwareLayout>

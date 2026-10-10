@@ -19,6 +19,22 @@ export async function consumePendingOpenBuildWithAi(): Promise<boolean> {
   return false;
 }
 
+/** iOS: set when onboarding finishes; the required paywall then opens Estimates instead of the dashboard. */
+const OPEN_ESTIMATES_AFTER_PAYWALL_KEY = 'bps.openEstimatesAfterPaywall';
+
+export async function setOpenEstimatesAfterPaywall(): Promise<void> {
+  await AsyncStorage.setItem(OPEN_ESTIMATES_AFTER_PAYWALL_KEY, 'true');
+}
+
+export async function consumeOpenEstimatesAfterPaywall(): Promise<boolean> {
+  const value = await AsyncStorage.getItem(OPEN_ESTIMATES_AFTER_PAYWALL_KEY);
+  if (value === 'true') {
+    await AsyncStorage.removeItem(OPEN_ESTIMATES_AFTER_PAYWALL_KEY);
+    return true;
+  }
+  return false;
+}
+
 export function onboardingCompleteKeyForUser(userId: string): string {
   return `bps.onboardingComplete.${userId}`;
 }

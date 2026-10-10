@@ -13,7 +13,7 @@ export default function TermsPage() {
     <PageShell>
       <section className="px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
         <SectionHeading eyebrow="Legal" title="Terms of Service" compact>
-          Last updated: October 9, 2026
+          Last updated: October 10, 2026
         </SectionHeading>
         <LegalPageBody>
           <p>
@@ -53,9 +53,16 @@ export default function TermsPage() {
               non-refundable except where applicable law requires a refund.
             </p>
             <p>
-              A free trial applies only when the offer shown at checkout includes
-              one. If no trial is shown, billing starts when you confirm the
-              subscription.
+              Free trials. A free trial applies only when the offer shown at
+              checkout includes one. If no trial is shown, billing starts when you
+              confirm the subscription. When you start a free trial in the iOS app,
+              your subscription begins and your Apple ID is charged the price shown
+              when the trial ends, unless you cancel at least 24 hours before the
+              trial ends. You can cancel anytime in your Apple ID subscription
+              settings. Apple allows one free trial per Apple ID for this
+              subscription. If you buy a subscription during a free trial, any
+              unused part of the trial ends when the purchase is made. We may send
+              you a reminder before your trial ends.
             </p>
           </LegalSection>
 

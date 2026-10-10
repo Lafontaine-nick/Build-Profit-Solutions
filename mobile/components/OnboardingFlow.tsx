@@ -18,7 +18,11 @@ import { useRouter } from 'expo-router';
 import { useUser } from '@clerk/clerk-react';
 import { isClerkEnabled } from '../lib/isClerkEnabled';
 import { clerkAuthService } from '../services/clerkAuth';
-import { onboardingDataKeyForUser, setPendingOpenBuildWithAi } from '../lib/onboardingStorage';
+import {
+  onboardingDataKeyForUser,
+  setOpenEstimatesAfterPaywall,
+  setPendingOpenBuildWithAi,
+} from '../lib/onboardingStorage';
 import {
   AI_FLOW_CARD_BG_DARK,
   confirmScopeSectionLabelStyle,
@@ -35,10 +39,15 @@ import { mergeOnboardingRoleIntoContractorProfile } from '../lib/onboardingRoleM
 import { clearUnifiedProjectsListCache } from '../lib/projectListCache';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
+import { useUserRole } from '../contexts/UserRoleContext';
 
 /** Same mint as the landing and sign-in primary buttons. */
 const ONBOARDING_ACCENT = '#2dcc9a';
 const ONBOARDING_MUTED = '#d7e1f0';
+const IOS = Platform.OS === 'ios';
+/** iOS: mint labels and icons, matching the sample tour. */
+const ONBOARDING_EYEBROW = IOS ? ONBOARDING_ACCENT : ONBOARDING_MUTED;
+const ONBOARDING_ICON = IOS ? ONBOARDING_ACCENT : ONBOARDING_MUTED;
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -50,6 +59,13 @@ type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit';
 const ONBOARDING_PAGE_COUNT = 4;
 const LAST_PAGE_INDEX = ONBOARDING_PAGE_COUNT - 1;
 
+const SAMPLE_ESTIMATE_LINES = [
+  { label: 'Service / panels', amount: '$2,050' },
+  { label: 'Receptacles', amount: '$11,955' },
+  { label: 'Switches, lighting & fans', amount: '$10,005' },
+  { label: 'Markup (15%)', amount: '$3,602' },
+];
+
 function OnboardingFlowCore({
   userId,
   onComplete,
@@ -59,7 +75,30 @@ function OnboardingFlowCore({
 }) {
   const router = useRouter();
   const { refreshProjects } = useProjectList();
+  const { userRole, setUserRole, setUserRoleData } = useUserRole();
   const insets = useSafeAreaInsets();
+
+  const ensureContractorRole = async () => {
+    if (userRole) return;
+    await setUserRole('contractor');
+    await setUserRoleData({
+      role: 'contractor',
+      userId,
+      permissions: [
+        'view_leads',
+        'accept_leads',
+        'reject_leads',
+        'update_lead_status',
+        'view_analytics',
+        'manage_profile',
+      ],
+      preferences: {
+        notifications: true,
+        emailUpdates: true,
+        smsAlerts: false,
+      },
+    });
+  };
 
   const resyncProjectsFromServer = async () => {
     try {
@@ -176,10 +215,19 @@ function OnboardingFlowCore({
     try {
       await markWalkthroughSkipped(userId, 'appOnboarding');
       await resyncProjectsFromServer();
+      await ensureContractorRole();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS === 'ios') {
+        router.replace('/sample-tour');
+        return;
+      }
       onComplete();
     } catch (error) {
       console.error('Error skipping onboarding:', error);
+      if (Platform.OS === 'ios') {
+        router.replace('/sample-tour');
+        return;
+      }
       onComplete();
     }
   };
@@ -203,8 +251,10 @@ function OnboardingFlowCore({
     <Text
       style={[
         confirmScopeSectionLabelStyle(),
-        stepIndex === 0 ? styles.stepEyebrowCenter : styles.stepEyebrow,
-        { color: ONBOARDING_MUTED },
+        stepIndex === 0 || (IOS && stepIndex === LAST_PAGE_INDEX)
+          ? styles.stepEyebrowCenter
+          : styles.stepEyebrow,
+        { color: ONBOARDING_EYEBROW },
       ]}
     >
       {label ?? `Step ${stepIndex + 1} of ${ONBOARDING_PAGE_COUNT}`}
@@ -216,6 +266,15 @@ function OnboardingFlowCore({
     borderColor: selected ? ONBOARDING_ACCENT : 'rgba(148,163,184,0.22)',
     borderWidth: selected ? 1.5 : 1,
   });
+
+  const renderSelectionMark = (selected: boolean) => {
+    if (selected) {
+      return <MaterialIcons name="check-circle" size={iconSm} color={ONBOARDING_ACCENT} />;
+    }
+    return IOS ? (
+      <MaterialIcons name="radio-button-unchecked" size={iconSm} color="rgba(148,163,184,0.45)" />
+    ) : null;
+  };
 
   // PAGE 1 — Product positioning + AI-first hook
   const renderPage1 = () => (
@@ -230,7 +289,7 @@ function OnboardingFlowCore({
         {renderStepEyebrow(0, 'Welcome')}
         <View style={styles.heroLogoGlow}>
           <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
+            colors={IOS ? (['#5CF2C6', ONBOARDING_ACCENT] as const) : BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.heroIconRing}
@@ -270,24 +329,34 @@ function OnboardingFlowCore({
           Turn job notes, photos, or plans into an estimate—then use it to run the job and protect your profit.
         </Text>
         <View style={[styles.bulletList, styles.bulletListHero]}>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="auto-awesome" size={iconMd} color={ONBOARDING_MUTED} />
-            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Create detailed estimates with AI
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="trending-up" size={iconMd} color={ONBOARDING_MUTED} />
-            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Track costs and progress from the estimate
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="shield" size={iconMd} color={ONBOARDING_MUTED} />
-            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Protect your margin throughout the job
-            </Text>
-          </View>
+          {(
+            [
+              {
+                icon: 'auto-awesome',
+                label: IOS ? 'Estimates from notes, photos, or plans' : 'Create detailed estimates with AI',
+              },
+              {
+                icon: 'trending-up',
+                label: IOS ? 'Track costs against the estimate' : 'Track costs and progress from the estimate',
+              },
+              {
+                icon: 'shield',
+                label: IOS ? 'Catch margin problems early' : 'Protect your margin throughout the job',
+              },
+              ...(IOS ? [{ icon: 'receipt-long', label: 'Year-end numbers ready for your CPA' } as const] : []),
+            ] satisfies { icon: React.ComponentProps<typeof MaterialIcons>['name']; label: string }[]
+          ).map((item) => (
+            <View key={item.label} style={styles.bulletItem}>
+              {IOS ? (
+                <View style={styles.bulletIconTile}>
+                  <MaterialIcons name={item.icon} size={18} color={ONBOARDING_ACCENT} />
+                </View>
+              ) : (
+                <MaterialIcons name={item.icon} size={iconMd} color={ONBOARDING_MUTED} />
+              )}
+              <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>{item.label}</Text>
+            </View>
+          ))}
         </View>
       </View>
     </View>
@@ -341,7 +410,7 @@ function OnboardingFlowCore({
         <View style={contentQuestionStyle}>
           {renderStepEyebrow(1, 'About you')}
           <Text style={[styles.title, styles.titleQuestion, webTitle, { color: colors.text }]}>
-            What best describes you?
+            {IOS ? 'What describes you?' : 'What best describes you?'}
           </Text>
           <Text style={[styles.helperText, webHelper, { color: colors.subtext }]}>
             Select all that apply. We use this for contract defaults and guidance — update anytime in Profile.
@@ -366,7 +435,7 @@ function OnboardingFlowCore({
                 <MaterialIcons
                   name={role.icon}
                   size={iconSm}
-                  color={isSelected ? ONBOARDING_ACCENT : colors.muted}
+                  color={isSelected ? ONBOARDING_ACCENT : ONBOARDING_ICON}
                   style={styles.optionIcon}
                 />
                 <Text
@@ -381,9 +450,7 @@ function OnboardingFlowCore({
                 >
                   {role.label}
                 </Text>
-                {isSelected ? (
-                  <MaterialIcons name="check-circle" size={iconSm} color={ONBOARDING_ACCENT} />
-                ) : null}
+                {renderSelectionMark(isSelected)}
               </TouchableOpacity>
             );
             })}
@@ -412,10 +479,12 @@ function OnboardingFlowCore({
         <View style={contentQuestionStyle}>
           {renderStepEyebrow(2, 'Your goals')}
           <Text style={[styles.title, styles.titleQuestion, webTitle, { color: colors.text }]}>
-            What do you want to do first?
+            {IOS ? 'Where should we start?' : 'What do you want to do first?'}
           </Text>
           <Text style={[styles.helperText, webHelper, { color: colors.subtext }]}>
-            Choose one or more. Skip if you are not sure — you can change this anytime.
+            {IOS
+              ? 'Choose any that apply, or just tap Continue. You can change this anytime.'
+              : 'Choose one or more. Skip if you are not sure — you can change this anytime.'}
           </Text>
           <View style={styles.optionsContainer}>
             {helpOptions.map((option) => {
@@ -437,7 +506,7 @@ function OnboardingFlowCore({
                 <MaterialIcons
                   name={option.icon}
                   size={iconSm}
-                  color={isSelected ? ONBOARDING_ACCENT : colors.muted}
+                  color={isSelected ? ONBOARDING_ACCENT : ONBOARDING_ICON}
                   style={styles.optionIcon}
                 />
                 <Text
@@ -452,9 +521,7 @@ function OnboardingFlowCore({
                 >
                   {option.label}
                 </Text>
-                {isSelected ? (
-                  <MaterialIcons name="check-circle" size={iconSm} color={ONBOARDING_ACCENT} />
-                ) : null}
+                {renderSelectionMark(isSelected)}
               </TouchableOpacity>
             );
             })}
@@ -485,10 +552,14 @@ function OnboardingFlowCore({
         await mergeOnboardingRoleIntoContractorProfile(roles);
       }
       await markWalkthroughCompleted(userId, 'appOnboarding');
+      await ensureContractorRole();
       await resyncProjectsFromServer();
       await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
       if (useBuildWithAi) {
         await setPendingOpenBuildWithAi();
+      }
+      if (IOS) {
+        await setOpenEstimatesAfterPaywall();
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       router.replace(Platform.OS === 'ios' ? '/sample-tour' : '/(tabs)/estimate-generator');
@@ -498,34 +569,67 @@ function OnboardingFlowCore({
     }
   };
 
+  const renderSampleEstimateCard = () => (
+    <View style={styles.sampleCard} pointerEvents="none">
+      <View style={styles.sampleCardHeader}>
+        <View style={styles.sampleCardBadge}>
+          <MaterialIcons name="auto-awesome" size={13} color={ONBOARDING_ACCENT} />
+          <Text style={styles.sampleCardBadgeText}>Built with AI</Text>
+        </View>
+        <Text style={styles.sampleCardMeta}>Example</Text>
+      </View>
+      <Text style={styles.sampleCardTitle}>Electrical Estimate Draft</Text>
+      {SAMPLE_ESTIMATE_LINES.map((line) => (
+        <View key={line.label} style={styles.sampleCardRow}>
+          <Text style={styles.sampleCardRowLabel}>{line.label}</Text>
+          <Text style={styles.sampleCardRowValue}>{line.amount}</Text>
+        </View>
+      ))}
+      <View style={styles.sampleCardDivider} />
+      <View style={styles.sampleCardRow}>
+        <Text style={styles.sampleCardTotalLabel}>Total</Text>
+        <Text style={styles.sampleCardTotalValue}>$27,612</Text>
+      </View>
+    </View>
+  );
+
   // PAGE 4 — Activate
   const renderFinalPage = () => {
     const copy = finalScreenCopy();
     return (
     <View style={pageOuterFinalStyle}>
       <View style={contentFinalStyle}>
-        {renderStepEyebrow(3, 'Get started')}
-        <Text style={[styles.title, webTitle, { color: colors.text }]}>{copy.title}</Text>
-        <Text style={[styles.body, styles.bodyFinal, webBody, { color: colors.subtext }]}>
-          {copy.body}
+        {renderStepEyebrow(3, IOS ? 'See an example' : 'Get started')}
+        <Text style={[styles.title, webTitle, { color: colors.text }]}>
+          {IOS ? 'See it on a sample job' : copy.title}
         </Text>
+        <Text style={[styles.body, styles.bodyFinal, webBody, { color: colors.subtext }]}>
+          {IOS
+            ? 'Next is a sample estimate, then the project, dashboard, and tax center. Nothing here is a real job.'
+            : copy.body}
+        </Text>
+        {IOS ? renderSampleEstimateCard() : null}
         <View style={styles.finalActionsContainer}>
           <TouchableOpacity
             style={[estimateFlowPrimaryButtonStyle(), styles.accentButton, webDesktop && styles.primaryButtonWeb]}
-            onPress={() => completeOnboarding({ openBuildWithAi: true })}
+            onPress={() => completeOnboarding({ openBuildWithAi: !IOS })}
             activeOpacity={0.88}
           >
-            <MaterialIcons name="auto-awesome" size={iconMd} color="#071018" />
-            <Text style={estimateFlowPrimaryButtonTextStyle()}>Build with AI</Text>
+            {IOS ? null : <MaterialIcons name="auto-awesome" size={iconMd} color="#071018" />}
+            <Text style={estimateFlowPrimaryButtonTextStyle()}>
+              {IOS ? 'See the examples' : 'Build with AI'}
+            </Text>
           </TouchableOpacity>
+          {IOS ? null : (
           <TouchableOpacity
             style={[styles.outlineButtonCompact, webDesktop && styles.secondaryButtonWeb]}
             onPress={() => completeOnboarding({ openBuildWithAi: false })}
             activeOpacity={0.88}
           >
-            <MaterialIcons name="description" size={iconMd} color={ONBOARDING_MUTED} />
+            <MaterialIcons name="description" size={iconMd} color={ONBOARDING_ICON} />
             <Text style={styles.outlineButtonText}>Start manually instead</Text>
           </TouchableOpacity>
+          )}
         </View>
       </View>
     </View>
@@ -614,7 +718,7 @@ function OnboardingFlowCore({
         </View>
       </View>
 
-      {currentPage < LAST_PAGE_INDEX && (
+      {!IOS && currentPage < LAST_PAGE_INDEX && (
         <TouchableOpacity
           style={[
             styles.skipButton,
@@ -777,7 +881,7 @@ const styles = StyleSheet.create({
   heroLogoGlow: {
     alignSelf: 'center',
     marginBottom: 28,
-    shadowColor: '#22c55e',
+    shadowColor: IOS ? ONBOARDING_ACCENT : '#22c55e',
     shadowOpacity: 0.28,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 0 },
@@ -832,6 +936,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  bulletIconTile: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
   },
   bulletText: {
     fontSize: 16,
@@ -903,6 +1015,80 @@ const styles = StyleSheet.create({
     gap: 6,
     flexGrow: 0,
     flexShrink: 0,
+  },
+  sampleCard: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    backgroundColor: '#202022',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.12)',
+    padding: 16,
+    marginBottom: 4,
+  },
+  sampleCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  sampleCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
+  },
+  sampleCardBadgeText: {
+    color: ONBOARDING_ACCENT,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sampleCardMeta: {
+    color: 'rgba(215,225,240,0.6)',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  sampleCardTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  sampleCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  sampleCardRowLabel: {
+    color: ONBOARDING_MUTED,
+    fontSize: 14,
+  },
+  sampleCardRowValue: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sampleCardDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(148,163,184,0.25)',
+    marginVertical: 8,
+  },
+  sampleCardTotalLabel: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  sampleCardTotalValue: {
+    color: ONBOARDING_ACCENT,
+    fontSize: 18,
+    fontWeight: '800',
   },
   finalActionsContainer: {
     marginTop: 28,

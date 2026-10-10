@@ -1,4 +1,4 @@
-import { Tabs, useRouter, type Href } from 'expo-router';
+import { Tabs, usePathname, useRouter, type Href } from 'expo-router';
 import React, { useMemo, useEffect, useRef, useSyncExternalStore, type ComponentType } from 'react';
 import { View, StyleSheet, useWindowDimensions, Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { HapticTab, PillHapticTab } from '@/components/HapticTab';
@@ -15,7 +15,6 @@ import {
   TAB_NAV_ACTIVE,
 } from '@/components/ui/TabBarPillIcons';
 import { isDesktopWebLayoutWidth, PHONE_CARD_GUTTER } from '@/constants/ScreenLayout';
-import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
 import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
@@ -24,6 +23,14 @@ import {
   isIosPaywallDevBypass,
   subscribeIosPaywallDevBypass,
 } from '@/lib/iosSubscriptionGate';
+import { useUser } from '@clerk/clerk-react';
+import {
+  addAppleCustomerInfoListener,
+  configureAppleBilling,
+  getAppleCustomerInfo,
+  isAppleBillingAvailable,
+} from '@/services/appleBillingService';
+import { syncTrialReminder } from '@/services/trialReminder';
 
 export type TabLayoutSharedProps = {
   PillTabBarBackground: ComponentType;
@@ -47,6 +54,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
     isIosPaywallDevBypass,
     () => false
   );
+  const pathname = usePathname();
   const subscriptionRequired =
     Platform.OS === 'ios' &&
     initialized &&
@@ -57,8 +65,31 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
   useEffect(() => {
     if (!subscriptionRequired) return;
+    if (pathname?.includes('/payment/plans') || pathname?.includes('/sample-tour')) return;
     router.replace('/payment/plans?required=1');
-  }, [router, subscriptionRequired]);
+  }, [pathname, router, subscriptionRequired]);
+
+  const { user: clerkUser } = useUser();
+  const clerkUserId = clerkUser?.id ?? null;
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !clerkUserId || !isAppleBillingAvailable()) return;
+    let listener: { remove: () => void } | null = null;
+    let cancelled = false;
+    void configureAppleBilling(clerkUserId)
+      .then(() => getAppleCustomerInfo())
+      .then((info) => {
+        if (cancelled) return;
+        void syncTrialReminder(info).catch(() => {});
+        listener = addAppleCustomerInfoListener((next) => {
+          void syncTrialReminder(next).catch(() => {});
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      listener?.remove();
+    };
+  }, [clerkUserId]);
 
   // Tabs are lazy, and iOS detaches the hidden one: the first visit builds the page on tap (a blank-frame shutter).
   // Mount each heavy tab once the Dashboard is idle. Retries cover a navigator that isn't ready yet.
@@ -230,7 +261,6 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
   return (
     <>
-      <ProfileCompletionReminder />
       <Tabs
         initialRouteName="dashboard"
         // iOS/Android detach a hidden tab, so the first visit flashes a blank frame while it reattaches.

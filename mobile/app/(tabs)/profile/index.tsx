@@ -84,8 +84,6 @@ import {
   sanitizeStoredProfileAvatar,
   scrubContractorProfileAvatarFields,
 } from '@/lib/profileAvatar';
-import { evaluateContractorProfileCompletion } from '@/lib/profileCompletion';
-import { clearProfileCompletionReminderDismissed } from '@/lib/profileCompletionReminderStorage';
 import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
 import TaxCenterSnapshotCard from '@/components/profile/TaxCenterSnapshotCard';
 import { useToast } from '@/contexts/ToastContext';
@@ -795,15 +793,6 @@ export default function ProfileScreen() {
               : {}),
           };
           await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(fullProfile));
-          if (evaluateContractorProfileCompletion(fullProfile).isComplete) {
-            const reminderUserId =
-              clerkUser?.id ||
-              String(fullProfile.email || user.email || '')
-                .trim()
-                .toLowerCase() ||
-              'local';
-            await clearProfileCompletionReminderDismissed(reminderUserId);
-          }
           console.log('💾 Saved complete profile to AsyncStorage');
           const uid = String(clerkUser?.id || '').trim();
           if (uid.startsWith('user_')) {
@@ -904,15 +893,6 @@ export default function ProfileScreen() {
             : {}),
         };
         await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(profileToSave));
-        if (evaluateContractorProfileCompletion(profileToSave).isComplete) {
-          const reminderUserId =
-            clerkUser?.id ||
-            String(profileToSave.email || user.email || '')
-              .trim()
-              .toLowerCase() ||
-            'local';
-          await clearProfileCompletionReminderDismissed(reminderUserId);
-        }
         console.log('💾 Saved complete contractor profile to AsyncStorage');
         const uid = String(clerkUser?.id || '').trim();
         if (uid.startsWith('user_')) {
