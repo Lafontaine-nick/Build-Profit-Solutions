@@ -15,9 +15,13 @@ import {
   Alert,
   useWindowDimensions,
   InteractionManager,
-  ActivityIndicator,
 } from "react-native";
 import { SegmentNavBar } from '@/components/navigation/SegmentNavBar';
+import AnimatedNumberText from '@/components/motion/AnimatedNumberText';
+import AnimatedBarFill from '@/components/motion/AnimatedBarFill';
+import { SkeletonRows } from '@/components/motion/Skeleton';
+import StaggerIn from '@/components/motion/StaggerIn';
+import PressableScale from '@/components/ui/PressableScale';
 import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -4201,15 +4205,14 @@ const EnhancedMetricCard = ({
     <View style={[styles.overviewMetricRow, isFirst && styles.overviewMetricRowFirst]}>
       <Text style={styles.analyticsLabel}>{label}</Text>
       <View style={styles.overviewMetricAmountRow}>
-        <Text
+        <AnimatedNumberText
           style={[
             valueIsPlaceholder ? styles.overviewMetricAmountQuiet : styles.overviewMetricAmount,
             !valueIsPlaceholder && valueColor ? { color: valueColor } : null,
           ]}
           numberOfLines={1}
-        >
-          {valueIsPlaceholder ? "—" : value}
-        </Text>
+          value={valueIsPlaceholder ? "—" : value}
+        />
         {trendIsPlaceholder ? null : (
           <Text style={[styles.overviewMetricTrend, { color: trendColor }]}>{trend}</Text>
         )}
@@ -4506,13 +4509,10 @@ const DashboardProjectSummaryCard = ({
         : styles.projectSummarySignalMuted;
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.projectSummaryPressable,
-        isLast && styles.projectSummaryPressableLast,
-        pressed && { opacity: 0.85 },
-      ]}
+      scaleTo={0.985}
+      style={[styles.projectSummaryPressable, isLast && styles.projectSummaryPressableLast]}
       accessibilityRole="button"
       accessibilityLabel={`Open ${project.name}`}
     >
@@ -4560,14 +4560,9 @@ const DashboardProjectSummaryCard = ({
           <>
             <View style={styles.projectSummaryProgress}>
               <View style={styles.progressBarTrack}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${progressPct}%`,
-                      backgroundColor: DASHBOARD_ACCENT,
-                    },
-                  ]}
+                <AnimatedBarFill
+                  percent={progressPct}
+                  style={[styles.progressBarFill, { backgroundColor: DASHBOARD_ACCENT }]}
                 />
               </View>
               <Text style={styles.progressPercent}>{progressLabel}</Text>
@@ -4578,7 +4573,7 @@ const DashboardProjectSummaryCard = ({
           </>
         );
       })()}
-    </Pressable>
+    </PressableScale>
   );
 };
 
@@ -4849,9 +4844,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
             {showAllProjectsLoading ? (
               <View style={styles.allProjectsCard}>
-              <View style={styles.emptyState}>
-                <ActivityIndicator size="small" color={DASHBOARD_ACCENT} />
-              </View>
+                <SkeletonRows count={3} progress accessibilityLabel="Loading projects" />
               </View>
             ) : projects.length === 0 ? (
               <View style={styles.allProjectsCard}>
@@ -4881,31 +4874,33 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 {...KEYBOARD_SCROLL_DEFAULTS}
               >
                 {projects.map((project, index) => (
-                  <DashboardProjectSummaryCard
-                    key={project.id}
-                    project={project}
-                    isLast={index === projects.length - 1}
-                    timelineLatestPlannedMs={timelineLatestPlannedMs}
-                    hideFinancialMetrics={hideFinancialMetrics}
-                    onPress={() =>
-                      openProjectsTab(projectsTabForDisplayStatus(project.status))
-                    }
-                  />
+                  <StaggerIn key={project.id} index={index}>
+                    <DashboardProjectSummaryCard
+                      project={project}
+                      isLast={index === projects.length - 1}
+                      timelineLatestPlannedMs={timelineLatestPlannedMs}
+                      hideFinancialMetrics={hideFinancialMetrics}
+                      onPress={() =>
+                        openProjectsTab(projectsTabForDisplayStatus(project.status))
+                      }
+                    />
+                  </StaggerIn>
                 ))}
               </ScrollView>
             ) : (
               <View style={styles.allProjectsList}>
                 {projects.map((project, index) => (
-                  <DashboardProjectSummaryCard
-                    key={project.id}
-                    project={project}
-                    isLast={index === projects.length - 1}
-                    timelineLatestPlannedMs={timelineLatestPlannedMs}
-                    hideFinancialMetrics={hideFinancialMetrics}
-                    onPress={() =>
-                      openProjectsTab(projectsTabForDisplayStatus(project.status))
-                    }
-                  />
+                  <StaggerIn key={project.id} index={index}>
+                    <DashboardProjectSummaryCard
+                      project={project}
+                      isLast={index === projects.length - 1}
+                      timelineLatestPlannedMs={timelineLatestPlannedMs}
+                      hideFinancialMetrics={hideFinancialMetrics}
+                      onPress={() =>
+                        openProjectsTab(projectsTabForDisplayStatus(project.status))
+                      }
+                    />
+                  </StaggerIn>
                 ))}
               </View>
             )}

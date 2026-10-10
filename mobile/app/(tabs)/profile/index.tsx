@@ -88,6 +88,7 @@ import { evaluateContractorProfileCompletion } from '@/lib/profileCompletion';
 import { clearProfileCompletionReminderDismissed } from '@/lib/profileCompletionReminderStorage';
 import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
 import TaxCenterSnapshotCard from '@/components/profile/TaxCenterSnapshotCard';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
@@ -327,6 +328,7 @@ function buildEditFormFromUser(user: {
 export default function ProfileScreen() {
   // Require authentication to access this screen
   useRequireAuth();
+  const toast = useToast();
   const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
 
   const { darkMode, theme: themeContext } = useTheme();
@@ -932,14 +934,13 @@ export default function ProfileScreen() {
       
       setEditModalFocusedField(null);
       setEditModal(false);
-      Alert.alert('Success', 'Profile updated successfully!');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast.success('Profile updated');
     } catch (error) {
       console.error('Error saving profile:', error);
       Alert.alert('Error', 'Failed to save profile. Please try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-  }, [editForm, user.avatar, user.website, user.companyBio, user.projectPortfolio, user.insurance, user.licenses, updateProfile]);
+  }, [editForm, user.avatar, user.website, user.companyBio, user.projectPortfolio, user.insurance, user.licenses, updateProfile, toast]);
 
   const handleCancelEdit = useCallback(() => {
     const nameParts = user.name?.split(' ') || [];
@@ -1029,15 +1030,8 @@ export default function ProfileScreen() {
         newPassword: trimmedNewPassword,
       });
 
-      Alert.alert('Success', 'Password updated successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            closePasswordModal();
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          },
-        },
-      ]);
+      closePasswordModal();
+      toast.success('Password updated');
     } catch (error: any) {
       console.error('Password update error:', error);
       const errorMessage =
@@ -1066,6 +1060,7 @@ export default function ProfileScreen() {
     isClerkEnabled,
     clerkUser,
     closePasswordModal,
+    toast,
   ]);
 
   const handleNotificationPreferences = useCallback(() => {
@@ -1132,8 +1127,7 @@ export default function ProfileScreen() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             try {
               await AsyncStorage.clear();
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert('Success', 'Cache cleared successfully');
+              toast.success('Cache cleared');
             } catch (error) {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
               Alert.alert('Error', 'Failed to clear cache');
@@ -1142,7 +1136,7 @@ export default function ProfileScreen() {
         },
       ]
     );
-  }, []);
+  }, [toast]);
 
   const handleExportData = useCallback(async () => {
     try {
@@ -1558,14 +1552,13 @@ export default function ProfileScreen() {
         setUser((prev) => ({ ...prev, avatar: avatarForState }));
 
         // Full profile still debounced-saved by useEffect; avatar is already on disk to avoid focus races.
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', 'Profile image updated successfully!');
+        toast.success('Profile photo updated');
       }
     } catch (error) {
       console.error('Error uploading image:', error);
       Alert.alert('Error', 'Failed to upload image. Please try again.');
     }
-  }, []);
+  }, [toast]);
 
 
   const handleAddPortfolioImage = useCallback(async () => {
@@ -3569,10 +3562,7 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => {
                   setNotificationsModal(false);
-                  Alert.alert('Success', 'Notification preferences updated!');
-                  Haptics.notificationAsync(
-                    Haptics.NotificationFeedbackType.Success
-                  );
+                  toast.success('Notification preferences saved');
                 }}
               >
                 <Text style={[styles.modalButtonText, { color: '#fff' }]}>
@@ -3707,10 +3697,7 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => {
                   setCompanyModal(false);
-                  Alert.alert('Success', 'Company information updated!');
-                  Haptics.notificationAsync(
-                    Haptics.NotificationFeedbackType.Success
-                  );
+                  toast.success('Company information saved');
                 }}
               >
                 <Text style={[styles.modalButtonText, { color: '#fff' }]}>

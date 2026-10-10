@@ -30,6 +30,7 @@ import WebPageShell, {
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
 } from '@/components/layout/WebPageShell';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useToast } from '@/contexts/ToastContext';
 
 interface PaymentMethodsListProps {
   mode?: 'modal' | 'screen';
@@ -43,6 +44,7 @@ export default function PaymentMethodsList({
   onClose,
 }: PaymentMethodsListProps) {
   const router = useRouter();
+  const toast = useToast();
   const { width: layoutWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
@@ -196,15 +198,7 @@ export default function PaymentMethodsList({
             // Wait a moment for Stripe to process, then refresh
             setTimeout(async () => {
               await loadPaymentMethods();
-              Alert.alert(
-                'Success!',
-                'Payment method added successfully!',
-                [
-                  {
-                    text: 'OK',
-                  },
-                ]
-              );
+              toast.success('Payment method added');
             }, 1500);
           }
         }
@@ -223,7 +217,7 @@ export default function PaymentMethodsList({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
       await paymentMethodService.setDefaultPaymentMethod(paymentMethodId, userEmail);
-      Alert.alert('Success', 'Default payment method updated.');
+      toast.success('Default payment method updated');
       await loadPaymentMethods();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to update default payment method.');
@@ -245,7 +239,7 @@ export default function PaymentMethodsList({
           onPress: async () => {
             try {
               await paymentMethodService.deletePaymentMethod(paymentMethodId);
-              Alert.alert('Success', 'Payment method deleted.');
+              toast.success('Payment method deleted');
               await loadPaymentMethods();
             } catch (err: any) {
               Alert.alert('Error', err?.message || 'Failed to delete payment method.');

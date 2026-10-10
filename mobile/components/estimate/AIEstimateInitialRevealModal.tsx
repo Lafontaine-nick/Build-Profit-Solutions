@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import AnimatedNumberText from '@/components/motion/AnimatedNumberText';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import {
@@ -357,7 +358,7 @@ function AIEstimateInitialRevealModal({
                   </Text>
                 ) : null}
 
-                <Text
+                <AnimatedNumberText
                   style={[
                     styles.heroTotal,
                     {
@@ -365,9 +366,9 @@ function AIEstimateInitialRevealModal({
                       fontSize: viewModel.hero.hasAmount ? 44 : 36,
                     },
                   ]}
-                >
-                  {viewModel.hero.amountText}
-                </Text>
+                  duration={900}
+                  value={viewModel.hero.amountText}
+                />
                 <Text style={[styles.heroHint, { color: Colors.sub }]}>{viewModel.hero.hint}</Text>
                 {viewModel.hero.markupSubline ? (
                   <Text style={[styles.heroMarkupSubline, { color: Colors.sub }]}>

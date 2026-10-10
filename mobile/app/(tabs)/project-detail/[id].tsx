@@ -19,7 +19,6 @@ import {
   UIManager,
   BackHandler,
   useWindowDimensions,
-  ActivityIndicator,
 } from 'react-native';
 import { SegmentNavBar, type SegmentNavItem } from '@/components/navigation/SegmentNavBar';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -28,6 +27,9 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import OverviewScreen from '@/components/OverviewScreen';
 import BudgetProfitMixCard from '@/components/BudgetProfitMixCard';
+import AnimatedBarFill from '@/components/motion/AnimatedBarFill';
+import { celebrate } from '@/components/motion/CelebrationHost';
+import { SkeletonBlock, SkeletonRows } from '@/components/motion/Skeleton';
 import BudgetTab from '@/components/BudgetTab';
 import TimelineTabV2 from '@/components/TimelineTabV2';
 import TeamTab from '@/components/TeamTab';
@@ -2072,10 +2074,25 @@ function ProjectDetailContent() {
         case 'Overview': {
           if (!projectDetailReady) {
             return (
-              <View style={[styles.wideContainer, styles.tabFlowWide, styles.overviewLoadingWrap]}>
-                <View style={styles.overviewCard}>
-                  <ActivityIndicator size="large" color="#22c55e" />
-                  <Text style={styles.overviewLoadingText}>Loading project overview…</Text>
+              <View style={[styles.wideContainer, styles.tabFlowWide]}>
+                <View
+                  style={styles.overviewCard}
+                  accessible
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="Loading project overview"
+                >
+                  <View style={styles.overviewSkeletonHero}>
+                    <View>
+                      <SkeletonBlock width={84} height={12} />
+                      <SkeletonBlock width={112} height={30} radius={8} style={styles.overviewSkeletonGap} />
+                    </View>
+                    <View style={styles.overviewSkeletonHeroRight}>
+                      <SkeletonBlock width={96} height={12} />
+                      <SkeletonBlock width={124} height={22} radius={8} style={styles.overviewSkeletonGap} />
+                    </View>
+                  </View>
+                  <SkeletonBlock height={8} radius={999} style={styles.overviewSkeletonBar} />
+                  <SkeletonRows count={3} style={styles.overviewSkeletonRows} />
                 </View>
               </View>
             );
@@ -2221,14 +2238,9 @@ function ProjectDetailContent() {
                       ) : null}
                       {showWorkBar ? (
                         <View style={[styles.projectStatusBarTrack, { marginTop: 12 }]}>
-                          <View
-                            style={[
-                              styles.projectStatusBarFill,
-                              {
-                                width: `${Math.min(100, workPct)}%`,
-                                backgroundColor: '#2dcc9a',
-                              },
-                            ]}
+                          <AnimatedBarFill
+                            percent={workPct}
+                            style={[styles.projectStatusBarFill, { backgroundColor: '#2dcc9a' }]}
                           />
                         </View>
                       ) : null}
@@ -2708,9 +2720,8 @@ function ProjectDetailContent() {
                 
                 // Switch to Overview tab
                 setActiveTab('Overview');
-                
-                // Haptic feedback
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+                celebrate('Project activated', safeProjectData?.title || undefined);
               }, 500);
           }}
           onStepComplete={(completedSteps) => {
@@ -2847,16 +2858,22 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   overviewStackCard: {
     marginTop: 12,
   },
-  overviewLoadingWrap: {
-    minHeight: 220,
-    justifyContent: 'center',
+  overviewSkeletonHero: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
-  overviewLoadingText: {
-    marginTop: 14,
-    textAlign: 'center',
-    fontSize: 14,
-    fontWeight: '600',
-    color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
+  overviewSkeletonHeroRight: {
+    alignItems: 'flex-end',
+  },
+  overviewSkeletonGap: {
+    marginTop: 8,
+  },
+  overviewSkeletonBar: {
+    marginTop: 16,
+  },
+  overviewSkeletonRows: {
+    marginTop: 18,
   },
   /** Nested section inside an overview flow card — no extra top gap */
   overviewInnerCardFlush: {

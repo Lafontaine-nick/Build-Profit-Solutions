@@ -41,6 +41,7 @@ import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimel
 import { useWorkspaceProjectPermissions } from "@/hooks/useWorkspaceProjectPermissions";
 import { submitCloseoutCalibration } from "@/utils/contractorPricingMemory";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import { useToast } from "@/contexts/ToastContext";
 import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
@@ -378,6 +379,7 @@ export default function TimelineTabV2({
   onLogChangeOrderBill,
   onChangeOrderBillPromptConsumed,
 }: TimelineTabProps) {
+  const toast = useToast();
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -1442,10 +1444,7 @@ export default function TimelineTabV2({
       );
 
       setMilestones(merged);
-      if (Platform.OS === 'ios') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      Alert.alert("✅ Synced!", `Timeline updated with ${merged.length} milestones from estimate.`);
+      toast.success("Timeline synced", `${merged.length} milestones from the estimate`);
     } else {
       if (Platform.OS === 'ios') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);

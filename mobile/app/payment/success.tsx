@@ -12,6 +12,8 @@ import {
 } from '@/utils/postCheckoutReturn';
 import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
 import { isBusinessPlanReleased } from '@/constants/releaseFlags';
+import { celebrate } from '@/components/motion/CelebrationHost';
+import PopIn from '@/components/motion/PopIn';
 
 export default function PaymentSuccess() {
   const { darkMode } = useTheme();
@@ -36,6 +38,13 @@ export default function PaymentSuccess() {
         accent: '#1976d2',
         success: '#4CAF50',
       };
+
+  useEffect(() => {
+    celebrate(
+      isBusinessPlanReleased() ? 'Welcome to Business' : 'Subscription active',
+      'Thanks for upgrading'
+    );
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,11 +91,9 @@ export default function PaymentSuccess() {
   return (
     <LinearGradient colors={theme.background} style={styles.container}>
       <View style={[styles.content, { backgroundColor: theme.card }]}>
-        <View
-          style={[styles.iconContainer, { backgroundColor: theme.success }]}
-        >
+        <PopIn style={[styles.iconContainer, { backgroundColor: theme.success }]}>
           <MaterialIcons name='check' size={48} color='#fff' />
-        </View>
+        </PopIn>
 
         <Text style={[styles.title, { color: theme.text }]}>
           Payment Successful!

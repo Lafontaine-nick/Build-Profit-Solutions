@@ -16,6 +16,8 @@ import {
   type AiGeneratePhaseId,
 } from '@/utils/aiEstimateGeneratingUi';
 import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import AnimatedBarFill from '@/components/motion/AnimatedBarFill';
+import PopIn from '@/components/motion/PopIn';
 
 type Props = {
   visible: boolean;
@@ -54,10 +56,13 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
         ? 'Usually 10–30 seconds for detailed notes.'
         : null;
 
+  const progressPct = ((activeIndex + 0.5) / displaySteps.length) * 100;
+
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
       <View style={styles.backdrop}>
-        <View
+        <PopIn
+          from={0.94}
           style={[
             styles.card,
             {
@@ -73,6 +78,19 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
             {slowHint || 'Usually takes a few seconds — hang tight.'}
           </Text>
 
+          <View
+            style={[
+              styles.progressTrack,
+              { backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line },
+            ]}
+          >
+            <AnimatedBarFill
+              percent={progressPct}
+              duration={900}
+              style={[styles.progressFill, { backgroundColor: accent }]}
+            />
+          </View>
+
           <View style={styles.stepList}>
             {displaySteps.map((stepId, index) => {
               const done = index < activeIndex;
@@ -81,9 +99,13 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
               return (
                 <View key={stepId} style={styles.stepRow}>
                   {done ? (
-                    <MaterialIcons name="check-circle" size={18} color="#2dcc9a" />
+                    <PopIn key="done" style={styles.stepIcon}>
+                      <MaterialIcons name="check-circle" size={18} color="#2dcc9a" />
+                    </PopIn>
                   ) : active ? (
-                    <ActivityIndicator size={16} color={accent} />
+                    <PopIn key="active" from={0.8} style={styles.stepIcon}>
+                      <ActivityIndicator size={16} color={accent} />
+                    </PopIn>
                   ) : (
                     <View
                       style={[
@@ -118,7 +140,7 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
               <Text style={[styles.cancelLabel, { color: Colors.sub }]}>Cancel</Text>
             </TouchableOpacity>
           ) : null}
-        </View>
+        </PopIn>
       </View>
     </Modal>
   );
@@ -151,10 +173,26 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 13,
     lineHeight: 18,
+    marginBottom: 16,
+  },
+  progressTrack: {
+    height: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
     marginBottom: 20,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
   },
   stepList: {
     gap: 14,
+  },
+  stepIcon: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stepRow: {
     flexDirection: 'row',

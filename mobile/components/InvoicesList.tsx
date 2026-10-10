@@ -29,6 +29,7 @@ import WebPageShell, {
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
 } from '@/components/layout/WebPageShell';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useToast } from '@/contexts/ToastContext';
 
 interface InvoicesListProps {
   mode?: 'modal' | 'screen';
@@ -42,6 +43,7 @@ export default function InvoicesList({
   onClose,
 }: InvoicesListProps) {
   const router = useRouter();
+  const toast = useToast();
   const { width: layoutWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
@@ -208,7 +210,7 @@ export default function InvoicesList({
                 if (await Sharing.isAvailableAsync()) {
                   await Sharing.shareAsync(pdfUrl);
                 } else {
-                  Alert.alert('Success', 'Invoice PDF generated successfully.');
+                  toast.success('Invoice PDF ready');
                 }
               } catch (error) {
                 Alert.alert('Error', 'Failed to generate PDF. Please try again.');
@@ -241,7 +243,7 @@ export default function InvoicesList({
         day: 'numeric',
         year: 'numeric',
       });
-      Alert.alert('Success', `Reminder scheduled for ${formattedDate}.`);
+      toast.success('Reminder scheduled', formattedDate);
       // Refresh invoices to show updated reminder date
       await loadInvoices();
     } catch (error: any) {

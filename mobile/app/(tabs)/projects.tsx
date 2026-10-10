@@ -27,6 +27,10 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import * as Haptics from 'expo-haptics';
+import AnimatedBarFill from '@/components/motion/AnimatedBarFill';
+import { celebrate } from '@/components/motion/CelebrationHost';
+import StaggerIn from '@/components/motion/StaggerIn';
+import PressableScale from '@/components/ui/PressableScale';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -68,6 +72,9 @@ import {
 import { PROJECT_ACTIVATED_BANNER_BODY } from '@/utils/projectsStatusBannerCopy';
 import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort, parseCalendarDate } from '@/utils/formatters';
+
+/** Mark-as-Won modal fades out before the celebration shows (iOS draws Modals above it). */
+const MODAL_FADE_MS = 320;
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
   const s = String(raw ?? '').trim();
@@ -964,8 +971,9 @@ export default function ProjectsScreen() {
     if (!selectedProjectForWon) return;
     const projectId = selectedProjectForWon.id;
     const rawProject = selectedProjectForWon.rawProject ?? null;
+    const wonProjectName = String(selectedProjectForWon.name ?? '').trim();
+    const modalClosedAt = Date.now();
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setMarkAsWonModalVisible(false);
     setSelectedProjectForWon(null);
 
@@ -995,6 +1003,10 @@ export default function ProjectsScreen() {
 
       setShowSubmitBanner(false);
       setShowSuccessBanner(true);
+      setTimeout(
+        () => celebrate('Project won!', wonProjectName || undefined),
+        Math.max(0, MODAL_FADE_MS - (Date.now() - modalClosedAt))
+      );
     } catch (error) {
       console.error('Error marking project as won:', error);
       Alert.alert('Error', 'Failed to mark project as won');
@@ -1157,7 +1169,7 @@ export default function ProjectsScreen() {
             </View>
               ) : (
                 <View style={styles.projectCardStack}>
-                  {projects.map((project) => {
+                  {projects.map((project, projectIndex) => {
                     const statusThemeMap = getStatusTheme(darkMode);
                     const statusKey =
                       (project.status in statusThemeMap ? project.status : 'Draft') as keyof typeof statusThemeMap;
@@ -1168,9 +1180,10 @@ export default function ProjectsScreen() {
                     const showLocation = locationLabel !== 'Location not set';
                     const progressPct = Math.min(Math.max(project.progress * 100, 0), 100);
                     return (
-                    <Pressable
-                      key={project.id}
+                    <StaggerIn key={project.id} index={projectIndex}>
+                    <PressableScale
                       style={styles.projectCardSolo}
+                      scaleTo={0.98}
                       onPress={() => handleProjectPress(project)}
                     >
                       <View
@@ -1371,14 +1384,9 @@ export default function ProjectsScreen() {
                     </View>
                     <View style={styles.progressBarTrack}>
                       {progressPct > 0 ? (
-                        <View
-                          style={[
-                            styles.progressBarFill,
-                            {
-                              width: `${progressPct}%`,
-                              backgroundColor: PROJECTS_ACCENT,
-                            },
-                          ]}
+                        <AnimatedBarFill
+                          percent={progressPct}
+                          style={[styles.progressBarFill, { backgroundColor: PROJECTS_ACCENT }]}
                         />
                       ) : null}
                     </View>
@@ -1396,7 +1404,8 @@ export default function ProjectsScreen() {
                   )}
                         </View>
                 </View>
-              </Pressable>
+              </PressableScale>
+              </StaggerIn>
             );
           })}
                 </View>

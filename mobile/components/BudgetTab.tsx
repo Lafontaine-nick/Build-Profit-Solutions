@@ -52,6 +52,8 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import BackButton from '@/components/ui/BackButton';
 import { ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK, estimateFlowDividerColor, estimateSummaryHeroAmountStyle } from '@/utils/estimateFlowCardStyle';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
+import AnimatedBarFill from '@/components/motion/AnimatedBarFill';
+import AnimatedNumberText from '@/components/motion/AnimatedNumberText';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -968,9 +970,10 @@ export default function BudgetTab({
                   <View style={styles.totalsContent}>
                     {!isCostControl ? (
                       <>
-                        <Text style={[estimateSummaryHeroAmountStyle(), { color: '#2dcc9a' }]}>
-                          {money(financials.adjustedContractValue, currency)}
-                        </Text>
+                        <AnimatedNumberText
+                          style={[estimateSummaryHeroAmountStyle(), { color: '#2dcc9a' }]}
+                          value={money(financials.adjustedContractValue, currency)}
+                        />
                         <Text style={{ color: pageInstructional, fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
                           {financials.approvedChangeOrderRevenue > 0.005
                             ? 'Adjusted contract (incl. markup)'
@@ -1297,13 +1300,11 @@ export default function BudgetTab({
                         <View style={styles.progressBarContainer}>
                           <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
                             {spentPercent > 0 ? (
-                              <View
+                              <AnimatedBarFill
+                                percent={spentPercent}
                                 style={[
                                   styles.progressBarFill,
-                                  {
-                                    width: `${Math.min(spentPercent, 100)}%`,
-                                    backgroundColor: isOverBudget ? budgetOver : budgetAccent,
-                                  },
+                                  { backgroundColor: isOverBudget ? budgetOver : budgetAccent },
                                 ]}
                               />
                             ) : null}
@@ -1386,7 +1387,7 @@ export default function BudgetTab({
                         <View style={styles.progressBarContainer}>
                           <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
                             {receivedPercent > 0 ? (
-                              <View style={[styles.progressBarFill, { width: `${Math.min(receivedPercent, 100)}%`, backgroundColor: budgetAccent }]} />
+                              <AnimatedBarFill percent={receivedPercent} style={[styles.progressBarFill, { backgroundColor: budgetAccent }]} />
                             ) : null}
                           </View>
                           <View style={styles.categoryMetaRow}>
@@ -1463,7 +1464,7 @@ export default function BudgetTab({
                         <View style={styles.progressBarContainer}>
                           <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
                             {approvedPercent > 0 ? (
-                              <View style={[styles.progressBarFill, { width: `${Math.min(approvedPercent, 100)}%`, backgroundColor: budgetAccent }]} />
+                              <AnimatedBarFill percent={approvedPercent} style={[styles.progressBarFill, { backgroundColor: budgetAccent }]} />
                             ) : null}
                           </View>
                           <View style={styles.categoryMetaRow}>
@@ -2318,15 +2319,7 @@ function Bar({
       <View style={[styles.barThreshold, { left: '50%', backgroundColor: tickColor }]} />
       <View style={[styles.barThreshold, { left: '75%', backgroundColor: tickColor }]} />
       {usage > 0 ? (
-        <View
-          style={[
-            styles.barUsage,
-            {
-              width: `${usage}%`,
-              backgroundColor: fillColor,
-            },
-          ]}
-        />
+        <AnimatedBarFill percent={usage} style={[styles.barUsage, { backgroundColor: fillColor }]} />
       ) : null}
     </View>
   );

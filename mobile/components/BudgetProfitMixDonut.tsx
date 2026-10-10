@@ -1,5 +1,7 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
+import AnimatedBarFill from "@/components/motion/AnimatedBarFill";
+import AnimatedNumberText from "@/components/motion/AnimatedNumberText";
 
 export type BudgetProfitMixSegment = {
   key: string;
@@ -127,6 +129,7 @@ export default function BudgetProfitMixDonut({
   darkMode,
   jobCompleted = false,
 }: Props) {
+  const [trackWidth, setTrackWidth] = useState(0);
   const { segments } = useMemo(
     () =>
       computeBudgetProfitMixSegments({
@@ -166,38 +169,44 @@ export default function BudgetProfitMixDonut({
           <Text style={[styles.centerLabel, { color: labelDim }]}>
             Net margin
           </Text>
-          <Text style={[styles.centerValue, { color: centerPctColor }]}>
-            {`${projectedMarginPct.toFixed(1)}%`}
-          </Text>
+          <AnimatedNumberText
+            style={[styles.centerValue, { color: centerPctColor }]}
+            value={`${projectedMarginPct.toFixed(1)}%`}
+          />
         </View>
         {profitSegment ? (
           <View style={styles.heroProfit}>
             <Text style={[styles.centerLabel, { color: labelDim, textAlign: "right" }]}>
               {profitHeroLabel}
             </Text>
-            <Text
+            <AnimatedNumberText
               style={[styles.heroProfitValue, { color: centerPctColor }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
-            >
-              {profitSegment.key === "shortfall"
-                ? `-${formatMoney(profitSegment.value, currency)}`
-                : formatMoney(profitSegment.value, currency)}
-            </Text>
+              value={
+                profitSegment.key === "shortfall"
+                  ? `-${formatMoney(profitSegment.value, currency)}`
+                  : formatMoney(profitSegment.value, currency)
+              }
+            />
           </View>
         ) : null}
       </View>
-      <View style={styles.mixTrack}>
-        {visibleSegments.map((seg) => (
-          <View
-            key={seg.key}
-            style={{
-              flex: Math.max(seg.sweepDeg, 0.01),
-              backgroundColor: seg.color,
-            }}
-          />
-        ))}
+      <View style={styles.mixTrack} onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}>
+        <AnimatedBarFill percent={100} duration={850} style={styles.mixReveal}>
+          <View style={[styles.mixSegments, { width: trackWidth }]}>
+            {visibleSegments.map((seg) => (
+              <View
+                key={seg.key}
+                style={{
+                  flex: Math.max(seg.sweepDeg, 0.01),
+                  backgroundColor: seg.color,
+                }}
+              />
+            ))}
+          </View>
+        </AnimatedBarFill>
       </View>
       <View style={styles.legend}>
         {visibleSegments.map((seg) => (
@@ -266,6 +275,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     flexDirection: "row",
     backgroundColor: "rgba(148, 163, 184, 0.2)",
+  },
+  mixReveal: {
+    height: "100%",
+    overflow: "hidden",
+  },
+  mixSegments: {
+    height: "100%",
+    flexDirection: "row",
   },
   legend: {
     width: "100%",

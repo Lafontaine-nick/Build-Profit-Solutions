@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,17 @@ import {
   ScrollView,
   Platform,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -17,6 +25,10 @@ import { getColors } from '@/theme/getColors';
 import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
 
 export const BPS_BRAND_GREEN = '#2dcc9a';
+
+/** Reanimated is shimmed on web, so the sliding indicator only runs natively. */
+const CAN_SLIDE = Platform.OS !== 'web';
+const INDICATOR_SPRING = { damping: 24, stiffness: 300, mass: 0.9 };
 
 export type SegmentNavItem = {
   key: string;
@@ -34,25 +46,112 @@ type SegmentNavBarProps = {
   scrollable?: boolean;
 };
 
+type TabLayout = { x: number; y: number; width: number; height: number };
+
 type SegmentTabProps = {
   item: SegmentNavItem;
   isActive: boolean;
   onPress: () => void;
+  onLayout: (key: string, layout: TabLayout) => void;
   styles: ReturnType<typeof createStyles>;
   darkMode: boolean;
   equalWidth: boolean;
+  /** When set, the shared indicator draws the active background and labels tint as it passes. */
+  indicator: { x: SharedValue<number>; width: SharedValue<number> } | null;
+  layout: TabLayout | undefined;
 };
 
 const SegmentTab = React.memo(function SegmentTab({
   item,
   isActive,
   onPress,
+  onLayout,
   styles,
   darkMode,
   equalWidth,
+  indicator,
+  layout,
 }: SegmentTabProps) {
-  const iconColor = isActive ? '#050B13' : darkMode ? '#e2e8f0' : '#334155';
+  const activeIconColor = '#050B13';
+  const inactiveIconColor = darkMode ? '#e2e8f0' : '#334155';
+  const activeLabelColor = StyleSheet.flatten(styles.segmentLabelActive).color as string;
+  const inactiveLabelColor = StyleSheet.flatten(styles.segmentLabel).color as string;
   const badgeCount = item.badgeCount ?? 0;
+  const tabX = layout?.x ?? 0;
+  const tabW = layout?.width ?? 0;
+  const measured = !!layout;
+
+  const fallbackX = useSharedValue(0);
+  const fallbackW = useSharedValue(0);
+  const indX = indicator?.x ?? fallbackX;
+  const indW = indicator?.width ?? fallbackW;
+
+  const tintStyle = useAnimatedStyle(() => {
+    if (!measured || tabW <= 0 || indW.value <= 0) {
+      return { opacity: isActive ? 1 : 0 };
+    }
+    const overlap = Math.min(indX.value + indW.value, tabX + tabW) - Math.max(indX.value, tabX);
+    return { opacity: Math.min(1, Math.max(0, overlap / tabW)) };
+  });
+
+  const baseIconStyle = useAnimatedStyle(() => {
+    if (!measured || tabW <= 0 || indW.value <= 0) {
+      return { opacity: isActive ? 0 : 1 };
+    }
+    const overlap = Math.min(indX.value + indW.value, tabX + tabW) - Math.max(indX.value, tabX);
+    return { opacity: 1 - Math.min(1, Math.max(0, overlap / tabW)) };
+  });
+
+  const labelStyle = useAnimatedStyle(() => {
+    if (!measured || tabW <= 0 || indW.value <= 0) {
+      return { color: isActive ? activeLabelColor : inactiveLabelColor };
+    }
+    const overlap = Math.min(indX.value + indW.value, tabX + tabW) - Math.max(indX.value, tabX);
+    const p = Math.min(1, Math.max(0, overlap / tabW));
+    return { color: interpolateColor(p, [0, 1], [inactiveLabelColor, activeLabelColor]) };
+  });
+
+  const handleLayout = useCallback(
+    (e: LayoutChangeEvent) => onLayout(item.key, e.nativeEvent.layout),
+    [onLayout, item.key]
+  );
+
+  const sliding = indicator != null;
+
+  const icon = sliding ? (
+    <View style={styles.segmentIconSlot}>
+      <Animated.View style={baseIconStyle}>
+        <Ionicons name={item.icon} size={16} color={inactiveIconColor} />
+      </Animated.View>
+      <Animated.View style={[StyleSheet.absoluteFill, styles.segmentIconCenter, tintStyle]}>
+        <Ionicons name={item.icon} size={16} color={activeIconColor} />
+      </Animated.View>
+    </View>
+  ) : (
+    <View style={styles.segmentIconSlot}>
+      <Ionicons name={item.icon} size={16} color={isActive ? activeIconColor : inactiveIconColor} />
+    </View>
+  );
+
+  const label = sliding ? (
+    <Animated.Text
+      style={[styles.segmentLabel, labelStyle]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.82}
+    >
+      {item.label}
+    </Animated.Text>
+  ) : (
+    <Text
+      style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.82}
+    >
+      {item.label}
+    </Text>
+  );
 
   const tabContent = (
     <>
@@ -69,30 +168,22 @@ const SegmentTab = React.memo(function SegmentTab({
           badgeCount > 0 && styles.segmentTabInnerWithBadge,
         ]}
       >
-        <View style={styles.segmentIconSlot}>
-          <Ionicons name={item.icon} size={16} color={iconColor} />
-        </View>
-        <Text
-          style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.82}
-        >
-          {item.label}
-        </Text>
+        {icon}
+        {label}
       </View>
     </>
   );
 
   const tabStyle = [
     styles.segmentTab,
-    equalWidth ? styles.segmentTabEqual : styles.segmentTabScroll,
+    !equalWidth && styles.segmentTabScroll,
   ];
 
-  if (isActive) {
+  if (isActive && !sliding) {
     return (
       <Pressable
         onPress={onPress}
+        onLayout={handleLayout}
         style={[
           tabStyle,
           styles.segmentTabClipped,
@@ -106,7 +197,11 @@ const SegmentTab = React.memo(function SegmentTab({
   }
 
   return (
-    <Pressable onPress={onPress} style={[tabStyle, equalWidth && styles.segmentTabFlex]}>
+    <Pressable
+      onPress={onPress}
+      onLayout={handleLayout}
+      style={[tabStyle, equalWidth && styles.segmentTabFlex]}
+    >
       {tabContent}
     </Pressable>
   );
@@ -126,15 +221,73 @@ export function SegmentNavBar({
   const styles = useMemo(() => createStyles(Colors, desktopWeb), [Colors, desktopWeb]);
   const shouldScroll = scrollable ?? items.length > 4;
 
+  const [layouts, setLayouts] = useState<Record<string, TabLayout>>({});
+  const handleTabLayout = useCallback((key: string, next: TabLayout) => {
+    setLayouts((prev) => {
+      const cur = prev[key];
+      if (
+        cur &&
+        cur.x === next.x &&
+        cur.y === next.y &&
+        cur.width === next.width &&
+        cur.height === next.height
+      ) {
+        return prev;
+      }
+      return { ...prev, [key]: next };
+    });
+  }, []);
+
+  const indX = useSharedValue(0);
+  const indW = useSharedValue(0);
+  const placedRef = useRef(false);
+  const activeLayout = layouts[activeKey];
+  const sliding = CAN_SLIDE && activeLayout != null;
+  const indicator = useMemo(
+    () => (sliding ? { x: indX, width: indW } : null),
+    [sliding, indX, indW]
+  );
+
+  useEffect(() => {
+    if (!CAN_SLIDE || !activeLayout) return;
+    if (!placedRef.current) {
+      placedRef.current = true;
+      indX.value = activeLayout.x;
+      indW.value = activeLayout.width;
+      return;
+    }
+    indX.value = withSpring(activeLayout.x, INDICATOR_SPRING);
+    indW.value = withSpring(activeLayout.width, INDICATOR_SPRING);
+  }, [activeLayout, indX, indW]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    width: indW.value,
+    transform: [{ translateX: indX.value }],
+  }));
+
+  const indicatorView = sliding ? (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.segmentIndicator,
+        { top: activeLayout.y, height: activeLayout.height },
+        indicatorStyle,
+      ]}
+    />
+  ) : null;
+
   const tabs = items.map((item) => (
     <SegmentTab
       key={item.key}
       item={item}
       isActive={activeKey === item.key}
       onPress={() => onPress(item.key)}
+      onLayout={handleTabLayout}
       styles={styles}
       darkMode={darkMode}
       equalWidth={!shouldScroll}
+      indicator={indicator}
+      layout={layouts[item.key]}
     />
   ));
 
@@ -150,10 +303,14 @@ export function SegmentNavBar({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.segmentInnerScroll}
         >
+          {indicatorView}
           {tabs}
         </ScrollView>
       ) : (
-        <View style={styles.segmentInner}>{tabs}</View>
+        <View style={styles.segmentInner}>
+          {indicatorView}
+          {tabs}
+        </View>
       )}
     </BlurView>
   );
@@ -180,6 +337,12 @@ function createStyles(Colors: ReturnType<typeof getColors>, desktopWeb: boolean)
       padding: desktopWeb ? 5 : 4,
       backgroundColor: isDarkBg ? '#202022' : Colors.surface2,
       gap: 2,
+    },
+    segmentIndicator: {
+      position: 'absolute',
+      left: 0,
+      borderRadius: 999,
+      backgroundColor: BPS_BRAND_GREEN,
     },
     segmentTab: {
       borderRadius: 999,
@@ -215,6 +378,10 @@ function createStyles(Colors: ReturnType<typeof getColors>, desktopWeb: boolean)
     segmentIconSlot: {
       width: 18,
       flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    segmentIconCenter: {
       alignItems: 'center',
       justifyContent: 'center',
     },

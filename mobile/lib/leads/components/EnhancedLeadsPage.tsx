@@ -20,7 +20,6 @@ import {
   Pressable,
   ScrollView,
   Image,
-  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
@@ -40,6 +39,8 @@ import {
 import LeadNotesModal from './LeadNotesModal';
 import CampaignCreationModal, { SubcontractorCampaign } from '@/components/CampaignCreationModal';
 import { MessagesInbox } from '@/components/MessagesInbox';
+import { SkeletonRows } from '@/components/motion/Skeleton';
+import StaggerIn from '@/components/motion/StaggerIn';
 import { useChat } from '@/contexts/ChatContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LeadsHeader from './LeadsHeader';
@@ -2954,12 +2955,12 @@ export default function EnhancedLeadsPage({
             {/* Leads List */}
             {filteredAndSortedLeads.length === 0 ? (
               suppressEmptyStateWhileLoading ? (
-                <View style={styles.leadsLoadingPlaceholder} accessibilityRole="progressbar" accessibilityLabel="Loading leads">
-                  <ActivityIndicator size="large" color={darkMode ? '#5eead4' : '#0d9488'} />
-                  <Text style={[styles.leadsLoadingText, !darkMode && { color: Colors.sub }]}>
-                    Loading leads…
-                  </Text>
-                </View>
+                <SkeletonRows
+                  count={5}
+                  avatar
+                  style={styles.leadsSkeleton}
+                  accessibilityLabel="Loading leads"
+                />
               ) : (
                 <EmptyState />
               )
@@ -3020,7 +3021,7 @@ export default function EnhancedLeadsPage({
                           </Text>
                         </View>
                         {displayedLeads.map((lead, idx) => (
-                          <View key={lead.id}>
+                          <StaggerIn key={lead.id} index={idx % LEADS_LIST_LOAD_MORE_STEP}>
                             {idx > 0 && (
                               <View
                                 style={[
@@ -3032,7 +3033,7 @@ export default function EnhancedLeadsPage({
                             <View style={styles.leadCardInGroup}>
                               {renderLeadCardContent(lead)}
                             </View>
-                          </View>
+                          </StaggerIn>
                         ))}
                         {hasMoreInList ? (() => {
                           const remainingBelow =
@@ -4667,18 +4668,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  leadsLoadingPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
+  leadsSkeleton: {
+    paddingVertical: 20,
+    paddingHorizontal: 16,
     minHeight: 200,
-  },
-  leadsLoadingText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.72)',
-    textAlign: 'center',
   },
   emptyStateText: {
     color: '#FFFFFF',

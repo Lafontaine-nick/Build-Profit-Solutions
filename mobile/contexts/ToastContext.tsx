@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout } from '@/constants/ScreenLayout';
 import { haptic } from '@/utils/haptics';
+import CelebrationHost from '@/components/motion/CelebrationHost';
 
 type ToastTone = 'success' | 'error' | 'info';
 
@@ -115,6 +116,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       {toast ? <ToastView key={toast.id} toast={toast} onHidden={clear} /> : null}
+      <CelebrationHost />
     </ToastContext.Provider>
   );
 }
