@@ -1394,13 +1394,13 @@ export default function ProjectsScreen() {
                   
                   {/* Mark as Won button for submitted projects */}
                   {project.status === 'Submitted' && (
-                    <TouchableOpacity
+                    <PressableScale
                       style={styles.markAsWonButton}
                       onPress={(e) => handleMarkAsWon(project, e)}
-                      activeOpacity={0.8}
+                      accessibilityRole="button"
                     >
                       <Text style={styles.markAsWonText}>Mark as Won</Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                   )}
                         </View>
                 </View>
@@ -1440,23 +1440,25 @@ export default function ProjectsScreen() {
               This will convert your estimate into an active project and begin tracking costs, labor, and profit.
             </Text>
             <View style={styles.bottomSheetButtons}>
-              <TouchableOpacity
+              <PressableScale
+                containerStyle={styles.bottomSheetActionTouch}
                 style={[styles.bottomSheetActionButton, styles.bottomSheetCancelButton]}
-                activeOpacity={0.85}
+                accessibilityRole="button"
                 onPress={() => {
                   setMarkAsWonModalVisible(false);
                   setSelectedProjectForWon(null);
                 }}
               >
                 <Text style={styles.bottomSheetCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </PressableScale>
+              <PressableScale
+                containerStyle={styles.bottomSheetActionTouch}
                 style={[styles.bottomSheetActionButton, styles.bottomSheetConfirmButton]}
-                activeOpacity={0.88}
+                accessibilityRole="button"
                 onPress={confirmMarkAsWon}
               >
                 <Text style={styles.bottomSheetConfirmText}>Mark as won</Text>
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           </View>
         </Pressable>
@@ -1963,6 +1965,11 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     alignItems: 'stretch',
     gap: 12,
     width: '100%',
+  },
+  bottomSheetActionTouch: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   bottomSheetActionButton: {
     flex: 1,

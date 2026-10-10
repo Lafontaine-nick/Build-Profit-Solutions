@@ -41,6 +41,7 @@ import CampaignCreationModal, { SubcontractorCampaign } from '@/components/Campa
 import { MessagesInbox } from '@/components/MessagesInbox';
 import { SkeletonRows } from '@/components/motion/Skeleton';
 import StaggerIn from '@/components/motion/StaggerIn';
+import PressableScale from '@/components/ui/PressableScale';
 import { useChat } from '@/contexts/ChatContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LeadsHeader from './LeadsHeader';
@@ -3251,8 +3252,9 @@ export default function EnhancedLeadsPage({
                     </View>
                     <View style={styles.sectionContent}>
                       {/* Launch Campaign Button */}
-                      <TouchableOpacity
+                      <PressableScale
                         style={styles.launchCampaignButton}
+                        accessibilityRole="button"
                         onPress={() => {
                           setShowCampaignModal(true);
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -3260,7 +3262,7 @@ export default function EnhancedLeadsPage({
                       >
                         <MaterialIcons name="campaign" size={20} color="#ecfdf5" />
                         <Text style={styles.launchCampaignText}>Activate Availability</Text>
-                      </TouchableOpacity>
+                      </PressableScale>
 
                       {/* Campaigns List */}
                       {campaigns.length === 0 ? (

@@ -4856,12 +4856,16 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 <Text style={styles.emptyStateSubtext}>
                   Create your first estimate to get started
                 </Text>
-                <Pressable onPress={onCreateEstimate} style={styles.emptyStateCTA}>
+                <PressableScale
+                  onPress={onCreateEstimate}
+                  style={styles.emptyStateCTA}
+                  accessibilityRole="button"
+                >
                   <View style={[styles.emptyStateCTAGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
                     <Ionicons name="add" size={18} color="#050B13" />
                     <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
                   </View>
-                </Pressable>
+                </PressableScale>
               </View>
               </View>
             ) : projects.length >= 4 ? (
@@ -5610,24 +5614,23 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                   </Text>
                 ) : null}
                 {showHeroCta ? (
-                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.insightsHeroCtaInner,
-                      { opacity: pressed ? 0.88 : 1 },
-                    ]}
-                    onPress={() => {
-                      const heroInsight =
-                        sortedInsights.find((i) => String(i.id) === String(dailyRisk.id)) ?? {
-                          projectId: dailyRisk.projectId,
-                          leakType: dailyRisk.type,
-                        };
-                      openProject(
-                        dailyRisk.projectId,
-                        resolveInsightActionTarget(heroInsight)
-                      );
-                    }}
-                  >
+                <PressableScale
+                  containerStyle={styles.insightsHeroCtaTouch}
+                  style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    const heroInsight =
+                      sortedInsights.find((i) => String(i.id) === String(dailyRisk.id)) ?? {
+                        projectId: dailyRisk.projectId,
+                        leakType: dailyRisk.type,
+                      };
+                    openProject(
+                      dailyRisk.projectId,
+                      resolveInsightActionTarget(heroInsight)
+                    );
+                  }}
+                >
+                  <View style={styles.insightsHeroCtaInner}>
                     <Text style={styles.insightsHeroCtaText}>
                       {dailyRisk.projectId
                         ? insightActionCtaLabel(
@@ -5640,8 +5643,8 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                         : "Open portfolio"}
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
-                  </Pressable>
-                </View>
+                  </View>
+                </PressableScale>
                 ) : null}
               </>
             )}
@@ -5660,27 +5663,26 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                   style={styles.insightsHeroSupport}
                   numberOfLines={primaryInsight.leakType === "project_status" ? 8 : 3}
                 />
-                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.insightsHeroCtaInner,
-                      { opacity: pressed ? 0.88 : 1 },
-                    ]}
-                    onPress={() =>
-                      openProject(
-                        primaryInsight.projectId,
-                        resolveInsightActionTarget(primaryInsight)
-                      )
-                    }
-                  >
+                <PressableScale
+                  containerStyle={styles.insightsHeroCtaTouch}
+                  style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}
+                  accessibilityRole="button"
+                  onPress={() =>
+                    openProject(
+                      primaryInsight.projectId,
+                      resolveInsightActionTarget(primaryInsight)
+                    )
+                  }
+                >
+                  <View style={styles.insightsHeroCtaInner}>
                     <Text style={styles.insightsHeroCtaText}>
                       {primaryInsight.projectId
                         ? insightActionCtaLabel(resolveInsightActionTarget(primaryInsight))
                         : "View portfolio"}
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
-                  </Pressable>
-                </View>
+                  </View>
+                </PressableScale>
               </>
             )}
 
@@ -5692,18 +5694,17 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>
                   Status for jobs in progress shows here, including ones that are on track.
                 </Text>
-                <View style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.insightsHeroCtaInner,
-                      { opacity: pressed ? 0.88 : 1 },
-                    ]}
-                    onPress={() => openProject(null)}
-                  >
+                <PressableScale
+                  containerStyle={styles.insightsHeroCtaTouch}
+                  style={[styles.insightsHeroCtaGradient, { backgroundColor: DASHBOARD_ACCENT }]}
+                  accessibilityRole="button"
+                  onPress={() => openProject(null)}
+                >
+                  <View style={styles.insightsHeroCtaInner}>
                     <Text style={styles.insightsHeroCtaText}>View projects</Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
-                  </Pressable>
-                </View>
+                  </View>
+                </PressableScale>
               </>
             )}
 
@@ -6236,9 +6237,11 @@ const getStyles = (
     lineHeight: 21,
     fontWeight: "600",
   },
-  insightsHeroCtaGradient: {
+  insightsHeroCtaTouch: {
     marginTop: 16,
     alignSelf: "flex-start",
+  },
+  insightsHeroCtaGradient: {
     borderRadius: 14,
     overflow: "hidden",
   },
