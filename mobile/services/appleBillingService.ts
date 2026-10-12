@@ -302,8 +302,16 @@ function hasFoundingEntitlement(info: CustomerInfo): boolean {
   return Boolean(active?.isActive);
 }
 
+type AuthTokenSource = string | null | undefined | (() => Promise<string | null>);
+
+async function readAuthToken(source?: AuthTokenSource): Promise<string | null> {
+  if (typeof source === 'function') return source();
+  return source ?? null;
+}
+
 export async function purchaseApplePackage(
   pkg: PurchasesPackage,
+  authToken?: AuthTokenSource,
 ): Promise<{ customerInfo: CustomerInfo; serverSynced: boolean }> {
   if (!isAppleBillingAvailable()) {
     throw new Error('In-app purchases are only available on iOS.');
@@ -314,7 +322,15 @@ export async function purchaseApplePackage(
     const { customerInfo } = await getPurchasesModule().purchasePackage(pkg);
     let serverSynced = false;
     if (hasFoundingEntitlement(customerInfo)) {
-      await syncBillingEntitlement();
+      // The Apple sheet can outlast a Clerk sign-in, so read the token after confirm.
+      const token = await readAuthToken(authToken);
+      try {
+        await syncBillingEntitlement(token);
+      } catch (syncError: any) {
+        const stale = /invalid or expired token/i.test(String(syncError?.message || ''));
+        if (!stale || typeof authToken !== 'function') throw syncError;
+        await syncBillingEntitlement(await authToken());
+      }
       serverSynced = true;
     }
     return { customerInfo, serverSynced };
@@ -333,7 +349,7 @@ export async function purchaseApplePackage(
   }
 }
 
-export async function restoreApplePurchases(): Promise<{
+export async function restoreApplePurchases(authToken?: AuthTokenSource): Promise<{
   customerInfo: CustomerInfo;
   serverSynced: boolean;
 }> {
@@ -345,7 +361,7 @@ export async function restoreApplePurchases(): Promise<{
   const customerInfo = await getPurchasesModule().restorePurchases();
   let serverSynced = false;
   if (hasFoundingEntitlement(customerInfo)) {
-    await syncBillingEntitlement();
+    await syncBillingEntitlement(await readAuthToken(authToken));
     serverSynced = true;
   }
   return { customerInfo, serverSynced };
@@ -373,9 +389,12 @@ export function openAppleSubscriptionManagement(): void {
   void getPurchasesModule().showManageSubscriptions();
 }
 
-export async function syncAppleEntitlement(_customerInfo?: CustomerInfo): Promise<void> {
+export async function syncAppleEntitlement(
+  _customerInfo?: CustomerInfo,
+  authToken?: string | null,
+): Promise<void> {
   if (!isAppleBillingAvailable()) return;
-  await syncBillingEntitlement();
+  await syncBillingEntitlement(authToken);
 }
 
 export function addAppleCustomerInfoListener(

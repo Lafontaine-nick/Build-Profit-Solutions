@@ -338,7 +338,13 @@ function AuthGateWithClerk() {
     <>
       {openDashboard ? <OpenDashboardAfterIntro /> : null}
       <Stack
-        screenOptions={{ headerShown: false, gestureEnabled: false }}
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: false,
+          animation: 'fade',
+          animationDuration: 280,
+          contentStyle: { backgroundColor: '#000000' },
+        }}
         initialRouteName={openDashboard ? '(tabs)' : 'index'}
       />
     </>

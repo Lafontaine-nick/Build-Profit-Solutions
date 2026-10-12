@@ -1342,6 +1342,30 @@ export default function ProfileScreen() {
   const handleDeleteAccount = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
+    const confirmFinalDelete = () => {
+      // iOS drops an alert opened in the same turn the previous alert closes.
+      setTimeout(() => {
+        Alert.alert(
+          'Final Confirmation',
+          'This will permanently delete your account and all associated data. This action cannot be undone.',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
+            },
+            {
+              text: 'Delete Account',
+              style: 'destructive',
+              onPress: () => {
+                void runDeleteAccount();
+              },
+            },
+          ]
+        );
+      }, 400);
+    };
+
     if (
       Platform.OS === 'web' &&
       typeof window !== 'undefined' &&
@@ -1381,24 +1405,7 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            Alert.alert(
-              'Final Confirmation',
-              'This will permanently delete your account and all associated data. This action cannot be undone.',
-              [
-                {
-                  text: 'Cancel',
-                  style: 'cancel',
-                  onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
-                },
-                {
-                  text: 'Delete Account',
-                  style: 'destructive',
-                  onPress: () => {
-                    void runDeleteAccount();
-                  },
-                },
-              ]
-            );
+            confirmFinalDelete();
           },
         },
       ]
@@ -1488,16 +1495,19 @@ export default function ProfileScreen() {
       return;
     }
 
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: () => {
-          void performLogout();
+    // Present after the tap finishes. Opening it in the same turn gets dropped on iOS.
+    setTimeout(() => {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: () => {
+            void performLogout();
+          },
         },
-      },
-    ]);
+      ]);
+    }, 50);
   }, [performLogout]);
 
   const handleImageUpload = useCallback(async () => {
@@ -2818,6 +2828,7 @@ export default function ProfileScreen() {
           scrollYRef.current = e.nativeEvent.contentOffset.y;
         }}
         scrollEventThrottle={64}
+        keyboardShouldPersistTaps="handled"
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.scrollContent,
@@ -4731,9 +4742,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   deleteButton: {
     alignSelf: 'center',
-    marginTop: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    marginTop: 20,
+    minHeight: 44,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    justifyContent: 'center',
   },
   buttonIcon: {
     marginRight: 8,

@@ -9,11 +9,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useAuth } from '@clerk/clerk-react';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import type { PurchasesPackage } from 'react-native-purchases';
 import {
   FOUNDING_PLAN_DISPLAY_NAME,
+  FOUNDING_PLAN_HIGHLIGHTS as FEATURES,
+  PRIVACY_URL,
+  TERMS_URL,
 } from '@/constants/billingCatalog';
 import {
   getFoundingOffering,
@@ -26,6 +30,7 @@ import {
 } from '@/services/appleBillingService';
 import { fetchBillingEntitlement } from '@/services/billingEntitlementService';
 import { syncTrialReminder } from '@/services/trialReminder';
+import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 
 type Props = {
   colors: {
@@ -68,8 +73,6 @@ function offeringsUnavailableMessage(message: string): string | null {
 }
 
 const ON_ACCENT = '#050B13';
-const TERMS_URL = 'https://buildprofitsolutions.com/terms';
-const PRIVACY_URL = 'https://buildprofitsolutions.com/privacy';
 
 /** Simulator has no StoreKit products; these mirror App Store Connect so the layout can be reviewed. */
 const DEV_PREVIEW_PLANS: PlanOption[] = [
@@ -143,15 +146,6 @@ function planKeyFor(pkg: PurchasesPackage, meta: AppleBillingPackage | undefined
   return null;
 }
 
-const FEATURES = [
-  'AI estimates & AI Assistant',
-  'Photo & plan takeoff, supplier pricing',
-  'Job costing, budgets & change orders',
-  'Branded PDFs, photos & daily logs',
-  'Tax Center & receipt scanning',
-  'Unlimited projects',
-];
-
 export default function IosFoundingSubscriptionPanel({
   colors,
   darkMode,
@@ -168,6 +162,13 @@ export default function IosFoundingSubscriptionPanel({
   const [priceNotice, setPriceNotice] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [trialEligibleIds, setTrialEligibleIds] = useState<Set<string>>(new Set());
+  const { getToken } = useAuth();
+
+  const freshAuthToken = useCallback(async () => {
+    const token = await getToken({ skipCache: true });
+    if (token) await syncClerkTokenToAsyncStorage(token);
+    return token;
+  }, [getToken]);
 
   const loadOfferings = useCallback(async () => {
     if (!isAppleBillingAvailable()) {
@@ -255,7 +256,10 @@ export default function IosFoundingSubscriptionPanel({
     setPurchasing(true);
     setError(null);
     try {
-      const { customerInfo, serverSynced } = await purchaseApplePackage(selectedPlan.pkg);
+      const { customerInfo, serverSynced } = await purchaseApplePackage(
+        selectedPlan.pkg,
+        freshAuthToken,
+      );
       void syncTrialReminder(customerInfo).catch(() => {});
       if (!serverSynced) {
         throw new Error('Purchase completed but server verification failed. Tap Restore Purchases.');
@@ -288,7 +292,7 @@ export default function IosFoundingSubscriptionPanel({
     setRestoring(true);
     setError(null);
     try {
-      const { serverSynced } = await restoreApplePurchases();
+      const { serverSynced } = await restoreApplePurchases(freshAuthToken);
       if (!serverSynced) {
         const latest = await fetchBillingEntitlement().catch(() => null);
         if (!latest?.isActive) {

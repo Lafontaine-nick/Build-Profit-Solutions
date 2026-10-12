@@ -550,14 +550,11 @@ export default function AIEstimateBuilderModal({
     if (__DEV__) {
       console.warn('🤖 Generate tapped — starting draft request');
     }
-    let token = authTokenRef.current;
-    if (!token) {
-      token = await Promise.race([
-        getToken(),
-        new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 8000)),
-      ]);
-      authTokenRef.current = token;
-    }
+    let token = await Promise.race([
+      getToken({ skipCache: true }),
+      new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    authTokenRef.current = token;
     if (!token) {
       Alert.alert(
         'Sign in required',

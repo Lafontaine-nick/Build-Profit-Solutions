@@ -153,14 +153,14 @@ function ClerkLandingHeroContent({
       }
       if (goDashboard && clerkLoaded && !clerkTimedOut) {
         router.replace("/(tabs)/dashboard");
+        return;
       } else {
         router.push("/auth?mode=signup");
       }
     } catch {
       router.push("/auth?mode=signup");
-    } finally {
-      setOpeningDashboard(false);
     }
+    setOpeningDashboard(false);
   };
 
   const buttonLabel = openingDashboard

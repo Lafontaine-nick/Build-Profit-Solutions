@@ -255,7 +255,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
     [PillTabBarBackground, darkMode, desktopWebSidebar, hasAlerts, sidebarBg, sidebarBorder, tabInactiveColor]
   );
 
-  if (Platform.OS === 'ios' && (!initialized || loading || subscriptionRequired)) {
+  if (Platform.OS === 'ios' && subscriptionRequired) {
     return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
   }
 

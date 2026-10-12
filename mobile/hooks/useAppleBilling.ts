@@ -21,7 +21,7 @@ import {
 } from '@/services/appleBillingService';
 
 export function useAppleBilling() {
-  const { isSignedIn } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
   const { user } = useUser();
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
   const [packages, setPackages] = useState<{ monthly?: PurchasesPackage; annual?: PurchasesPackage }>(
@@ -44,13 +44,13 @@ export function useAppleBilling() {
       setCustomerInfo(info);
       const offerings = await getAppleOfferings();
       setPackages(findApplePackages(offerings));
-      await syncAppleEntitlement(info);
+      await syncAppleEntitlement(info, await getToken());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Apple subscription.');
     } finally {
       setLoading(false);
     }
-  }, [available, isSignedIn, user?.id]);
+  }, [available, getToken, isSignedIn, user?.id]);
 
   useEffect(() => {
     if (!available || !isSignedIn) return;
@@ -62,7 +62,9 @@ export function useAppleBilling() {
         if (!mounted) return;
         listener = addAppleCustomerInfoListener((info) => {
           setCustomerInfo(info);
-          void syncAppleEntitlement(info).catch(() => {});
+          void getToken()
+            .then((token) => syncAppleEntitlement(info, token))
+            .catch(() => {});
         });
       })
       .catch(() => {});
@@ -70,14 +72,14 @@ export function useAppleBilling() {
       mounted = false;
       listener?.remove();
     };
-  }, [available, isSignedIn, refresh, user?.id]);
+  }, [available, getToken, isSignedIn, refresh, user?.id]);
 
   const purchase = useCallback(
     async (pkg: PurchasesPackage) => {
       setLoading(true);
       setError(null);
       try {
-        const { customerInfo: info } = await purchaseApplePackage(pkg);
+        const { customerInfo: info } = await purchaseApplePackage(pkg, () => getToken({ skipCache: true }));
         setCustomerInfo(info);
         return { info, error: null as string | null, cancelled: false };
       } catch (cause) {
@@ -93,14 +95,14 @@ export function useAppleBilling() {
         setLoading(false);
       }
     },
-    [],
+    [getToken],
   );
 
   const restore = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { customerInfo: info } = await restoreApplePurchases();
+      const { customerInfo: info } = await restoreApplePurchases(() => getToken({ skipCache: true }));
       setCustomerInfo(info);
       return info;
     } catch (cause) {
@@ -109,7 +111,7 @@ export function useAppleBilling() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getToken]);
 
   const purchasePeriod = useCallback(
     async (period: AppleBillingPeriod) => {

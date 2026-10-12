@@ -43,6 +43,19 @@ export const FOUNDING_PROFESSIONAL_FEATURES = [
   'Project photos, daily logs, and calendar tools',
 ];
 
+/** Short list shown on the iOS paywall and the Subscription screen. */
+export const FOUNDING_PLAN_HIGHLIGHTS = [
+  'AI estimates & AI Assistant',
+  'Photo & plan takeoff, supplier pricing',
+  'Job costing, budgets & change orders',
+  'Branded PDFs, photos & daily logs',
+  'Tax Center & receipt scanning',
+  'Unlimited projects',
+];
+
+export const TERMS_URL = 'https://buildprofitsolutions.com/terms';
+export const PRIVACY_URL = 'https://buildprofitsolutions.com/privacy';
+
 export const ALL_APPLE_PRODUCT_IDS = Object.values(APPLE_PRODUCT_IDS);
 
 export function isKnownAppleProductId(productId: string | null | undefined): boolean {

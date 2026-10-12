@@ -28,14 +28,33 @@ import {
   priceIdToPlanId,
   resolveBestPlanIdFromSubscriptions,
 } from '@/utils/resolveSubscriptionPlan';
+import * as WebBrowser from 'expo-web-browser';
 import { useAppleBilling } from '@/hooks/useAppleBilling';
-import { openAppleSubscriptionManagement } from '@/services/appleBillingService';
-import { ENTITLEMENT_FOUNDING_FULL, FOUNDING_PROFESSIONAL_FEATURES } from '@/constants/billingCatalog';
+import { hasAppleEntitlement, openAppleSubscriptionManagement } from '@/services/appleBillingService';
+import {
+  ENTITLEMENT_FOUNDING_FULL,
+  FOUNDING_PLAN_HIGHLIGHTS,
+  FOUNDING_PROFESSIONAL_FEATURES,
+  PRIVACY_URL,
+  TERMS_URL,
+} from '@/constants/billingCatalog';
 
 const CACHED_PLAN_KEY = 'bps.cachedPlanId';
 const IOS_MINT = '#2dcc9a';
 const IOS_CARD_DARK = '#1C1D20';
 const IOS = Platform.OS === 'ios';
+
+function formatWholeMoney(amount: number, currencyCode: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currencyCode || 'USD',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${Math.round(amount)}`;
+  }
+}
 
 function BillingPageFrame({
   framed,
@@ -196,8 +215,8 @@ export default function PaymentScreen() {
     const previewing = previewActive && !entitlement?.isActive;
     const annual = previewing ? false : productId.includes('annual');
     const pkg = annual ? appleBilling.packages.annual : appleBilling.packages.monthly;
-    const price = pkg?.product.priceString || (annual ? '$990.00' : '$99.00');
-    let renewsLabel = previewing ? 'Renews Nov 9, 2026' : '';
+    const price = pkg?.product.priceString || (annual ? '$999.00' : '$99.99');
+    let renewsLabel = previewing ? `Next charge ${price} on Nov 12, 2026` : '';
     if (!previewing && entitlement?.expirationDate) {
       const date = new Date(entitlement.expirationDate);
       if (!Number.isNaN(date.getTime())) {
@@ -206,16 +225,43 @@ export default function PaymentScreen() {
           day: 'numeric',
           year: 'numeric',
         });
-        renewsLabel = entitlement.willRenew === false ? `Access ends ${formatted}` : `Renews ${formatted}`;
+        renewsLabel =
+          entitlement.willRenew === false ? `Access ends ${formatted}` : `Next charge ${price} on ${formatted}`;
       }
     }
+
+    const monthlyProduct = appleBilling.packages.monthly?.product;
+    const annualProduct = appleBilling.packages.annual?.product;
+    let annualSavings: string | null = previewing ? '$200' : null;
+    if (!annual && monthlyProduct && annualProduct) {
+      const saved = monthlyProduct.price * 12 - annualProduct.price;
+      if (saved >= 1) annualSavings = formatWholeMoney(Math.floor(saved), annualProduct.currencyCode);
+    }
+
     return {
       periodLabel: annual ? 'Annual' : 'Monthly',
       perLabel: annual ? 'per year' : 'per month',
       price,
       renewsLabel,
+      annualSavings,
     };
   }, [appleBilling.customerInfo, appleBilling.packages, previewActive]);
+
+  const [restoring, setRestoring] = useState(false);
+  const handleRestore = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRestoring(true);
+    try {
+      const info = await appleBilling.restore();
+      if (info && hasAppleEntitlement(info)) {
+        Alert.alert('Restored', 'Professional is active on this Apple ID.');
+      } else {
+        Alert.alert('No subscription found', 'No Professional subscription was found for this Apple ID.');
+      }
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   const handleViewInvoices = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -565,9 +611,19 @@ export default function PaymentScreen() {
               </View>
               <Text style={[styles.iosPrice, { color: theme.text }]}>{iosActiveDetails.price}</Text>
               <Text style={[styles.iosPer, { color: theme.subtext }]}>{iosActiveDetails.perLabel}</Text>
+
+              <View style={[styles.iosDivider, { backgroundColor: theme.divider }]} />
               {iosActiveDetails.renewsLabel ? (
-                <Text style={[styles.iosRenews, { color: theme.subtext }]}>{iosActiveDetails.renewsLabel}</Text>
+                <View style={styles.iosInfoRow}>
+                  <MaterialIcons name="event" size={18} color={theme.subtext} />
+                  <Text style={[styles.iosInfoText, { color: theme.text }]}>{iosActiveDetails.renewsLabel}</Text>
+                </View>
               ) : null}
+              <View style={styles.iosInfoRow}>
+                <MaterialIcons name="verified-user" size={18} color={theme.subtext} />
+                <Text style={[styles.iosInfoText, { color: theme.text }]}>Billed through your Apple ID</Text>
+              </View>
+
               <TouchableOpacity
                 style={[styles.planActionButton, { backgroundColor: theme.accent }]}
                 onPress={handlePaymentManagement}
@@ -575,13 +631,33 @@ export default function PaymentScreen() {
               >
                 <Text style={styles.planActionText}>Manage Subscription</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.restoreLink}
-                onPress={handleSubscriptionPlans}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.restoreLinkText, { color: theme.accent }]}>Change Plan</Text>
-              </TouchableOpacity>
+              {iosActiveDetails.annualSavings ? (
+                <TouchableOpacity
+                  style={[
+                    styles.iosUpsell,
+                    { borderColor: 'rgba(45,204,154,0.35)', backgroundColor: 'rgba(45,204,154,0.08)' },
+                  ]}
+                  onPress={handleSubscriptionPlans}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.iosUpsellTitle, { color: theme.text }]}>Switch to Annual</Text>
+                    <Text style={[styles.iosUpsellBody, { color: theme.accent }]}>
+                      Save {iosActiveDetails.annualSavings} a year
+                    </Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color={theme.subtext} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.restoreLink}
+                  onPress={handleSubscriptionPlans}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.restoreLinkText, { color: theme.accent }]}>Change Plan</Text>
+                </TouchableOpacity>
+              )}
               {__DEV__ && previewActive ? (
                 <TouchableOpacity
                   style={styles.previewLink}
@@ -644,6 +720,44 @@ export default function PaymentScreen() {
             </>
           )}
         </View>
+
+        {isIosBilling && (currentPlan || previewActive) ? (
+          <>
+            <Text style={[styles.iosGroupTitle, { color: theme.subtext }]}>What's included</Text>
+            <View style={[styles.currentPlanCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 20 }]}>
+              {FOUNDING_PLAN_HIGHLIGHTS.map((feature, index) => (
+                <View
+                  key={feature}
+                  style={[
+                    styles.planDetailRow,
+                    index === FOUNDING_PLAN_HIGHLIGHTS.length - 1 && { marginBottom: 0 },
+                  ]}
+                >
+                  <MaterialIcons name="check-circle" size={18} color={theme.accent} />
+                  <Text style={[styles.planDetailText, { color: theme.text, fontSize: 15 }]}>{feature}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.iosFooterLinks}>
+              <TouchableOpacity onPress={() => void handleRestore()} disabled={restoring} hitSlop={8}>
+                {restoring ? (
+                  <ActivityIndicator size="small" color={theme.accent} />
+                ) : (
+                  <Text style={[styles.iosFooterLink, { color: theme.accent }]}>Restore Purchases</Text>
+                )}
+              </TouchableOpacity>
+              <Text style={[styles.iosFooterDot, { color: theme.subtext }]}>·</Text>
+              <TouchableOpacity onPress={() => void WebBrowser.openBrowserAsync(TERMS_URL)} hitSlop={8}>
+                <Text style={[styles.iosFooterLink, { color: theme.accent }]}>Terms</Text>
+              </TouchableOpacity>
+              <Text style={[styles.iosFooterDot, { color: theme.subtext }]}>·</Text>
+              <TouchableOpacity onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_URL)} hitSlop={8}>
+                <Text style={[styles.iosFooterLink, { color: theme.accent }]}>Privacy</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
 
         {/* Web billing rows. iOS actions live on the plan card. */}
         {!isIosBilling ? (
@@ -1010,10 +1124,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
   },
-  iosRenews: {
-    marginTop: 8,
+  iosDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 16,
+    marginBottom: 14,
+  },
+  iosInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  iosInfoText: {
+    flex: 1,
     fontSize: 14,
     lineHeight: 18,
+  },
+  iosUpsell: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iosUpsellTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  iosUpsellBody: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  iosFooterLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 36,
+  },
+  iosFooterLink: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  iosFooterDot: {
+    fontSize: 14,
   },
   previewLink: {
     marginTop: 8,

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { clerkAuthService } from '@/services/clerkAuth';
 import * as SecureStore from 'expo-secure-store';
@@ -19,16 +20,37 @@ export type BillingEntitlementPayload = {
 const READ_TIMEOUT_MS = 15000;
 const SYNC_TIMEOUT_MS = 45000;
 
-async function getAuthToken(): Promise<string | null> {
+function tokenExpired(token: string): boolean {
   try {
-    let token = clerkAuthService.getToken();
-    if (!token) {
-      token = await SecureStore.getItemAsync('__clerk_client_jwt');
-    }
-    return token;
+    const payload = token.split('.')[1];
+    if (!payload) return false;
+    const decoded = JSON.parse(
+      decodeURIComponent(
+        Array.from(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+          .map((char) => `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`)
+          .join('')
+      )
+    );
+    return typeof decoded.exp === 'number' && decoded.exp <= Date.now() / 1000 + 15;
   } catch {
-    return null;
+    return false;
   }
+}
+
+async function getAuthToken(explicit?: string | null): Promise<string | null> {
+  const candidates: Array<string | null | undefined> = [explicit];
+  try {
+    candidates.push(await AsyncStorage.getItem('auth_token'));
+    candidates.push(await AsyncStorage.getItem('authToken'));
+    candidates.push(clerkAuthService.getToken());
+    candidates.push(await SecureStore.getItemAsync('__clerk_client_jwt'));
+  } catch {
+    /* storage unavailable */
+  }
+  for (const token of candidates) {
+    if (token && !tokenExpired(token)) return token;
+  }
+  return null;
 }
 
 async function fetchJson<T>(
@@ -78,8 +100,10 @@ export async function fetchBillingEntitlement(): Promise<BillingEntitlementPaylo
   };
 }
 
-export async function syncBillingEntitlement(): Promise<BillingEntitlementPayload> {
-  const token = await getAuthToken();
+export async function syncBillingEntitlement(
+  explicitToken?: string | null
+): Promise<BillingEntitlementPayload> {
+  const token = await getAuthToken(explicitToken);
   if (!token) {
     throw new Error('Sign in required to sync subscription.');
   }

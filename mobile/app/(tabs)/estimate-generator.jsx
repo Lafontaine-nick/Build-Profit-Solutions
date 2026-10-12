@@ -5841,13 +5841,13 @@ export default function EstimateGeneratorScreen() {
       if (__DEV__) {
         console.warn('🤖 handleGenerateAiDraft — starting');
       }
-      let authToken =
-        (prefetchedAuthToken && String(prefetchedAuthToken).trim()) || null;
+      let authToken = await Promise.race([
+        getToken({ skipCache: true }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
       if (!authToken) {
-        authToken = await Promise.race([
-          getToken(),
-          new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
-        ]);
+        authToken =
+          (prefetchedAuthToken && String(prefetchedAuthToken).trim()) || null;
       }
       if (__DEV__) {
         console.warn('🤖 auth ready for draft POST', authToken ? '(token ok)' : '(no token)');
@@ -7390,20 +7390,14 @@ export default function EstimateGeneratorScreen() {
     })();
   }, [isLoaded, hasMultipleBids, clerkUser?.id, refreshWalkthroughState]);
 
-  const shouldShowGuidance =
-    !hasMultipleBids &&
-    !coachGate.secondBid &&
-    (isOnboardingReset || coachGate.firstTimeEst || coachGate.reset);
+  // First-estimate guided setup taught the manual form and covered Build with AI. It stays off.
+  const shouldShowGuidance = false;
 
   useEffect(() => {
     setGuidedMode(shouldShowGuidance);
   }, [shouldShowGuidance]);
 
-  const shouldShowFirstEstimateWalkthrough =
-    wtHydrated &&
-    shouldShowFirstEstimate &&
-    !hasMultipleBids &&
-    !coachGate.secondBid;
+  const shouldShowFirstEstimateWalkthrough = false;
 
   /** Intro or per-step tips — suppress empty-state gate so users can tour all steps without filling fields. */
   const firstEstimateWalkthroughTourActive =
@@ -23137,13 +23131,6 @@ export default function EstimateGeneratorScreen() {
         <WebPageShell size="estimate" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         {/* Header — same horizontal inset as cards / nav pill */}
         <View style={[s.wideContainer, { marginBottom: 16 }]}>
-          {guidedMode && shouldShowGuidance && (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
-                Guided Setup ({guidedStepIndex} of 5)
-              </Text>
-            </View>
-          )}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={{ color: Colors.text, fontSize: 34, fontWeight: '900', letterSpacing: -0.3 }}>
@@ -23190,7 +23177,7 @@ export default function EstimateGeneratorScreen() {
           </View>
         </View>
 
-        {step === 0 ? (
+        {step === 0 && !shouldShowEstimateEmptyState ? (
           <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
             <TouchableOpacity
               activeOpacity={0.88}
@@ -23216,7 +23203,8 @@ export default function EstimateGeneratorScreen() {
         ) : null}
         </View>
 
-        {/* Navigation Pill (matches dashboard segmented control) - same width as Bid Summary */}
+        {/* Bid controls stay hidden until there is a bid. The first-estimate card is the start action. */}
+        {!shouldShowEstimateEmptyState ? (
         <View style={[s.wideContainer, { marginBottom: 14, opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <View
           style={[
@@ -23387,6 +23375,7 @@ export default function EstimateGeneratorScreen() {
           </Text>
         ) : null}
         </View>
+        ) : null}
 
         {/* Step Content */}
         {showEstimateHydrationShell ? (
@@ -23439,133 +23428,6 @@ export default function EstimateGeneratorScreen() {
           </View>
         ) : showEstimateWorkspace ? (
           <>
-            {/* Estimate Readiness Panel (first-run only, above breakdown) */}
-            {shouldShowGuidance && step === 0 && !firstEstimateWalkthroughTourActive && (
-              <View style={{ marginTop: 0, marginBottom: ESTIMATE_FLOW_CARD_GAP }}>
-                {/* Next Step Chip */}
-                <View style={{ marginBottom: 10 }}>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleReadinessCTA}
-                    style={{
-                      alignSelf: 'flex-start',
-                      backgroundColor: 'rgba(34, 197, 94, 0.15)',
-                      borderColor: 'rgba(34, 197, 94, 0.4)',
-                      borderWidth: 1,
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 999,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <MaterialIcons name="arrow-forward" size={14} color="#22c55e" />
-                    <Text style={{ color: darkMode ? '#d1fae5' : '#374151', fontSize: 12, fontWeight: '600' }}>Next step: {nextStepLabel}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Progress Meter */}
-                <View style={{ marginBottom: 12 }}>
-                  <Text style={{ color: darkMode ? '#d7e1f0' : '#374151', fontSize: 12, marginBottom: 6 }}>
-                    Guided setup — {setupProgressPct}% complete
-                  </Text>
-                  <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999 }}>
-                    <View
-                      style={{
-                        height: 6,
-                        width: `${setupProgressPct}%`,
-                        backgroundColor: '#22c55e',
-                        borderRadius: 999,
-                      }}
-                    />
-                  </View>
-                </View>
-
-                <View style={{ backgroundColor: darkMode ? '#0b0f14' : Colors.surface2, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.line }}>
-                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
-                    {readinessState === 'ready' ? 'Estimate looks solid' : readinessState === 'partial' ? 'Estimate in progress' : 'Estimate not ready yet'}
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 6 }}>
-                    {completedChecklistCount === 0
-                      ? 'Just getting started'
-                      : completedChecklistCount === 2
-                        ? 'Halfway there'
-                        : completedChecklistCount === 3
-                          ? 'Almost ready to send'
-                          : completedChecklistCount === 4
-                            ? 'Ready to submit'
-                            : "You're 1 step away from a complete estimate."}
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 10 }}>
-                    Complete the steps below to finish your estimate.
-                  </Text>
-                  <View style={{ gap: 6, marginBottom: 12 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasClientInfo && hasJobInfo ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasClientInfo && hasJobInfo ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add client & job info</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasMaterials ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasMaterials ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add materials</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasLabor ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasLabor ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add labor</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasReviewedMarkup ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedMarkup ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: darkMode ? Colors.text : '#374151', fontSize: 13 }}>Review markup</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasPaymentSchedule ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasPaymentSchedule ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Payment schedule</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasReviewedTotal ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedTotal ? '#22c55e' : Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Review total</Text>
-                    </View>
-                  </View>
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 10 }}>
-                    Most contractors use 18–25% markup. You can change this anytime.
-                    {markupLow ? ' Your current markup is below typical range.' : ''}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        // If all steps are complete, submit the bid; otherwise navigate to next step
-                        const allComplete = hasClientInfo && hasJobInfo && hasMaterials && hasLabor && hasReviewedMarkup && hasPaymentSchedule && hasReviewedTotal;
-                        if (allComplete) {
-                          handleSubmitBid();
-                        } else {
-                          handleReadinessCTA();
-                        }
-                      }}
-                      activeOpacity={0.85}
-                      style={{ backgroundColor: '#22c55e', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 }}
-                    >
-                      <Text style={{ color: '#000000', fontSize: 13, fontWeight: '700' }}>
-                        {!hasClientInfo || !hasJobInfo ? 'Add client info' : !hasMaterials ? 'Add materials' : !hasLabor ? 'Add labor' : !hasReviewedMarkup ? 'Review markup' : !hasPaymentSchedule ? 'Set payment schedule' : !hasReviewedTotal ? 'Review total' : 'Send to Projects'}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setStep(3);
-                        setActiveNavButton('next');
-                      }}
-                      activeOpacity={0.85}
-                      style={{ paddingVertical: 10, paddingHorizontal: 8 }}
-                    >
-                      <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>
-                        {(!hasClientInfo || !hasJobInfo) ? 'Add materials' : 'Skip for now'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            )}
-
             {renderStepContent()}
           </>
         ) : null}
