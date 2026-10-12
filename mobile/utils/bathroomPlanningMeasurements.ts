@@ -2,6 +2,22 @@ import { defaultBathroomEntireRoomPaintSqft } from '@/utils/bathroomDrywallPaint
 import type { ParsedScopeMeasurements } from '@/utils/scopeMeasurementParser';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 
+function noteMentionsGeneralWallDemolition(
+  noteText: string | null | undefined
+): boolean {
+  const source = String(noteText || '');
+  const pattern =
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source))) {
+    if (/\b(?:shower|tile|tiled)\s+(?:nonstructural\s+)?walls?\b/i.test(match[0])) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 function isBathroomContext(ctx: {
   templateKey?: string | null;
   projectType?: string | null;
@@ -246,12 +262,63 @@ export const BATHROOM_REVEAL_EXCLUDED_SCOPE_PATTERN =
   /\bgutters?\b|\bdownspouts?\b|\bmoisture\s+barrier\b|\bwater\s+mitigation\b|\bvapor\s+barrier\b/i;
 
 export function filterBathroomRevealAttentionItems(
-  draft: { scopeChecklist?: { templateKey?: string | null }; projectType?: string | null },
+  draft: {
+    scopeChecklist?: { templateKey?: string | null };
+    projectType?: string | null;
+    originalNotes?: string | null;
+  },
   items: string[]
 ): string[] {
+  const notes = String(draft.originalNotes || '');
   const templateKey = String(
     draft.scopeChecklist?.templateKey || draft.projectType || ''
   ).toLowerCase();
-  if (templateKey !== 'bathroom') return items;
-  return items.filter((item) => !BATHROOM_REVEAL_EXCLUDED_SCOPE_PATTERN.test(item));
+  const bathroomJob =
+    templateKey === 'bathroom' ||
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notes) ||
+    /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes);
+  if (!bathroomJob) return items;
+  const paintNamed = /\bpaint(?:ing)?\b/i.test(notes);
+  const bathroomWallPaintNamed =
+    paintNamed &&
+    /\bpaint(?:ing)?\b[^.;\n]{0,50}\b(?:the\s+)?(?:bathroom\s+)?walls?\b|\b(?:bathroom\s+)?walls?\b[^.;\n]{0,50}\bpaint(?:ing)?\b/i.test(
+      notes
+    );
+  const wallDemoNamed = noteMentionsGeneralWallDemolition(notes);
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const item of items) {
+    if (BATHROOM_REVEAL_EXCLUDED_SCOPE_PATTERN.test(item)) continue;
+    if (
+      !paintNamed &&
+      /\binterior\s+paint\b|\bpaint(?:ing)?\b/i.test(item)
+    ) {
+      continue;
+    }
+    if (!wallDemoNamed && /\bwall\s+demolition\b/i.test(item)) continue;
+    if (
+      !/\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|walls?)|shower\s+tile)\b/i.test(
+        notes
+      ) &&
+      /shower tile demo/i.test(item)
+    ) {
+      continue;
+    }
+    let label = item;
+    if (
+      bathroomWallPaintNamed &&
+      (/^price needed for walls$/i.test(item.trim()) ||
+        /interior\s+painting\/patch\s+and\s+repair/i.test(item))
+    ) {
+      label = item.replace(
+        /walls|interior\s+painting\/patch\s+and\s+repair/i,
+        'Bathroom wall paint'
+      );
+    }
+    const key = label.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(label);
+  }
+  return next;
 }

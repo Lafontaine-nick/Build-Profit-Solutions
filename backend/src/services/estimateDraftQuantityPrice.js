@@ -588,6 +588,15 @@ function detectNoteTrades(notes) {
       return false;
     }
     if (!noteSignalIsActive(text, NOTE_TRADE_PATTERNS[trade])) return false;
+    if (trade === 'flooring') {
+      const withoutBathroomFloorTile = text.replace(
+        /\b(?:bath(?:room)?|shower)\s+floor\s+tile\b/gi,
+        ' '
+      );
+      if (!noteSignalIsActive(withoutBathroomFloorTile, NOTE_TRADE_PATTERNS.flooring)) {
+        return false;
+      }
+    }
     if (trade !== 'painting') return true;
     const hasPaintSurfaceIntent =
       /\b(?:walls?|ceilings?|siding|interior|exterior|whole[-\s]?house|paint(?:ing)?\s+(?:job|scope|prep|masking)|repaint|painting)\b/i.test(

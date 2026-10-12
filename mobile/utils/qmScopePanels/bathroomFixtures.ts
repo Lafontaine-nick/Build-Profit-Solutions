@@ -1,3 +1,4 @@
+import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { inferChoiceFromNotes, inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import {
@@ -354,18 +355,20 @@ export function inferBathroomFixtureInstallFromIntent(params: {
   notes?: string | null;
   checklistItems?: ScopeChecklistItem[];
 }): BathroomInstallFixtureCounts {
-  const n = String(params.notes || '').toLowerCase();
+  const n = bathroomAffirmativeNotes(params.notes).toLowerCase();
   const items = params.checklistItems || [];
   const out: BathroomInstallFixtureCounts = {
     bathroomInstallVanityCount: null,
     bathroomInstallCounterCount: null,
   };
   const vanityRow = items.find((r) => r.id === 'vanity');
+  const noteNamesVanity = /\bvanit(?:y|ies)\b/.test(n);
   const vanityReplacing =
-    (vanityRow?.state === 'included' && vanityRow.choiceId === 'replacing') ||
-    inferChoiceFromNotes('vanity', params.notes) === 'replacing' ||
-    /\b(new|replace|install)\b[^.]{0,40}\bvanity\b/.test(n) ||
-    /\bvanity\b[^.]{0,40}\b(replace|new|install)\b/.test(n);
+    noteNamesVanity &&
+    ((vanityRow?.state === 'included' && vanityRow.choiceId === 'replacing') ||
+      inferChoiceFromNotes('vanity', n) === 'replacing' ||
+      /\b(new|replace|install)\b[^.]{0,40}\bvanity\b/.test(n) ||
+      /\bvanity\b[^.]{0,40}\b(replace|new|install)\b/.test(n));
   if (vanityReplacing && !/\b(keep|keeping|stay|staying|reuse|reusing)\b[^.]{0,30}\bvanity\b/.test(n)) {
     out.bathroomInstallVanityCount = 1;
   }

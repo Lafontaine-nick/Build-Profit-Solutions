@@ -1,5 +1,10 @@
 import { filterBathroomRevealAttentionItems } from '@/utils/bathroomPlanningMeasurements';
 import {
+  alignDedicatedBathroomScopeRows,
+  bathroomAffirmativeNotes,
+  filterDedicatedBathroomConfirmItems,
+} from '@/utils/bathroomNoteScope';
+import {
   filterConcreteRevealAttentionItems,
   notesAreImportedPlanSummary,
   summarizeConcreteNoteBullets,
@@ -1448,7 +1453,7 @@ function getInitialRevealScopeRows(
       notes
     );
   const explicitShowerDemo =
-    /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?)|tub|bathtub)\b|\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?)|tub|bathtub)\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?))\b|\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?))\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
       notes
     );
   const explicitCountertop =
@@ -1757,6 +1762,75 @@ function getInitialRevealScopeRows(
           : {}),
       }))
       .filter(row => row.id && row.name) || [];
+  const prefabEnclosureNamed =
+    /\bprefab(?:\s+shower)?\s+(?:enclosure|surround)\b|\b(?:one[\s-]?piece)\s+(?:shower\s+)?enclosure\b/i.test(
+      notes
+    );
+  const prefabPanNamed = /\bprefab\s+(?:shower\s+)?pan\b|\bpan\s+insert\b/i.test(
+    notes
+  );
+  const removesPrefabPan =
+    /\b(?:remove|demo|demolition|tear[\s-]?out)\b[^.]{0,50}\bprefab\s+(?:shower\s+)?pan\b/i.test(
+      notes
+    );
+  const removesPrefabEnclosure =
+    /\b(?:remove|demo|demolition|tear[\s-]?out)\b[^.]{0,60}\b(?:existing\s+)?prefab\s+(?:shower(?:\s+enclosure)?|enclosure)\b/i.test(
+      notes
+    );
+  const tubInstallNamed =
+    /\b(?:install|new)\b[^.]{0,40}\b(?:a\s+)?(?:new\s+)?tub\b|\bnew\s+tub\b/i.test(
+      notes
+    ) &&
+    !prefabEnclosureNamed &&
+    !prefabPanNamed &&
+    !/\b(?:tile\s+shower|mud\s+pan|shower\s+pan)\b/i.test(notes);
+  const bathroomWallPaintNamed =
+    /\bpaint(?:ing)?\b[^.;\n]{0,50}\b(?:the\s+)?(?:bathroom\s+)?walls?\b|\b(?:bathroom\s+)?walls?\b[^.;\n]{0,50}\bpaint(?:ing)?\b/i.test(
+      notes
+    ) &&
+    !/\b(?:drywall|sheetrock)\s+(?:patch|repair)\b|\b(?:patch|repair)\b[^.;\n]{0,30}\b(?:drywall|sheetrock)\b/i.test(
+      notes
+    );
+  if (tubInstallNamed) {
+    rows = rows.map(row =>
+      row.id === 'wet_area_install' ? { ...row, name: 'Tub install' } : row
+    );
+  }
+  if (bathroomWallPaintNamed) {
+    rows = rows.map(row =>
+      row.id === 'paint_repair' ||
+      /interior\s+painting\/patch\s+and\s+repair/i.test(row.name)
+        ? { ...row, name: 'Bathroom wall paint' }
+        : row
+    );
+  }
+  if (prefabEnclosureNamed && !prefabPanNamed) {
+    rows = rows.map(row =>
+      row.id === 'wet_area_install'
+        ? { ...row, name: 'Prefab shower enclosure' }
+        : row
+    );
+  } else if (prefabPanNamed && !prefabEnclosureNamed) {
+    rows = rows.map(row =>
+      row.id === 'wet_area_install'
+        ? { ...row, name: 'Prefab shower pan' }
+        : row
+    );
+  }
+  if (
+    (removesPrefabEnclosure || removesPrefabPan) &&
+    !rows.some(row => /remove|demo/i.test(row.name) && /prefab/i.test(row.name))
+  ) {
+    rows = [
+      {
+        id: removesPrefabPan ? 'shower_floor_demo' : 'shower_enclosure_demo',
+        name: removesPrefabPan
+          ? 'Remove existing prefab shower pan'
+          : 'Remove existing prefab shower enclosure',
+      },
+      ...rows,
+    ];
+  }
   if (additionReveal) {
     const presentIds = new Set(rows.map(row => row.id));
     const explicitInteriorTrim =
@@ -2516,10 +2590,55 @@ function getInitialRevealScopeRows(
       rows.push({ id: `note:${plain.toLowerCase()}`, name: plain });
     }
   }
-  return rows;
+  const bathroomScopeParams = {
+    notes,
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+    scopeMode:
+      draft.scopeMode || draft.classification?.scopeMode || null,
+    planBacked: Boolean(
+      draft.scopeMeasurements?.planImportMode ||
+        draft.scopeMeasurements?.planImportFingerprint
+    ),
+    wholeHome: wholeHomeRemodelContext,
+  };
+  return alignDedicatedBathroomScopeRows(
+    filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
+    bathroomScopeParams
+  );
 }
 
 /** Checklist rows for Scope found when priced packages are not built yet. */
+function dedicatedBathroomRemodelNote(notes?: string | null): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text) ||
+    /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(text)
+  );
+}
+
+function hideUnnamedBathroomPaintScopeRow(
+  draft: EstimateAiDraft,
+  row: { id?: string; name?: string | null }
+): boolean {
+  const notes = String(draft.originalNotes || '');
+  const bathroom =
+    String(draft.scopeChecklist?.templateKey || '').toLowerCase() ===
+      'bathroom' || dedicatedBathroomRemodelNote(notes);
+  if (!bathroom || /\bpaint(?:ing)?\b/i.test(bathroomAffirmativeNotes(notes)))
+    return false;
+  const id = String(row.id || '');
+  if (
+    id === 'interior_paint' ||
+    id === 'paint' ||
+    id === 'paint_repair' ||
+    id === 'ceiling_paint'
+  ) {
+    return true;
+  }
+  return /\binterior\s+paint\b/i.test(String(row.name || ''));
+}
+
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
@@ -2542,7 +2661,9 @@ export function getInitialRevealChecklistScopePreview(
     }));
   }
   const showAmounts = initialRevealPricingVisible(draft);
-  const scopeRows = getInitialRevealScopeRows(draft);
+  const scopeRows = getInitialRevealScopeRows(draft).filter(
+    row => !hideUnnamedBathroomPaintScopeRow(draft, row)
+  );
   const visibleChecklistItems =
     draft.scopeChecklist?.items?.filter(item =>
       revealChecklistItemVisible(draft, item)
@@ -2626,7 +2747,9 @@ export function getInitialRevealChecklistScopePreview(
           ...(quantity ? { quantity } : {}),
         };
       })
-      .filter(row => row.name);
+      .filter(
+        row => row.name && !hideUnnamedBathroomPaintScopeRow(draft, row)
+      );
     return normalizeAdditionRevealPreviewRows(draft, [
       ...checklistRows,
       ...packageOnlyRows,
@@ -2825,13 +2948,26 @@ function getRevealClassification(draft: EstimateAiDraft) {
     /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|exterior\s+doors?)\b/i.test(
       notes
     );
+  const mixedSignalText = notes
+    .replace(/\bno\s+(?:new\s+)?paint(?:ing)?\b/gi, ' ')
+    .replace(/\bshower\s+doors?\b/gi, ' ')
+    .replace(/\bat\s+the\s+floor\b/gi, ' ')
+    .replace(
+      /[^.]*\bleave\b[^.]{0,80}\b(?:bath(?:room)?\s+floor|vanity|toilet)\b[^.]*/gi,
+      ' '
+    );
   const mixedNoteSignals = [
     /\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b/i,
     /\b(?:drywall|sheetrock|gypsum|patch|repair)\b/i,
     /\b(?:paint(?:ing)?|repaint)\b/i,
     /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i,
     /\bwindows?\b|\b(?:interior\s+)?doors?\b/i,
-  ].filter(pattern => pattern.test(notes)).length;
+  ].filter(pattern => pattern.test(mixedSignalText)).length;
+  const bathroomNoteKeepsDedicated =
+    /\b(?:bath(?:room)?|wet\s+area|shower)\b/i.test(notes) &&
+    !/\b(?:framing|wall\s+framing|frame\s+(?:out|up|the\s+walls?|the\s+house|the\s+addition))\b/i.test(
+      notes
+    );
   const notesImplyMixedScope =
     !importedPlanSummary &&
     !selectedTradePlan &&
@@ -2949,6 +3085,7 @@ function getRevealClassification(draft: EstimateAiDraft) {
     : displayTradeLabels;
   return {
     scopeMode:
+      !bathroomNoteKeepsDedicated &&
       (notesImplyMixedScope || hasMixedExteriorHardscape) &&
       resolvedScopeMode !== 'mixed'
         ? 'mixed'
@@ -3032,7 +3169,13 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
       return `${taglineTitle} · ${scopeCount} scope line${scopeCount === 1 ? '' : 's'}`;
     }
   }
-  const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6);
+  const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6).map(
+    line =>
+      /detected flooring job/i.test(line) &&
+      dedicatedBathroomRemodelNote(draft.originalNotes)
+        ? 'Detected bathroom remodel.'
+        : line
+  );
   const titleNorm = getInitialRevealDisplayTitle(draft).toLowerCase();
   const positive = bullets.find(line => {
     const plain = plainLanguageReviewItem(line);

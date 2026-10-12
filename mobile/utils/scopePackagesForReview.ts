@@ -84,6 +84,23 @@ const HVAC_PACKAGE_COMPONENT_IDS = new Set([
   'thermostat',
 ]);
 
+/** Shower-wall tear-out is tile demo, not a wall-demolition scope line. */
+export function noteMentionsGeneralWallDemolition(
+  noteText: string | null | undefined
+): boolean {
+  const source = String(noteText || '');
+  const pattern =
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source))) {
+    if (/\b(?:shower|tile|tiled)\s+(?:nonstructural\s+)?walls?\b/i.test(match[0])) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Expand checklist rows for Confirm Scope UI and Applied-pricing totals.
  * Step 2 and Step 3 must share this list so footer totals match review rows.
@@ -193,10 +210,7 @@ export function buildConfirmScopeDisplayItems(
     return row;
   });
   const noteBackedStructuralCards: Array<ScopeChecklistItem> = [];
-  const noteMentionsWallDemolition =
-    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
-      noteText
-    );
+  const noteMentionsWallDemolition = noteMentionsGeneralWallDemolition(noteText);
   const noteMentionsWallFraming =
     /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
       noteText

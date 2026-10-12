@@ -2639,8 +2639,8 @@ export function quickMeasurementRowsForTemplate(
   );
   const bathroomNoteText = String(notes || '');
   const bathroomHasNotes = Boolean(bathroomNoteText.trim());
-  const bathroomWetAreaWork =
-    /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
+  const bathroomShowerTileWork =
+    /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|shower\s+tile)\b/i.test(
       bathroomNoteText
     );
   const bathroomFloorWork =
@@ -2670,7 +2670,7 @@ export function quickMeasurementRowsForTemplate(
             field.key === 'showerWallTileSqft' ||
             field.key === 'showerFloorTileSqft'
           ) {
-            return bathroomWetAreaWork;
+            return bathroomShowerTileWork;
           }
           if (field.key === 'bathroomFloorSqft') return bathroomFloorWork;
           if (

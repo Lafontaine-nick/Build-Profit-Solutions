@@ -216,7 +216,7 @@ function notesMentionExistingPrefabPan(n: string): boolean {
 }
 
 function notesMentionExistingPrefabEnclosure(n: string): boolean {
-  return /\b(prefab\s+shower\s+enclosure|prefab\s+enclosure|one[\s-]?piece\s+enclosure|fiberglass\s+surround)\b/.test(
+  return /\b(prefab\s+shower\s+enclosure|prefab\s+enclosure|one[\s-]?piece\s+enclosure|fiberglass\s+surround|prefab\s+surround)\b/.test(
     n
   );
 }
@@ -277,7 +277,7 @@ export function inferExistingWetAreaFromNotes(
   if (notesMentionExistingTilePan(n)) out.existingTilePanCount = 1;
   if (notesMentionExistingPrefabEnclosure(n))
     out.existingPrefabEnclosureCount = 1;
-  else if (notesMentionExistingPrefabPan(n)) out.existingPrefabPanCount = 1;
+  if (notesMentionExistingPrefabPan(n)) out.existingPrefabPanCount = 1;
   if (notesMentionExistingShowerDoor(n)) out.existingShowerDoorCount = 1;
   if (notesMentionExistingBathFloorTile(n)) out.existingBathFloorTileCount = 1;
   return reconcileExistingWetAreaCounts(out);
@@ -314,6 +314,14 @@ export function reconcileExistingWetAreaCounts(
     out.existingTubCount = null;
     out.existingPrefabPanCount = null;
     out.existingPrefabEnclosureCount = null;
+    return out;
+  }
+  if (
+    positiveCount(out.existingPrefabEnclosureCount) &&
+    positiveCount(out.existingPrefabPanCount)
+  ) {
+    out.existingTubCount = null;
+    out.existingTilePanCount = null;
     return out;
   }
   if (positiveCount(out.existingPrefabEnclosureCount)) {
@@ -565,7 +573,6 @@ export function resolveDemoWetAreaFromIntent(
     Boolean(
       !hasExistingTub &&
         ((hasExistingPrefabPan &&
-          !hasExistingEnclosure &&
           (floorDemoFromNotes ||
             displaceExistingShowerFloor ||
             installingPrefabPan)) ||

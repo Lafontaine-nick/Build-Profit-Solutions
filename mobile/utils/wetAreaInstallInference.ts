@@ -1,3 +1,4 @@
+import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
 import type { WetAreaStepperCounts } from '@/utils/planBathRooms';
 
 function positiveCount(value: unknown): number | null {
@@ -78,7 +79,32 @@ function notesMentionPrefabEnclosure(n: string): boolean {
   );
 }
 
+/** Install count only. A surround that is coming out is demo, not a new enclosure. */
+function notesMentionPrefabEnclosureInstall(n: string): boolean {
+  if (
+    /\b(?:install|new|replace)\b[^.]{0,60}\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/.test(
+      n
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b[^.]{0,40}\b(?:install|new)\b/.test(
+      n
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(?:prefab\s+shower\s+enclosure|prefab\s+enclosure)\b/.test(n) &&
+    !/\bprefab\s+(?:shower\s+)?pan\b/.test(n)
+  );
+}
+
 function notesMentionPrefabPan(n: string): boolean {
+  if (/\b(?:install|new)\b[^.]{0,50}\bprefab\s+(?:shower\s+)?pan\b/.test(n)) {
+    return true;
+  }
   if (notesMentionPrefabEnclosure(n)) return false;
   // "demo prefab shower pan" is tear-out — do not treat as installing a new prefab pan.
   if (notesMentionDemoPrefabPan(n) && !/\b(install|new)\b[^.]{0,50}\bprefab\s+(?:shower\s+)?pan\b/.test(n)) {
@@ -137,7 +163,7 @@ export type WetAreaInstallInferenceInput = {
 export function inferWetAreaInstallSteppersFromIntent(
   input: WetAreaInstallInferenceInput
 ): WetAreaStepperCounts {
-  const n = String(input.notes || '').toLowerCase();
+  const n = bathroomAffirmativeNotes(input.notes).toLowerCase();
   const choice = input.wetAreaInstallChoiceId;
 
   if (
@@ -156,14 +182,16 @@ export function inferWetAreaInstallSteppersFromIntent(
   if (input.showerFloorTileIncluded || notesMentionTileShowerPan(n)) {
     out.tilePanBathCount = 1;
   }
-  if (notesMentionPrefabEnclosure(n) || choice === 'prefab_enclosure') {
+  if (notesMentionPrefabEnclosureInstall(n) || choice === 'prefab_enclosure') {
     out.prefabEnclosureBathCount = 1;
   }
-  if (
-    (notesMentionPrefabPan(n) || choice === 'prefab') &&
-    !out.prefabEnclosureBathCount
-  ) {
-    out.prefabBathCount = 1;
+  if (notesMentionPrefabPan(n) || choice === 'prefab') {
+    if (
+      !out.prefabEnclosureBathCount ||
+      /\b(?:install|new)\b[^.]{0,50}\bprefab\s+(?:shower\s+)?pan\b/.test(n)
+    ) {
+      out.prefabBathCount = 1;
+    }
   }
   if (notesMentionTubInstall(n) || choice === 'tub') {
     out.tubBathCount = 1;

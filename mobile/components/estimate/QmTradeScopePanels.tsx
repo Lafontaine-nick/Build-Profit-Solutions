@@ -132,6 +132,7 @@ import {
   normalizeBathroomVanityCountertopMaterialType,
   type BathroomVanityCountertopMaterialType,
 } from '@/utils/bathroomVanityCountertopPricing';
+import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
 import { BATHROOM_QM_STEPPER_MAX } from '@/utils/planBathRooms';
 
 const BATHROOM_QM_PARENT_FLUSH_MS = 150;
@@ -3912,7 +3913,7 @@ export const QmBathroomFixturesPanels = React.memo(
         ]
       );
 
-      const noteText = String(notes || '');
+      const noteText = bathroomAffirmativeNotes(notes);
       const notesMentionVanity = /\bvanit(?:y|ies)\b/i.test(noteText);
       const notesMentionCountertop =
         /\b(?:countertops?|counters?|quartz|granite|vanity\s+top)\b/i.test(
@@ -3973,6 +3974,8 @@ export const QmBathroomFixturesPanels = React.memo(
               Colors={Colors}
             />
           ) : null}
+          {visibleBathroomInstallRows.length > 0 ||
+          visibleBathroomDemoRows.length > 0 ? (
           <QmScopePanelSection
             title={notesMentionCountertop ? 'Vanity & countertop' : 'Vanity'}
             {...vanityInstallStyle}
@@ -4103,6 +4106,7 @@ export const QmBathroomFixturesPanels = React.memo(
                 ) : null,
             }}
           />
+          ) : null}
         </>
       );
     }
@@ -8210,6 +8214,32 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
+  const deckOptionVisible = (optionId: string) => {
+    if (scopeKey !== 'deck_patio' || !condensed) return true;
+    if (selections.includes(optionId)) return true;
+    const noteText = String(notes || '');
+    const genericDeck =
+      /\bdeck(?:ing)?\b/i.test(noteText) &&
+      !/\bcomposite\b|\bwood\s+deck\b/i.test(noteText);
+    if (
+      (optionId === 'composite_deck' || optionId === 'wood_deck') &&
+      genericDeck
+    ) {
+      return true;
+    }
+    const patterns: Record<string, RegExp> = {
+      wood_fence: /\bwood\s+fence\b/i,
+      vinyl_fence: /\bvinyl\s+fence\b/i,
+      chain_link: /\bchain[\s-]?link\b/i,
+      composite_deck: /\bcomposite\b/i,
+      wood_deck: /\bwood\s+deck\b/i,
+      railings: /\brailings?\b/i,
+      gates: /\bgates?\b/i,
+      stairs: /\bstairs?\b/i,
+    };
+    return Boolean(patterns[optionId]?.test(noteText));
+  };
+
   const distributionIncludedInInstall =
     scopeKey === 'hvac' &&
     hvacPlanInstallIncludesDistribution(
@@ -8301,6 +8331,7 @@ export function QmSimpleTradeScopePanels({
         <View style={styles.choiceWrap}>
           {spec.options
             .filter(option => !isOptionalAddOn(option.id))
+            .filter(option => deckOptionVisible(option.id))
             .map(renderOptionChip)}
         </View>
         {optionalOptions.length ? (

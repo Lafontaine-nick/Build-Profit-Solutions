@@ -205,8 +205,15 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
   const trades = draft.detectedTrades?.length
     ? draft.detectedTrades
     : detectTrades(draft.projectType, scopePackages.map((p) => `${p.name} ${p.scope}`).join(' '));
-  const tradeLabel =
-    draft.scopeMode === 'mixed'
+  const noteText = String(draft.originalNotes || '');
+  const dedicatedBathroomNote =
+    draft.scopeMode !== 'mixed' &&
+    (draft.scopeChecklist?.templateKey === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(noteText) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(noteText));
+  const tradeLabel = dedicatedBathroomNote
+    ? 'bathroom remodel'
+    : draft.scopeMode === 'mixed'
       ? draft.scopeSummary || 'mixed-scope construction'
       : draft.scopeChecklist?.templateKey === 'room_remodel'
       ? 'existing home interior remodel'

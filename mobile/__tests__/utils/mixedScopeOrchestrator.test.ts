@@ -65,6 +65,13 @@ describe('mixedScopeOrchestrator', () => {
     expect(
       isCanonicalMixedScope({
         ...baseInput,
+        scopeMode: 'dedicated',
+        detectedTrades: ['bathroom', 'painting', 'flooring'],
+      })
+    ).toBe(false);
+    expect(
+      isCanonicalMixedScope({
+        ...baseInput,
         singleTradeImport: true,
       })
     ).toBe(false);

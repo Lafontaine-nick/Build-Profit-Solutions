@@ -177,10 +177,16 @@ export function isCanonicalMixedScope(
   >
 ): boolean {
   if (input.singleTradeImport || input.selectedTrade) return false;
-  const scopeMode =
+  const scopeMode = String(
     input.scopeMode ||
-    input.draft?.scopeMode ||
-    input.draft?.classification?.scopeMode;
+      input.draft?.scopeMode ||
+      input.draft?.classification?.scopeMode ||
+      ''
+  ).toLowerCase();
+  // An explicit dedicated classification stays on that job's template.
+  // Extra package trades must not pull it into the mixed layout.
+  if (scopeMode === 'dedicated') return false;
+  if (scopeMode === 'mixed') return true;
   const detectedTrades =
     input.detectedTrades?.length
       ? input.detectedTrades
@@ -190,7 +196,21 @@ export function isCanonicalMixedScope(
       .map(normalizeMixedScopeTradeKey)
       .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
   );
-  return String(scopeMode || '').toLowerCase() === 'mixed' || normalizedTrades.size > 1;
+  return normalizedTrades.size > 1;
+}
+
+/** Confirm-scope layout switch. Dedicated notes stay single even if packages add trades. */
+export function isMixedScopeLayout(draft?: {
+  scopeMode?: string | null;
+  classification?: { scopeMode?: string | null; detectedTrades?: string[] } | null;
+  detectedTrades?: string[];
+} | null): boolean {
+  return isCanonicalMixedScope({
+    draft: draft as EstimateAiDraft | null,
+    scopeMode: draft?.scopeMode,
+    detectedTrades:
+      draft?.classification?.detectedTrades || draft?.detectedTrades,
+  });
 }
 
 function syncTradeSpecificItems(

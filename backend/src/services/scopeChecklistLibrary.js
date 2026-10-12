@@ -3250,7 +3250,7 @@ function bathroomShowerDemoNotesHint(n) {
   const verbs =
     "(?:demo|demolition|remove|removal|tear[\\s-]?out|rip[\\s-]?out)";
   const showerWork =
-    "(?:shower(?:\\s+(?:wall|floor))?\\s+tile|tile\\s+shower|shower\\s+(?:pan|base|liner|surround|walls?)|tub|bathtub)";
+    "(?:shower(?:\\s+(?:wall|floor))?\\s+tile|tile\\s+shower|shower\\s+(?:pan|base|liner|surround|walls?))";
   return new RegExp(
     `\\b${verbs}\\b[^.;\\n]{0,80}\\b${showerWork}\\b|\\b${showerWork}\\b[^.;\\n]{0,80}\\b${verbs}\\b`,
     "i",
@@ -3469,6 +3469,13 @@ function inferChoiceFromNotes(itemId, notes) {
       )
     ) {
       return "staying";
+    }
+    if (
+      /\b(?:prefab|pre[\s-]?fab|acrylic|fiberglass)\b/.test(n) &&
+      /\b(?:enclosure|surround|one[\s-]?piece)\b/.test(n) &&
+      !/\bprefab\s+(?:shower\s+)?pan\b|\bpan\s+insert\b/.test(n)
+    ) {
+      return "prefab_enclosure";
     }
     if (
       /\b(prefab|pre[\s-]?fab|acrylic|fiberglass|plastic\s+pan|pan\s+insert)\b/.test(

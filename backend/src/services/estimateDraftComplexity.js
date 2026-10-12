@@ -1880,6 +1880,12 @@ const CHECKLIST_EXTRA_ROOMS = {
       "Supply and install prefab shower pan or acrylic base — labor and materials",
     isFixture: true,
   },
+  prefab_shower_enclosure: {
+    name: "Prefab Shower Enclosure",
+    scope:
+      "Supply and install a prefab shower enclosure or surround — labor and materials",
+    isFixture: true,
+  },
   shower_floor_tile: {
     name: "Shower Floor Tile Installation",
     scope: "Shower floor tile labor and materials",
@@ -2091,6 +2097,10 @@ function defaultMissingPriceItemsForExtra(itemId) {
       "Prefab pan / base materials",
       "Shower pan install labor",
     ],
+    prefab_shower_enclosure: [
+      "Prefab enclosure / surround materials",
+      "Prefab enclosure install labor",
+    ],
     shower_pan: [
       "Pan liner, drain & mud materials",
       "Mud pan build & curb frame labor",
@@ -2260,6 +2270,8 @@ function addScopePackagesFromConfirmedChecklist(
 
     if (item.id === "wet_area_install" && item.inputType === "choice") {
       if (item.choiceId === "prefab") extraIds.push("prefab_shower_pan");
+      else if (item.choiceId === "prefab_enclosure")
+        extraIds.push("prefab_shower_enclosure");
       else if (item.choiceId === "tile_pan") extraIds.push("shower_pan");
       else if (item.choiceId === "tub") extraIds.push("tub_install");
       continue;
