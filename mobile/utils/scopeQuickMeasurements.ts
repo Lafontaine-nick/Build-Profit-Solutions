@@ -3,6 +3,8 @@
  * All fields render for the job type; values prefill from notes when parsed.
  */
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import { notesWithoutWetAreaFraming } from '@/utils/bathroomNoteScope';
+import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
@@ -2737,14 +2739,47 @@ export function quickMeasurementRowsForTemplate(
     }
     return true;
   };
+  const kitchenNoteText = String(notes || '');
+  const kitchenScopedRows =
+    key === 'kitchen' && kitchenNoteText.trim()
+      ? remodelRows
+          .map(row =>
+            row.filter(field => {
+              if (
+                field.key === 'wallPaintSqft' ||
+                field.key === 'paintAreaSqft' ||
+                field.key === 'ceilingPaintSqft'
+              ) {
+                return notesRequireInteriorPaintMeasurements(kitchenNoteText);
+              }
+              if (field.key === 'baseboardLf') {
+                return /\bbaseboards?\b|\bbase\s*board\b|\btrim\b/i.test(
+                  kitchenNoteText
+                );
+              }
+              if (field.key === 'kitchenFloorSqft') {
+                return kitchenNoteIncludesFloorWork(kitchenNoteText);
+              }
+              return true;
+            })
+          )
+          .filter(row => row.length > 0)
+      : remodelRows;
   if (key !== 'room_remodel' || !String(notes || '').trim()) {
-    return remodelRows
+    return kitchenScopedRows
       .map(row => row.filter(noteBackedCrossTradeFields))
       .filter(row => row.length > 0);
   }
   const remodelNoteText = String(notes || '');
   const hasPaint = notesRequireInteriorPaintMeasurements(remodelNoteText);
+  const flooringByOthers = remodelNoteText
+    .split(/[.\n]/)
+    .some(
+      sentence =>
+        /\bfloor(?:ing)?\b/i.test(sentence) && /\bby\s+others\b/i.test(sentence)
+    );
   const hasFlooring =
+    !flooringByOthers &&
     !/\bfloor(?:ing)?\s+protection\b/i.test(remodelNoteText) &&
     (/\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       remodelNoteText
@@ -3389,7 +3424,7 @@ export function quickMeasurementRowsForInput(
   ) {
     const structuralFramingMention =
       /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
-        scopeNotes
+        notesWithoutWetAreaFraming(scopeNotes)
       );
     const sheathingMention = /\b(?:structural\s+)?sheathing\b/i.test(
       scopeNotes

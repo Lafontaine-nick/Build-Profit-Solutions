@@ -11,6 +11,7 @@ import {
   CHECKLIST_ITEM_QUANTITY_RULES,
   getChecklistItemQuantityRuleOrDefault,
   initialScopeMeasurementInputExtended,
+  resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
 
@@ -741,5 +742,116 @@ describe('bathroom shower tile demo suggested pricing', () => {
 
     // 90 sqft wall × $5.50 + 25 sqft pan × $9. Bath floor stays on floor_demo.
     expect(pricing.fill?.total).toBe(720);
+  });
+
+  it('prices the old shower door once, on its own card', () => {
+    const measurementsInput = {
+      showerWallTileSqft: '90',
+      showerFloorTileSqft: '25',
+      demoTilePanCount: 1,
+      demoTileWallCount: 1,
+      demoShowerDoorCount: 1,
+      itemQuantities: {
+        demo__sqft_basis: {
+          quantity: 115,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+      },
+    };
+    const tileDemo = resolveScopeItemSuggestedPricing(
+      'demo',
+      measurementsInput,
+      'bathroom',
+      { quantity: 115, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      null
+    );
+    const doorDemo = resolveScopeItemSuggestedPricing(
+      'glass_door_demo',
+      measurementsInput,
+      'bathroom',
+      { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+      {},
+      null,
+      null
+    );
+
+    expect(tileDemo.fill?.total).toBe(720);
+    expect(tileDemo.fill?.displayQuantityLine).toMatch(/90 sqft wall tile × \$5\.50\/SF/i);
+    expect(tileDemo.fill?.displayQuantityLine).toMatch(/25 sqft mud pan × \$9\.00\/SF/i);
+    expect(doorDemo.fill?.total).toBe(125);
+  });
+
+  it('prices bathroom wall framing as stud wall linear feet, not the house shell rate', () => {
+    const notes =
+      'Remodel the bathroom. Frame the bathroom walls to move the shower to the opposite wall. Leave the vanity and the toilet. No paint.';
+    const priced = resolveScopeItemSuggestedPricing(
+      'framing',
+      { framedAreaSqft: '120', itemQuantities: {} },
+      'bathroom',
+      { quantity: 120, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(180);
+    expect(priced.fill?.material).toBe(60);
+    expect(priced.fill?.labor).toBe(120);
+    expect(priced.fill?.basis).toMatchObject({ quantity: 15, unit: 'lf' });
+    expect(priced.fill?.displayUnitRateLabel).toBe(
+      '120 sqft at 8 ft · 15 LF × $12/LF'
+    );
+    const unmeasured = resolveScopeItemSuggestedPricing(
+      'framing',
+      { itemQuantities: {} },
+      'bathroom',
+      { quantity: null, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      notes
+    );
+    expect(unmeasured.fill).toBeNull();
+  });
+
+  it('prices one marble doorway threshold each, apart from the floor sqft', () => {
+    const notes =
+      'Remodel the bathroom. Demo the bathroom floor tile only. Scrape the thinset and haul off the old tile. Install new bathroom floor tile wall to wall, and set a new marble threshold at the doorway.';
+    const measurements = {
+      bathroomFloorSqft: '125',
+      itemQuantities: {},
+    };
+    const quantity = resolveChecklistItemQuantity(
+      'marble_threshold',
+      measurements as never,
+      { templateKey: 'bathroom', notes }
+    );
+    const threshold = resolveScopeItemSuggestedPricing(
+      'marble_threshold',
+      measurements,
+      'bathroom',
+      quantity,
+      {},
+      null,
+      notes
+    );
+    const floorTile = resolveScopeItemSuggestedPricing(
+      'floor_tile',
+      measurements,
+      'bathroom',
+      { quantity: 125, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      notes
+    );
+
+    expect(quantity.quantity).toBe(1);
+    expect(quantity.unit).toBe('each');
+    expect(threshold.fill?.total).toBe(350);
+    expect(threshold.fill?.material).toBe(185);
+    expect(threshold.fill?.labor).toBe(165);
+    expect(threshold.fill?.basis).toMatchObject({ quantity: 1, unit: 'each' });
+    expect(floorTile.fill?.total).toBe(1250);
   });
 });

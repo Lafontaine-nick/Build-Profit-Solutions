@@ -176,7 +176,7 @@ export function syncBathroomPaintRepairFlow(
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null
 ): ScopeMeasurementsInputExtended {
   void checklistItems;
-  let next: ScopeMeasurementsInputExtended = { ...input };
+  let next: ScopeMeasurementsInputExtended = input;
 
   const wallSf = parseBathroomWallPaintSqft(next.wallPaintSqft);
   const inferredScope =

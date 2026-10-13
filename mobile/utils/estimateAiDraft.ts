@@ -1586,12 +1586,12 @@ export function repairDraftRatePricingFromNotes(
       repairedDraft.classification?.scopeMode || repairedDraft.scopeMode || ''
     ).toLowerCase() === 'mixed' ||
       notesDescribeMixedCrossTradeScope(text));
-  // "Cap the drain" can make the server call this mixed. A bathroom remodel
-  // with no real second trade still uses Confirm scope, not the simple review.
+  // "Cap the drain" or framing the bathroom walls can make the server call
+  // this mixed. A bathroom remodel with no real second trade still uses
+  // Confirm scope, and wall framing stays a line on that note.
   const bathroomRemodelStaysDedicated =
     explicitBathroomRemodel &&
-    !notesDescribeMixedCrossTradeScope(text) &&
-    !/\bfram(?:e|ing|ed)\b/i.test(text);
+    !notesDescribeMixedCrossTradeScope(text);
   if (bathroomRemodelStaysDedicated) {
     const templateKey = String(
       repairedDraft.scopeChecklist?.templateKey || ''

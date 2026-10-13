@@ -69,41 +69,56 @@ function measurementNumber(value: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+const KITCHEN_NOTE_RATE_ITEM_IDS = new Set([
+  'backsplash',
+  'flooring',
+  'trim',
+  'baseboard_install',
+]);
+
 /**
- * Kitchen install notes that already state material and labor rates.
- * Those totals belong in the group and selected price. A national catalog
- * rate, or a missing flooring line, does not replace them.
+ * Kitchen install notes that already state a price.
+ * After Apply, that note price replaces a national catalog amount.
+ * Until Apply, the line stays a suggestion.
  * A price the contractor typed stays as entered.
+ * A single stated rate (baseboard at $7/LF) stays labor, not a soft cost.
  */
-function kitchenInstallNoteRate(params: {
+export function kitchenConfirmScopeNoteRate(params: {
   itemId: string;
   measurements: ScopeMeasurementsInputExtended;
   templateKey?: string | null;
   notes?: string | null;
 }): { material: number; labor: number; total: number } | null {
   if (String(params.templateKey || '').toLowerCase() !== 'kitchen') return null;
-  if (params.itemId !== 'backsplash' && params.itemId !== 'flooring') return null;
+  if (!KITCHEN_NOTE_RATE_ITEM_IDS.has(params.itemId)) return null;
   const status = params.measurements.pricingAcceptance?.[params.itemId]?.selectionStatus;
   if (status === 'manual_adjusted' || status === 'user_entered') return null;
   const notes = String(params.notes || '').trim();
   if (!notes) return null;
+  const rateItemId = params.itemId === 'baseboard_install' ? 'trim' : params.itemId;
   const breakdown = resolveItemRatePricingFromNotes(
-    params.itemId,
+    rateItemId,
     {
       backsplashSqft: measurementNumber(params.measurements.backsplashSqft),
       kitchenFloorSqft: measurementNumber(params.measurements.kitchenFloorSqft),
       floorAreaSqft: measurementNumber(params.measurements.floorAreaSqft),
       bathroomFloorSqft: measurementNumber(params.measurements.bathroomFloorSqft),
+      baseboardLf: measurementNumber(params.measurements.baseboardLf),
     },
     notes,
     { templateKey: params.templateKey ?? undefined }
   );
   if (!breakdown?.total) return null;
-  return {
-    material: Number(breakdown.material || 0),
-    labor: Number(breakdown.labor || 0),
-    total: breakdown.total,
-  };
+  const material = Number(breakdown.material || 0);
+  const labor = Number(breakdown.labor || 0);
+  if (
+    (params.itemId === 'trim' || params.itemId === 'baseboard_install') &&
+    !(material > 0) &&
+    !(labor > 0)
+  ) {
+    return { material: 0, labor: breakdown.total, total: breakdown.total };
+  }
+  return { material, labor, total: breakdown.total };
 }
 
 /** Same money total as Applied cards — live qty fields, then acceptance mat/lab, then totalAmount. */
@@ -686,7 +701,16 @@ export function listConfirmScopeAppliedPricingLines(params: {
   const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
-    const noteRate = kitchenInstallNoteRate({
+    if (
+      !hasAcceptedScopePricing(
+        item.id,
+        params.measurements.itemQuantities,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      continue;
+    }
+    const noteRate = kitchenConfirmScopeNoteRate({
       itemId: item.id,
       measurements: params.measurements,
       templateKey: params.templateKey,
@@ -703,15 +727,6 @@ export function listConfirmScopeAppliedPricingLines(params: {
         labor,
         allowance: material + labor > 0 ? 0 : noteRate.total,
       });
-      continue;
-    }
-    if (
-      !hasAcceptedScopePricing(
-        item.id,
-        params.measurements.itemQuantities,
-        params.measurements.pricingAcceptance
-      )
-    ) {
       continue;
     }
     if (
@@ -807,7 +822,16 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
   const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
-    const noteRate = kitchenInstallNoteRate({
+    if (
+      !hasAcceptedScopePricing(
+        item.id,
+        params.measurements.itemQuantities,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      continue;
+    }
+    const noteRate = kitchenConfirmScopeNoteRate({
       itemId: item.id,
       measurements: params.measurements,
       templateKey: params.templateKey,
@@ -821,15 +845,6 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
       out.labor += labor;
       out.allowance += allowance;
       out.total += noteRate.total;
-      continue;
-    }
-    if (
-      !hasAcceptedScopePricing(
-        item.id,
-        params.measurements.itemQuantities,
-        params.measurements.pricingAcceptance
-      )
-    ) {
       continue;
     }
     if (shouldSkipReasonablenessScopeTotal(item.id, params.templateKey, params.measurements.pricingAcceptance)) {

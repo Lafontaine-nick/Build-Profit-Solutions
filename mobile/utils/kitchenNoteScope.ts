@@ -53,8 +53,58 @@ const OPTIONAL_KITCHEN_IDS: Record<string, RegExp> = {
 function kitchenJob(params: KitchenNoteScopeParams): boolean {
   const template = String(params.templateKey || '').toLowerCase();
   const projectType = String(params.projectType || '').toLowerCase();
-  if (template && template !== 'kitchen') return false;
-  return template === 'kitchen' || projectType === 'kitchen';
+  if (template === 'kitchen' || projectType === 'kitchen') return true;
+  if (
+    template === 'room_remodel' &&
+    /\bkitchen\b/i.test(String(params.notes || ''))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Paint on walls or ceilings. "Paint cabinets" is cabinet refinishing. */
+export function kitchenNoteNamesWallPaint(notes: string | null | undefined): boolean {
+  return String(notes || '')
+    .split(/[.\n]/)
+    .some(sentence => {
+      if (!/\bpaint(?:ing|ed)?\b|\brepaint/i.test(sentence)) return false;
+      if (/\b(?:walls?|ceilings?|interior\s+paint)\b/i.test(sentence)) return true;
+      return !/\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b/i.test(
+        sentence
+      ) && !/\b(?:exterior|outside|siding|stucco)\b/i.test(sentence);
+    });
+}
+
+export function kitchenNoteNamesCabinetPaint(notes: string | null | undefined): boolean {
+  return /\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b/i.test(
+    String(notes || '')
+  );
+}
+
+export function kitchenNoteNamesTrim(notes: string | null | undefined): boolean {
+  return /\bbaseboards?\b|\bbase\s*board\b|\b(?:crown|casing|molding|moulding)\b|\btrim\b/i.test(
+    String(notes || '')
+  );
+}
+
+/** New cabinet boxes. Hardware replacement and cabinet paint do not count. */
+export function kitchenNoteInstallsNewCabinets(notes: string | null | undefined): boolean {
+  return String(notes || '')
+    .split(/[.\n]/)
+    .some(sentence => {
+      if (/\bkeep\s+existing\b/i.test(sentence)) return false;
+      if (/\b(?:hardware|pulls|knobs)\b/i.test(sentence)) return false;
+      if (
+        /\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b/i.test(sentence) &&
+        !/\b(?:install|supply)\b[^.]{0,30}\b(?:new\s+)?cabinets?\b/i.test(sentence)
+      ) {
+        return false;
+      }
+      return /\b(?:install|new|replace|supply)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:install|new|replace|supply)\b/i.test(
+        sentence
+      );
+    });
 }
 
 function kitchenNoteNamesWork(notes: string): boolean {
@@ -93,15 +143,77 @@ const KITCHEN_DEMO_PRODUCT: Record<string, RegExp> = {
   island_demo: /\bisland\b/i,
 };
 
+function sentenceAffirmsDemo(sentence: string, product: RegExp): boolean {
+  const text = sentence.trim();
+  if (!text) return false;
+  if (/\b(?:no|not|without|don'?t|do not)\b/i.test(text)) return false;
+  if (/\bkeep\s+existing\b/i.test(text)) return false;
+  return (
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(text) &&
+    product.test(text)
+  );
+}
+
 function notesNameThisKitchenDemo(id: string, notes: string): boolean {
   const product = KITCHEN_DEMO_PRODUCT[id];
   if (!product) return true;
-  return notes.split(/[.\n]/).some(sentence => {
-    return (
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(sentence) &&
-      product.test(sentence)
-    );
-  });
+  return notes.split(/[.\n]/).some(sentence => sentenceAffirmsDemo(sentence, product));
+}
+
+const KITCHEN_DEMO_SURFACE_PRODUCT = {
+  cabinet: KITCHEN_DEMO_PRODUCT.cabinet_demo,
+  counter: KITCHEN_DEMO_PRODUCT.countertop_demo,
+  backsplash: KITCHEN_DEMO_PRODUCT.backsplash_demo,
+  floor: KITCHEN_DEMO_PRODUCT.floor_demo,
+  island: KITCHEN_DEMO_PRODUCT.island_demo,
+} as const;
+
+export type KitchenDemoSurface = keyof typeof KITCHEN_DEMO_SURFACE_PRODUCT;
+
+/** True when a sentence names tear-out for this surface and does not cancel it. */
+export function kitchenNoteNamesSurfaceDemo(
+  notes: string | null | undefined,
+  surface: KitchenDemoSurface
+): boolean {
+  const product = KITCHEN_DEMO_SURFACE_PRODUCT[surface];
+  return String(notes || '')
+    .split(/[.\n]/)
+    .some(sentence => sentenceAffirmsDemo(sentence, product));
+}
+
+/** Kitchen floor install or tear-out the contractor is doing. Tile backsplash is not a floor. */
+export function kitchenNoteIncludesFloorWork(notes: string | null | undefined): boolean {
+  const text = String(notes || '');
+  if (!text.trim()) return false;
+  if (/\bfloor(?:ing)?\s+protection\b/i.test(text)) return false;
+  if (
+    text.split(/[.\n]/).some(
+      sentence =>
+        /\bfloor(?:ing)?\b/i.test(sentence) && /\bby\s+others\b/i.test(sentence)
+    )
+  ) {
+    return false;
+  }
+  if (/\bno\s+(?:kitchen\s+)?floor(?:ing)?(?:\s+work)?\b/i.test(text)) return false;
+  const cleaned = text.replace(
+    /\b(?:new\s+)?tile\s+backsplash\b|\bbacksplash\s+tile\b|\btile\s+back\s*splash\b/gi,
+    'backsplash'
+  );
+  return (
+    /\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,40}\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b/i.test(
+      cleaned
+    ) ||
+    /\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b[^.;]{0,40}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i.test(
+      cleaned
+    ) ||
+    /\b(?:floor\s+tile|tile\s+floor)\b/i.test(cleaned) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b/i.test(
+      cleaned
+    ) ||
+    /\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+      cleaned
+    )
+  );
 }
 
 function duplicateFloorCard(
@@ -172,9 +284,49 @@ export function filterDedicatedKitchenConfirmItems<
     if (KITCHEN_DEMO_PRODUCT[id] && !notesNameThisKitchenDemo(id, notes)) {
       return false;
     }
-    if (id === 'baseboard_install') {
-      if (present.has('trim')) return false;
-      return /\bbaseboards?\b|\btrim\b/i.test(notes);
+    if (
+      id === 'flooring' ||
+      id === 'flooring_lvp' ||
+      id === 'flooring_laminate' ||
+      id === 'flooring_carpet' ||
+      id === 'tile_flooring' ||
+      /^flooring installation$/i.test(label) ||
+      /^kitchen flooring/i.test(label)
+    ) {
+      return kitchenNoteIncludesFloorWork(notes);
+    }
+    if (
+      id === 'trim' ||
+      id === 'baseboard_install' ||
+      id === 'trim_paint' ||
+      id === 'interior_trim'
+    ) {
+      if (id === 'baseboard_install' && present.has('trim')) return false;
+      return kitchenNoteNamesTrim(notes);
+    }
+    if (
+      (id === 'cabinets' || id === 'cabinets_counters') &&
+      /\bkeep\s+existing\b[^.]{0,40}\bcabinets?\b/i.test(notes) &&
+      !kitchenNoteInstallsNewCabinets(notes)
+    ) {
+      return false;
+    }
+    if (
+      id === 'paint' ||
+      id === 'interior_paint' ||
+      id === 'ceiling_paint' ||
+      id === 'prep' ||
+      id === 'paint_repair'
+    ) {
+      return kitchenNoteNamesWallPaint(notes);
+    }
+    if (
+      id === 'hardware' &&
+      !/\b(?:framing|structural|connector)\s+hardware\b|\bhardware\s+connectors?\b/i.test(
+        notes
+      )
+    ) {
+      return false;
     }
     const optional = OPTIONAL_KITCHEN_IDS[id];
     if (optional) return optional.test(notes);
@@ -184,5 +336,53 @@ export function filterDedicatedKitchenConfirmItems<
       );
     }
     return true;
-  });
+  }).concat(
+    kitchenNoteNamesCabinetPaint(notes) &&
+      !items.some(item => String(item.id || '') === 'cabinet_paint')
+      ? [
+          {
+            id: 'cabinet_paint',
+            label: 'Cabinet paint',
+            name: 'Cabinet paint',
+            helperText:
+              'Paint the existing cabinet run. Priced by cabinet LF.',
+            state: 'included',
+            inputType: 'yes_no',
+            category: 'paint',
+            noteBacked: true,
+          } as T,
+        ]
+      : [],
+    /\bhaul[\s-]?off\b/i.test(notes) &&
+      !items.some(item => String(item.id || '') === 'cleanup')
+      ? [
+          {
+            id: 'cleanup',
+            label: 'Haul-off',
+            name: 'Haul-off',
+            helperText: 'Debris haul-off and disposal.',
+            state: 'included',
+            inputType: 'yes_no',
+            category: 'demo',
+            noteBacked: true,
+          } as T,
+        ]
+      : [],
+    /\b(?:cabinet\s+hardware|pulls|knobs)\b/i.test(notes) &&
+      !items.some(item => String(item.id || '') === 'cabinet_hardware')
+      ? [
+          {
+            id: 'cabinet_hardware',
+            label: 'Cabinet hardware',
+            name: 'Cabinet hardware',
+            helperText:
+              'Pulls and knobs along the existing cabinet run. Planning count is one piece per cabinet LF.',
+            state: 'included',
+            inputType: 'yes_no',
+            category: 'finish_carpentry',
+            noteBacked: true,
+          } as T,
+        ]
+      : []
+  );
 }

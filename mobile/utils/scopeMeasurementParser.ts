@@ -63,6 +63,7 @@ export type ParsedScopeMeasurements = {
   quarterRoundLf?: number;
   backsplashSqft?: number;
   countertopSqft?: number;
+  kitchenIslandCounterSqft?: number;
   countertopLf?: number;
   cabinetLf?: number;
   wallDemoSqft?: number;
@@ -1275,24 +1276,43 @@ export function parseScopeMeasurementsFromNotes(
   })();
   if (backsplash) out.backsplashSqft = backsplash;
 
-  const countertopSqft = (() => {
-    for (const clause of clauses) {
-      const c = clause.toLowerCase();
-      if (/\bback\s*splash|backsplash/.test(c)) continue;
-      if (!/\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/.test(c))
-        continue;
-      const near = pickSqftNearPattern(
-        clause,
-        /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/
-      );
-      if (near) return near;
+  const counterClauses = clauses.filter(clause => {
+    const c = clause.toLowerCase();
+    if (/\bback\s*splash|backsplash/.test(c)) return false;
+    return /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b|\bisland\b/.test(
+      c
+    );
+  });
+  let islandCounterSqft: number | null = null;
+  let perimeterCounterSqft: number | null = null;
+  for (const clause of counterClauses) {
+    const islandSqft = /\bisland\b/i.test(clause)
+      ? pickSqftNearPattern(clause, /\bisland\b/)
+      : null;
+    if (islandSqft && islandCounterSqft == null) islandCounterSqft = islandSqft;
+    const perimeterClause =
+      !/\bisland\b/i.test(clause) ||
+      /\bperimeter\s+(?:countertops?|counters?)\b/i.test(clause);
+    if (!perimeterClause) continue;
+    if (!/\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/i.test(clause)) {
+      continue;
     }
-    return pickSqftNearPattern(
+    const perimeterSqft = pickSqftNearPattern(
+      clause,
+      /\bperimeter\s+(?:countertops?|counters?)\b|\bcountertops?\b|\bcounters\b|\bquartz\b|\bgranite\b/
+    );
+    if (perimeterSqft && perimeterCounterSqft == null) {
+      perimeterCounterSqft = perimeterSqft;
+    }
+  }
+  if (perimeterCounterSqft == null && islandCounterSqft == null) {
+    perimeterCounterSqft = pickSqftNearPattern(
       text,
       /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/
     );
-  })();
-  if (countertopSqft) out.countertopSqft = countertopSqft;
+  }
+  if (perimeterCounterSqft) out.countertopSqft = perimeterCounterSqft;
+  if (islandCounterSqft) out.kitchenIslandCounterSqft = islandCounterSqft;
   const countertopLf = pickLfNearPattern(text, /\bcountertops?|\bcounters\b/i);
   if (countertopLf) out.countertopLf = countertopLf;
 

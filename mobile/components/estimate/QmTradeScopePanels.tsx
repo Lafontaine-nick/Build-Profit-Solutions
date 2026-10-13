@@ -27,6 +27,10 @@ import {
   QM_MEASUREMENT_SHELL_FILL_DARK,
   qmInactiveMeasurementShellStyle,
 } from '@/constants/qmMeasurementShellStyle';
+import {
+  kitchenNoteIncludesFloorWork,
+  kitchenNoteNamesSurfaceDemo,
+} from '@/utils/kitchenNoteScope';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
   emptyKitchenExistingCounts,
@@ -1211,6 +1215,7 @@ export function QmKitchenScopePanels({
       demo: readKitchenDemoCounts(measurements),
       measurements,
       overrides: demoOverridesRef.current,
+      notes,
     });
     setDemo(nextDemo);
     demoRef.current = nextDemo;
@@ -1234,6 +1239,7 @@ export function QmKitchenScopePanels({
     measurements.kitchenIslandCounterSqft,
     measurements.backsplashSqft,
     measurements.kitchenFloorSqft,
+    notes,
   ]);
 
   const scheduleKitchenQmCommit = useCallback(
@@ -1270,6 +1276,7 @@ export function QmKitchenScopePanels({
             demo: mergedDemo,
             measurements: measurementSnapshot,
             overrides: demoOverridesRef.current,
+            notes,
           });
           mergedDemo = {
             ...mergedDemo,
@@ -1282,6 +1289,7 @@ export function QmKitchenScopePanels({
             demo: demoRef.current,
             measurements: measurementSnapshot,
             overrides: demoOverridesRef.current,
+            notes,
           });
           for (const key of Object.keys(
             demoOverridesRef.current
@@ -1389,6 +1397,7 @@ export function QmKitchenScopePanels({
         demo: demoRef.current,
         measurements: snapshot,
         overrides: demoOverridesRef.current,
+        notes,
       });
       const itemQuantities = patchKitchenMeasurementItemQuantities(
         (measurementsRef.current.itemQuantities || {}) as Record<
@@ -1454,14 +1463,7 @@ export function QmKitchenScopePanels({
     kitchenMeasurementDrafts.kitchenIslandCounterSqft;
   const backsplashSqftValue = kitchenMeasurementDrafts.backsplashSqft;
   const kitchenFloorSqftValue = kitchenMeasurementDrafts.kitchenFloorSqft;
-  const hasExplicitKitchenFloorScope =
-    (/\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,40}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;]{0,40}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i.test(
-      String(notes || '')
-    ) ||
-      /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
-        String(notes || '')
-      )) &&
-    !/\bfloor(?:ing)?\s+protection\b/i.test(String(notes || ''));
+  const hasExplicitKitchenFloorScope = kitchenNoteIncludesFloorWork(notes);
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
   const kitchenNoteText = String(notes || '');
   const condensedKitchenScope = {
@@ -1495,17 +1497,38 @@ export function QmKitchenScopePanels({
           : notesNameApplianceInstall
       )
     : KITCHEN_INSTALL_STEPPER_ROWS;
+  const showIslandDemoRow = kitchenNoteNamesSurfaceDemo(
+    kitchenNoteText,
+    'island'
+  );
   const condensedKitchenDemoRows = condensed
     ? KITCHEN_DEMO_STEPPER_ROWS.filter(row =>
         row.key === 'kitchenDemoIslandCount'
-          ? condensedKitchenScope.island
+          ? showIslandDemoRow
           : notesNameApplianceRemoval
       )
     : KITCHEN_DEMO_STEPPER_ROWS;
+  const showCabinetDemoRow = condensed
+    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'cabinet')
+    : condensedKitchenScope.cabinets;
+  const showCounterDemoRow = condensed
+    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'counter')
+    : condensedKitchenScope.counters;
+  const showBacksplashDemoRow = condensed
+    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'backsplash')
+    : condensedKitchenScope.backsplash;
+  const showFloorDemoRow =
+    showKitchenFloorField &&
+    hasExplicitKitchenFloorScope &&
+    (condensed
+      ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'floor')
+      : condensedKitchenScope.flooring);
   const hasCondensedKitchenDemo =
-    /\b(?:demolition|demo|remove|removal|tear[\s-]?out|existing)\b/i.test(
-      kitchenNoteText
-    );
+    showCabinetDemoRow ||
+    showCounterDemoRow ||
+    showBacksplashDemoRow ||
+    showFloorDemoRow ||
+    condensedKitchenDemoRows.length > 0;
 
   const handleExistingStepperAdjust = useCallback(
     (key: string, delta: number) =>
@@ -1664,7 +1687,7 @@ export function QmKitchenScopePanels({
                 darkMode={darkMode}
                 Colors={Colors}
               />
-              {condensedKitchenScope.cabinets ? (
+              {showCabinetDemoRow ? (
                 <QmSqftMeasurementRow
                   label='Cabinet demo'
                   helperText='Cabinet run length to remove — LF, not a fixture count. Same takeoff as install cabinets.'
@@ -1678,10 +1701,14 @@ export function QmKitchenScopePanels({
                   sectionLead
                 />
               ) : null}
-              {condensedKitchenScope.counters ? (
+              {showCounterDemoRow ? (
                 <QmSqftMeasurementRow
                   label='Countertop demo'
-                  helperText='Perimeter + island counter SF to remove — same takeoff as countertop install.'
+                  helperText={
+                    showIslandDemoRow
+                      ? 'Perimeter + island counter SF to remove — same takeoff as countertop install.'
+                      : 'Perimeter counter sqft to remove. A new island top stays on the install card.'
+                  }
                   value={countertopSqftValue}
                   onChangeText={countertopField.onChangeText}
                   onBlur={countertopField.onBlur}
@@ -1690,7 +1717,7 @@ export function QmKitchenScopePanels({
                   Colors={Colors}
                 />
               ) : null}
-              {showKitchenIslandCounterField ? (
+              {showKitchenIslandCounterField && showIslandDemoRow ? (
                 <QmSqftMeasurementRow
                   label='Island counter demo'
                   helperText='Island top tear-out area — combined with perimeter on Countertop demo.'
@@ -1702,7 +1729,7 @@ export function QmKitchenScopePanels({
                   Colors={Colors}
                 />
               ) : null}
-              {condensedKitchenScope.backsplash ? (
+              {showBacksplashDemoRow ? (
                 <QmSqftMeasurementRow
                   label='Backsplash demo'
                   helperText='Tear-out area — same takeoff as install backsplash when both are in scope.'
@@ -1714,9 +1741,7 @@ export function QmKitchenScopePanels({
                   Colors={Colors}
                 />
               ) : null}
-              {showKitchenFloorField &&
-              hasExplicitKitchenFloorScope &&
-              (!condensed || condensedKitchenScope.flooring) ? (
+              {showFloorDemoRow ? (
                 <QmSqftMeasurementRow
                   label='Floor demo'
                   helperText='Kitchen floor tear-out area.'
@@ -3385,6 +3410,75 @@ type QmBathroomFixturesPanelsProps = {
   Colors: Colors;
 };
 
+function fixtureCountSame(
+  left: number | null | undefined,
+  right: number | null | undefined
+): boolean {
+  return (left ?? null) === (right ?? null);
+}
+
+function bathroomExistingCountsSame(
+  left: BathroomExistingFixtureCounts,
+  right: BathroomExistingFixtureCounts
+): boolean {
+  return (
+    fixtureCountSame(
+      left.bathroomExistingVanityCount,
+      right.bathroomExistingVanityCount
+    ) &&
+    fixtureCountSame(
+      left.bathroomExistingCounterCount,
+      right.bathroomExistingCounterCount
+    )
+  );
+}
+
+function bathroomInstallCountsSame(
+  left: BathroomInstallFixtureCounts,
+  right: BathroomInstallFixtureCounts
+): boolean {
+  return (
+    fixtureCountSame(
+      left.bathroomInstallVanityCount,
+      right.bathroomInstallVanityCount
+    ) &&
+    fixtureCountSame(
+      left.bathroomInstallCounterCount,
+      right.bathroomInstallCounterCount
+    )
+  );
+}
+
+function bathroomDemoCountsSame(
+  left: BathroomDemoFixtureCounts,
+  right: BathroomDemoFixtureCounts
+): boolean {
+  return (
+    fixtureCountSame(
+      left.bathroomDemoVanityCount,
+      right.bathroomDemoVanityCount
+    ) &&
+    fixtureCountSame(
+      left.bathroomDemoCounterCount,
+      right.bathroomDemoCounterCount
+    )
+  );
+}
+
+function withUnchangedMeasurementPatch(
+  prev: ScopeMeasurementsInputExtended,
+  patch: Partial<ScopeMeasurementsInputExtended>
+): ScopeMeasurementsInputExtended {
+  for (const key of Object.keys(patch) as Array<
+    keyof ScopeMeasurementsInputExtended
+  >) {
+    if (prev[key] !== patch[key]) {
+      return { ...prev, ...patch };
+    }
+  }
+  return prev;
+}
+
 export const QmBathroomFixturesPanels = React.memo(
   forwardRef<QmBathroomFixturesPanelsHandle, QmBathroomFixturesPanelsProps>(
     function QmBathroomFixturesPanels(
@@ -3504,6 +3598,10 @@ export const QmBathroomFixturesPanels = React.memo(
       }, [measurements.countertopSqft]);
 
       const toiletFaucetSeededRef = useRef(false);
+      const onBathroomFixturesQmChangeRef = useRef(onBathroomFixturesQmChange);
+      onBathroomFixturesQmChangeRef.current = onBathroomFixturesQmChange;
+      const setMeasurementsRef = useRef(setMeasurements);
+      setMeasurementsRef.current = setMeasurements;
       useEffect(() => {
         if (toiletFaucetSeededRef.current) return;
         toiletFaucetSeededRef.current = true;
@@ -3561,7 +3659,9 @@ export const QmBathroomFixturesPanels = React.memo(
                 inferredExisting.bathroomExistingCounterCount,
             }
           : savedExisting;
-        setExisting(resolvedExisting);
+        if (!bathroomExistingCountsSame(existingRef.current, resolvedExisting)) {
+          setExisting(resolvedExisting);
+        }
         const savedInstall = readBathroomInstallFixtureCounts(measurements);
         const inferredInstall = inferBathroomFixtureInstallFromIntent({
           notes,
@@ -3588,8 +3688,10 @@ export const QmBathroomFixturesPanels = React.memo(
             resolvedInstall.bathroomInstallVanityCount != null ||
             resolvedInstall.bathroomInstallCounterCount != null
           ) {
-            setMeasurements(prev => ({ ...prev, ...resolvedInstall }));
-            onBathroomFixturesQmChange?.({
+            setMeasurementsRef.current(prev =>
+              withUnchangedMeasurementPatch(prev, resolvedInstall)
+            );
+            onBathroomFixturesQmChangeRef.current?.({
               existing: readBathroomExistingFixtureCounts(measurements),
               install: resolvedInstall,
               demo: readBathroomDemoFixtureCounts(measurements),
@@ -3600,14 +3702,16 @@ export const QmBathroomFixturesPanels = React.memo(
           countertopSqft: measurements.countertopSqft,
           materialType: measurements.bathroomVanityCountertopMaterialType,
         });
-        setInstall(
+        const nextInstall =
           resolvedCounter != null
             ? {
                 ...resolvedInstall,
                 bathroomInstallCounterCount: resolvedCounter,
               }
-            : resolvedInstall
-        );
+            : resolvedInstall;
+        if (!bathroomInstallCountsSame(installRef.current, nextInstall)) {
+          setInstall(nextInstall);
+        }
         const savedDemo = readBathroomDemoFixtureCounts(measurements);
         const inferredDemo = resolveBathroomFixtureDemoFromIntent({
           notes,
@@ -3625,7 +3729,9 @@ export const QmBathroomFixturesPanels = React.memo(
                 inferredDemo.bathroomDemoCounterCount,
             }
           : savedDemo;
-        setDemo(nextDemo);
+        if (!bathroomDemoCountsSame(demoRef.current, nextDemo)) {
+          setDemo(nextDemo);
+        }
         demoRef.current = nextDemo;
         if (!fixtureNoteCountsSeededRef.current) {
           fixtureNoteCountsSeededRef.current = true;
@@ -3649,22 +3755,24 @@ export const QmBathroomFixturesPanels = React.memo(
             (!measurements.bathroomVanityCountertopMaterialType &&
               inferredMaterial)
           ) {
-            setMeasurements(prev => ({
-              ...prev,
-              bathroomExistingVanityCount:
-                prev.bathroomExistingVanityCount ??
-                resolvedExisting.bathroomExistingVanityCount,
-              bathroomExistingCounterCount:
-                prev.bathroomExistingCounterCount ??
-                resolvedExisting.bathroomExistingCounterCount,
-              bathroomDemoVanityCount:
-                prev.bathroomDemoVanityCount ?? nextDemo.bathroomDemoVanityCount,
-              bathroomDemoCounterCount:
-                prev.bathroomDemoCounterCount ??
-                nextDemo.bathroomDemoCounterCount,
-              bathroomVanityCountertopMaterialType:
-                prev.bathroomVanityCountertopMaterialType ?? inferredMaterial,
-            }));
+            setMeasurementsRef.current(prev =>
+              withUnchangedMeasurementPatch(prev, {
+                bathroomExistingVanityCount:
+                  prev.bathroomExistingVanityCount ??
+                  resolvedExisting.bathroomExistingVanityCount,
+                bathroomExistingCounterCount:
+                  prev.bathroomExistingCounterCount ??
+                  resolvedExisting.bathroomExistingCounterCount,
+                bathroomDemoVanityCount:
+                  prev.bathroomDemoVanityCount ??
+                  nextDemo.bathroomDemoVanityCount,
+                bathroomDemoCounterCount:
+                  prev.bathroomDemoCounterCount ??
+                  nextDemo.bathroomDemoCounterCount,
+                bathroomVanityCountertopMaterialType:
+                  prev.bathroomVanityCountertopMaterialType ?? inferredMaterial,
+              })
+            );
           }
         }
       }, [
@@ -3677,8 +3785,6 @@ export const QmBathroomFixturesPanels = React.memo(
         measurements.countertopSqft,
         measurements.bathroomVanityCountertopMaterialType,
         notes,
-        onBathroomFixturesQmChange,
-        setMeasurements,
       ]);
 
       const flushToParent = useCallback(() => {

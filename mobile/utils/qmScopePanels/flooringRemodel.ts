@@ -857,7 +857,9 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const notes = String(ctx.notes || '').toLowerCase();
   const notesMentionUnderlayment = /\bunderlayment\b/.test(notes);
   const notesMentionTransitions =
-    /\b(?:transitions?|reducers?|thresholds?|end\s*caps?)\b/.test(notes);
+    /\b(?:transitions?|reducers?|(?<!marble\s)thresholds?|end\s*caps?)\b/.test(
+      notes
+    );
   const inferredProductScope = [
     /\b(?:lvp|luxury\s+vinyl)\b/.test(notes) ? 'lvp' : null,
     /\blaminate\b/.test(notes) ? 'laminate' : null,

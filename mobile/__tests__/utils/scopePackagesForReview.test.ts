@@ -118,6 +118,17 @@ describe('scopePackagesForReview', () => {
     );
   });
 
+  it('does not turn a shower niche into wall framing or interior paint', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile, the tile shower pan, and the old shower door. Haul off the debris. Install new shower wall tile and a new tile shower pan. Frame, waterproof, and tile a shower niche in the side wall, and build a tiled shower bench on the back wall. Waterproof the shower walls with backer board and a membrane before the tile goes on. Install a new shower door after the tile is done. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const rows = buildConfirmScopeDisplayItems([], {}, 'bathroom', notes);
+    expect(rows.find(row => row.id === 'framing')).toBeUndefined();
+    expect(rows.find(row => row.id === 'paint')).toBeUndefined();
+    expect(rows.find(row => row.id === 'demo')?.label).not.toBe(
+      'Wall demolition / removal'
+    );
+  });
+
   it('restores note-backed framing cards in a mixed remodel', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';

@@ -4,6 +4,7 @@ import {
   KITCHEN_QM_EMBEDDED_IDS,
   kitchenQmScopeCardVisible,
   migrateKitchenDemoSplit,
+  resolveKitchenCountertopQuantity,
   resolveKitchenDemoFromIntent,
   resolveKitchenInstallScopeCounts,
   shouldHideKitchenScopeCardInQmEmbed,
@@ -32,6 +33,18 @@ describe('kitchenRemodel QM', () => {
     const items = [item('cabinets', 'included'), item('cabinet_hardware', 'included')];
     expect(
       shouldHideKitchenScopeCardInQmEmbed('cabinet_hardware', {}, items)
+    ).toBe(false);
+  });
+
+  it('keeps cabinet hardware when the note asks to replace it', () => {
+    const items = [item('cabinets', 'included'), item('cabinet_hardware')];
+    expect(
+      shouldHideKitchenScopeCardInQmEmbed(
+        'cabinet_hardware',
+        {},
+        items,
+        'Keep existing cabinets. Replace cabinet hardware.'
+      )
     ).toBe(false);
   });
 
@@ -256,6 +269,47 @@ describe('kitchenRemodel QM', () => {
     expect(demo.kitchenDemoIslandCount).toBe(1);
   });
 
+  it('does not demo a new island the note is installing', () => {
+    const notes =
+      'Demo existing cabinets and countertops. Install 18 LF perimeter cabinets and a new island with 22 sqft of quartz.';
+    const demo = suggestKitchenDemoFromExistingInstall({
+      existing: {
+        kitchenExistingCabinetCount: null,
+        kitchenExistingCounterCount: null,
+        kitchenExistingApplianceCount: null,
+        kitchenExistingBacksplashCount: null,
+        kitchenExistingFloorCount: null,
+      },
+      install: {
+        kitchenInstallCabinetCount: 1,
+        kitchenInstallCounterCount: 1,
+        kitchenInstallApplianceCount: null,
+        kitchenInstallBacksplashCount: null,
+        kitchenInstallFlooringCount: null,
+        kitchenInstallIslandCount: 1,
+      },
+      demo: {
+        kitchenDemoCabinetCount: null,
+        kitchenDemoCounterCount: null,
+        kitchenDemoBacksplashCount: null,
+        kitchenDemoIslandCount: null,
+        kitchenDemoApplianceCount: null,
+        kitchenDemoFloorCount: null,
+        kitchenDemoWallCount: null,
+      },
+      measurements: { countertopSqft: '36', kitchenIslandCounterSqft: '22' },
+      notes,
+    });
+    expect(demo.kitchenDemoIslandCount).toBeNull();
+    const resolved = resolveKitchenCountertopQuantity(
+      'countertop_demo',
+      { countertopSqft: '36', kitchenIslandCounterSqft: '22' },
+      { templateKey: 'kitchen', notes },
+      {}
+    );
+    expect(resolved?.quantity).toBe(36);
+  });
+
   it('hides embedded kitchen scope cards until measurements or demo steppers are set', () => {
     const measurements = {};
     expect(kitchenQmScopeCardVisible('cabinet_demo', measurements)).toBe(false);
@@ -284,6 +338,42 @@ describe('kitchenRemodel QM', () => {
     expect(migrated.find((r) => r.id === 'demo')).toBeUndefined();
     expect(migrated.find((r) => r.id === 'cabinet_demo')?.state).toBe('included');
     expect(migrated.find((r) => r.id === 'countertop_demo')?.state).toBe('excluded');
+  });
+
+  it('prices cabinet hardware from cabinet LF when the note replaces hardware', () => {
+    const {
+      initialScopeMeasurementInputExtended,
+      resolveChecklistItemQuantity,
+      resolveScopeItemSuggestedPricing,
+    } = require('@/utils/scopeItemQuantities');
+    const notes =
+      'Keep existing cabinets. Paint cabinets, replace cabinet hardware.';
+    const input = {
+      ...initialScopeMeasurementInputExtended(),
+      cabinetLf: '25',
+      itemQuantities: {},
+    };
+    const resolved = resolveChecklistItemQuantity('cabinet_hardware', input, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    expect(resolved.quantity).toBe(25);
+    expect(resolved.unit).toBe('each');
+    const pricing = resolveScopeItemSuggestedPricing(
+      'cabinet_hardware',
+      input,
+      'kitchen',
+      resolved,
+      null,
+      null,
+      notes
+    );
+    expect(pricing.fill).toMatchObject({
+      total: 675,
+      material: 300,
+      labor: 375,
+      basis: { quantity: 25, unit: 'each' },
+    });
   });
 
   it('prices cabinet and countertop demo from kitchen takeoffs', () => {

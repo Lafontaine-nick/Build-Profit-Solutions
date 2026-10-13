@@ -3,8 +3,10 @@ import {
   bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
   notesKeepExistingWetArea,
+  notesMentionStructuralFraming,
   shouldLimitBathroomChecklistToNotes,
 } from '../../utils/bathroomNoteScope';
+import { hydrateScopeChecklistFromNotes } from '../../utils/estimateScopeChecklistUi';
 
 const TILE =
   'Remodel the bathroom. Tear out the shower walls and the tile shower pan. Demo the bathroom floor. Install new shower wall tile, a new tile shower pan, and new bathroom floor tile.';
@@ -181,6 +183,140 @@ describe('bathroom note checklist', () => {
         'Marble threshold',
       ].sort()
     );
+  });
+
+  it('prices a marble doorway threshold as its own each card', () => {
+    const notes =
+      'Remodel the bathroom. Demo the bathroom floor tile only. The thinset gets scraped and the old tile gets hauled off. Install new bathroom floor tile wall to wall, and set a new marble threshold at the doorway. The tub, the shower walls, the vanity, and the toilet all stay in place. No paint and no new lighting.';
+    expect(bathroomChecklistItemNamedInNotes('marble_threshold', notes)).toBe(
+      true
+    );
+    expect(
+      bathroomChecklistItemNamedInNotes(
+        'marble_threshold',
+        'Remodel the bathroom. Do not set a marble threshold. Install new bathroom floor tile.'
+      )
+    ).toBe(false);
+    const filtered = filterDedicatedBathroomConfirmItems(
+      [
+        { id: 'floor_demo' },
+        { id: 'floor_tile' },
+        { id: 'marble_threshold' },
+        { id: 'transitions' },
+        { id: 'cleanup' },
+      ],
+      { notes, templateKey: 'bathroom', scopeMode: 'dedicated' }
+    );
+    expect(filtered.map(item => item.id).sort()).toEqual(
+      ['cleanup', 'floor_demo', 'floor_tile', 'marble_threshold'].sort()
+    );
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [{ id: 'floor_tile', inputType: 'yes_no', label: 'Bath floor tile', state: 'included' }],
+      'bathroom',
+      notes
+    );
+    const threshold = hydrated.find(item => item.id === 'marble_threshold');
+    expect(threshold?.state).toBe('included');
+    expect(threshold?.label).toBe('Marble threshold');
+    expect(hydrated.some(item => item.id === 'transitions')).toBe(false);
+  });
+
+  it('keeps a framed shower niche on the bathroom note instead of wall framing', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile, the tile shower pan, and the old shower door. Haul off the debris. Install new shower wall tile and a new tile shower pan. Frame, waterproof, and tile a shower niche in the side wall, and build a tiled shower bench on the back wall. Waterproof the shower walls with backer board and a membrane before the tile goes on. Install a new shower door after the tile is done. Leave the bathroom floor, vanity, and toilet. No paint.';
+    expect(notesMentionStructuralFraming(notes)).toBe(false);
+    expect(
+      shouldLimitBathroomChecklistToNotes({
+        notes,
+        templateKey: 'bathroom',
+        scopeMode: 'dedicated',
+      })
+    ).toBe(true);
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      [
+        'Haul-off / dump fees',
+        'Remove shower door',
+        'Remove tile shower pan',
+        'Shower bench',
+        'Shower door',
+        'Shower niche',
+        'Shower tile demo / tear-out',
+        'Shower wall tile',
+        'Shower waterproofing & backer board',
+        'Tile shower pan',
+        'Wet area install',
+      ].sort()
+    );
+    expect(
+      shouldLimitBathroomChecklistToNotes({
+        notes: 'Remodel the bathroom. Frame the new walls, then hang drywall.',
+        templateKey: 'bathroom',
+        scopeMode: 'dedicated',
+      })
+    ).toBe(true);
+    expect(
+      bathroomScopeLines(
+        'Remodel the bathroom. Frame the new walls, then hang drywall.'
+      )
+        .map(line => line.label)
+        .sort()
+    ).toEqual(['Drywall', 'Wall framing']);
+  });
+
+  it('keeps a wall-framing bathroom on that measurement and leaves the toilet and paint off', () => {
+    const notes =
+      'Remodel the bathroom. Frame the bathroom walls to move the shower to the opposite wall. Leave the vanity and the toilet. No paint.';
+    expect(notesMentionStructuralFraming(notes)).toBe(true);
+    expect(
+      shouldLimitBathroomChecklistToNotes({
+        notes,
+        templateKey: 'bathroom',
+        scopeMode: 'dedicated',
+      })
+    ).toBe(true);
+    expect(bathroomScopeLines(notes).map(line => line.label)).toEqual([
+      'Wall framing',
+    ]);
+    expect(bathroomChecklistItemNamedInNotes('toilet', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('paint_repair', notes)).toBe(
+      false
+    );
+    expect(bathroomChecklistItemNamedInNotes('vanity', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('shower_tile', notes)).toBe(
+      false
+    );
+    const filtered = filterDedicatedBathroomConfirmItems(
+      [
+        { id: 'framing' },
+        { id: 'toilet' },
+        { id: 'paint_repair' },
+        { id: 'demo' },
+        { id: 'shower_tile' },
+        { id: 'floor_tile' },
+        { id: 'vanity' },
+      ],
+      { notes, templateKey: 'bathroom', scopeMode: 'dedicated' }
+    );
+    expect(filtered.map(item => item.id)).toEqual(['framing']);
+  });
+
+  it('keeps the old shower door without a new door or a kept shower', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    expect(notesKeepExistingWetArea(notes)).toBe(false);
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      [
+        'Remove tile shower pan',
+        'Shower tile demo / tear-out',
+        'Shower wall tile',
+        'Tile shower pan',
+        'Wet area install',
+      ].sort()
+    );
+    expect(notesKeepExistingWetArea('Leave the existing tub in place.')).toBe(
+      true
+    );
+    expect(notesKeepExistingWetArea('Keep the existing shower.')).toBe(true);
   });
 
   it('keeps a tile shower niche and bench and leaves the floor, vanity, and paint', () => {

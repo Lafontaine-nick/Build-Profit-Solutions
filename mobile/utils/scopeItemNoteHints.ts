@@ -1,3 +1,5 @@
+import { notesKeepExistingWetArea } from '@/utils/bathroomNoteScope';
+
 /** Client mirror of backend scopeChecklistLibrary note inference (keep in sync). */
 
 const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
@@ -13,6 +15,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b|\bvanity\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   cabinet_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(?:cabinets?|built[\s-]?ins?)\b|\b(?:cabinets?|built[\s-]?ins?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b|\btear[\s-]?out\s+old\s+cabinets?\b/,
+  cabinet_hardware: /\b(?:cabinet\s+hardware|pulls|knobs)\b/,
   countertop_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   backsplash_demo:
@@ -639,9 +642,7 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
   }
 
   if (itemId === 'wet_area_install' || itemId === 'tub_shower') {
-    if (/\b(stay|staying|keep(?:ing)?\s+existing)\b.*\b(tub|shower)\b|\b(tub|shower)\b.*\b(stay|staying|keep)\b/.test(n)) {
-      return 'staying';
-    }
+    if (notesKeepExistingWetArea(notes)) return 'staying';
     if (/\b(prefab\s+shower\s+enclosure|prefab\s+enclosure|one[\s-]?piece\s+enclosure)\b/.test(n)) {
       return 'prefab_enclosure';
     }

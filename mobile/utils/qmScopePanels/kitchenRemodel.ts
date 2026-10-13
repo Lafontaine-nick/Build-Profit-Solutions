@@ -1,4 +1,5 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
+import { kitchenNoteNamesSurfaceDemo } from '@/utils/kitchenNoteScope';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
@@ -41,7 +42,7 @@ function kitchenCountertopSourceLabel(
 export function resolveKitchenCountertopQuantity(
   itemId: string,
   measurements: Record<string, unknown>,
-  ctx: { templateKey?: string | null },
+  ctx: { templateKey?: string | null; notes?: string | null },
   rule: { quantityHelper?: string }
 ): {
   quantity: number;
@@ -54,7 +55,12 @@ export function resolveKitchenCountertopQuantity(
 } | null {
   if (String(ctx.templateKey || '').toLowerCase() !== 'kitchen') return null;
   if (itemId !== 'countertops' && itemId !== 'countertop_demo') return null;
-  const sqft = resolveKitchenCountertopTakeoffSqft(measurements);
+  const includeIsland =
+    itemId !== 'countertop_demo' ||
+    kitchenNoteNamesSurfaceDemo(ctx.notes, 'island');
+  const sqft = includeIsland
+    ? resolveKitchenCountertopTakeoffSqft(measurements)
+    : parseMeasurementQty(measurements.countertopSqft);
   if (!(sqft > 0)) return null;
   return {
     quantity: sqft,
@@ -110,6 +116,7 @@ export function suggestKitchenDemoFromExistingInstall(params: {
   demo: KitchenDemoCounts;
   measurements: Record<string, unknown>;
   overrides?: Partial<Record<KitchenDemoOverrideKey, boolean>>;
+  notes?: string | null;
 }): KitchenDemoCounts {
   const next = { ...params.demo };
   const overrides = params.overrides || {};
@@ -142,8 +149,14 @@ export function suggestKitchenDemoFromExistingInstall(params: {
         : null;
   }
   if (!overrides.kitchenDemoIslandCount) {
-    next.kitchenDemoIslandCount =
-      positiveCount(params.install.kitchenInstallIslandCount) != null ? 1 : null;
+    const notes = String(params.notes || '');
+    next.kitchenDemoIslandCount = notes.trim()
+      ? kitchenNoteNamesSurfaceDemo(notes, 'island')
+        ? 1
+        : null
+      : positiveCount(params.install.kitchenInstallIslandCount) != null
+        ? 1
+        : null;
   }
   return next;
 }
@@ -602,12 +615,15 @@ export function kitchenQmScopeCardVisible(
 export function shouldHideKitchenScopeCardInQmEmbed(
   itemId: string,
   measurements: Record<string, unknown>,
-  items?: ScopeChecklistItem[]
+  items?: ScopeChecklistItem[],
+  notes?: string | null
 ): boolean {
   // Basic hardware is included in the stock cabinet supply/install allowance.
-  // Keep the separate card available only for explicitly selected specialty or
-  // upgrade hardware.
+  // A note that names cabinet hardware, pulls, or knobs gets its own card.
   if (itemId === 'cabinet_hardware') {
+    if (/\b(?:cabinet\s+hardware|pulls|knobs)\b/i.test(String(notes || ''))) {
+      return false;
+    }
     const cabinetRow = items?.find((r) => r.id === 'cabinets');
     const hardwareRow = items?.find((r) => r.id === 'cabinet_hardware');
     return (

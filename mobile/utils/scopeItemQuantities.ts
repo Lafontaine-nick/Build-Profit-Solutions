@@ -4,6 +4,10 @@
  */
 
 import {
+  kitchenNoteInstallsNewCabinets,
+  kitchenNoteNamesSurfaceDemo,
+} from '@/utils/kitchenNoteScope';
+import {
   stripScopeInputForSingleTrade,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
@@ -1221,6 +1225,26 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     geographicBasis: 'national',
     trade: 'tile',
     category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  /**
+   * One marble doorway saddle, cut and set. Not the vinyl transition strip
+   * ($50) and not the bathroom floor tile sqft rate.
+   */
+  marble_threshold: {
+    unit: 'each',
+    material: 185,
+    labor: 165,
+    materialBucketLabel: 'Marble threshold',
+    laborBucketLabel: 'Cut and set',
+    sourceLabel:
+      'Suggested budget split · National Average · marble doorway threshold',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'flooring',
     pricingMethod: 'material_labor',
   },
   shower_niche: {
@@ -5909,6 +5933,12 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 niche. Edit count if different.',
   },
+  marble_threshold: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper: 'One doorway. Change the count if more than one opening gets a threshold.',
+  },
   shower_bench: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'lf'],
@@ -7155,7 +7185,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
     measurementKey: 'cabinetRunLf',
-    measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'],
+    measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft', 'cabinetLf'],
     requiresUserQuantity: true,
     quantityHelper:
       'Enter total linear feet of upper and lower cabinets being painted. Do not use kitchen floor area.',
@@ -8074,6 +8104,16 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
+  framing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['framedAreaSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Square feet of wall being framed. An 8 ft wall is priced as stud wall by the linear foot.',
+    missingMessage: 'Enter wall framing area sqft.',
+  },
   trim_paint: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
@@ -9624,7 +9664,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     },
     cabinet_paint: {
       unit: 'lf',
-      measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'],
+      measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft', 'cabinetLf'],
     },
     baseboard: { unit: 'lf', measurementKeys: ['baseboardLf'] },
     shower_tile: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
@@ -9784,6 +9824,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     prefab_shower_pan: { unit: 'each' },
     shower_pan: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
     shower_niche: { unit: 'each' },
+    marble_threshold: { unit: 'each' },
     shower_bench: { unit: 'each' },
     shower_bench_curb: { unit: 'each' },
     vanity: { unit: 'each' },
@@ -15591,6 +15632,98 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  const notesText = String(originalNotes || '');
+  if (
+    itemId === 'framing' &&
+    String(templateKey || '').toLowerCase() === 'bathroom'
+  ) {
+    const wallSqft =
+      parseScopeMeasurementInput(measurementsInput.framedAreaSqft) ||
+      (String(resolved.unit || '').toLowerCase() === 'sqft' &&
+      Number(resolved.quantity) > 0
+        ? Number(resolved.quantity)
+        : null);
+    if (!(wallSqft && wallSqft > 0)) return empty;
+    const studWall = regionalAdjustedNationalAverage(
+      'wall_framing',
+      'lf',
+      pricingContext
+    ).average;
+    if (studWall?.material == null || studWall?.labor == null) return empty;
+    const wallHeightFt = 8;
+    const linearFeet = Math.round((wallSqft / wallHeightFt) * 10) / 10;
+    const material = round2(linearFeet * studWall.material);
+    const labor = round2(linearFeet * studWall.labor);
+    const perLf = round2(studWall.material + studWall.labor);
+    const lfLabel = Number.isInteger(linearFeet)
+      ? String(linearFeet)
+      : linearFeet.toFixed(1);
+    const perLfLabel = Number.isInteger(perLf)
+      ? `$${perLf}`
+      : `$${perLf.toFixed(2)}`;
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: studWall.sourceLabel,
+        helper: `${wallSqft.toLocaleString()} sqft of wall at ${wallHeightFt} ft is ${lfLabel} LF of stud wall.`,
+        mode: 'suggested_price',
+        basis: { quantity: linearFeet, unit: 'lf' },
+        displayUnitRateLabel: `${wallSqft.toLocaleString()} sqft at ${wallHeightFt} ft · ${lfLabel} LF × ${perLfLabel}/LF`,
+        benchmarkAction: 'price_ready',
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: 'framing',
+      },
+      comparison: null,
+    };
+  }
+  if (
+    (itemId === 'backsplash' || itemId === 'flooring') &&
+    String(templateKey || '').toLowerCase() === 'kitchen'
+  ) {
+    const breakdown = resolveItemRatePricingFromNotes(
+      itemId,
+      measurementsPayloadForRatePricing(measurementsInput),
+      notesText,
+      { templateKey: templateKey ?? undefined }
+    );
+    const noteSqft =
+      itemId === 'backsplash'
+        ? parseScopeMeasurementInput(measurementsInput.backsplashSqft)
+        : parseScopeMeasurementInput(measurementsInput.kitchenFloorSqft) ||
+          parseScopeMeasurementInput(measurementsInput.flooringSqft);
+    if (breakdown?.total && (breakdown.material != null || breakdown.labor != null)) {
+      const material = Number(breakdown.material || 0);
+      const labor = Number(breakdown.labor || 0);
+      return {
+        fill: {
+          material,
+          labor,
+          total: breakdown.total,
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper:
+            noteSqft && noteSqft > 0
+              ? `Note rate for ${noteSqft.toLocaleString()} sqft`
+              : 'From notes',
+          mode: 'suggested_price',
+          lumpSumOnly: !(material > 0 && labor > 0),
+          basis:
+            noteSqft && noteSqft > 0
+              ? { quantity: noteSqft, unit: 'sqft' }
+              : null,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
   if (itemId === 'flooring') {
     const allocatedProductSqft = [
       'flooringLvpSqft',
@@ -15610,7 +15743,6 @@ export function resolveScopeItemSuggestedPricing(
     );
     if (allocatedProductSqft > 0) return empty;
   }
-  const notesText = String(originalNotes || '');
   if (
     (itemId === 'drip_edge' || itemId === 'ridge_cap') &&
     measurementsInput.planImportMode === 'selected_trade' &&
@@ -17013,10 +17145,17 @@ export function resolveScopeItemSuggestedPricing(
           ''
         )
       ) > 0;
+    const includeIslandInDemo =
+      hasIslandCounterTakeoff &&
+      kitchenNoteNamesSurfaceDemo(notesText, 'island');
     const measuredSqft =
       String(templateKey || '').toLowerCase() === 'kitchen' ||
       hasIslandCounterTakeoff
-        ? resolveKitchenCountertopTakeoffSqft(kitchenMeasurements)
+        ? includeIslandInDemo
+          ? resolveKitchenCountertopTakeoffSqft(kitchenMeasurements)
+          : Number(
+              String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
+            )
         : Number(
             String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
           );
@@ -17116,6 +17255,46 @@ export function resolveScopeItemSuggestedPricing(
           mode: 'suggested_price',
           lumpSumOnly: !(material > 0 && labor > 0),
           basis: { quantity: noteLf, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  // A cabinet lump in the notes is one price. Do not invent a material and
+  // labor split the note never stated.
+  if (itemId === 'cabinets') {
+    const cabinetAllowance = parseScopeItemAllowancesFromNotes(notesText, {
+      templateKey: templateKey ?? undefined,
+    }).cabinets;
+    const allowanceTotal = Number(cabinetAllowance?.quantity || 0);
+    const cabinetLf = Number(
+      String(measurementsInput.cabinetLf ?? '').replace(/,/g, '')
+    );
+    if (
+      allowanceTotal > 0 &&
+      !cabinetsIncludeCountersInAllowance(
+        notesText,
+        Boolean(cabinetAllowance?.includesCountertops)
+      )
+    ) {
+      return {
+        fill: {
+          material: 0,
+          labor: 0,
+          total: allowanceTotal,
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper:
+            cabinetLf > 0
+              ? `Note allowance for ${cabinetLf.toLocaleString()} LF`
+              : 'Allowance from notes',
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          basis: cabinetLf > 0 ? { quantity: cabinetLf, unit: 'lf' } : null,
           benchmarkAction: 'price_ready',
           productionStatus: 'review_required',
         },
@@ -23696,6 +23875,45 @@ export function resolveChecklistItemQuantity(
       missingMessage: 'Needs conditioned living area for air sealing.',
       showInput: true,
     };
+  }
+  if (itemId === 'cabinet_hardware') {
+    const stored = measurements.itemQuantities?.cabinet_hardware;
+    const storedQuantity =
+      stored?.quantitySource === 'user_entered' ||
+      stored?.quantitySource === 'manual_override'
+        ? Number(stored.quantity)
+        : null;
+    const cabinetLf = Number(
+      String(measurements.cabinetLf ?? '').replace(/,/g, '')
+    );
+    const notes = String(ctx.notes || '');
+    const named = /\b(?:cabinet\s+hardware|pulls|knobs)\b/i.test(notes);
+    const quantity =
+      storedQuantity && storedQuantity > 0
+        ? storedQuantity
+        : named &&
+            !kitchenNoteInstallsNewCabinets(notes) &&
+            Number.isFinite(cabinetLf) &&
+            cabinetLf > 0
+          ? cabinetLf
+          : null;
+    if (quantity) {
+      return {
+        quantity,
+        unit: 'each',
+        quantitySource:
+          stored?.quantitySource === 'user_entered' ||
+          stored?.quantitySource === 'manual_override'
+            ? stored.quantitySource
+            : 'inferred',
+        sourceLabel: 'One pull or knob per cabinet LF',
+        pricingReady: true,
+        quantityHelper:
+          'Planning count is one piece per cabinet LF. Edit the count if the pull or knob count is different.',
+        missingMessage: 'Enter cabinet hardware count or allowance.',
+        showInput: true,
+      };
+    }
   }
   if (itemId === 'sink_faucet') {
     const stored = measurements.itemQuantities?.sink_faucet;

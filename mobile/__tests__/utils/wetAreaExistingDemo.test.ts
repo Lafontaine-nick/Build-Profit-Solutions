@@ -7,6 +7,8 @@ import {
   resolveAutoDemoWetAreaCounts,
   resolveDemoWetAreaFromIntent,
   resolveEffectiveExistingWetArea,
+  showerDoorReuseOffered,
+  wetAreaFloorDoorHeading,
 } from '../../utils/wetAreaExistingDemo';
 import { inferWetAreaInstallSteppersFromIntent } from '../../utils/wetAreaInstallInference';
 
@@ -106,6 +108,99 @@ describe('wetAreaExistingDemo', () => {
     });
     expect(demo.demoTubCount).toBe(1);
     expect(demo.demoTileWallCount).toBe(1);
+  });
+
+  test('demo shower door when tear-out lists the old door with the tile and pan', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile, the tile shower pan, and the old shower door. Haul off the debris. Install new shower wall tile and a new tile shower pan. Frame, waterproof, and tile a shower niche in the side wall, and build a tiled shower bench on the back wall. Waterproof the shower walls with backer board and a membrane before the tile goes on. Install a new shower door after the tile is done. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const existing = inferExistingWetAreaFromNotes(notes);
+    expect(existing.existingShowerDoorCount).toBe(1);
+    const demo = resolveDemoWetAreaFromIntent({
+      notes,
+      existing,
+      install: {
+        bathCount: null,
+        tilePanBathCount: 1,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: 1,
+      },
+    });
+    expect(demo.demoShowerDoorCount).toBe(1);
+    expect(demo.demoBathFloorTileCount).toBeNull();
+    expect(
+      showerDoorReuseOffered({
+        notes,
+        existingShowerDoorCount: existing.existingShowerDoorCount,
+      })
+    ).toBe(false);
+  });
+
+  test('names the wet-area section for the fields on the card', () => {
+    expect(
+      wetAreaFloorDoorHeading({ showFloor: false, showDoors: true })
+    ).toBe('SHOWER DOORS');
+    expect(
+      wetAreaFloorDoorHeading({ showFloor: true, showDoors: true })
+    ).toBe('BATH FLOOR & DOORS');
+    expect(
+      wetAreaFloorDoorHeading({ showFloor: true, showDoors: false })
+    ).toBe('BATH FLOOR');
+  });
+
+  test('a kept shower door still tears out the pan and offers reuse', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const existing = inferExistingWetAreaFromNotes(notes);
+    const demo = resolveDemoWetAreaFromIntent({
+      notes,
+      existing,
+      install: {
+        bathCount: 1,
+        tilePanBathCount: 1,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoTilePanCount).toBe(1);
+    expect(demo.demoShowerDoorCount).toBeNull();
+    expect(
+      showerDoorReuseOffered({
+        notes,
+        existingShowerDoorCount: existing.existingShowerDoorCount,
+      })
+    ).toBe(true);
+  });
+
+  test('offers reuse when an existing door is not coming out', () => {
+    expect(
+      showerDoorReuseOffered({
+        notes: 'Existing shower door stays. Paint the bathroom walls.',
+        existingShowerDoorCount: 1,
+      })
+    ).toBe(true);
+  });
+
+  test('a new shower door in the same sentence as other tear-out is not a door pull', () => {
+    const demo = resolveDemoWetAreaFromIntent({
+      notes: 'Tear out the shower walls and install a new shower door.',
+      existing: emptyWetAreaExistingCounts(),
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: 1,
+      },
+    });
+    expect(demo.demoShowerDoorCount).toBeNull();
   });
 
   test('demo shower door only when notes mention removing existing door', () => {

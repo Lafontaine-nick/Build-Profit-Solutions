@@ -1,7 +1,6 @@
 import {
   resolveBathroomWetAreaDemoSuggestedPricing,
   BATHROOM_WET_AREA_DEMO_HELPER,
-  SHOWER_DOOR_DEMO_EACH,
   PREFAB_PAN_DEMO_EACH,
 } from '@/utils/bathroomWetAreaDemoPricing';
 
@@ -82,20 +81,20 @@ describe('bathroom wet-area demo pricing', () => {
     expect(panAssumption?.status).toBe('included');
   });
 
-  test('includes shower door removal allowance', () => {
+  test('keeps shower door removal off the tile demo card', () => {
     const { fill } = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput: { demoTileWallCount: 1, demoShowerDoorCount: 1 },
       tileSqft: 80,
     });
-    expect(fill?.total).toBe(round2(80 * 5.5 + SHOWER_DOOR_DEMO_EACH.total));
-    expect(String(fill?.helper || '')).toMatch(/shower door \$125/i);
+    expect(fill?.total).toBe(round2(80 * 5.5));
+    expect(String(fill?.helper || '')).not.toMatch(/shower door/i);
     const doorAssumption = fill?.benchmarkScopeProfile?.scopeAssumptions.find(
       (row) => row.scopeKey === 'shower_door'
     );
-    expect(doorAssumption?.status).toBe('included');
+    expect(doorAssumption?.status).toBe('excluded');
   });
 
-  test('prefab pan + wall SF + door shows hybrid breakdown total', () => {
+  test('prefab pan + wall SF leaves the door on its own card', () => {
     const { fill } = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput: {
         demoTileWallCount: 1,
@@ -104,10 +103,10 @@ describe('bathroom wet-area demo pricing', () => {
       },
       tileSqft: 80,
     });
-    expect(fill?.total).toBe(80 * 5.5 + PREFAB_PAN_DEMO_EACH.total + SHOWER_DOOR_DEMO_EACH.total);
+    expect(fill?.total).toBe(80 * 5.5 + PREFAB_PAN_DEMO_EACH.total);
     expect(String(fill?.helper || '')).toMatch(/80 sqft × \$5\.50\/SF \(\$440\)/i);
     expect(String(fill?.helper || '')).toMatch(/prefab pan \$350/i);
-    expect(String(fill?.helper || '')).toMatch(/shower door \$125/i);
+    expect(String(fill?.helper || '')).not.toMatch(/shower door \$125/i);
   });
 
   test('tub-only demo prices without shower tile sqft', () => {
@@ -119,12 +118,12 @@ describe('bathroom wet-area demo pricing', () => {
     expect(fill?.basis).toBeNull();
   });
 
-  test('door-only demo prices without shower tile sqft', () => {
+  test('door-only tear-out is not priced on the tile demo card', () => {
     const { fill } = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput: { demoShowerDoorCount: 1 },
       tileSqft: 0,
     });
-    expect(fill?.total).toBe(SHOWER_DOOR_DEMO_EACH.total);
+    expect(fill).toBeNull();
   });
 });
 

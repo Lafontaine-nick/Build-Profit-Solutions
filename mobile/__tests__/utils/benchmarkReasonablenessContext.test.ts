@@ -500,10 +500,46 @@ describe('benchmarkReasonablenessContext', () => {
         notes,
       })
     ).toMatchObject({
-      total: 924 + 1440,
-      material: 336 + 765,
-      labor: 588 + 675,
+      total: 924,
+      material: 336,
+      labor: 588,
+      allowance: 0,
     });
+  });
+
+  it('keeps an unapplied kitchen baseboard note rate out of selected pricing', () => {
+    const notes =
+      'install 24 LF cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400, backsplash 42 sqft material $8 per sqft and labor $14 per sqft. New LVP flooring 180 sqft material $4.25 per sqft and labor $3.75 per sqft. Baseboard 48 LF at $7 per LF.';
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'trim',
+        label: 'Trim & baseboard',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const measurements = {
+      baseboardLf: '48',
+      itemQuantities: {},
+      pricingAcceptance: {},
+    } as never;
+
+    expect(
+      sumConfirmScopeAppliedPricingBreakdown({
+        items,
+        measurements,
+        templateKey: 'kitchen',
+        notes,
+      }).total
+    ).toBe(0);
+    expect(
+      wholeProjectGroupDisplayTotal({
+        items,
+        measurements,
+        templateKey: 'kitchen',
+        notes,
+      })
+    ).toBe(336);
   });
 
   it('keeps applied prefab pan and enclosure dollars on the wet-area group header', () => {

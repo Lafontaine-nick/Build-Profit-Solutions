@@ -25,6 +25,7 @@ export type BathroomWetAreaDemoSuggestedFill = {
   laborSource: 'national_average';
   rateSourceLabel: string;
   helper: string;
+  displayQuantityLine?: string | null;
   mode: 'suggested_price';
   basis?: { quantity: number; unit: string } | null;
   splitSource?: 'source';
@@ -96,7 +97,6 @@ function buildBathroomWetAreaDemoAssumptions(params: {
   includesPrefabPan: boolean;
   includesPrefabEnclosure: boolean;
   includesTilePan: boolean;
-  includesShowerDoor: boolean;
 }): BenchmarkScopeAssumption[] {
   return [
     scopeAssumption(
@@ -151,14 +151,9 @@ function buildBathroomWetAreaDemoAssumptions(params: {
     ),
     scopeAssumption(
       'shower_door',
-      params.includesShowerDoor ? 'included' : 'conditional',
+      'excluded',
       'Shower door removal',
-      params.includesShowerDoor
-        ? 'Removal of an existing glass or framed shower door is included.'
-        : 'Shower door removal applies when an existing door is being removed.',
-      params.includesShowerDoor
-        ? undefined
-        : { conditionText: 'Confirm whether an existing shower door is being removed.' }
+      'Shower door removal is priced on the Remove shower door line.'
     ),
     scopeAssumption(
       'bath_floor',
@@ -184,7 +179,6 @@ export function buildBathroomWetAreaDemoHelper(params: {
   includesTub: boolean;
   includesPrefabPan: boolean;
   includesPrefabEnclosure: boolean;
-  includesShowerDoor: boolean;
   sourceLabel?: string | null;
 }): string {
   const parts: string[] = [];
@@ -211,7 +205,6 @@ export function buildBathroomWetAreaDemoHelper(params: {
   } else if (params.includesPrefabPan) {
     parts.push(`prefab pan ${money(PREFAB_PAN_DEMO_EACH.total)}`);
   }
-  if (params.includesShowerDoor) parts.push(`shower door ${money(SHOWER_DOOR_DEMO_EACH.total)}`);
   const basis = parts.length ? parts.join(' · ') : 'Wet-area tear-out';
   const source = params.sourceLabel ? ` · ${params.sourceLabel}` : '';
   return `${basis}${source}`.trim();
@@ -229,7 +222,6 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
   const includesTilePan = stepperActive(demo.demoTilePanCount);
   const includesPrefabPan = stepperActive(demo.demoPrefabPanCount);
   const includesPrefabEnclosure = stepperActive(demo.demoPrefabEnclosureCount);
-  const includesShowerDoor = stepperActive(demo.demoShowerDoorCount);
 
   const tileSqft = Math.max(0, Number(params.tileSqft) || 0);
   const wallTileSqft = Math.max(0, Number(params.wallTileSqft) || 0);
@@ -280,11 +272,6 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
     material = round2(material + PREFAB_ENCLOSURE_DEMO_EACH.material);
     labor = round2(labor + PREFAB_ENCLOSURE_DEMO_EACH.labor);
   }
-  if (includesShowerDoor) {
-    material = round2(material + SHOWER_DOOR_DEMO_EACH.material);
-    labor = round2(labor + SHOWER_DOOR_DEMO_EACH.labor);
-  }
-
   const total = round2(material + labor);
   if (!(total > 0)) {
     return { fill: null, comparison: null };
@@ -295,10 +282,9 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
     includesPrefabPan,
     includesPrefabEnclosure,
     includesTilePan,
-    includesShowerDoor,
   });
   const hasUnitAddOn =
-    includesTub || includesTilePan || includesPrefabPan || includesPrefabEnclosure || includesShowerDoor;
+    includesTub || includesTilePan || includesPrefabPan || includesPrefabEnclosure;
   const confidence = tileSqft > 0 && hasUnitAddOn ? 'high' : tileSqft > 0 ? 'medium' : 'low';
 
   const costBuckets: BathroomWetAreaDemoSuggestedFill['costBuckets'] = [];
@@ -363,15 +349,6 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
       source: 'national_average',
     });
   }
-  if (includesShowerDoor) {
-    costBuckets.push({
-      key: 'labor',
-      label: 'Shower door removal',
-      amount: SHOWER_DOOR_DEMO_EACH.total,
-      source: 'national_average',
-    });
-  }
-
   const showSplitRates = !useStoredWallBasis && splitTilePricing;
   const helper = buildBathroomWetAreaDemoHelper({
     tileSqft,
@@ -380,9 +357,18 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
     includesTub,
     includesPrefabPan,
     includesPrefabEnclosure,
-    includesShowerDoor,
     sourceLabel: params.sourceLabel,
   });
+  const splitQuantityLine = showSplitRates
+    ? buildBathroomWetAreaDemoHelper({
+        tileSqft,
+        wallTileSqft: wallArea,
+        panSqft: effectivePanSqft,
+        includesTub,
+        includesPrefabPan,
+        includesPrefabEnclosure,
+      })
+    : null;
 
   return {
     fill: {
@@ -394,6 +380,7 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
       rateSourceLabel: 'Suggested budget split · National Average · bathroom wet-area demo',
       helper,
       mode: 'suggested_price',
+      displayQuantityLine: splitQuantityLine,
       basis: tileSqft > 0 ? { quantity: tileSqft, unit: 'sqft' } : null,
       splitSource: 'source',
       splitConfidence: confidence,
@@ -408,7 +395,7 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
         confidence,
         productionStatus: confidence === 'high' ? 'production_ready' : 'review_required',
       },
-      pricingRecordId: `bps_bathroom_wet_area_demo:${tileSqft}:${includesTub ? 'tub' : ''}:${includesPrefabPan ? 'pan' : ''}:${includesPrefabEnclosure ? 'enc' : ''}:${includesShowerDoor ? 'door' : ''}`,
+      pricingRecordId: `bps_bathroom_wet_area_demo:${tileSqft}:${includesTub ? 'tub' : ''}:${includesPrefabPan ? 'pan' : ''}:${includesPrefabEnclosure ? 'enc' : ''}`,
       productionStatus: confidence === 'high' ? 'production_ready' : 'review_required',
       storedTotalExact: total,
     },

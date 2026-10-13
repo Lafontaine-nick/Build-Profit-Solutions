@@ -2,6 +2,7 @@
  * Dedicated bathroom notes only show the checklist rows the note names.
  * Empty notes, mixed scope, plan import, and whole-home stay on the full list.
  */
+import { notesMentionDemoShowerDoor } from '@/utils/wetAreaExistingDemo';
 
 const BATHROOM_TEMPLATE_IDS = new Set([
   'demo',
@@ -20,6 +21,7 @@ const BATHROOM_TEMPLATE_IDS = new Set([
   'shower_bench',
   'glass_door',
   'floor_tile',
+  'marble_threshold',
   'toilet',
   'vanity',
   'sink_faucet',
@@ -41,6 +43,7 @@ const BATHROOM_TEMPLATE_IDS = new Set([
   'cleanup',
   'drywall',
   'drywall_demo',
+  'framing',
 ]);
 
 /** Drop sentences that name work the note is leaving alone, plus "do not" and "no paint/lighting". */
@@ -153,6 +156,9 @@ export function bathroomScopeLines(
   if (namedInNotes('shower_niche')) push('shower_niche', 'Shower niche');
   if (namedInNotes('shower_bench')) push('shower_bench', 'Shower bench');
   if (namedInNotes('glass_door')) push('glass_door', 'Shower door');
+  if (notesMentionDemoShowerDoor(affirmative)) {
+    push('glass_door_demo', 'Remove shower door');
+  }
   if (namedInNotes('floor_tile')) push('floor_tile', 'Bath floor tile');
   if (namedInNotes('wet_area_install')) {
     const installsPrefabPan =
@@ -220,8 +226,10 @@ export function bathroomScopeLines(
   if (namedInNotes('exhaust_fan')) push('exhaust_fan', 'Bath exhaust fan');
   if (namedInNotes('toilet')) push('toilet', 'Toilet');
   if (namedInNotes('cleanup')) push('cleanup', 'Haul-off / dump fees');
+  if (namedInNotes('framing')) push('framing', 'Wall framing');
+  if (namedInNotes('drywall')) push('drywall', 'Drywall');
   if (/\bmarble\s+thresholds?\b/i.test(affirmative)) {
-    push('note:marble threshold', 'Marble threshold');
+    push('marble_threshold', 'Marble threshold');
   }
   return lines;
 }
@@ -288,9 +296,11 @@ export function bathroomChecklistItemNamedInNotes(
     case 'shower_bench':
       return /\bbench\b/i.test(text);
     case 'glass_door':
-      return /\bshower\s+doors?\b/i.test(text);
+      return notesInstallNewShowerDoor(text);
     case 'floor_tile':
       return named(BATH_FLOOR_TILE, text);
+    case 'marble_threshold':
+      return /\bmarble\s+thresholds?\b/i.test(text);
     case 'toilet':
       return /\btoilet\b/i.test(text);
     case 'vanity':
@@ -340,19 +350,55 @@ export function bathroomChecklistItemNamedInNotes(
     case 'drywall':
     case 'drywall_demo':
       return /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
+    case 'framing':
+      return notesMentionStructuralFraming(text);
     default:
       return false;
   }
 }
 
 /**
+ * A new shower door install. Keeping or reusing the old door is not one.
+ */
+export function notesInstallNewShowerDoor(
+  notes: string | null | undefined
+): boolean {
+  return String(notes || '')
+    .split(/[.!?\n]/)
+    .some(sentence => {
+      if (!/\bshower\s+doors?\b/i.test(sentence)) return false;
+      if (
+        /\b(?:keep(?:ing)?|reuse|leave|stay(?:s|ing)?)\b/i.test(sentence) &&
+        /\b(?:existing|old|current)\b/i.test(sentence) &&
+        !/\b(?:install|replace)\b/i.test(sentence)
+      ) {
+        return false;
+      }
+      if (
+        /\b(?:remove|demo|tear[\s-]?out|rip[\s-]?out)\b/i.test(sentence) &&
+        !/\b(?:install|new|replace)\b/i.test(sentence)
+      ) {
+        return false;
+      }
+      return (
+        /\b(?:install|new|replace)\b/i.test(sentence) ||
+        /\b(?:frameless|slider|sliding)\s+shower\s+doors?\b/i.test(sentence)
+      );
+    });
+}
+
+/**
  * True when the note is leaving the tub or shower in place.
  * "Leave the alcove ready for the new tub" is a replacement, not a keep.
+ * "Keep the existing shower door" is the door, not the wet area.
  */
 export function notesKeepExistingWetArea(
   notes: string | null | undefined
 ): boolean {
-  const text = bathroomMeasurementNotes(notes);
+  const text = bathroomMeasurementNotes(notes).replace(
+    /\bshower\s+doors?\b/gi,
+    ' '
+  );
   return (
     /\b(?:keep(?:ing)?|reuse)\b[^.;\n]{0,40}\b(?:the\s+)?(?:existing\s+)?(?:tub|shower)\b/i.test(
       text
@@ -360,6 +406,26 @@ export function notesKeepExistingWetArea(
     /\b(?:tub|shower)\b[^.;\n]{0,30}\bstays?\b/i.test(text) ||
     /\bleave\s+(?:the\s+)?(?:existing\s+)?(?:tub|shower)\b/i.test(text)
   );
+}
+
+/**
+ * Framing a shower niche or bench is wet-area work. Drop those phrases
+ * before any check that treats "frame" as structural wall framing.
+ */
+export function notesWithoutWetAreaFraming(
+  notes: string | null | undefined
+): string {
+  return String(notes || '').replace(
+    /\b(?:frame|framing|framed)\b[^.;\n]{0,80}\b(?:a\s+)?(?:tiled\s+|shower\s+)?(?:niche|bench)\b/gi,
+    ' '
+  );
+}
+
+/** True when the note frames walls, not a shower niche or bench. */
+export function notesMentionStructuralFraming(
+  notes: string | null | undefined
+): boolean {
+  return /\bfram(?:e|ing|ed)\b/i.test(notesWithoutWetAreaFraming(notes));
 }
 
 export function shouldLimitBathroomChecklistToNotes(params: {
@@ -374,7 +440,6 @@ export function shouldLimitBathroomChecklistToNotes(params: {
   if (String(params.scopeMode || '').toLowerCase() !== 'dedicated') return false;
   const notes = String(params.notes || '').trim();
   if (!notes) return false;
-  if (/\bfram(?:e|ing|ed)\b/i.test(notes)) return false;
   const template = String(params.templateKey || params.projectType || '')
     .toLowerCase();
   return (

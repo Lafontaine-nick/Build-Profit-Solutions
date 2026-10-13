@@ -674,6 +674,19 @@ describe('scopeQuickMeasurements', () => {
     ).toBe('insulation');
   });
 
+  it('does not ask for wall framing area when the note frames a shower niche', () => {
+    const notes =
+      'Remodel the bathroom. Frame a niche in the side wall, and build a tiled shower bench on the back wall.';
+    const keys = quickMeasurementRowsForTemplate(
+      'room_remodel',
+      'room_remodel',
+      notes
+    )
+      .flat()
+      .map(field => field.key);
+    expect(keys).not.toContain('framedAreaSqft');
+  });
+
   it('routes framing-focused room-addition notes to framing measurements', () => {
     const notes =
       'Frame a new 600 sqft room addition with 8-foot walls. Include exterior wall framing and interior partitions totaling 120 linear feet, roof tie-in framing, headers for 4 windows and 1 exterior door, sheathing, and blocking.';

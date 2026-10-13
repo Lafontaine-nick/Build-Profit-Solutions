@@ -159,6 +159,7 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   },
   shower_floor_tile: { tier: 'takeoff_required', takeoffLabel: 'shower floor tile SF' },
   floor_tile: { tier: 'auto_planning' },
+  marble_threshold: { tier: 'auto_planning' },
   waterproofing: { tier: 'auto_planning' },
   glass_door: {
     tier: 'prompt_first',

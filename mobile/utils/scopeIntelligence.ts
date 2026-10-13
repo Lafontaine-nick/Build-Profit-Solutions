@@ -907,15 +907,26 @@ function relationshipForResolved(params: {
   resolved: ResolvedItemQuantity;
 }): ScopeItemIntelligence['measurementRelationship'] {
   const sourceMeasurementType = inferredMeasurementTypeForResolved(params);
-  const type = classifyMeasurementRelationship({
-    scopeKey: params.scopeKey,
-    templateKey: params.templateKey,
-    measurementType: sourceMeasurementType,
-  });
+  // Cabinet hardware is priced as a count. One piece per cabinet LF is a
+  // planning quantity, not an attempt to price the line in linear feet.
+  const planningHardwareCount =
+    params.scopeKey === 'cabinet_hardware' &&
+    normalizeUnit(params.resolved.unit) === 'each' &&
+    (sourceMeasurementType === 'cabinet_length' ||
+      sourceMeasurementType === 'linear_length');
+  const type = planningHardwareCount
+    ? 'unknown'
+    : classifyMeasurementRelationship({
+        scopeKey: params.scopeKey,
+        templateKey: params.templateKey,
+        measurementType: sourceMeasurementType,
+      });
   const definition = getScopeUnitDefinition(params.scopeKey, params.templateKey);
   return {
     type,
-    sourceMeasurementType,
+    sourceMeasurementType: planningHardwareCount
+      ? undefined
+      : sourceMeasurementType,
     targetMeasurementType: definition.requiredMeasurementTypes[0],
     formulaKey:
       type === 'derived' && sourceMeasurementType
@@ -1549,11 +1560,25 @@ function scopeHasAcceptedPricing(
   return acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted';
 }
 
+function bothPricesComeFromNotes(
+  scopeKey: string,
+  relatedScopeKey: string,
+  pricingAcceptance?: Record<string, { pricingSourceKind?: string }>
+): boolean {
+  return (
+    pricingAcceptance?.[scopeKey]?.pricingSourceKind === 'parsed_from_notes' &&
+    pricingAcceptance?.[relatedScopeKey]?.pricingSourceKind === 'parsed_from_notes'
+  );
+}
+
 export function detectActualDuplicatePricingConflicts(params: {
   scopeKey: string;
   activeScopeKeys: string[];
   overlaps: ScopeOverlapNotice[];
-  pricingAcceptance?: Record<string, { selectionStatus?: string; totalAmount?: number }>;
+  pricingAcceptance?: Record<
+    string,
+    { selectionStatus?: string; totalAmount?: number; pricingSourceKind?: string }
+  >;
   benchmarkProfile?: BenchmarkScopeAssumptionProfile | null;
   scopeGapResolutions?: ScopeGapResolutionsLike;
 }): OverlapRisk {
@@ -1569,13 +1594,16 @@ export function detectActualDuplicatePricingConflicts(params: {
         active.has(key) &&
         scopeHasAcceptedPricing(key, params.pricingAcceptance)
     );
-    if (currentAccepted && pricedRelated.length > 0) {
-      const relatedLabel = scopeKeyLabel(pricedRelated[0]);
+    const separatelyPriced = pricedRelated.filter(
+      (key) => !bothPricesComeFromNotes(params.scopeKey, key, params.pricingAcceptance)
+    );
+    if (currentAccepted && separatelyPriced.length > 0) {
+      const relatedLabel = scopeKeyLabel(separatelyPriced[0]);
       const parentLabel = scopeKeyLabel(params.scopeKey);
       messages.push(
         `${relatedLabel.charAt(0).toUpperCase()}${relatedLabel.slice(1)} may already be included in ${parentLabel} and also has a separate price. Review both items.`
       );
-      relatedKeys.push(...pricedRelated);
+      relatedKeys.push(...separatelyPriced);
     }
   }
 
@@ -1586,7 +1614,8 @@ export function detectActualDuplicatePricingConflicts(params: {
       if (
         active.has(relatedScopeKey) &&
         scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance) &&
-        relatedScopeKey !== params.scopeKey
+        relatedScopeKey !== params.scopeKey &&
+        !bothPricesComeFromNotes(params.scopeKey, relatedScopeKey, params.pricingAcceptance)
       ) {
         const label = assumption.displayLabel || scopeKeyLabel(relatedScopeKey);
         messages.push(
@@ -1608,7 +1637,8 @@ export function detectActualDuplicatePricingConflicts(params: {
         if (
           relatedScopeKey !== params.scopeKey &&
           active.has(relatedScopeKey) &&
-          scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance)
+          scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance) &&
+          !bothPricesComeFromNotes(params.scopeKey, relatedScopeKey, params.pricingAcceptance)
         ) {
           const label = scopeKeyLabel(relatedScopeKey);
           messages.push(

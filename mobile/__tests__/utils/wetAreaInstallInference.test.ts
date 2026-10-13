@@ -77,6 +77,24 @@ describe('wetAreaInstallInference', () => {
     expect(inferred.tubBathCount).toBeNull();
   });
 
+  test('keeping the old shower door still installs the new pan and wall tile', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const inferred = inferWetAreaInstallSteppersFromIntent({ notes });
+    expect(inferred.bathCount).toBe(1);
+    expect(inferred.tilePanBathCount).toBe(1);
+    expect(inferred.showerDoorCount).toBeNull();
+    const hydrated = hydrateWetAreaStepperCounts({
+      measurements: {},
+      notes,
+      templateKey: 'bathroom',
+      wetAreaInstallChoiceId: 'staying',
+    });
+    expect(hydrated.tilePanBathCount).toBe(1);
+    expect(hydrated.bathCount).toBe(1);
+    expect(hydrated.showerDoorCount).toBeNull();
+  });
+
   test('keeping existing clears install inference', () => {
     const inferred = inferWetAreaInstallSteppersFromIntent({
       notes: 'Tile shower walls and keeping existing tub/shower.',

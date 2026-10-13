@@ -642,6 +642,9 @@ function resolveAcceptedConfidenceLabel(
   intelligence: ScopeItemIntelligence,
   acceptance: ScopePricingAcceptanceMetadata
 ): NonNullable<AcceptedPricingDisplay['confidenceLabel']> {
+  if (acceptance.pricingSourceKind === 'parsed_from_notes') {
+    return confidenceBadgeLabel(intelligence, acceptance);
+  }
   if ((intelligence.unresolvedAssumptionCount ?? 0) > 0) {
     return PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW;
   }
@@ -708,6 +711,7 @@ function buildFallbackAcceptance(resolved: ResolvedItemQuantity, total: number):
 }
 
 export function shouldShowConfidenceBadge(acceptance: ScopePricingAcceptanceMetadata): boolean {
+  if (acceptance.pricingSourceKind === 'parsed_from_notes') return false;
   if (acceptance.selectionStatus === 'user_entered' && acceptance.pricingSourceKind === 'user_entered') {
     return false;
   }
@@ -1135,19 +1139,24 @@ export function getPricingSourceMessage(
   intelligence: ScopeItemIntelligence,
   acceptance: ScopePricingAcceptanceMetadata
 ): string | null {
+  const priceIsFromNotes = acceptance.pricingSourceKind === 'parsed_from_notes';
   const unresolvedAssumptionCount = intelligence.unresolvedAssumptionCount ?? intelligence.reviewableAssumptionCount ?? 0;
-  const conciseBenchmarkWarning = buildConciseBenchmarkScopeWarning({
-    profile: intelligence.benchmarkScopeProfile,
-    pricingSource: intelligence.pricing.source,
-    assumptionCount: unresolvedAssumptionCount,
-    pricingAccepted: acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted',
-    scopeKey: intelligence.scopeItemKey,
-  });
+  const conciseBenchmarkWarning = priceIsFromNotes
+    ? null
+    : buildConciseBenchmarkScopeWarning({
+        profile: intelligence.benchmarkScopeProfile,
+        pricingSource: intelligence.pricing.source,
+        assumptionCount: unresolvedAssumptionCount,
+        pricingAccepted: acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted',
+        scopeKey: intelligence.scopeItemKey,
+      });
   if (conciseBenchmarkWarning) return conciseBenchmarkWarning;
 
   if (intelligence.overlapRisk?.hasOverlapRisk && intelligence.overlapRisk.reason) {
     return intelligence.overlapRisk.reason;
   }
+
+  if (priceIsFromNotes) return null;
 
   if (acceptance.selectionStatus === 'user_entered' && acceptance.pricingSourceKind === 'user_entered') {
     return validationIssueMessage(intelligence);

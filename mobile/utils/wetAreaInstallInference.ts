@@ -1,4 +1,8 @@
-import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import {
+  bathroomAffirmativeNotes,
+  notesInstallNewShowerDoor,
+  notesKeepExistingWetArea,
+} from '@/utils/bathroomNoteScope';
 import type { WetAreaStepperCounts } from '@/utils/planBathRooms';
 
 function positiveCount(value: unknown): number | null {
@@ -16,14 +20,6 @@ const EMPTY_STEPPERS: WetAreaStepperCounts = {
   bathFloorTileCount: null,
   showerDoorCount: null,
 };
-
-function notesWantKeepingExistingWetArea(n: string): boolean {
-  return (
-    /\b(stay|staying|keep(?:ing)?\s+existing)\b[^.]{0,40}\b(tub|shower)\b/.test(n) ||
-    /\b(tub|shower)\b[^.]{0,40}\b(stay|staying|keep)\b/.test(n) ||
-    /\bkeeping\s+existing\s+(?:tub|shower)\b/.test(n)
-  );
-}
 
 function showerJobContext(n: string): boolean {
   return /\b(shower|tub[\s-]to[\s-]shower|wet\s+area|bathroom\s+remodel)\b/.test(n);
@@ -147,7 +143,7 @@ function notesMentionBathFloorTile(n: string): boolean {
 }
 
 function notesMentionShowerDoor(n: string): boolean {
-  return /\b(shower\s+door|glass\s+shower\s+door|install\s+(?:a\s+)?shower\s+door)\b/.test(n);
+  return notesInstallNewShowerDoor(n);
 }
 
 export type WetAreaInstallInferenceInput = {
@@ -169,7 +165,7 @@ export function inferWetAreaInstallSteppersFromIntent(
   if (
     choice === 'staying' ||
     choice === 'not_in_scope' ||
-    (n && notesWantKeepingExistingWetArea(n))
+    notesKeepExistingWetArea(input.notes)
   ) {
     return { ...EMPTY_STEPPERS };
   }

@@ -117,6 +117,40 @@ function intelligence(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItem
   } as ScopeItemIntelligence;
 }
 
+it('hides assumption review when the accepted price is the note price', () => {
+  const acceptance = buildAcceptanceFromSuggestedBlock(
+    suggestedBlock({
+      material: 765,
+      labor: 675,
+      total: 1440,
+      materialSource: 'notes',
+      laborSource: 'notes',
+      rateSourceLabel: 'From notes',
+      lumpSumOnly: false,
+    })
+  );
+  expect(acceptance.pricingSourceKind).toBe('parsed_from_notes');
+  expect(shouldShowConfidenceBadge(acceptance)).toBe(false);
+  const display = resolveAcceptedPricingDisplay({
+    itemId: 'flooring',
+    resolved: { quantity: 180, unit: 'sqft', quantitySource: 'notes' },
+    acceptance,
+    intelligence: intelligence({
+      scopeItemKey: 'flooring',
+      unresolvedAssumptionCount: 3,
+      overlapRisk: {
+        hasOverlapRisk: true,
+        relatedScopeKeys: ['cabinets'],
+        reason:
+          'Cabinets may already be included in flooring and also has a separate price. Review both items.',
+      },
+    }),
+  });
+  expect(display.showConfidenceBadge).toBe(false);
+  expect(display.confidenceLabel).toBeNull();
+  expect(display.warningMessage).toMatch(/cabinets/i);
+});
+
 function displayForPermits(acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock())) {
   return resolveAcceptedPricingDisplay({
     itemId: 'permits',

@@ -46,6 +46,10 @@ import {
   isWholeHomeQuickMeasurementTemplate,
   resolveEffectiveQuickMeasurementTemplateKey,
 } from '@/utils/scopeQuickMeasurements';
+import {
+  bathroomAffirmativeNotes,
+  notesWithoutWetAreaFraming,
+} from '@/utils/bathroomNoteScope';
 import { checklistItemInScope, lookupRuleKeyForPackage, ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
 import {
   expandBathroomWetAreaDemoScopeDisplayItems,
@@ -213,7 +217,7 @@ export function buildConfirmScopeDisplayItems(
   const noteMentionsWallDemolition = noteMentionsGeneralWallDemolition(noteText);
   const noteMentionsWallFraming =
     /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
-      noteText
+      notesWithoutWetAreaFraming(noteText)
     );
   const noteMentionsSheathing =
     /\b(?:structural\s+)?sheathing\b/i.test(noteText);
@@ -226,7 +230,9 @@ export function buildConfirmScopeDisplayItems(
       noteText
     );
   const noteMentionsGenericPaint =
-    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(noteText) &&
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      bathroomAffirmativeNotes(noteText)
+    ) &&
     !noteMentionsExteriorTrimPaint;
   if (noteMentionsWallDemolition) {
     noteBackedStructuralCards.push({
@@ -552,7 +558,7 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     flooringTransitionsMentioned:
       ((draft.scopeMeasurements || {}) as Record<string, unknown>)
         .flooringTransitionsMentioned === true ||
-      /\b(?:transitions?|reducers?|thresholds?|end\s*caps?)\b/i.test(
+      /\b(?:transitions?|reducers?|(?<!marble\s)thresholds?|end\s*caps?)\b/i.test(
         String(draft.originalNotes || '')
       ),
   } as Record<string, unknown>;
@@ -649,7 +655,16 @@ export function isScopeCardHiddenInQmEmbed(
   if (!qmEmbeddedScopeIds.has(itemId)) return false;
   if (shouldHideBathroomFixtureScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
   if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
-  if (shouldHideKitchenScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
+  if (
+    shouldHideKitchenScopeCardInQmEmbed(
+      itemId,
+      measurements,
+      displayItems,
+      String(measurements.originalNotes || measurements.notes || '')
+    )
+  ) {
+    return true;
+  }
   if (KITCHEN_QM_EMBEDDED_IDS.has(itemId)) return false;
   return true;
 }

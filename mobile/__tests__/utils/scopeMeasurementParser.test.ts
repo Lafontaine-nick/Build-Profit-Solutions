@@ -1685,6 +1685,25 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.garageDoorSingleCount).toBeUndefined();
   });
 
+  it('keeps island quartz off the perimeter counter field', () => {
+    const notes =
+      'Kitchen remodel. Demo existing cabinets and countertops. Install 18 LF perimeter cabinets and a new island with 22 sqft of quartz. Perimeter counters 36 sqft. Tile backsplash 30 sqft. Kitchen floor 140 sqft LVP. Haul-off lump sum $650.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(18);
+    expect(parsed.countertopSqft).toBe(36);
+    expect(parsed.kitchenIslandCounterSqft).toBe(22);
+    expect(parsed.backsplashSqft).toBe(30);
+    expect(parsed.kitchenFloorSqft).toBe(140);
+    expect(parsed.itemQuantities?.cleanup).toMatchObject({
+      quantity: 650,
+      unit: 'lump_sum',
+    });
+    expect(parsed.itemQuantities?.demo).toBeUndefined();
+  });
+
   it('puts explicit kitchen LVP sqft on the kitchen floor field', () => {
     const notes =
       'Kitchen remodel. Demo existing cabinets, countertops, backsplash, and vinyl floor. Install 22 LF new cabinets, quartz counters 48 sqft, tile backsplash 32 sqft, and LVP flooring 160 sqft. Baseboards 40 LF. Include sink and dishwasher hookup. No prices yet.';
@@ -1786,6 +1805,19 @@ describe('mobile scope measurement parser', () => {
       notes
     );
     expect(counterPrice.fill?.total).toBe(4400);
+    const cabinetPrice = resolveScopeItemSuggestedPricing(
+      'cabinets',
+      input,
+      'kitchen',
+      { quantity: 24, unit: 'lf', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(cabinetPrice.fill?.total).toBe(12000);
+    expect(cabinetPrice.fill?.lumpSumOnly).toBe(true);
+    expect(cabinetPrice.fill?.material).toBe(0);
+    expect(cabinetPrice.fill?.labor).toBe(0);
     const trimPrice = resolveScopeItemSuggestedPricing(
       'trim',
       { ...input, baseboardLf: '48' },
@@ -1797,6 +1829,35 @@ describe('mobile scope measurement parser', () => {
     );
     expect(trimPrice.fill?.total).toBe(336);
     expect(trimPrice.fill?.basis).toEqual({ quantity: 48, unit: 'lf' });
+    const backsplashPrice = resolveScopeItemSuggestedPricing(
+      'backsplash',
+      { ...input, backsplashSqft: '42', flooringLvpSqft: '180' },
+      'kitchen',
+      { quantity: 42, unit: 'sqft', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(backsplashPrice.fill?.total).toBe(924);
+    expect(backsplashPrice.fill?.material).toBe(336);
+    expect(backsplashPrice.fill?.labor).toBe(588);
+    const flooringPrice = resolveScopeItemSuggestedPricing(
+      'flooring',
+      {
+        ...input,
+        kitchenFloorSqft: '180',
+        flooringSqft: '180',
+        flooringLvpSqft: '180',
+      },
+      'kitchen',
+      { quantity: 180, unit: 'sqft', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(flooringPrice.fill?.total).toBe(1440);
+    expect(flooringPrice.fill?.material).toBe(765);
+    expect(flooringPrice.fill?.labor).toBe(675);
   });
 
   it('keeps kitchen note-rate cards on Apply until the contractor applies them', () => {

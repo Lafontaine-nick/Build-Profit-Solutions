@@ -8,6 +8,10 @@
  */
 
 import type { ScopePricingBehavior } from './scopePricingBehavior';
+import {
+  bathroomAffirmativeNotes,
+  notesWithoutWetAreaFraming,
+} from '@/utils/bathroomNoteScope';
 
 export type PlumbingQuantityKey =
   | 'serviceCallCount'
@@ -1131,7 +1135,9 @@ export function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
 /** Notes with plumbing plus multiple finish-trade scopes belong to the host
  * remodel flow, even when a fixture phrase makes them look service-like. */
 export function notesDescribeMixedCrossTradeScope(notes: string): boolean {
-  const text = String(notes || '').trim();
+  const text = notesWithoutWetAreaFraming(
+    bathroomAffirmativeNotes(notes)
+  ).trim();
   if (
     !text ||
     /\b(?:ground[\s-]?up|new\s+(?:build|construction)|whole[\s-]?house\s+plumbing)\b/i.test(

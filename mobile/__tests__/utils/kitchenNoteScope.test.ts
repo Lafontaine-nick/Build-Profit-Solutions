@@ -1,4 +1,8 @@
-import { filterDedicatedKitchenConfirmItems } from '../../utils/kitchenNoteScope';
+import {
+  filterDedicatedKitchenConfirmItems,
+  kitchenNoteIncludesFloorWork,
+  kitchenNoteNamesSurfaceDemo,
+} from '../../utils/kitchenNoteScope';
 
 const GUT =
   'Kitchen remodel. Demo existing cabinets, countertops, backsplash, and vinyl floor. Install 22 LF new cabinets, quartz counters 48 sqft, tile backsplash 32 sqft, and LVP flooring 160 sqft. Baseboards 40 LF. Include sink and dishwasher hookup. No prices yet.';
@@ -95,5 +99,88 @@ describe('filterDedicatedKitchenConfirmItems', () => {
       }
     );
     expect(filtered.map(item => item.id)).toEqual(['sink_faucet', 'cabinets']);
+  });
+});
+
+const COSMETIC =
+  'Keep existing cabinets. Paint cabinets, replace cabinet hardware, and install a new tile backsplash 28 sqft. New quartz counters 40 sqft. Flooring by others. No cabinet demo.';
+
+describe('kitchen measurement visibility from notes', () => {
+  it('hides demo and floor cards when the note keeps cabinets and flooring is by others', () => {
+    expect(kitchenNoteNamesSurfaceDemo(COSMETIC, 'cabinet')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(COSMETIC, 'counter')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(COSMETIC, 'backsplash')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(COSMETIC, 'floor')).toBe(false);
+    expect(kitchenNoteIncludesFloorWork(COSMETIC)).toBe(false);
+    const filtered = filterDedicatedKitchenConfirmItems(
+      [
+        { id: 'cabinets', label: 'Stock cabinet supply & installation' },
+        { id: 'cabinet_hardware', label: 'Cabinet hardware' },
+        { id: 'cabinet_demo', label: 'Cabinet demo' },
+        { id: 'countertops', label: 'Countertops' },
+        { id: 'countertop_demo', label: 'Countertop demo' },
+        { id: 'backsplash', label: 'Backsplash' },
+        { id: 'backsplash_demo', label: 'Backsplash demo' },
+        { id: 'flooring', label: 'Flooring installation' },
+        { id: 'floor_demo', label: 'Floor demo' },
+        { id: 'paint', label: 'Interior paint' },
+        { id: 'trim', label: 'Trim & baseboard' },
+        { id: 'hardware', label: 'Hardware / connectors' },
+      ],
+      { templateKey: 'kitchen', projectType: 'kitchen', notes: COSMETIC }
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'cabinet_hardware',
+      'countertops',
+      'backsplash',
+      'cabinet_paint',
+    ]);
+  });
+
+  it('adds a cabinet hardware card when the note names hardware and the checklist omitted it', () => {
+    const filtered = filterDedicatedKitchenConfirmItems(
+      [{ id: 'countertops', label: 'Countertops' }],
+      { templateKey: 'kitchen', projectType: 'kitchen', notes: COSMETIC }
+    );
+    expect(filtered.map(item => item.id)).toContain('cabinet_hardware');
+  });
+
+  it('keeps named tear-out and a real floor for a gut kitchen', () => {
+    expect(kitchenNoteNamesSurfaceDemo(GUT, 'cabinet')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(GUT, 'counter')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(GUT, 'backsplash')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(GUT, 'floor')).toBe(true);
+    expect(kitchenNoteIncludesFloorWork(GUT)).toBe(true);
+  });
+
+  it('keeps a new island install and adds haul-off without an island demo', () => {
+    const notes =
+      'Kitchen remodel. Demo existing cabinets and countertops. Install 18 LF perimeter cabinets and a new island with 22 sqft of quartz. Perimeter counters 36 sqft. Haul-off lump sum $650.';
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'island')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'cabinet')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'counter')).toBe(true);
+    const filtered = filterDedicatedKitchenConfirmItems(
+      [
+        { id: 'island', label: 'Island set & anchor' },
+        { id: 'island_demo', label: 'Island demo' },
+        { id: 'cabinets', label: 'Cabinets' },
+        { id: 'countertops', label: 'Countertops' },
+      ],
+      { templateKey: 'kitchen', projectType: 'kitchen', notes }
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'island',
+      'cabinets',
+      'countertops',
+      'cleanup',
+    ]);
+  });
+
+  it('treats floor tile and LVP as floor work and ignores a tile backsplash', () => {
+    expect(kitchenNoteIncludesFloorWork('Install kitchen floor tile 50 sqft.')).toBe(true);
+    expect(kitchenNoteIncludesFloorWork('New LVP flooring 180 sqft.')).toBe(true);
+    expect(
+      kitchenNoteIncludesFloorWork('Install a new tile backsplash 28 sqft.')
+    ).toBe(false);
   });
 });

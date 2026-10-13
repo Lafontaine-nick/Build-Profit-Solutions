@@ -115,7 +115,8 @@ const ITEM_ALLOWANCE_MATCHERS: AllowanceMatcher[] = [
   },
   {
     id: 'cleanup',
-    match: /\b(cleanup|disposal|dumpster|debris|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
+    match:
+      /\b(cleanup|disposal|dumpster|debris|haul[\s-]?off|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
     exclude: /\b(demo|demolition|tear[\s-]?out)\b/i,
     unit: 'lump_sum',
   },
@@ -342,6 +343,15 @@ export function parseScopeItemAllowancesFromNotes(
       if (!clauseMatchesMatcher(clause, matcher)) continue;
       if (out[matcher.id] && !ACCUMULATE_ALLOWANCE_IDS.has(matcher.id)) continue;
       if (matcher.id === 'demo' && /\b(final\s+clean|cleanup|disposal)\b/i.test(clause)) continue;
+      if (
+        matcher.id === 'demo' &&
+        /\bhaul[\s-]?off\b/i.test(clause) &&
+        !/\b(?:cabinets?|countertops?|counters?|backsplash|floor(?:ing)?)\b/i.test(
+          clause
+        )
+      ) {
+        continue;
+      }
 
       const hasHardwareSpecificAmount =
         /\bcabinet\s*hardware\b[^.;\n]{0,40}\$\s*\d|\$\s*\d[^.;\n]{0,40}\bcabinet\s*hardware\b/i.test(

@@ -5,6 +5,7 @@ import type {
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
 import {
   detectAdditionConversionIntent,
   consolidateExistingShellConversionMeasurements,
@@ -3948,6 +3949,7 @@ function ensureBathroomNoteBackedScopeItems(
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
   const text = String(notes || '').toLowerCase();
+  const affirmative = bathroomAffirmativeNotes(notes).toLowerCase();
   if (!text) return items;
   const patterns: Array<{
     id: string;
@@ -4017,6 +4019,13 @@ function ensureBathroomNoteBackedScopeItems(
         /\b(?:bathroom\s+floor\s+tile|tile\s+(?:the\s+)?bathroom\s+floor)\b/,
     },
     {
+      id: 'marble_threshold',
+      label: 'Marble threshold',
+      helperText:
+        'One marble threshold at the doorway. Priced each — not part of the floor sqft.',
+      pattern: /\bmarble\s+thresholds?\b/,
+    },
+    {
       id: 'sink_faucet',
       label: 'Sink & faucet',
       helperText: 'Supply and install the vanity sink and faucet.',
@@ -4052,7 +4061,11 @@ function ensureBathroomNoteBackedScopeItems(
   ];
   const existing = new Set(items.map(item => item.id));
   const matchedIds = new Set(
-    patterns.filter(entry => entry.pattern.test(text)).map(entry => entry.id)
+    patterns
+      .filter(entry =>
+        entry.pattern.test(entry.id === 'marble_threshold' ? affirmative : text)
+      )
+      .map(entry => entry.id)
   );
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(text) &&
@@ -4080,9 +4093,11 @@ function ensureBathroomNoteBackedScopeItems(
       category:
         entry.id === 'plumbing_rough' || entry.id === 'plumbing_trim'
           ? 'plumbing'
-          : entry.id.includes('tile') || entry.id === 'shower_pan'
-            ? 'shower'
-            : 'fixtures',
+          : entry.id === 'marble_threshold'
+            ? 'finishes'
+            : entry.id.includes('tile') || entry.id === 'shower_pan'
+              ? 'shower'
+              : 'fixtures',
       state: 'included' as const,
       noteBacked: true,
     }));
@@ -6169,6 +6184,8 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   shower_bench_curb:
     'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   floor_tile: 'Bathroom floor tile labor and materials.',
+  marble_threshold:
+    'One marble threshold at the doorway. Priced each — not part of the floor sqft.',
   floor_prep:
     'Surface preparation after flooring removal. Enter only the area requiring preparation; structural repairs, moisture mitigation, and subfloor replacement are separate.',
   plumbing_rough:
@@ -6484,6 +6501,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   bathroom: [
+    { title: 'Wall framing', itemIds: ['framing'] },
     {
       title: 'Demo',
       itemIds: [
@@ -6513,7 +6531,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'glass_door',
       ],
     },
-    { title: 'Bathroom Floor', itemIds: ['floor_tile'] },
+    { title: 'Bathroom Floor', itemIds: ['floor_tile', 'marble_threshold'] },
     {
       title: 'Fixtures',
       itemIds: [

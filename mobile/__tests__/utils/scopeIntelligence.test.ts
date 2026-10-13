@@ -142,6 +142,26 @@ describe('scopeIntelligence', () => {
     expect(intelligence.quantity.confidence).toBe('medium');
   });
 
+  it('does not warn when cabinet hardware uses one piece per cabinet LF', () => {
+    const intelligence = resolveScopeItemIntelligence({
+      scopeKey: 'cabinet_hardware',
+      templateKey: 'kitchen',
+      notes: 'Keep existing cabinets. Replace cabinet hardware.',
+      measurements: emptyMeasurements({ cabinetLf: 25 }),
+      resolved: resolved({
+        quantity: 25,
+        unit: 'each',
+        quantitySource: 'inferred',
+        sourceLabel: 'One pull or knob per cabinet LF',
+      }),
+    });
+
+    expect(intelligence.measurementRelationship.type).not.toBe('incompatible');
+    expect(primaryIntelligenceNotice(intelligence) || '').not.toMatch(
+      /cannot be used directly/i
+    );
+  });
+
   it('flags incompatible units without blocking pricing flow', () => {
     const intelligence = resolveScopeItemIntelligence({
       scopeKey: 'appliances',
@@ -1165,6 +1185,56 @@ describe('scopeIntelligence', () => {
       ],
     });
     expect(noConflict.hasOverlapRisk).toBe(false);
+  });
+
+  it('does not call two note prices a duplicate inclusion', () => {
+    const overlap = {
+      key: 'cabinets_countertops',
+      componentKey: 'countertop_related',
+      componentLabel: 'Countertop-related work',
+      relatedScopeKeys: ['cabinets'],
+      severity: 'review' as const,
+      message: 'generic overlap',
+      resolutionOptions: [],
+    };
+    const separateNotePrices = detectActualDuplicatePricingConflicts({
+      scopeKey: 'backsplash',
+      activeScopeKeys: ['backsplash', 'cabinets'],
+      overlaps: [overlap],
+      pricingAcceptance: {
+        backsplash: {
+          selectionStatus: 'accepted',
+          totalAmount: 924,
+          pricingSourceKind: 'parsed_from_notes',
+        },
+        cabinets: {
+          selectionStatus: 'accepted',
+          totalAmount: 12000,
+          pricingSourceKind: 'parsed_from_notes',
+        },
+      },
+    });
+    expect(separateNotePrices.hasOverlapRisk).toBe(false);
+
+    const nationalBacksplash = detectActualDuplicatePricingConflicts({
+      scopeKey: 'backsplash',
+      activeScopeKeys: ['backsplash', 'cabinets'],
+      overlaps: [overlap],
+      pricingAcceptance: {
+        backsplash: {
+          selectionStatus: 'accepted',
+          totalAmount: 1050,
+          pricingSourceKind: 'national_average',
+        },
+        cabinets: {
+          selectionStatus: 'accepted',
+          totalAmount: 12000,
+          pricingSourceKind: 'parsed_from_notes',
+        },
+      },
+    });
+    expect(nationalBacksplash.hasOverlapRisk).toBe(true);
+    expect(nationalBacksplash.reason).toMatch(/cabinets/i);
   });
 
   it('does not treat vanity and toilet as duplicate pricing', () => {

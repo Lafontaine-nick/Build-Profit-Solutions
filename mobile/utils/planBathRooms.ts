@@ -1,4 +1,5 @@
 import type { PlanRoomMeasurement } from '@/utils/estimateAiDraft';
+import { notesKeepExistingWetArea } from '@/utils/bathroomNoteScope';
 import {
   applyNotesInferredWetAreaInstallSteppers,
   inferWetAreaInstallSteppersFromIntent,
@@ -290,7 +291,10 @@ export function hydrateWetAreaStepperCounts(params: {
   };
   if (!split) return base;
   const migrated = migrateLegacyPlanTileShowerCounts(base, params);
-  const choice = params.wetAreaInstallChoiceId;
+  const staleStay =
+    params.wetAreaInstallChoiceId === 'staying' &&
+    !notesKeepExistingWetArea(params.notes);
+  const choice = staleStay ? null : params.wetAreaInstallChoiceId;
   if (choice === 'staying' || choice === 'not_in_scope') return migrated;
 
   const notesDriven = Boolean(String(params.notes ?? '').trim());

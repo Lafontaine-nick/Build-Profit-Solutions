@@ -299,6 +299,20 @@ describe('scopeItemNoteHints trim inference', () => {
     ).toBe('included');
   });
 
+  test('keeping the shower door does not mark the wet area as staying', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    expect(inferChoiceFromNotes('wet_area_install', notes)).not.toBe(
+      'staying'
+    );
+    expect(
+      inferChoiceFromNotes(
+        'wet_area_install',
+        'Keep the existing shower. No new tile.'
+      )
+    ).toBe('staying');
+  });
+
   test('does not auto-include permits from vague inspection language', () => {
     expect(
       inferItemStateFromNotes(

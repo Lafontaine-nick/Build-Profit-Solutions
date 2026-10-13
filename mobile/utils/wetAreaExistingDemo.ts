@@ -224,16 +224,19 @@ function notesMentionExistingPrefabEnclosure(n: string): boolean {
 }
 
 function notesMentionExistingShowerDoor(n: string): boolean {
-  if (/\b(install|new)\b[^.]{0,40}\b(shower\s+door|glass\s+door)\b/.test(n)) {
-    return false;
-  }
+  const withoutNewDoor = n.replace(
+    /[^.]*\b(?:install|new)\b[^.]{0,40}\b(?:shower\s+door|glass\s+door)s?\b[^.]*/g,
+    ' '
+  );
   return (
-    /\b(existing|current|old)\s+(?:glass\s+)?shower\s+door\b/.test(n) ||
-    /\b(existing|current|old)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(
-      n
+    /\b(?:existing|current|old)\s+(?:glass\s+)?shower\s+doors?\b/.test(
+      withoutNewDoor
     ) ||
-    /\bglass\s+shower\s+door\b/.test(n) ||
-    notesMentionDemoShowerDoor(n)
+    /\b(?:existing|current|old)\b[^.]{0,50}\b(?:shower\s+door|glass\s+door)s?\b/.test(
+      withoutNewDoor
+    ) ||
+    /\bglass\s+shower\s+door\b/.test(withoutNewDoor) ||
+    notesMentionDemoShowerDoor(withoutNewDoor)
   );
 }
 
@@ -430,15 +433,67 @@ function notesMentionDemoShowerFloor(n: string): boolean {
   );
 }
 
-function notesMentionDemoShowerDoor(n: string): boolean {
-  return (
-    /\b(remove|demo|tear[\s-]?out|replace)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(
-      n
-    ) ||
-    /\b(shower\s+door|glass\s+door)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|replace)\b/.test(
-      n
-    )
-  );
+/** Section title follows the fields that are actually on the card. */
+export function wetAreaFloorDoorHeading(params: {
+  showFloor: boolean;
+  showDoors: boolean;
+}): string | null {
+  if (params.showFloor && params.showDoors) return 'BATH FLOOR & DOORS';
+  if (params.showFloor) return 'BATH FLOOR';
+  if (params.showDoors) return 'SHOWER DOORS';
+  return null;
+}
+
+/**
+ * Reuse is a choice only when an old door is still in play.
+ * A note that already pulls that door is installing the new one.
+ */
+export function showerDoorReuseOffered(params: {
+  notes?: string | null;
+  existingShowerDoorCount?: number | null;
+}): boolean {
+  if (notesMentionDemoShowerDoor(params.notes)) return false;
+  const count = Number(params.existingShowerDoorCount);
+  return Number.isFinite(count) && count > 0;
+}
+
+/** Tear-out of a shower door, including when the wall tile and pan sit in the same sentence. */
+export function notesMentionDemoShowerDoor(
+  notes: string | null | undefined
+): boolean {
+  const n = String(notes || '').toLowerCase();
+  return n.split(/[.!?\n]/).some(sentence => {
+    if (
+      !/\b(?:remove|demo|tear[\s-]?out|rip[\s-]?out|replace)\b/.test(sentence)
+    ) {
+      return false;
+    }
+    if (
+      /\b(?:old|existing|current)\s+(?:glass\s+)?shower\s+doors?\b/.test(
+        sentence
+      ) ||
+      /\b(?:old|existing|current)\b[^.]{0,80}\b(?:shower|glass)\s+doors?\b/.test(
+        sentence
+      )
+    ) {
+      return true;
+    }
+    if (
+      /\b(?:install|new)\b[^.]{0,40}\b(?:shower\s+doors?|glass\s+doors?)\b/.test(
+        sentence
+      )
+    ) {
+      return false;
+    }
+    return (
+      /\b(?:remove|demo|tear[\s-]?out|rip[\s-]?out|replace)\b[^.]{0,80}\b(?:shower\s+doors?|glass\s+doors?)\b/.test(
+        sentence
+      ) ||
+      /\b(?:shower\s+doors?|glass\s+doors?)\b[^.]{0,80}\b(?:remove|demo|tear[\s-]?out|rip[\s-]?out|replace)\b/.test(
+        sentence
+      )
+    );
+  });
 }
 
 function notesMentionWetAreaConversionDemo(n: string): boolean {
@@ -597,16 +652,11 @@ export function resolveDemoWetAreaFromIntent(
     )
   );
 
-  // Door demo only when notes/photos confirm an existing door to remove — not because
-  // a new door is being installed (curtain/open showers often have no door to demo).
+  // Door demo when the note names the pull. A new door alone does not invent one.
   setDemoIf(
     demo,
     'demoShowerDoorCount',
-    Boolean(
-      notesMentionDemoShowerDoor(n) &&
-        positiveCount(ex.existingShowerDoorCount) &&
-        !input.reuseExistingShowerDoor
-    )
+    Boolean(notesMentionDemoShowerDoor(n) && !input.reuseExistingShowerDoor)
   );
 
   // Bath floor: Wet area "Bath floor" stepper always implies tear-out of the old finish.
