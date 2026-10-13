@@ -3,7 +3,9 @@ import {
   alignDedicatedBathroomScopeRows,
   bathroomAffirmativeNotes,
   filterDedicatedBathroomConfirmItems,
+  shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
+import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
 import {
   filterConcreteRevealAttentionItems,
   notesAreImportedPlanSummary,
@@ -333,6 +335,37 @@ export function getInitialRevealConfirmItems(
   const plumbingPlanCounts = plumbingPlanCountAttention(draft);
   if (plumbingPlanCounts.length > 0) {
     return splitInitialRevealConfirmItems(plumbingPlanCounts);
+  }
+  const bathroomNoteLimit = shouldLimitBathroomChecklistToNotes({
+    notes: draft.originalNotes,
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+    scopeMode: draft.scopeMode || draft.classification?.scopeMode || null,
+    planBacked: Boolean(
+      draft.scopeMeasurements?.planImportMode ||
+        draft.scopeMeasurements?.planImportFingerprint
+    ),
+    wholeHome:
+      /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+        String(draft.originalNotes || '')
+      ),
+  });
+  if (draftNeedsScopeConfirmation(draft) && bathroomNoteLimit) {
+    const packages = getScopePackagesForReview(draft);
+    const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
+      const name = String(row.name || '').trim().toLowerCase();
+      if (!name) return false;
+      const pkg = packages.find(
+        item =>
+          String(item.name || item.scope || '').trim().toLowerCase() === name
+      );
+      return !pkg || scopePackageNeedsManualPrice(pkg, draft);
+    });
+    if (unpricedScope.length > 0) {
+      return splitInitialRevealConfirmItems(
+        unpricedScope.map(row => `Pricing for ${row.name}`)
+      );
+    }
   }
   // Before Confirm Scope, one package can generate several generic "still
   // needed" messages. Keep the attention card aligned to actual scope rows so
@@ -1471,7 +1504,18 @@ function getInitialRevealScopeRows(
   const explicitFlooringDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,40}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       notes
-    );
+    ) ||
+    notes
+      .split(/[.\n]/)
+      .some(
+        sentence =>
+          /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+            sentence
+          ) &&
+          /\b(?:vinyl(?:\s+floor)?|lvp|laminate|carpet|floor(?:ing)?)\b/i.test(
+            sentence
+          )
+      );
   const explicitDrywallDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       notes
@@ -2602,9 +2646,18 @@ function getInitialRevealScopeRows(
     ),
     wholeHome: wholeHomeRemodelContext,
   };
-  return alignDedicatedBathroomScopeRows(
-    filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
-    bathroomScopeParams
+  return filterDedicatedKitchenConfirmItems(
+    alignDedicatedBathroomScopeRows(
+      filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
+      bathroomScopeParams
+    ),
+    {
+      notes,
+      templateKey: draft.scopeChecklist?.templateKey,
+      projectType: draft.projectType,
+      planBacked: bathroomScopeParams.planBacked,
+      wholeHome: wholeHomeRemodelContext,
+    }
   );
 }
 

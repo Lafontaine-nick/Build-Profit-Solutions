@@ -703,6 +703,9 @@ export type ScopeMeasurements = {
   bathroomInstallCounterCount?: number | null;
   bathroomDemoVanityCount?: number | null;
   bathroomDemoCounterCount?: number | null;
+  bathroomDemoToiletCount?: number | null;
+  bathroomInstallToiletCount?: number | null;
+  bathroomInstallFaucetCount?: number | null;
   /** Bathroom vanity countertop material profile for national-average pricing. */
   bathroomVanityCountertopMaterialType?: string | null;
   /** Bathroom toilet relocate — floor construction type for conditional pricing. */
@@ -1583,6 +1586,60 @@ export function repairDraftRatePricingFromNotes(
       repairedDraft.classification?.scopeMode || repairedDraft.scopeMode || ''
     ).toLowerCase() === 'mixed' ||
       notesDescribeMixedCrossTradeScope(text));
+  // "Cap the drain" can make the server call this mixed. A bathroom remodel
+  // with no real second trade still uses Confirm scope, not the simple review.
+  const bathroomRemodelStaysDedicated =
+    explicitBathroomRemodel &&
+    !notesDescribeMixedCrossTradeScope(text) &&
+    !/\bfram(?:e|ing|ed)\b/i.test(text);
+  if (bathroomRemodelStaysDedicated) {
+    const templateKey = String(
+      repairedDraft.scopeChecklist?.templateKey || ''
+    ).toLowerCase();
+    const title = String(repairedDraft.projectTitle || '').trim();
+    const simplePackageDraft =
+      templateKey !== 'bathroom' ||
+      repairedDraft.estimateTier === 'simple_unit' ||
+      !repairedDraft.estimateTier;
+    const scopeMode = String(
+      repairedDraft.scopeMode || repairedDraft.classification?.scopeMode || ''
+    ).toLowerCase();
+    const wasMixed = scopeMode === 'mixed';
+    const needsBathroomConfirmScope =
+      simplePackageDraft ||
+      wasMixed ||
+      scopeMode !== 'dedicated' ||
+      repairedDraft.projectType !== 'bathroom' ||
+      repairedDraft.estimateTier !== 'room_remodel' ||
+      (Boolean(title) && !/bath/i.test(title));
+    if (needsBathroomConfirmScope && !repairedDraft.scopeAssumptionsConfirmed) {
+      return {
+        ...repairedDraft,
+        projectType: 'bathroom',
+        projectTitle: /bath/i.test(title) ? title : 'Bathroom Remodel',
+        estimateTier: 'room_remodel',
+        scopeMode: 'dedicated',
+        classification: {
+          ...(repairedDraft.classification || {}),
+          scopeMode: 'dedicated',
+        },
+        requiresScopeConfirmation: true,
+        scopePackages:
+          simplePackageDraft || wasMixed ? [] : repairedDraft.scopePackages,
+        scopeChecklist: {
+          ...(repairedDraft.scopeChecklist || {}),
+          estimateTier: 'room_remodel',
+          templateKey: 'bathroom',
+          title: 'Bathroom remodel — confirm project scope',
+          intro: 'Confirm what work is in this bid before pricing.',
+          items: repairedDraft.scopeChecklist?.items || [],
+          suggestedMeasurements:
+            repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+          requiresConfirmation: true,
+        },
+      };
+    }
+  }
   if (
     (explicitBathroomRemodel || mixedBathroomRemodel) &&
     repairedDraft.scopeChecklist?.templateKey !== 'bathroom'

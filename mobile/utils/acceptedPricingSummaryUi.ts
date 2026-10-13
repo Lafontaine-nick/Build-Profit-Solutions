@@ -441,11 +441,25 @@ export function hasAcceptedScopePricing(
 
   // Contractor typed the takeoff (shower wall sqft, bath floor, door count).
   // Catalog material/labor filled from that count still belongs in Selected pricing.
+  // Note rates stay a suggestion until Apply, even when the parsed sqft/LF was
+  // copied onto the item as a takeoff.
+  const positiveMoneyEntries = moneyEntries.filter((entry) => {
+    const amount = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    return Number.isFinite(amount) && amount > 0;
+  });
+  const moneyIsNoteSuggestion =
+    positiveMoneyEntries.length > 0 &&
+    positiveMoneyEntries.every(
+      (entry) =>
+        entry?.quantitySource === 'notes' ||
+        entry?.quantitySource === 'suggested_prefill'
+    );
   const takeoffEntries = [
     direct,
     itemQuantities[allowanceSplitSubKey(itemId, 'sqft_basis')],
   ];
   if (
+    !moneyIsNoteSuggestion &&
     takeoffEntries.some((entry) => {
       if (
         entry?.quantitySource !== 'user_entered' &&
@@ -726,7 +740,12 @@ function buildUnitPricingSubtitleLine(
   const unitLabel = formatUnitLabel(unit);
   const combinedRate = totalAmount / Number(qty);
   if (!Number.isFinite(combinedRate) || combinedRate <= 0) return null;
-  return `${Number(qty).toLocaleString()} ${unitLabel} × $${combinedRate.toFixed(2)}/${unitLabel}`;
+  const cents = Math.round(combinedRate * 100) / 100;
+  const rateLabel =
+    Math.abs(cents - Math.round(cents)) < 0.001
+      ? `$${Math.round(cents).toLocaleString()}`
+      : `$${cents.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${Number(qty).toLocaleString()} ${unitLabel} × ${rateLabel}/${unitLabel}`;
 }
 
 function buildMaterialLaborSummaryLine(

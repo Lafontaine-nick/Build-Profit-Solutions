@@ -7731,17 +7731,32 @@ function measurementKeyQuantitySourceLabel(
   return SCOPE_PARSED_FROM_NOTES_LABEL;
 }
 
+function cabinetsIncludeCountersInAllowance(
+  notes: string | null | undefined,
+  storedFlag?: boolean
+): boolean {
+  const counterAllowance = parseScopeItemAllowancesFromNotes(
+    notes || ''
+  ).countertops;
+  if (Number(counterAllowance?.quantity || 0) > 0) return false;
+  if (notesHaveCombinedCabinetsCounters(notes)) return true;
+  return Boolean(storedFlag);
+}
+
 export function notesHaveCombinedCabinetsCounters(
   notes?: string | null
 ): boolean {
   const n = String(notes || '').toLowerCase();
+  const counterWord = '(?:kitchen\\s+)?(?:countertops?|counters?|quartz|granite)';
   const hasSeparateCountertopQuantity =
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|linear\s+feet?|linear\s+ft|lf)\b[^.;\n]{0,35}\b(?:kitchen\s+)?countertops?\b/i.test(
-      n
-    ) ||
-    /\b(?:kitchen\s+)?countertops?\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|linear\s+feet?|linear\s+ft|lf)\b/i.test(
-      n
-    );
+    new RegExp(
+      `\\b\\d[\\d,]*(?:\\.\\d+)?\\s*(?:sq\\.?\\s*ft|sqft|sf|linear\\s+feet?|linear\\s+ft|lf)\\b[^.;\\n]{0,35}\\b${counterWord}\\b`,
+      'i'
+    ).test(n) ||
+    new RegExp(
+      `\\b${counterWord}\\b[^.;\\n]{0,35}\\b\\d[\\d,]*(?:\\.\\d+)?\\s*(?:sq\\.?\\s*ft|sqft|sf|linear\\s+feet?|linear\\s+ft|lf)\\b`,
+      'i'
+    ).test(n);
   if (hasSeparateCountertopQuantity) return false;
   return (
     /\b(cabinets?|cabinetry)\b/.test(n) &&
@@ -7875,12 +7890,13 @@ function resolveLinkedCountertopAllowance(
   if (!cabinetEntry?.quantity || cabinetEntry.quantity <= 0) return null;
   if (!['allowance', 'lump_sum'].includes(cabinetEntry.unit || '')) return null;
   const countertopEntry = measurements.itemQuantities.countertops;
-  const combined =
+  const combined = cabinetsIncludeCountersInAllowance(
+    notes,
     Boolean(cabinetEntry.includesCountertops) ||
-    notesHaveCombinedCabinetsCounters(notes) ||
-    (cabinetEntry.unit === 'allowance' &&
-      cabinetEntry.quantity >= 5000 &&
-      !(countertopEntry?.quantity != null && countertopEntry.quantity > 0));
+      (cabinetEntry.unit === 'allowance' &&
+        cabinetEntry.quantity >= 5000 &&
+        !(countertopEntry?.quantity != null && countertopEntry.quantity > 0))
+  );
   if (!combined) return null;
 
   return {
@@ -10970,8 +10986,11 @@ function explicitItemQuantityOverride(
     return null;
   }
   const includesCountertops =
-    Boolean(override.includesCountertops) ||
-    (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
+    itemId === 'cabinets' &&
+    cabinetsIncludeCountersInAllowance(
+      ctx.notes,
+      Boolean(override.includesCountertops)
+    );
   const planPaintSurface =
     String(measurements.planImportTradeKey || '') === 'painting' &&
     (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
@@ -15645,28 +15664,12 @@ export function resolveScopeItemSuggestedPricing(
       comparison: null,
     };
   }
-  const genericTilePanDemo =
-    itemId === 'demo' &&
-    String(templateKey || '').toLowerCase() === 'bathroom' &&
-    Number(measurementsInput.demoTilePanCount || 0) > 0 &&
-    /\b(?:tile\s+shower|shower\s+pan|pan\s+liner|tile\s+pan|mud\s+pan)\b/i.test(
-      notesText
-    );
-  if (genericTilePanDemo) {
-    return resolveScopeItemSuggestedPricing(
-      'tub_demo',
-      measurementsInput,
-      templateKey,
-      { ...resolved, quantity: 1, unit: 'each' },
-      pricingContext,
-      choiceId,
-      originalNotes,
-      options
-    );
-  }
   // Catalog-generated installation cards reuse the established pricing
   // definitions. Resolve through those canonical IDs so additive cards get
   // the same national-average pricing as the existing opening cards.
+  // Bathroom `demo` stays on the wet-area pricer (wall sqft + pan sqft).
+  // Remapping it to floor_demo or a flat tub price drops the shower-wall
+  // tear-out the contractor entered in Quick Measurements.
   const hvacCanonicalPricingId =
     itemId === 'hvac_systems'
       ? 'hvac'
@@ -15677,21 +15680,17 @@ export function resolveScopeItemSuggestedPricing(
           : null;
   const canonicalPricingId =
     hvacCanonicalPricingId ||
-    (itemId === 'demo' &&
-    String(templateKey || '').toLowerCase() === 'bathroom' &&
-    resolved.unit === 'sqft'
-      ? 'floor_demo'
-      : itemId === 'interior_door_install'
-        ? 'interior_doors'
-        : itemId === 'window_install'
-          ? 'windows_doors'
-          : itemId === 'exterior_trim'
-            ? 'exterior_trim_paint'
-            : itemId === 'shower_floor_demo' && resolved.unit === 'each'
-              ? 'tub_demo'
-              : itemId === 'shower_floor_demo' && resolved.unit === 'sqft'
-                ? 'floor_demo'
-                : itemId);
+    (itemId === 'interior_door_install'
+      ? 'interior_doors'
+      : itemId === 'window_install'
+        ? 'windows_doors'
+        : itemId === 'exterior_trim'
+          ? 'exterior_trim_paint'
+          : itemId === 'shower_floor_demo' && resolved.unit === 'each'
+            ? 'tub_demo'
+            : itemId === 'shower_floor_demo' && resolved.unit === 'sqft'
+              ? 'floor_demo'
+              : itemId);
   if (canonicalPricingId !== itemId) {
     return resolveScopeItemSuggestedPricing(
       canonicalPricingId,
@@ -17079,10 +17078,111 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
+  if (itemId === 'trim' || itemId === 'baseboard_install') {
+    const parsedBaseboardLf = Number(
+      parseScopeMeasurementsFromNotes(notesText, {
+        templateKey: templateKey ?? undefined,
+      }).baseboardLf || 0
+    );
+    const noteLf =
+      Number(String(measurementsInput.baseboardLf ?? '').replace(/,/g, '')) ||
+      parsedBaseboardLf;
+    const breakdown = resolveItemRatePricingFromNotes(
+      'trim',
+      measurementsForRatePricing({
+        ...measurementsInput,
+        baseboardLf: noteLf > 0 ? noteLf : measurementsInput.baseboardLf,
+      } as NormalizedScopeMeasurements),
+      notesText,
+      { templateKey: templateKey ?? undefined }
+    );
+    if (breakdown?.total && noteLf > 0) {
+      const material = Number(breakdown.material || 0);
+      const labor =
+        breakdown.labor != null
+          ? Number(breakdown.labor)
+          : material > 0
+            ? round2(breakdown.total - material)
+            : 0;
+      return {
+        fill: {
+          material,
+          labor,
+          total: breakdown.total,
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper: `Note rate for ${noteLf.toLocaleString()} LF`,
+          mode: 'suggested_price',
+          lumpSumOnly: !(material > 0 && labor > 0),
+          basis: { quantity: noteLf, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
   // An explicit countertop takeoff is authoritative for the national-average
-  // card. Do not let a notes-derived or stale per-SF split override 35 + 25
-  // installed pricing when the user entered the countertop area.
+  // card. A named allowance in the notes stays the price for that area.
   if (itemId === 'countertops') {
+    const counterAllowance = parseScopeItemAllowancesFromNotes(notesText, {
+      templateKey: templateKey ?? undefined,
+    }).countertops;
+    const allowanceTotal = Number(counterAllowance?.quantity || 0);
+    const allowanceSqft = Number(
+      String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
+    );
+    if (
+      allowanceTotal > 0 &&
+      !counterAllowance?.includesCountertops &&
+      !notesHaveCombinedCabinetsCounters(notesText)
+    ) {
+      return {
+        fill: {
+          material: 0,
+          labor: 0,
+          total: allowanceTotal,
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper:
+            allowanceSqft > 0
+              ? `Note allowance for ${allowanceSqft.toLocaleString()} sqft`
+              : 'Allowance from notes',
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          basis:
+            allowanceSqft > 0
+              ? { quantity: allowanceSqft, unit: 'sqft' }
+              : null,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  // Do not let a notes-derived or stale per-SF split override 35 + 25
+  // installed pricing when the user entered the countertop area.
+  // Bathroom prefab and custom vanity tops use their own profiles below.
+  const bathroomVanityMaterial = isBathroomVanityCountertopScope(
+    itemId,
+    templateKey
+  )
+    ? resolveBathroomVanityCountertopMaterialType({
+        storedType: (measurementsInput as Record<string, unknown>)
+          .bathroomVanityCountertopMaterialType,
+        notes: notesText,
+      })
+    : null;
+  const bathroomVanityUsesOwnProfile =
+    bathroomVanityMaterial === 'cultured_marble_prefab' ||
+    bathroomVanityMaterial === 'prefab_quartz_stone' ||
+    bathroomVanityMaterial === 'custom_quartz_granite';
+  if (itemId === 'countertops' && !bathroomVanityUsesOwnProfile) {
     const parsedCountertopLf =
       String(templateKey || '').toLowerCase() === 'room_remodel'
         ? Number(
@@ -18268,6 +18368,7 @@ export function resolveScopeItemSuggestedPricing(
     const materialType = resolveBathroomVanityCountertopMaterialType({
       storedType: (measurementsInput as Record<string, unknown>)
         .bathroomVanityCountertopMaterialType,
+      notes: notesText,
     });
     if (materialType === 'unknown' || materialType === 'other_manual') {
       return empty;
@@ -20589,8 +20690,21 @@ export function resolveScopeItemSuggestedPricing(
   if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
 
   // Notes breakdown (canonical from the resolved item).
-  const noteMaterial = resolved.dualMaterial?.quantity ?? null;
-  const noteLabor = resolved.dualLabor?.quantity ?? null;
+  // Catalog-inferred legs are a display estimate, not a price the note or
+  // the contractor entered. Treating them as entered turns the suggestion
+  // into a comparison and group Apply skips the card.
+  const enteredSplitQuantity = (
+    leg:
+      | { quantity?: number | null; quantitySource?: string | null }
+      | null
+      | undefined
+  ): number | null => {
+    if (leg?.quantity == null) return null;
+    if (leg.quantitySource === 'inferred') return null;
+    return leg.quantity;
+  };
+  const noteMaterial = enteredSplitQuantity(resolved.dualMaterial);
+  const noteLabor = enteredSplitQuantity(resolved.dualLabor);
   const noteTotal =
     resolved.dualAllowance?.quantity ??
     (resolved.quantitySource === 'notes' &&
@@ -21468,7 +21582,11 @@ export function overlayDualRatePricingDisplay(
     }
   }
 
+  // Shower wall tile stays on the suggested-price card with the other
+  // bathroom lines. Filling catalog rates here draws the rate table and
+  // makes group Apply treat the price as a comparison.
   if (
+    itemId !== 'shower_tile' &&
     countEntry &&
     countEntry.quantity > 0 &&
     String(countEntry.unit || '').toLowerCase() === 'sqft' &&
@@ -21684,13 +21802,21 @@ function resolveDualAllowanceQuantity(
     );
   }
 
-  const quantitySource: QuantitySource =
+  const notePriced =
     allowanceEntry?.quantitySource === 'notes' ||
     countEntry?.quantitySource === 'notes' ||
     materialEntry?.quantitySource === 'notes' ||
     laborEntry?.quantitySource === 'notes' ||
-    effectiveAllowance?.quantitySource === 'notes'
-      ? 'notes'
+    effectiveAllowance?.quantitySource === 'notes';
+  // A measured shower wall is not a contractor-entered price. Marking it
+  // user_entered hides the suggested card and drops it from group Apply.
+  const countSource = countEntry?.quantitySource;
+  const quantitySource: QuantitySource = notePriced
+    ? 'notes'
+    : itemId === 'shower_tile' &&
+        countSource !== 'user_entered' &&
+        countSource !== 'manual_override'
+      ? 'inferred'
       : 'user_entered';
 
   return {
@@ -23139,8 +23265,11 @@ function resolveChecklistItemQuantityCore(
     })[itemId];
     if (parsedAllowance?.quantity && Number(parsedAllowance.quantity) > 0) {
       const includesCountertops =
-        Boolean(parsedAllowance.includesCountertops) ||
-        (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
+        itemId === 'cabinets' &&
+        cabinetsIncludeCountersInAllowance(
+          ctx.notes,
+          Boolean(parsedAllowance.includesCountertops)
+        );
       const combinedCabinetsCounters =
         itemId === 'cabinets' && includesCountertops;
       return {
@@ -23191,8 +23320,11 @@ function resolveChecklistItemQuantityCore(
     )
   ) {
     const includesCountertops =
-      Boolean(effectiveOverride.includesCountertops) ||
-      (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
+      itemId === 'cabinets' &&
+      cabinetsIncludeCountersInAllowance(
+        ctx.notes,
+        Boolean(effectiveOverride.includesCountertops)
+      );
     const baseLabel = sourceLabel(
       effectiveOverride.quantitySource || 'user_entered'
     );
@@ -23567,11 +23699,24 @@ export function resolveChecklistItemQuantity(
   }
   if (itemId === 'sink_faucet') {
     const stored = measurements.itemQuantities?.sink_faucet;
-    const notes = String(ctx.notes || '');
+    const notes = String(ctx.notes || '').replace(
+      /(?:^|[.!?]\s*)(?:do not|don't|no new)\b[^.!?]*/gi,
+      ' '
+    );
     const explicitSinkFaucet =
-      /\b(?:new|install|replace|reinstall|update)\b[^.;\n]{0,35}\bsink\b/i.test(
+      (/\b(?:new|install|replace|reinstall|update)\b[^.;\n]{0,80}\bfaucet\b/i.test(
         notes
-      ) && /\bfaucet\b/i.test(notes);
+      ) ||
+        /\bfaucet\b[^.;\n]{0,40}\b(?:new|install|replace|reinstall)\b/i.test(
+          notes
+        )) &&
+      !/\b(?:keep|keeping|stay|staying|reuse|reusing)\b[^.]{0,30}\bfaucet\b/i.test(
+        notes
+      );
+    const stepperCount = Number(
+      (measurements as { bathroomInstallFaucetCount?: number | null })
+        .bathroomInstallFaucetCount
+    );
     const storedQuantity =
       stored?.quantitySource === 'user_entered'
         ? Number(stored.quantity)
@@ -23579,9 +23724,11 @@ export function resolveChecklistItemQuantity(
     const quantity =
       storedQuantity && storedQuantity > 0
         ? storedQuantity
-        : explicitSinkFaucet
-          ? 1
-          : null;
+        : Number.isFinite(stepperCount) && stepperCount > 0
+          ? Math.round(stepperCount)
+          : explicitSinkFaucet
+            ? 1
+            : null;
     return {
       quantity,
       unit: 'each',
@@ -23877,6 +24024,31 @@ export function resolveChecklistItemQuantity(
         quantityHelper: `${doors} interior door${doors === 1 ? '' : 's'} × 20 sqft trim-equivalent planning basis.`,
         pricingReady: true,
         dualCount: { quantity: trimSqft, unit: 'sqft' },
+      };
+    }
+  }
+  if (
+    (itemId === 'trim' || itemId === 'baseboard_install') &&
+    String(ctx.templateKey || '').toLowerCase() === 'kitchen'
+  ) {
+    const stored = measurements.itemQuantities?.[itemId];
+    const userLocked =
+      stored?.quantitySource === 'user_entered' ||
+      stored?.quantitySource === 'manual_override';
+    const noteLf = Number(
+      parseScopeMeasurementsFromNotes(ctx.notes || '', {
+        templateKey: ctx.templateKey,
+      }).baseboardLf || 0
+    );
+    if (!userLocked && noteLf > 0) {
+      return {
+        ...resolved,
+        quantity: noteLf,
+        unit: 'lf',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        dualCount: { quantity: noteLf, unit: 'lf' },
       };
     }
   }
@@ -27182,6 +27354,15 @@ export function prepareScopeMeasurementsInputForUi(
     payload.quickMeasurementSources?.baseboardLf === 'user_entered';
   if (baseboardLfFromNotes > 0 && !baseboardLfUserLocked) {
     mergedFields.baseboardLf = String(baseboardLfFromNotes);
+  }
+  const kitchenFloorFromNotes = Number(
+    String(parsed.kitchenFloorSqft ?? '').replace(/,/g, '')
+  );
+  const kitchenFloorUserLocked =
+    payload.quickMeasurementUserOverrides?.kitchenFloorSqft === true ||
+    payload.quickMeasurementSources?.kitchenFloorSqft === 'user_entered';
+  if (kitchenFloorFromNotes > 0 && !kitchenFloorUserLocked) {
+    mergedFields.kitchenFloorSqft = String(kitchenFloorFromNotes);
   }
   const windowCountFromNotes = Number(
     String((parsed as Record<string, unknown>).windowCount ?? '').replace(

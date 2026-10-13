@@ -11,6 +11,28 @@ describe('bathroom wet-area demo pricing', () => {
     expect(BATHROOM_WET_AREA_DEMO_HELPER).toMatch(/prefab/i);
   });
 
+  test('prices shower wall and tile pan at their own rates', () => {
+    const { fill } = resolveBathroomWetAreaDemoSuggestedPricing({
+      measurementsInput: {
+        demoTileWallCount: 1,
+        demoTilePanCount: 1,
+        itemQuantities: {
+          demo__sqft_basis: {
+            quantity: 115,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      tileSqft: 115,
+      wallTileSqft: 90,
+      panSqft: 25,
+    });
+    expect(fill?.total).toBe(720);
+    expect(String(fill?.helper || '')).toMatch(/90 sqft wall tile × \$5\.50\/SF/i);
+    expect(String(fill?.helper || '')).toMatch(/25 sqft mud pan × \$9\.00\/SF \(\$225\)/i);
+  });
+
   test('tile-only demo prices shower wall + floor sqft', () => {
     const { fill } = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput: { demoTileWallCount: 1 },

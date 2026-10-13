@@ -259,7 +259,7 @@ describe('acceptedPricingSummaryUi', () => {
       suggestedBlock: block,
       intelligence: intelligence(),
     });
-    expect(display.subtitleLine).toMatch(/600 sqft × \$8\.00\/sqft/);
+    expect(display.subtitleLine).toMatch(/600 sqft × \$8\/sqft/);
     const action = getPricingSecondaryAction({
       display,
       intelligence: intelligence(),
@@ -998,6 +998,24 @@ describe('acceptedPricingSummaryUi', () => {
     };
     expect(hasAcceptedScopePricing('appliances', {}, sticky)).toBe(false);
     expect(currentScopePricingTotal('appliances', {}, sticky)).toBeNull();
+  });
+
+  it('keeps note-rate dollars on Apply when the takeoff was copied from the note', () => {
+    const noteRates = {
+      backsplash: { quantity: '42', unit: 'sqft', quantitySource: 'user_entered' as const },
+      backsplash__material: { quantity: '336', unit: 'allowance', quantitySource: 'notes' as const },
+      backsplash__labor: { quantity: '588', unit: 'allowance', quantitySource: 'notes' as const },
+      backsplash__allowance: { quantity: '924', unit: 'allowance', quantitySource: 'notes' as const },
+    };
+    expect(hasAcceptedScopePricing('backsplash', noteRates)).toBe(false);
+
+    expect(
+      hasAcceptedScopePricing('shower_tile', {
+        shower_tile: { quantity: '90', unit: 'sqft', quantitySource: 'user_entered' as const },
+        shower_tile__material: { quantity: '720', unit: 'allowance', quantitySource: 'template' as const },
+        shower_tile__labor: { quantity: '1260', unit: 'allowance', quantitySource: 'template' as const },
+      })
+    ).toBe(true);
   });
 
   it('prefers live labor dollars over a stale acceptance total', () => {

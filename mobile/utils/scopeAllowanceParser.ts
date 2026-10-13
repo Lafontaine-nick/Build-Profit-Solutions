@@ -312,7 +312,17 @@ function clauseHasCombinedCabinetsAndCounters(clause: string): boolean {
   const c = clause.toLowerCase();
   const hasCabinets = /\b(cabinets?|cabinetry)\b/.test(c);
   const hasCounters = /\b(counters?|countertops?|quartz|granite)\b/.test(c);
-  return hasCabinets && hasCounters;
+  if (!hasCabinets || !hasCounters) return false;
+  // "cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400"
+  // is two prices, not one combined allowance.
+  const separateCounterTakeoff =
+    /\b(?:counters?|countertops?|quartz|granite)\b[^.;]{0,48}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf)\b/i.test(
+      clause
+    ) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf)\b[^.;]{0,48}\b(?:counters?|countertops?|quartz|granite)\b/i.test(
+      clause
+    );
+  return !separateCounterTakeoff;
 }
 
 export function parseScopeItemAllowancesFromNotes(

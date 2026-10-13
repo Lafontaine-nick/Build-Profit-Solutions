@@ -156,9 +156,17 @@ function AIEstimateInitialRevealModal({
     const suppressRevealPricing = needsScopeConfirmation || !pricingVisible;
     const confirmBuckets = getInitialRevealConfirmItems(draft);
     const tagline = getInitialRevealTagline(draft);
+    const bathroomRemodelNote = String(draft.originalNotes || '');
     const understood = getInitialRevealUnderstoodBullets(
       draft,
-      draft.projectType === 'plumbing' || draft.projectType === 'plumbing_service' ? 4 : 2
+      draft.projectType === 'plumbing' || draft.projectType === 'plumbing_service'
+        ? 4
+        : /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(
+              bathroomRemodelNote
+            ) ||
+            /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(bathroomRemodelNote)
+          ? 8
+          : 2
     );
 
     return {

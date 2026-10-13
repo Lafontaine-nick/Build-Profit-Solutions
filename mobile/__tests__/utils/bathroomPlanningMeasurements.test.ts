@@ -68,6 +68,7 @@ describe('bathroomPlanningMeasurements', () => {
 
   test('parseVanityCabinetLfFromNotes handles inch and quote formats', () => {
     expect(parseVanityCabinetLfFromNotes('Replace 48 inch vanity')).toBe(4);
+    expect(parseVanityCabinetLfFromNotes('Install a new 60-inch vanity')).toBe(5);
     expect(parseVanityCabinetLfFromNotes('new 36" vanity')).toBe(3);
     expect(parseVanityCabinetLfFromNotes('48" double vanity')).toBe(4);
   });

@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -1567,7 +1566,7 @@ export default function EstimatePlanImportStrip({
         <Text
           style={{
             color: Colors.text,
-            fontSize: planReady ? 15 : 13,
+            fontSize: 15,
             fontWeight: planReady ? '800' : '700',
           }}
         >
@@ -1639,13 +1638,10 @@ export default function EstimatePlanImportStrip({
         </Text>
       ) : null}
       {embedded ? (
-        <View style={{ gap: 8, marginBottom: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
           {!routingLocked ? (
             <EstimateFlowActionButton
               label="General contractor"
-              icon="domain"
-              iconColor="#2dcc9a"
-              iconAccent="green"
               Colors={Colors}
               darkMode={darkMode}
               selected={estimatingMode === 'whole_project'}
@@ -1657,15 +1653,12 @@ export default function EstimatePlanImportStrip({
                   updateRouting('whole_project', null);
                 }
               }}
-              style={{ flex: undefined, width: '100%' }}
-              labelStyle={{ fontSize: 12 }}
+              style={{ flex: 1, paddingHorizontal: 8 }}
+              labelStyle={{ fontSize: 13, numberOfLines: 1 }}
             />
           ) : null}
           <EstimateFlowActionButton
             label={routingLocked ? 'Plumbing subcontractor' : 'Subcontractor'}
-            icon="handyman"
-            iconColor="#2dcc9a"
-            iconAccent="blue"
             Colors={Colors}
             darkMode={darkMode}
             selected={estimatingMode === 'selected_trade'}
@@ -1677,8 +1670,8 @@ export default function EstimatePlanImportStrip({
                 updateRouting('selected_trade', forcedTradeKey);
               }
             }}
-            style={{ flex: undefined, width: '100%' }}
-            labelStyle={{ fontSize: 12 }}
+            style={{ flex: 1, paddingHorizontal: 8 }}
+            labelStyle={{ fontSize: 13, numberOfLines: 1 }}
           />
         </View>
       ) : (
@@ -1791,37 +1784,22 @@ export default function EstimatePlanImportStrip({
                       style={{
                         width: '48%',
                         flex: undefined,
-                        minHeight: embedded ? 44 : 40,
-                        paddingHorizontal: 8,
+                        minHeight: embedded ? 48 : 40,
+                        paddingHorizontal: 10,
                       }}
-                      labelStyle={{ fontSize: 12, numberOfLines: 2 }}
+                      labelStyle={{ fontSize: 13, numberOfLines: 2 }}
                     />
                   );
                 })}
               </View>
             );
-            return embedded ? (
-              <ScrollView
-                style={{ maxHeight: 220 }}
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {tradeGrid}
-              </ScrollView>
-            ) : (
-              tradeGrid
-            );
+            return tradeGrid;
           })()}
         </>
       ) : null}
       {!estimatingMode ? (
-        <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 10, lineHeight: 15 }}>
+        <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10, lineHeight: 16 }}>
           Choose General contractor or Subcontractor above to import a plan.
-        </Text>
-      ) : estimatingMode === 'selected_trade' && !selectedTrade ? (
-        <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 15 }}>
-          Select a trade above, then import your plan PDF.
         </Text>
       ) : (
         planImportActionRow

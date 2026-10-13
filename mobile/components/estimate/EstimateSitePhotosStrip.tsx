@@ -469,7 +469,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
                 gap: 8,
               }}
             >
-              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
+              <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
                 {photosReady ? 'Photos ready' : 'Site photos'}
               </Text>
               <Text style={{ color: Colors.sub, fontSize: 11 }}>

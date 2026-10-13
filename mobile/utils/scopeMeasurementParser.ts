@@ -1843,10 +1843,17 @@ export function parseScopeMeasurementsFromNotes(
     return max > 0 ? max : null;
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
-  // For kitchen remodel notes, the explicit finished-floor takeoff owns the
-  // kitchen floor field. Prevent an earlier unrelated sqft value (such as
-  // drywall repair) from becoming the kitchen flooring quantity.
-  if (flooringSqft && /\bkitchen\b/i.test(blob) && /\blvp\b/i.test(blob)) {
+  // The kitchen install panel owns this takeoff. A kitchen job often names
+  // "LVP flooring 180 sqft" without the word "kitchen".
+  const kitchenFloorJob =
+    templateKey === 'kitchen' ||
+    projectType === 'kitchen' ||
+    /\bkitchen\b/i.test(blob);
+  if (
+    flooringSqft &&
+    kitchenFloorJob &&
+    /\b(?:lvp|luxury\s+vinyl|vinyl|flooring)\b/i.test(blob)
+  ) {
     out.kitchenFloorSqft = flooringSqft;
   }
   const flooringProductScope: NonNullable<

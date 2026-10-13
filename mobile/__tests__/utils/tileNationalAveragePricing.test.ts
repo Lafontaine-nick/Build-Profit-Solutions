@@ -176,6 +176,43 @@ describe('tile national-average subtype pricing', () => {
     expect(pricingAcceptance.shower_tile.totalAmount).toBe(3520);
   });
 
+  it('offers bathroom shower wall tile as a suggested price the group can apply', () => {
+    const bathroom = {
+      ...emptyQuickMeasurementInput(),
+      showerWallTileSqft: '90',
+      itemQuantities: {},
+    } as any;
+    const notes =
+      'Remodel the bathroom. Tear out the shower wall tile and the tile shower pan, and demo the bathroom floor tile. Install new shower wall tile, a new tile shower pan set in mortar, and new bathroom floor tile wall to wall.';
+    const resolved = resolveChecklistItemQuantity('shower_tile', bathroom, {
+      templateKey: 'bathroom',
+      notes,
+    });
+    expect(Number(resolved.quantity)).toBe(90);
+    expect(resolved.dualMaterial?.quantitySource).not.toBe('inferred');
+    expect(resolved.quantitySource).not.toBe('user_entered');
+    const pricing = resolveScopeItemSuggestedPricing(
+      'shower_tile',
+      bathroom,
+      'bathroom',
+      resolved,
+      undefined,
+      undefined,
+      notes
+    );
+    expect(pricing.fill?.isComparison).toBeFalsy();
+    expect(pricing.fill).toMatchObject({
+      material: 720,
+      labor: 1620,
+      total: 2340,
+    });
+    const fill = pricing.fill;
+    const groupWouldApply = Boolean(
+      fill && !fill.isComparison && Number(fill.total) > 0
+    );
+    expect(groupWouldApply).toBe(true);
+  });
+
   it('keeps shower floor mid-market and above bath floor (pan/waterproofing separate)', () => {
     const wall = getNationalAverageBudgetSplit('shower_tile', 'sqft')!;
     const floor = getNationalAverageBudgetSplit('shower_floor_tile', 'sqft')!;

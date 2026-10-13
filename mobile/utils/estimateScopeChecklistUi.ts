@@ -4030,6 +4030,12 @@ function ensureBathroomNoteBackedScopeItems(
       pattern: /\b(?:vanity\s+)?lighting\b|\blight\s+fixtures?\b/,
     },
     {
+      id: 'exhaust_fan',
+      label: 'Exhaust fan / ventilation',
+      helperText: 'Replace or install bath fan and ducting if needed.',
+      pattern: /\b(?:exhaust\s+fan|bath\s+fan)\b/,
+    },
+    {
       id: 'interior_door_install',
       label: 'Interior door installation',
       helperText:
@@ -4668,7 +4674,7 @@ export function hydrateScopeChecklistFromNotes(
       String(notes || '')
     );
   const crossTradeRemodelNote =
-    /\b(?:stucco|roof(?:ing)?|gutters?|windows?|exterior\s+doors?)\b/i.test(
+    /\b(?:stucco|gutters?|windows?|exterior\s+doors?)\b|\broof(?:ing)?\b(?!\s+caps?\b)/i.test(
       String(notes || '')
     ) &&
     /\b(?:replace|replacement|install|repair|deduct|gross|net)\b/i.test(
@@ -5141,12 +5147,16 @@ export function expandWetAreaDerivedScopeItems(
   items: ScopeChecklistItem[]
 ): ScopeChecklistItem[] {
   const wet = items.find(i => i.id === 'wet_area_install');
-  // A notes-only draft can contain a direct shower_pan row without the newer
-  // wet_area_install parent. Preserve that card so applied mud-pan pricing
-  // never becomes an orphaned line with no Confirm Scope card.
+  // Bathroom Confirm scope hides the wet_area_install parent, and a group
+  // total is computed on that group's cards alone. A notes-only draft can
+  // also carry a direct shower_pan row. Keep any derived card that is itself
+  // in scope so applied prefab pan / enclosure dollars stay on the header.
   if (!wet || !checklistItemInScope(wet)) {
     return items.filter(
-      i => !WET_AREA_DERIVED_ITEM_IDS.has(i.id) || i.id === 'shower_pan'
+      i =>
+        !WET_AREA_DERIVED_ITEM_IDS.has(i.id) ||
+        i.id === 'shower_pan' ||
+        checklistItemInScope(i)
     );
   }
   const withoutDerived = items.filter(
@@ -6510,6 +6520,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'toilet',
         'vanity',
         'countertops',
+        'sink_faucet',
         'lighting',
         'exhaust_fan',
         'mirror_accessories',
@@ -6537,6 +6548,8 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'electrical_rough',
         'floor_prep',
         'paint_repair',
+        'paint',
+        'interior_paint',
         'trim',
       ],
     },

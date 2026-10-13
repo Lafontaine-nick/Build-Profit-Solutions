@@ -419,6 +419,23 @@ describe('estimateInitialRevealUi', () => {
     expect(buckets.bidDetails).toEqual(['Customer name', 'Start date']);
   });
 
+  it('highlights unpriced bath fan and vanity lights on Scope found', () => {
+    const draft = {
+      estimateTier: 'room_remodel',
+      requiresScopeConfirmation: true,
+      scopeMode: 'dedicated',
+      projectType: 'bathroom',
+      originalNotes:
+        'Replace the exhaust fan with a new bath fan and run the duct to the existing roof cap. Install new vanity lighting over the mirror, two fixtures. The tub, shower, floor tile, and vanity cabinet all stay. Do not demo any tile, do not replace the toilet, and do not paint the walls.',
+      scopeChecklist: { templateKey: 'bathroom', items: [] },
+      scopePackages: [{ name: 'Vanity', status: 'missing_price' }],
+    } as EstimateAiDraft;
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Price needed for Vanity lighting · 2 fixtures',
+      'Price needed for Bath exhaust fan',
+    ]);
+  });
+
   it('builds confirm buckets from draft — scope/pricing only', () => {
     const draft = {
       stillNeededReview: [
@@ -2485,6 +2502,56 @@ describe('estimateInitialRevealUi', () => {
       'Countertop demo / removal',
       'Backsplash demo / removal',
       'Kitchen flooring demo / removal',
+    ]);
+  });
+
+  it('drops unmentioned kitchen questionnaire cards and tile duplicates', () => {
+    const draft = {
+      projectType: 'kitchen',
+      projectTitle: 'Kitchen Remodel',
+      originalNotes:
+        'Kitchen remodel. Demo existing cabinets, countertops, backsplash, and vinyl floor. Install 22 LF new cabinets, quartz counters 48 sqft, tile backsplash 32 sqft, and LVP flooring 160 sqft. Baseboards 40 LF. Include sink and dishwasher hookup. No prices yet.',
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [
+          { id: 'cabinet_demo', label: 'Cabinet demo / removal', state: 'included', noteBacked: true },
+          { id: 'countertop_demo', label: 'Countertop demo / removal', state: 'included', noteBacked: true },
+          { id: 'backsplash_demo', label: 'Backsplash demo / removal', state: 'included', noteBacked: true },
+          { id: 'floor_demo', label: 'Flooring demo / removal', state: 'included', noteBacked: true },
+          { id: 'demo', label: 'Shower tile demo / tear-out', state: 'included', noteBacked: true },
+          { id: 'cabinets', label: 'Stock cabinet supply & installation', state: 'included', noteBacked: true },
+          { id: 'countertops', label: 'Countertop fabrication & install', state: 'included', noteBacked: true },
+          { id: 'backsplash', label: 'Backsplash tile install', state: 'included', noteBacked: true },
+          { id: 'flooring', label: 'Kitchen flooring install', state: 'included', noteBacked: true },
+          { id: 'flooring_lvp', label: 'LVP installation', state: 'included', noteBacked: true },
+          { id: 'tile', label: 'Tile', state: 'included', noteBacked: true },
+          { id: 'trim', label: 'Trim & baseboard', state: 'included', noteBacked: true },
+          { id: 'baseboard_install', label: 'Baseboard trim & finish', state: 'included', noteBacked: true },
+          { id: 'sink_faucet', label: 'Sink & faucet', state: 'included', noteBacked: true },
+          { id: 'garbage_disposal', label: 'Garbage disposal', state: 'unsure', noteBacked: true },
+          { id: 'electrical', label: 'Electrical outlets, GFCI & circuits', state: 'included', noteBacked: true },
+          { id: 'drywall', label: 'Drywall / patching', state: 'unsure', noteBacked: true },
+          { id: 'paint', label: 'Interior painting', state: 'unsure', noteBacked: true },
+          { id: 'plumbing', label: 'Plumbing connections', state: 'included', noteBacked: true },
+          { id: 'permits', label: 'Permits & inspections', state: 'unsure', noteBacked: true },
+          { id: 'cleanup', label: 'Cleanup, haul-off & disposal', state: 'unsure', noteBacked: true },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual([
+      'Cabinet demo / removal',
+      'Countertop demo / removal',
+      'Backsplash demo / removal',
+      'Kitchen flooring demo / removal',
+      '22 LF cabinets',
+      'Countertop fabrication & install',
+      'Backsplash tile install',
+      'Kitchen flooring install',
+      'Baseboard installation',
+      'Plumbing connections',
     ]);
   });
 

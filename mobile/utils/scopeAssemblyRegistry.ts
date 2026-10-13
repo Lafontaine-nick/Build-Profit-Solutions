@@ -884,22 +884,44 @@ function componentStatus(params: {
   };
 }
 
+const PLUMBING_FIXTURE_SCOPE_KEYS = new Set([
+  'sink_faucet',
+  'garbage_disposal',
+  'toilet',
+  'vanity',
+]);
+const PLUMBING_ROUGH_SCOPE_KEYS = new Set(['plumbing_rough', 'plumbing_trim']);
+
+/** Fixture-vs-fixture pairs are separate bid lines. Only rough/trim against a fixture overlaps. */
+function plumbingRoughFixturePeers(scopeKey: string, relatedActive: string[]): string[] {
+  const scopeIsFixture = PLUMBING_FIXTURE_SCOPE_KEYS.has(scopeKey);
+  const scopeIsRough = PLUMBING_ROUGH_SCOPE_KEYS.has(scopeKey);
+  if (scopeIsFixture) return relatedActive.filter((key) => PLUMBING_ROUGH_SCOPE_KEYS.has(key));
+  if (scopeIsRough) return relatedActive.filter((key) => PLUMBING_FIXTURE_SCOPE_KEYS.has(key));
+  return [];
+}
+
 function overlapNotices(scopeKey: string, activeScopeKeys: string[], groups: string[] = []): ScopeOverlapNotice[] {
   const active = new Set(activeScopeKeys);
-  return OVERLAPS.filter((overlap) => {
-    if (groups.length && !groups.includes(overlap.key)) return false;
-    if (!overlap.relatedScopeKeys.includes(scopeKey)) return false;
+  return OVERLAPS.flatMap((overlap) => {
+    if (groups.length && !groups.includes(overlap.key)) return [];
+    if (!overlap.relatedScopeKeys.includes(scopeKey)) return [];
     const relatedActive = overlap.relatedScopeKeys.filter((key) => key !== scopeKey && active.has(key));
-    return relatedActive.length > 0;
-  }).map((overlap) => ({
-    key: overlap.key,
-    componentKey: overlap.componentKey,
-    componentLabel: overlap.componentLabel,
-    relatedScopeKeys: overlap.relatedScopeKeys.filter((key) => key !== scopeKey && active.has(key)),
-    severity: overlap.severity,
-    message: overlap.message,
-    resolutionOptions: overlap.resolutionOptions,
-  }));
+    const peers =
+      overlap.key === 'plumbing_rough_fixtures'
+        ? plumbingRoughFixturePeers(scopeKey, relatedActive)
+        : relatedActive;
+    if (!peers.length) return [];
+    return [{
+      key: overlap.key,
+      componentKey: overlap.componentKey,
+      componentLabel: overlap.componentLabel,
+      relatedScopeKeys: peers,
+      severity: overlap.severity,
+      message: overlap.message,
+      resolutionOptions: overlap.resolutionOptions,
+    }];
+  });
 }
 
 function dependencyNotices(scopeKey: string, activeScopeKeys: string[]): ScopeDependencyNotice[] {

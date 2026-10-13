@@ -6,6 +6,10 @@ import {
   resolveBathroomVanityCountertopMaterialType,
   resolveBathroomVanityCountertopSuggestedPricing,
 } from '@/utils/bathroomVanityCountertopPricing';
+import { resolveScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
+
+const VANITY_NOTE =
+  'Remodel the bathroom. Demo and haul off the existing vanity cabinet and the vanity top. Remove the existing toilet. Install a new 60-inch vanity with a quartz top, a new faucet, and a new toilet. Set the vanity and connect it to the existing supply and drain. Do not change the shower, the bathroom floor, or the paint.';
 
 describe('bathroom vanity countertop pricing', () => {
   it('Test 1: custom quartz 10 sqft prices at national custom vanity profile', () => {
@@ -102,5 +106,51 @@ describe('bathroom vanity countertop pricing', () => {
       (row) => row.scopeKey === 'sink_fixture'
     );
     expect(sinkFixture?.status).toBe('excluded');
+  });
+
+  it('keeps prefabricated quartz at $800 each after the contractor enters sqft', () => {
+    const pricing = resolveScopeItemSuggestedPricing(
+      'countertops',
+      {
+        countertopSqft: '25',
+        bathroomInstallCounterCount: 1,
+        bathroomVanityCountertopMaterialType: 'prefab_quartz_stone',
+        itemQuantities: {},
+      },
+      'bathroom',
+      { quantity: 25, unit: 'sqft', quantitySource: 'user_entered' },
+      null,
+      null,
+      VANITY_NOTE
+    );
+    expect(pricing.fill).toMatchObject({
+      material: 520,
+      labor: 280,
+      total: 800,
+      basis: { quantity: 1, unit: 'each' },
+    });
+  });
+
+  it('prices custom quartz vanity tops from the entered sqft', () => {
+    const pricing = resolveScopeItemSuggestedPricing(
+      'countertops',
+      {
+        countertopSqft: '25',
+        bathroomInstallCounterCount: 1,
+        bathroomVanityCountertopMaterialType: 'custom_quartz_granite',
+        itemQuantities: {},
+      },
+      'bathroom',
+      { quantity: 25, unit: 'sqft', quantitySource: 'user_entered' },
+      null,
+      null,
+      'Install a custom quartz vanity top, 25 sqft.'
+    );
+    expect(pricing.fill).toMatchObject({
+      material: 1675,
+      labor: 1200,
+      total: 2875,
+      basis: { quantity: 25, unit: 'sqft' },
+    });
   });
 });

@@ -46,6 +46,20 @@ describe('wetAreaInstallInference', () => {
     expect(inferred.prefabBathCount).toBeNull();
   });
 
+  test('prefab note ignores a checklist that already marked tile included', () => {
+    const inferred = inferWetAreaInstallSteppersFromIntent({
+      notes:
+        'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround. Install a new prefab shower pan, set it in mortar. Install a new prefab shower surround on the walls.',
+      showerTileIncluded: true,
+      showerFloorTileIncluded: true,
+      wetAreaInstallChoiceId: 'tile_pan',
+    });
+    expect(inferred.prefabBathCount).toBe(1);
+    expect(inferred.prefabEnclosureBathCount).toBe(1);
+    expect(inferred.tilePanBathCount).toBeNull();
+    expect(inferred.bathCount).toBeNull();
+  });
+
   test('checklist shower tile + floor tile fills both steppers', () => {
     const inferred = inferWetAreaInstallSteppersFromIntent({
       notes: '',

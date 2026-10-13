@@ -1,6 +1,9 @@
+import { inferBathroomVanityCountertopMaterialFromNotes } from '@/utils/bathroomVanityCountertopPricing';
+import { resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   inferBathroomFixtureInstallFromIntent,
+  inferBathroomToiletFaucetCounts,
   inferExistingBathroomFixturesFromNotes,
   resolveBathroomFixtureDemoFromIntent,
   resolveBathroomInstallCounterCount,
@@ -222,5 +225,58 @@ describe('bathroomFixturesQm', () => {
       label: 'Remove countertop',
       state: 'included',
     });
+  });
+
+  test('vanity, quartz top, toilet, and faucet note fills the counts the note names', () => {
+    const notes =
+      'Remodel the bathroom. Demo and haul off the existing vanity cabinet and the vanity top. Remove the existing toilet. Install a new 60-inch vanity with a quartz top, a new faucet, and a new toilet. Set the vanity and connect it to the existing supply and drain. Do not change the shower, the bathroom floor, or the paint.';
+    expect(inferExistingBathroomFixturesFromNotes(notes)).toEqual({
+      bathroomExistingVanityCount: 1,
+      bathroomExistingCounterCount: 1,
+    });
+    expect(inferBathroomFixtureInstallFromIntent({ notes })).toEqual({
+      bathroomInstallVanityCount: 1,
+      bathroomInstallCounterCount: 1,
+    });
+    expect(
+      resolveBathroomFixtureDemoFromIntent({
+        notes,
+        existing: inferExistingBathroomFixturesFromNotes(notes),
+        install: inferBathroomFixtureInstallFromIntent({ notes }),
+      })
+    ).toEqual({
+      bathroomDemoVanityCount: 1,
+      bathroomDemoCounterCount: 1,
+    });
+    expect(inferBathroomToiletFaucetCounts(notes)).toEqual({
+      bathroomDemoToiletCount: 1,
+      bathroomInstallToiletCount: 1,
+      bathroomInstallFaucetCount: 1,
+    });
+    expect(inferBathroomCountertopSqftFromNotes(notes)).toBeNull();
+    expect(inferBathroomVanityCountertopMaterialFromNotes(notes)).toBe(
+      'prefab_quartz_stone'
+    );
+    expect(
+      inferBathroomToiletFaucetCounts('Do not replace the toilet.')
+    ).toEqual({
+      bathroomDemoToiletCount: null,
+      bathroomInstallToiletCount: null,
+      bathroomInstallFaucetCount: null,
+    });
+    const priced = resolveChecklistItemQuantity(
+      'sink_faucet',
+      { itemQuantities: {} } as never,
+      { notes, templateKey: 'bathroom' }
+    );
+    expect(priced.quantity).toBe(1);
+    expect(priced.pricingReady).toBe(true);
+    expect(
+      resolveChecklistItemQuantity(
+        'sink_faucet',
+        { itemQuantities: {} } as never,
+        { notes: 'Do not replace the faucet.', templateKey: 'bathroom' }
+      ).quantity
+    ).toBeNull();
   });
 });

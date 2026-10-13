@@ -782,6 +782,138 @@ export function formatSuggestedSplitLine(
   return `${prefix}${line}`;
 }
 
+const SUGGESTED_CARD_BUCKET_LABELS: Record<string, string> = {
+  material: 'Material',
+  labor: 'Labor',
+  equipment: 'Equipment',
+  subcontractor: 'Subcontractor',
+  allowance: 'Allowance',
+  other_direct_cost: 'Other',
+};
+
+function suggestedCardUnitLabel(rawUnit: string): string {
+  const unit = rawUnit.toLowerCase();
+  if (unit === 'living_sqft' || unit === 'floor_sqft' || unit === 'sq.ft') {
+    return 'sqft';
+  }
+  return formatUnitLabel(unit);
+}
+
+function suggestedCardRateUnitLabel(unitLabel: string): string {
+  if (unitLabel === 'squares') return 'square';
+  if (unitLabel === 'tons') return 'ton';
+  return unitLabel;
+}
+
+function formatSuggestedCardRateMoney(rate: number): string {
+  const cents = Math.round(rate * 100) / 100;
+  return Number.isInteger(cents)
+    ? `$${cents.toLocaleString()}`
+    : `$${cents.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+}
+
+/** Confirm Scope suggested card — "48 LF × $7/LF", matching the applied card. */
+export function formatSuggestedCardRateLine(
+  block: Pick<
+    SuggestedPricingBlock,
+    'basis' | 'total' | 'installedBudgetBenchmark' | 'needsServiceAmperage'
+  >
+): string | null {
+  if (block.installedBudgetBenchmark || block.needsServiceAmperage) {
+    return null;
+  }
+  const qty = Number(block.basis?.quantity);
+  const rawUnit = String(block.basis?.unit || '').trim();
+  if (!(qty > 0) || !rawUnit || !(Number(block.total) > 0)) return null;
+  if (/^(allowance|lump_sum)$/i.test(rawUnit)) return null;
+  const unit = suggestedCardUnitLabel(rawUnit);
+  const qtyLabel =
+    Math.abs(qty - Math.round(qty)) < 0.05
+      ? Math.round(qty).toLocaleString()
+      : qty.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  const rate = formatSuggestedCardRateMoney(Number(block.total) / qty);
+  return `${qtyLabel} ${unit} × ${rate}/${suggestedCardRateUnitLabel(unit)}`;
+}
+
+/** Confirm Scope suggested card — "Material $400 · Labor $600" with generic bucket names. */
+export function formatSuggestedCardSplitLine(
+  block: Pick<
+    SuggestedPricingBlock,
+    'costBuckets' | 'material' | 'labor' | 'lumpSumOnly' | 'needsServiceAmperage'
+  >
+): string | null {
+  if (block.lumpSumOnly || block.needsServiceAmperage) return null;
+  const totals = new Map<string, number>();
+  const add = (label: string, amount: number) => {
+    if (amount > 0) totals.set(label, (totals.get(label) || 0) + amount);
+  };
+  if (block.costBuckets?.length) {
+    for (const bucket of block.costBuckets) {
+      add(
+        SUGGESTED_CARD_BUCKET_LABELS[bucket.key] || bucket.label,
+        Number(bucket.amount)
+      );
+    }
+  } else {
+    add('Material', Number(block.material));
+    add('Labor', Number(block.labor));
+  }
+  if (!totals.size) return null;
+  return [...totals]
+    .map(([label, amount]) => `${label} ${formatSuggestedComponentMoney(amount)}`)
+    .join(' · ');
+}
+
+export type SuggestedCardSourceChip = {
+  label: string;
+  tone: 'slate' | 'gold';
+};
+
+/** One chip per suggested card: gold only when something still needs a check. */
+export function suggestedCardSourceChip(
+  block: SuggestedPricingBlock,
+  display: Pick<
+    SuggestedPricingCardDisplay,
+    'isFallbackPricing' | 'pricingStatus' | 'pricingSource' | 'title'
+  >
+): SuggestedCardSourceChip | null {
+  if (block.needsServiceAmperage) {
+    return { label: 'Needs service amperage', tone: 'gold' };
+  }
+  if (display.isFallbackPricing) {
+    return { label: 'Needs measurement', tone: 'gold' };
+  }
+  if (display.pricingStatus === 'planning') {
+    return { label: 'Needs takeoff', tone: 'gold' };
+  }
+  if (block.lumpSumOnly) return { label: 'Allowance', tone: 'slate' };
+  const source = `${block.rateSourceLabel || ''} ${display.pricingSource || ''}`;
+  if (block.mode === 'note_total_split' || /\bnotes?\b/i.test(source)) {
+    return { label: 'From notes', tone: 'slate' };
+  }
+  if (/saved pricing/i.test(display.title) || /saved/i.test(source)) {
+    return { label: 'Saved pricing', tone: 'slate' };
+  }
+  if (block.installedBudgetBenchmark) {
+    return { label: 'Installed budget', tone: 'slate' };
+  }
+  if (
+    /national/i.test(source) ||
+    block.materialSource === 'national_average' ||
+    block.laborSource === 'national_average'
+  ) {
+    return { label: 'National average', tone: 'slate' };
+  }
+  if (/regional/i.test(source)) return { label: 'Regional average', tone: 'slate' };
+  if (/local/i.test(source) || block.materialSource === 'local_benchmark') {
+    return { label: 'Local average', tone: 'slate' };
+  }
+  return null;
+}
+
 export function formatInstalledBudgetQuantityLine(
   block: SuggestedPricingBlock
 ): string | null {
@@ -919,6 +1051,8 @@ export function buildSuggestedPricingCardDisplay(input: {
    * Keeps Apply allowance when no current amount is present.
    */
   forceCompact?: boolean;
+  /** Kitchen and bathroom scope cards use the standard suggested-price layout. */
+  forceStandardCard?: boolean;
 }): SuggestedPricingCardDisplay {
   const { block, itemId } = input;
   const toiletRelocate = isToiletRelocateSuggestedBlock(block.pricingRecordId);
@@ -1204,7 +1338,8 @@ export function buildSuggestedPricingCardDisplay(input: {
   const compactLine = needsServiceAmperage
     ? ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS
     : formatCompactSuggestedLine(block.total);
-  const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
+  const isFlooringLineCard =
+    !input.forceStandardCard && isFlooringConfirmScopePricingCard(itemId);
   const isFramingShellLineCard = itemId === 'framing';
   const isHvacPackageLineCard = itemId === 'hvac';
   const isFlooringLinearFootCard =

@@ -440,6 +440,147 @@ describe('benchmarkReasonablenessContext', () => {
     );
   });
 
+  it('rolls kitchen backsplash and flooring note rates instead of the national catalog', () => {
+    const notes =
+      'install 24 LF cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400, backsplash 42 sqft material $8 per sqft and labor $14 per sqft. New LVP flooring 180 sqft material $4.25 per sqft and labor $3.75 per sqft. Baseboard 48 LF at $7 per LF.';
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'backsplash',
+        label: 'Backsplash tile install',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'flooring',
+        label: 'Kitchen flooring install',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const measurements = {
+      backsplashSqft: '42',
+      kitchenFloorSqft: '180',
+      flooringSqft: '180',
+      itemQuantities: {
+        backsplash__material: {
+          quantity: '336',
+          unit: 'allowance',
+          quantitySource: 'inferred',
+        },
+        backsplash__labor: {
+          quantity: '714',
+          unit: 'allowance',
+          quantitySource: 'inferred',
+        },
+      },
+      pricingAcceptance: {
+        backsplash: {
+          selectionStatus: 'accepted',
+          totalAmount: 1050,
+          materialAmount: 336,
+          laborAmount: 714,
+          pricingSourceKind: 'national_average',
+        },
+      },
+    } as never;
+
+    expect(
+      wholeProjectGroupDisplayTotal({
+        items,
+        measurements,
+        templateKey: 'kitchen',
+        notes,
+      })
+    ).toBe(924 + 1440);
+    expect(
+      sumConfirmScopeAppliedPricingBreakdown({
+        items,
+        measurements,
+        templateKey: 'kitchen',
+        notes,
+      })
+    ).toMatchObject({
+      total: 924 + 1440,
+      material: 336 + 765,
+      labor: 588 + 675,
+    });
+  });
+
+  it('keeps applied prefab pan and enclosure dollars on the wet-area group header', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'prefab_shower_pan',
+        label: 'Prefab shower pan',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'prefab_shower_enclosure',
+        label: 'Prefab shower enclosure',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const measurements = {
+      itemQuantities: {
+        prefab_shower_pan: {
+          quantity: 1,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        prefab_shower_pan__material: {
+          quantity: '400',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        prefab_shower_pan__labor: {
+          quantity: '600',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        prefab_shower_enclosure: {
+          quantity: 1,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        prefab_shower_enclosure__material: {
+          quantity: '1800',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        prefab_shower_enclosure__labor: {
+          quantity: '900',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+      pricingAcceptance: {
+        prefab_shower_pan: {
+          selectionStatus: 'accepted',
+          totalAmount: 1000,
+          materialAmount: 400,
+          laborAmount: 600,
+          pricingSourceKind: 'national_average',
+        },
+        prefab_shower_enclosure: {
+          selectionStatus: 'accepted',
+          totalAmount: 2700,
+          materialAmount: 1800,
+          laborAmount: 900,
+          pricingSourceKind: 'national_average',
+        },
+      },
+    } as never;
+
+    expect(
+      wholeProjectGroupDisplayTotal({
+        items,
+        measurements,
+        templateKey: 'bathroom',
+      })
+    ).toBe(3700);
+  });
+
   it('prices a drywall plan export as one crew-split package', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'hang', label: 'Drywall install', inputType: 'yes_no', state: 'included' },

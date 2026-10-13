@@ -239,7 +239,10 @@ export function scopeItemNoteBadge(
   }
   if (!String(notes || '').trim() && !item.noteBacked) return null;
 
-  if (itemPricingFromNotes(item, ctx) && checklistItemInScope(item)) return 'prefilled';
+  if (itemPricingFromNotes(item, ctx) && checklistItemInScope(item)) {
+    if (String(ctx.templateKey || '').toLowerCase() === 'kitchen') return null;
+    return 'prefilled';
+  }
 
   const resolved = resolveChecklistItemQuantity(item.id, ctx.measurements, {
     choiceId: item.choiceId,

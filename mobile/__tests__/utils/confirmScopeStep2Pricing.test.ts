@@ -708,7 +708,38 @@ describe('bathroom shower tile demo suggested pricing', () => {
       pricingContext: {},
     });
 
-    expect(suggest?.fill?.total).toBe(605);
+    // 95 sqft wall × $5.50 + 15 sqft pan × $9. The stored 110 is that sum.
+    expect(suggest?.fill?.total).toBe(657.5);
     expect(suggest?.fill?.basis).toMatchObject({ quantity: 110, unit: 'sqft' });
+  });
+
+  it('prices entered shower wall and pan sqft on the demo card', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the shower wall tile and the tile shower pan, and demo the bathroom floor tile.';
+    const pricing = resolveScopeItemSuggestedPricing(
+      'demo',
+      {
+        showerWallTileSqft: '90',
+        showerFloorTileSqft: '25',
+        bathroomFloorSqft: '125',
+        demoTilePanCount: 1,
+        demoTileWallCount: 1,
+        itemQuantities: {
+          demo__sqft_basis: {
+            quantity: 115,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      'bathroom',
+      { quantity: 240, unit: 'sqft', quantitySource: 'inferred' },
+      {},
+      null,
+      notes
+    );
+
+    // 90 sqft wall × $5.50 + 25 sqft pan × $9. Bath floor stays on floor_demo.
+    expect(pricing.fill?.total).toBe(720);
   });
 });

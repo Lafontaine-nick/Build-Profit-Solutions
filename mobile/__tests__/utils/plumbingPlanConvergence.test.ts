@@ -1178,6 +1178,51 @@ describe('plumbing notes routing', () => {
     expect(draft.scopeMeasurements?.plumbingRoughPointCount).toBe('6');
   });
 
+  it('keeps a bathroom remodel note on Confirm scope instead of the simple review', () => {
+    const notes =
+      'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround, cap the drain, and leave the alcove ready. Install a new prefab shower pan, set it in mortar, and connect it to the existing drain. Install a new prefab shower surround on the walls.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'plumbing',
+        projectTitle: 'Plumbing',
+        estimateTier: 'simple_unit',
+        originalNotes: notes,
+        scopePackages: [
+          { name: 'Bathroom Demo', status: 'missing_price' },
+          { name: 'Shower Tile Installation', status: 'missing_price' },
+          { name: 'Plumbing (Bathroom)', status: 'missing_price' },
+        ],
+        classification: { scopeMode: 'mixed' },
+        scopeChecklist: {
+          templateKey: 'bathroom',
+          estimateTier: 'simple_unit',
+          items: [],
+        },
+      } as never,
+      notes
+    );
+    expect(repaired.projectType).toBe('bathroom');
+    expect(repaired.projectTitle).toBe('Bathroom Remodel');
+    expect(repaired.estimateTier).toBe('room_remodel');
+    expect(repaired.requiresScopeConfirmation).toBe(true);
+    expect(repaired.scopeChecklist?.templateKey).toBe('bathroom');
+    expect(repaired.scopePackages).toEqual([]);
+    expect(repaired.scopeMode).toBe('dedicated');
+    expect(repaired.classification?.scopeMode).toBe('dedicated');
+
+    const alreadyBathroom = repairDraftRatePricingFromNotes(
+      {
+        ...repaired,
+        classification: { scopeMode: 'mixed' },
+        scopeMode: 'mixed',
+      } as never,
+      notes
+    );
+    expect(alreadyBathroom.scopeMode).toBe('dedicated');
+    expect(alreadyBathroom.classification?.scopeMode).toBe('dedicated');
+    expect(alreadyBathroom.estimateTier).toBe('room_remodel');
+  });
+
   it('normalizes mixed bathroom notes away from a stale plumbing checklist', () => {
     const notes =
       'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';

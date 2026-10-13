@@ -234,13 +234,26 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
   const tileSqft = Math.max(0, Number(params.tileSqft) || 0);
   const wallTileSqft = Math.max(0, Number(params.wallTileSqft) || 0);
   const panSqft = Math.max(0, Number(params.panSqft) || 0);
+  const storedBasisQuantity = Number(
+    params.measurementsInput.itemQuantities?.demo__sqft_basis?.quantity
+  );
   const storedCombinedBasis =
     params.measurementsInput.itemQuantities?.demo__sqft_basis?.unit ===
-      'sqft' &&
-    Number(params.measurementsInput.itemQuantities.demo__sqft_basis.quantity) > 0;
+      'sqft' && storedBasisQuantity > 0;
   const splitTilePricing = wallTileSqft > 0 || panSqft > 0;
-  const effectivePanSqft = storedCombinedBasis ? 0 : panSqft;
-  const wallArea = storedCombinedBasis
+  const separateArea = round2(wallTileSqft + panSqft);
+  // Quick Measurements stores wall + pan as one basis so bath-floor sqft
+  // does not get priced on this card. That sum is still two rates: wall
+  // tile at the wall rate, and the pan at the pan rate. A stored basis
+  // that is not that sum is a real override and stays on the wall rate.
+  const storedBasisMatchesSeparateAreas =
+    storedCombinedBasis &&
+    separateArea > 0 &&
+    Math.abs(round2(storedBasisQuantity) - separateArea) < 0.02;
+  const useStoredWallBasis =
+    storedCombinedBasis && !storedBasisMatchesSeparateAreas;
+  const effectivePanSqft = useStoredWallBasis ? 0 : panSqft;
+  const wallArea = useStoredWallBasis
     ? tileSqft
     : splitTilePricing
       ? wallTileSqft
@@ -359,18 +372,11 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
     });
   }
 
+  const showSplitRates = !useStoredWallBasis && splitTilePricing;
   const helper = buildBathroomWetAreaDemoHelper({
     tileSqft,
-    wallTileSqft: storedCombinedBasis
-      ? undefined
-      : splitTilePricing
-        ? wallArea
-        : undefined,
-    panSqft: storedCombinedBasis
-      ? undefined
-      : splitTilePricing
-        ? panSqft
-        : undefined,
+    wallTileSqft: showSplitRates ? wallArea : undefined,
+    panSqft: showSplitRates ? effectivePanSqft : undefined,
     includesTub,
     includesPrefabPan,
     includesPrefabEnclosure,

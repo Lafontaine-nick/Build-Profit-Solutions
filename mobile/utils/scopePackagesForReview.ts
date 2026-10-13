@@ -349,7 +349,11 @@ export function buildConfirmScopeDisplayItems(
     /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       noteText
     );
+  // Bathroom `demo` is shower-wall tile tear-out. Floor tile tear-out is
+  // `floor_demo`. Collapsing them hides the wall card whenever the note
+  // also says "tile".
   if (
+    String(templateKey || '').toLowerCase() !== 'bathroom' &&
     noteMentionsFlooringRemoval &&
     !noteMentionsWallDemolition &&
     !noteMentionsDrywallDemolition
@@ -497,8 +501,13 @@ export function buildConfirmScopeDisplayItems(
   if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) {
     return dedupeScopeChecklistItems(expanded);
   }
-  if (String(templateKey || '').toLowerCase() === 'room_remodel') {
-    return dedupeScopeChecklistItems(expanded);
+  const confirmTemplate = String(templateKey || '').toLowerCase();
+  if (confirmTemplate === 'room_remodel' || confirmTemplate === 'kitchen') {
+    return dedupeScopeChecklistItems(
+      confirmTemplate === 'kitchen'
+        ? expanded.filter(row => row.id !== 'interior_finishes')
+        : expanded
+    );
   }
   if (expanded.some((row) => row.id === 'interior_finishes')) {
     return dedupeScopeChecklistItems(expanded);

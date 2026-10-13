@@ -218,6 +218,22 @@ describe('wetAreaExistingDemo', () => {
     ).toBeNull();
   });
 
+  test('haul-off prefab pan and surround selects both removals and both installs', () => {
+    const notes =
+      'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround, cap the drain, and leave the alcove ready. Install a new prefab shower pan, set it in mortar, and connect it to the existing drain. Install a new prefab shower surround on the walls.';
+    const existing = inferExistingWetAreaFromNotes(notes);
+    const install = inferWetAreaInstallSteppersFromIntent({ notes });
+    const demo = resolveDemoWetAreaFromIntent({ notes, existing, install });
+    expect(existing.existingPrefabPanCount).toBe(1);
+    expect(existing.existingPrefabEnclosureCount).toBe(1);
+    expect(install.prefabBathCount).toBe(1);
+    expect(install.prefabEnclosureBathCount).toBe(1);
+    expect(install.tilePanBathCount).toBeNull();
+    expect(demo.demoPrefabPanCount).toBe(1);
+    expect(demo.demoPrefabEnclosureCount).toBe(1);
+    expect(demo.demoTilePanCount).toBeNull();
+  });
+
   test('bath floor stepper selects remove bathroom floor without existing', () => {
     const demo = resolveAutoDemoWetAreaCounts({
       existing: emptyWetAreaExistingCounts(),

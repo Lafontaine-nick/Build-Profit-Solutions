@@ -44,16 +44,28 @@ function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
 }
 
+function rateLineAlreadyStatesQuantity(methodLine: string | null, quantityLine: string): boolean {
+  const phrase = quantityLine.replace(/^Quantity\s+/i, '').trim();
+  return Boolean(phrase && methodLine?.toLowerCase().startsWith(phrase.toLowerCase()));
+}
+
+function sourceNoteWarning(message: string): boolean {
+  return /^(Based on|AI-estimated)/i.test(message.trim());
+}
+
+function averageSourceChipLabel(message: string | null | undefined): string | null {
+  const text = (message || '').trim();
+  if (/^Based on national average/i.test(text)) return 'National average';
+  if (/^Based on regional average/i.test(text)) return 'Regional average';
+  return null;
+}
+
 function selectionStatusColor(
-  label: string,
+  _label: string,
   darkMode: boolean,
   Colors: ReturnType<typeof getColors>
 ) {
-  const normalized = label.trim().toLowerCase();
-  if (normalized === 'user entered' || normalized === 'user adjusted') {
-    return darkMode ? '#4ade80' : '#22c55e';
-  }
-  return captionColor(darkMode, Colors);
+  return darkMode ? '#2dcc9a' : Colors.text;
 }
 
 function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): boolean {
@@ -79,9 +91,9 @@ function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confid
   }
   if (label === PRICING_CONFIDENCE_LABEL.HIGH) {
     return {
-      border: darkMode ? 'rgba(34,197,94,0.35)' : 'rgba(22,163,74,0.28)',
-      background: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(22,163,74,0.08)',
-      text: '#22c55e',
+      border: darkMode ? 'rgba(45,204,154,0.4)' : 'rgba(22,163,74,0.28)',
+      background: darkMode ? 'rgba(45,204,154,0.12)' : 'rgba(22,163,74,0.08)',
+      text: '#2dcc9a',
     };
   }
   if (label === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID) {
@@ -92,9 +104,9 @@ function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confid
     };
   }
   return {
-    border: darkMode ? 'rgba(96,165,250,0.35)' : 'rgba(59,130,246,0.28)',
-    background: darkMode ? 'rgba(96,165,250,0.12)' : 'rgba(59,130,246,0.08)',
-    text: '#60a5fa',
+    border: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.28)',
+    background: darkMode ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.08)',
+    text: darkMode ? '#cbd5e1' : '#475569',
   };
 }
 
@@ -104,12 +116,12 @@ export function PricingSourceBadge({ label, darkMode }: { label: string; darkMod
       style={[
         styles.badge,
         {
-          borderColor: darkMode ? 'rgba(96,165,250,0.35)' : 'rgba(59,130,246,0.28)',
-          backgroundColor: darkMode ? 'rgba(96,165,250,0.12)' : 'rgba(59,130,246,0.08)',
+          borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.28)',
+          backgroundColor: darkMode ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.08)',
         },
       ]}
     >
-      <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
+      <Text style={{ color: darkMode ? '#cbd5e1' : '#475569', fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
         {label}
       </Text>
     </View>
@@ -398,6 +410,14 @@ export function AcceptedPricingSummary({
       confidence === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID
         ? confidence
         : null;
+    const averageChip = averageSourceChipLabel(display.warningMessage);
+    if (
+      averageChip &&
+      (attentionConfidence === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID ||
+        attentionConfidence === PRICING_CONFIDENCE_LABEL.PLANNING_ESTIMATE)
+    ) {
+      return { kind: 'source' as const, label: averageChip };
+    }
     if (attentionConfidence) {
       return { kind: 'confidence' as const, label: attentionConfidence };
     }
@@ -413,38 +433,68 @@ export function AcceptedPricingSummary({
     display.pricingSourceLabel,
     display.showConfidenceBadge,
     display.confidenceLabel,
+    display.warningMessage,
   ]);
+
+  const rateLineShown = display.pricingModel === 'unit_pricing' && Boolean(display.subtitleLine);
+  const splitLineShown =
+    display.pricingModel === 'material_labor_split' && Boolean(display.subtitleLine);
+  const showMethodLine =
+    Boolean(methodLine) && !(splitLineShown && /^material\s*\+\s*labor$/i.test(methodLine.trim()));
 
   const warningPreview = useMemo(() => {
     const full = (display.warningMessage || '').trim();
     if (!full) return null;
+    if (primaryBadge?.kind === 'source' && primaryBadge.label === averageSourceChipLabel(full)) {
+      return null;
+    }
+    if (
+      primaryBadge?.label === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW &&
+      secondaryAction &&
+      /^Base national average/i.test(full)
+    ) {
+      return null;
+    }
     const firstSentence = full.split(/(?<=\.)\s+/)[0] || full;
     const preview =
       firstSentence.length > 90 ? `${firstSentence.slice(0, 87).trimEnd()}…` : firstSentence;
     return { full, preview, canExpand: preview !== full };
-  }, [display.warningMessage]);
+  }, [display.warningMessage, primaryBadge, secondaryAction]);
 
   return (
     <View style={{ gap: 6 }}>
       <View style={styles.summaryTopRow}>
-        <Text style={[styles.totalText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>{display.totalLabel}</Text>
-        <Text
-          style={[
-            styles.statusText,
-            { color: selectionStatusColor(display.selectionStatusLabel, darkMode, Colors) },
-          ]}
-        >
-          {display.selectionStatusLabel}
-        </Text>
+        <Text style={[styles.totalText, { color: darkMode ? '#2dcc9a' : Colors.text }]}>{display.totalLabel}</Text>
+        <View style={styles.statusRow}>
+          <Ionicons
+            name="checkmark-circle"
+            size={15}
+            color={darkMode ? '#2dcc9a' : '#15803d'}
+          />
+          <Text
+            style={[
+              styles.statusText,
+              { color: selectionStatusColor(display.selectionStatusLabel, darkMode, Colors) },
+            ]}
+          >
+            {display.selectionStatusLabel}
+          </Text>
+        </View>
       </View>
-      <Text style={[styles.typeText, { color: captionColor(darkMode, Colors) }]}>{methodLine}</Text>
-      {quantityLine ? (
-        <Text style={[styles.quantityText, { color: captionColor(darkMode, Colors) }]}>
+      {showMethodLine ? (
+        rateLineShown ? (
+          <Text style={[styles.quantityText, { color: darkMode ? '#e2e8f0' : Colors.text }]}>{methodLine}</Text>
+        ) : (
+          <Text style={[styles.typeText, { color: captionColor(darkMode, Colors) }]}>{methodLine}</Text>
+        )
+      ) : null}
+      {quantityLine && !rateLineAlreadyStatesQuantity(methodLine, quantityLine) ? (
+        <Text style={[styles.quantityText, { color: darkMode ? '#e2e8f0' : Colors.text }]}>
           {quantityLine}
         </Text>
       ) : null}
       {display.pricingModel === 'material_labor_split' && display.subtitleLine ? (
-        <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>{display.subtitleLine}</Text>
+        <Text style={[styles.subtitleText, { color: darkMode ? '#e2e8f0' : Colors.text }]}>{display.subtitleLine}</Text>
       ) : null}
       {includedAddonSummary ? (
         <View
@@ -493,30 +543,24 @@ export function AcceptedPricingSummary({
           <Text
             style={[
               styles.warningText,
-              {
-                color: warningExpanded
-                  ? darkMode
-                    ? '#fbbf24'
-                    : '#d97706'
-                  : darkMode
-                    ? 'rgba(251,191,36,0.72)'
-                    : 'rgba(217,119,6,0.85)',
-              },
+              sourceNoteWarning(warningPreview.full)
+                ? { color: captionColor(darkMode, Colors) }
+                : {
+                    color: warningExpanded
+                      ? darkMode
+                        ? '#fbbf24'
+                        : '#d97706'
+                      : darkMode
+                        ? 'rgba(251,191,36,0.72)'
+                        : 'rgba(217,119,6,0.85)',
+                  },
             ]}
           >
             {warningExpanded ? warningPreview.full : warningPreview.preview}
           </Text>
         </TouchableOpacity>
       ) : null}
-      <View
-        style={[
-          styles.actionLinksRow,
-          (hideEditLink || !onClearPricing) &&
-            !secondaryAction &&
-            styles.actionLinksRowSingle,
-          hideEditLink && onClearPricing ? styles.actionLinksRowEnd : null,
-        ]}
-      >
+      <View style={styles.actionLinksRow}>
         {!hideEditLink ? (
           <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
             <Text style={styles.editLink}>Edit</Text>
@@ -556,8 +600,8 @@ export function AcceptedPricingSummary({
           style={[
             styles.detailsPanel,
             {
-              borderColor: darkMode ? 'rgba(96,165,250,0.22)' : 'rgba(96,165,250,0.18)',
-              backgroundColor: darkMode ? 'rgba(15,23,42,0.58)' : 'rgba(248,250,252,0.92)',
+              borderColor: darkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.2)',
+              backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(248,250,252,0.92)',
             },
           ]}
         >
@@ -618,9 +662,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.4,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+    marginTop: 6,
+  },
   statusText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     flexShrink: 1,
     textAlign: 'right',
   },
@@ -668,24 +719,19 @@ const styles = StyleSheet.create({
   },
   actionLinksRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 2,
-  },
-  actionLinksRowSingle: {
-    justifyContent: 'flex-start',
-  },
-  actionLinksRowEnd: {
-    justifyContent: 'flex-end',
+    columnGap: 20,
+    rowGap: 6,
+    marginTop: 4,
   },
   editLink: {
-    color: '#22c55e',
+    color: '#2dcc9a',
     fontSize: 12,
     fontWeight: '700',
   },
   changePricingLink: {
-    color: '#fbbf24',
+    color: '#2dcc9a',
     fontSize: 12,
     fontWeight: '700',
   },

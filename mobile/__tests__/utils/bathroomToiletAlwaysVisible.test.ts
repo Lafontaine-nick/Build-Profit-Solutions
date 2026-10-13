@@ -59,6 +59,54 @@ describe('bathroom toilet always visible on Confirm Scope', () => {
     expect(hydrated.some((row) => row.id === 'toilet')).toBe(true);
   });
 
+  test('selects Yes for a bath fan and vanity lighting the note asks to install', () => {
+    const notes =
+      'Replace the exhaust fan with a new bath fan and run the duct to the existing roof cap. Install new vanity lighting over the mirror, two fixtures. The tub, shower, floor tile, and vanity cabinet all stay. Do not demo any tile, do not replace the toilet, and do not paint the walls.';
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [
+        {
+          id: 'lighting',
+          label: 'New lighting fixtures & install',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        {
+          id: 'exhaust_fan',
+          label: 'Exhaust fan / ventilation',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        {
+          id: 'vanity',
+          label: 'Vanity',
+          inputType: 'choice',
+          state: 'unsure',
+        },
+        {
+          id: 'floor_tile',
+          label: 'Bath floor tile',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+      ],
+      'bathroom',
+      notes,
+      { itemQuantities: {} }
+    );
+    expect(hydrated.find(row => row.id === 'lighting')?.state).toBe(
+      'included'
+    );
+    expect(hydrated.find(row => row.id === 'exhaust_fan')?.state).toBe(
+      'included'
+    );
+    expect(hydrated.find(row => row.id === 'vanity')?.state).not.toBe(
+      'included'
+    );
+    expect(hydrated.find(row => row.id === 'floor_tile')?.state).not.toBe(
+      'included'
+    );
+  });
+
   test('rehydrates explicit tile and fixture rows from notes', () => {
     const hydrated = hydrateScopeChecklistFromNotes(
       [],

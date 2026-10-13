@@ -3,11 +3,15 @@ import {
   parseScopeMeasurementsFromNotes,
   parseStuccoMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
+import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
+import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
 import {
   initialScopeMeasurementInputExtended,
   normalizeScopeMeasurements,
   prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
+  resolveDualRatePricingDisplayFromNotes,
+  resolveScopeItemSuggestedPricing,
   resolveSuggestedBudgetSplitDisplay,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
@@ -1679,5 +1683,174 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.storyCount).toBe(2);
     expect(parsed.garageDoorDoubleCount).toBe(1);
     expect(parsed.garageDoorSingleCount).toBeUndefined();
+  });
+
+  it('puts explicit kitchen LVP sqft on the kitchen floor field', () => {
+    const notes =
+      'Kitchen remodel. Demo existing cabinets, countertops, backsplash, and vinyl floor. Install 22 LF new cabinets, quartz counters 48 sqft, tile backsplash 32 sqft, and LVP flooring 160 sqft. Baseboards 40 LF. Include sink and dishwasher hookup. No prices yet.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(22);
+    expect(parsed.countertopSqft).toBe(48);
+    expect(parsed.backsplashSqft).toBe(32);
+    expect(parsed.baseboardLf).toBe(40);
+    expect(parsed.kitchenFloorSqft).toBe(160);
+    expect(parsed.flooringSqft).toBe(160);
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: { flooringSqft: 160 },
+    });
+    expect(input.kitchenFloorSqft).toBe('160');
+    expect(input.flooringSqft).toBe('160');
+
+    const prepared = prepareScopeMeasurementsInputForUi(
+      { ...input, kitchenFloorSqft: '', flooringSqft: '160' },
+      { notes, templateKey: 'kitchen', projectType: 'kitchen' }
+    );
+    expect(prepared.kitchenFloorSqft).toBe('160');
+  });
+
+  it('puts LVP sqft on the kitchen floor field when the note never says kitchen', () => {
+    const notes =
+      'install 24 LF cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400, backsplash 42 sqft material $8 per sqft and labor $14 per sqft. New LVP flooring 180 sqft material $4.25 per sqft and labor $3.75 per sqft. Baseboard 48 LF at $7 per LF.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(24);
+    expect(parsed.countertopSqft).toBe(55);
+    expect(parsed.backsplashSqft).toBe(42);
+    expect(parsed.baseboardLf).toBe(48);
+    expect(parsed.kitchenFloorSqft).toBe(180);
+    expect(parsed.flooringSqft).toBe(180);
+  });
+
+  it('keeps the cabinet lump separate from the counter allowance and prices baseboard from the note rate', () => {
+    const notes =
+      'install 24 LF cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400, backsplash 42 sqft material $8 per sqft and labor $14 per sqft. New LVP flooring 180 sqft material $4.25 per sqft and labor $3.75 per sqft. Baseboard 48 LF at $7 per LF.';
+    const allowances = parseScopeItemAllowancesFromNotes(notes, {
+      templateKey: 'kitchen',
+    });
+    expect(allowances.cabinets?.quantity).toBe(12000);
+    expect(allowances.cabinets?.includesCountertops).toBeUndefined();
+    expect(allowances.countertops?.quantity).toBe(4400);
+
+    const measurements = normalizeScopeMeasurements({
+      cabinetLf: 24,
+      countertopSqft: 55,
+      backsplashSqft: 42,
+      kitchenFloorSqft: 180,
+      baseboardLf: 48,
+      itemQuantities: {
+        trim: { quantity: 40, unit: 'lf', quantitySource: 'notes' },
+        cabinets: {
+          quantity: 12000,
+          unit: 'allowance',
+          quantitySource: 'notes',
+          includesCountertops: true,
+        },
+      },
+    });
+    const trim = resolveChecklistItemQuantity('trim', measurements, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    expect(trim.quantity).toBe(48);
+    expect(trim.combinedAllowanceRole).toBeUndefined();
+
+    const cabinets = resolveChecklistItemQuantity('cabinets', measurements, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    expect(cabinets.quantity).toBe(12000);
+    expect(cabinets.combinedAllowanceRole).toBeUndefined();
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: measurements,
+    });
+    const counterPrice = resolveScopeItemSuggestedPricing(
+      'countertops',
+      input,
+      'kitchen',
+      { quantity: 55, unit: 'sqft', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(counterPrice.fill?.total).toBe(4400);
+    const trimPrice = resolveScopeItemSuggestedPricing(
+      'trim',
+      { ...input, baseboardLf: '48' },
+      'kitchen',
+      { quantity: 40, unit: 'lf', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(trimPrice.fill?.total).toBe(336);
+    expect(trimPrice.fill?.basis).toEqual({ quantity: 48, unit: 'lf' });
+  });
+
+  it('keeps kitchen note-rate cards on Apply until the contractor applies them', () => {
+    const notes =
+      'install 24 LF cabinets lump sum $12,000, quartz counters 55 sqft allowance $4,400, backsplash 42 sqft material $8 per sqft and labor $14 per sqft. New LVP flooring 180 sqft material $4.25 per sqft and labor $3.75 per sqft. Baseboard 48 LF at $7 per LF.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: parsed,
+    });
+    const quantities = input.itemQuantities || {};
+    for (const itemId of [
+      'backsplash',
+      'flooring',
+      'cabinets',
+      'countertops',
+      'trim',
+    ]) {
+      expect(
+        hasAcceptedScopePricing(itemId, quantities, input.pricingAcceptance)
+      ).toBe(false);
+    }
+
+    const backsplash = resolveChecklistItemQuantity('backsplash', input, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    expect(Number(backsplash.quantity)).toBe(42);
+    const fromNotes = resolveDualRatePricingDisplayFromNotes(
+      'backsplash',
+      input,
+      notes,
+      'kitchen'
+    );
+    expect(fromNotes?.dualMaterial?.quantity).toBe(336);
+    expect(fromNotes?.dualLabor?.quantity).toBe(588);
+    expect(
+      Number(fromNotes?.dualMaterial?.quantity || 0) +
+        Number(fromNotes?.dualLabor?.quantity || 0)
+    ).toBe(924);
+    const suggestion = resolveScopeItemSuggestedPricing(
+      'backsplash',
+      input,
+      'kitchen',
+      { ...backsplash, ...fromNotes },
+      null,
+      null,
+      notes
+    );
+    expect(suggestion.fill).toBeNull();
   });
 });

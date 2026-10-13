@@ -7,8 +7,11 @@ import {
   formatAppliedDisplayMoney,
   formatFallbackBasisLine,
   formatQuantityProvenanceLine,
+  formatSuggestedCardRateLine,
+  formatSuggestedCardSplitLine,
   formatSuggestedComponentMoney,
   formatSuggestedDisplayMoney,
+  suggestedCardSourceChip,
   formatSuggestedSplitLine,
   formatSuggestedUnitRateLine,
   isLivingAreaFallbackPricing,
@@ -632,5 +635,58 @@ describe('isConfirmScopePlanningBenchmarkRow', () => {
         })
       )
     ).toBe(true);
+  });
+});
+
+describe('suggested card lines', () => {
+  it('states quantity × rate with whole dollars and singular rate units', () => {
+    expect(
+      formatSuggestedCardRateLine(block({ total: 336, basis: { quantity: 48, unit: 'lf' } }))
+    ).toBe('48 LF × $7/LF');
+    expect(
+      formatSuggestedCardRateLine(block({ total: 1000, basis: { quantity: 1, unit: 'each' } }))
+    ).toBe('1 each × $1,000/each');
+    expect(
+      formatSuggestedCardRateLine(block({ total: 4400, lumpSumOnly: true, basis: { quantity: 55, unit: 'sqft' } }))
+    ).toBe('55 sqft × $80/sqft');
+    expect(
+      formatSuggestedCardRateLine(block({ total: 14375, basis: { quantity: 25, unit: 'squares' } }))
+    ).toBe('25 squares × $575/square');
+    expect(
+      formatSuggestedCardRateLine(block({ total: 1200, basis: { quantity: 1, unit: 'allowance' } }))
+    ).toBeNull();
+  });
+
+  it('uses generic Material / Labor names instead of long bucket labels', () => {
+    expect(
+      formatSuggestedCardSplitLine(
+        block({
+          costBuckets: [
+            { key: 'material', label: 'Prefab shower pan / base materials', amount: 400, source: 'national_average' },
+            { key: 'labor', label: 'Prefab shower pan install labor', amount: 600, source: 'national_average' },
+          ],
+        })
+      )
+    ).toBe('Material $400 · Labor $600');
+    expect(
+      formatSuggestedCardSplitLine(
+        block({
+          costBuckets: [
+            { key: 'labor', label: 'Countertop demo & haul labor', amount: 175, source: 'national_average' },
+          ],
+        })
+      )
+    ).toBe('Labor $175');
+    expect(formatSuggestedCardSplitLine(block({ lumpSumOnly: true }))).toBeNull();
+  });
+
+  it('shows one slate source chip and gold only for a real check', () => {
+    const ready = { isFallbackPricing: false, pricingStatus: 'ready' as const, pricingSource: '', title: 'Suggested pricing' };
+    expect(suggestedCardSourceChip(block(), ready)).toEqual({ label: 'National average', tone: 'slate' });
+    expect(suggestedCardSourceChip(block({ lumpSumOnly: true }), ready)).toEqual({ label: 'Allowance', tone: 'slate' });
+    expect(suggestedCardSourceChip(block({ mode: 'note_total_split' }), ready)).toEqual({ label: 'From notes', tone: 'slate' });
+    expect(
+      suggestedCardSourceChip(block(), { ...ready, isFallbackPricing: true, pricingStatus: 'planning' })
+    ).toEqual({ label: 'Needs measurement', tone: 'gold' });
   });
 });

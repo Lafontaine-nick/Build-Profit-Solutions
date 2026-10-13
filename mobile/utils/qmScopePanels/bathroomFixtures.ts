@@ -255,6 +255,27 @@ export function expandBathroomFixtureScopeDisplayItems(
     if (idx >= 0) next[idx] = row;
     else next.push(row);
   }
+  if (positiveCount(measurements.bathroomInstallToiletCount) != null) {
+    const idx = next.findIndex((r) => r.id === 'toilet');
+    if (idx >= 0 && (!next[idx].choiceId || next[idx].choiceId === 'unsure')) {
+      next[idx] = { ...next[idx], state: 'included', choiceId: 'replacing' };
+    }
+  }
+  if (positiveCount(measurements.bathroomInstallFaucetCount) != null) {
+    const idx = next.findIndex((r) => r.id === 'sink_faucet');
+    const row: ScopeChecklistItem = {
+      ...(idx >= 0 ? next[idx] : {
+        id: 'sink_faucet',
+        label: 'Faucet',
+        helperText: 'Supply and install the new faucet on the existing supply and drain.',
+        inputType: 'yes_no',
+        category: 'fixtures',
+      }),
+      state: 'included',
+    };
+    if (idx >= 0) next[idx] = row;
+    else next.push(row);
+  }
   return next;
 }
 
@@ -315,7 +336,10 @@ function notesMentionExistingVanity(n: string): boolean {
 }
 
 function notesMentionExistingCounter(n: string): boolean {
-  return /\b(existing|current|old)\s+(?:vanity\s+)?(?:countertops?|counters?|top)\b/.test(n);
+  return (
+    /\b(existing|current|old)\s+(?:vanity\s+)?(?:countertops?|counters?|top)\b/.test(n) ||
+    /\b(?:demo|remove|haul(?:ed)?[\s-]?off|tear[\s-]?out)\b[^.]{0,90}\bvanity\s+top\b/.test(n)
+  );
 }
 
 function notesMentionDemoVanity(n: string): boolean {
@@ -328,13 +352,39 @@ function notesMentionDemoVanity(n: string): boolean {
 
 function notesMentionDemoCountertop(n: string): boolean {
   return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b/.test(
+    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,90}\b(countertops?|counters?|vanity\s+top)\b/.test(
       n
     ) ||
-    /\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+    /\b(countertops?|counters?|vanity\s+top)\b[^.]{0,50}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
       n
     )
   );
+}
+
+export type BathroomToiletFaucetCounts = {
+  bathroomDemoToiletCount: number | null;
+  bathroomInstallToiletCount: number | null;
+  bathroomInstallFaucetCount: number | null;
+};
+
+/** Remove / new toilet and a new faucet, only when the note names them. */
+export function inferBathroomToiletFaucetCounts(
+  notes: string | null | undefined
+): BathroomToiletFaucetCounts {
+  const n = bathroomAffirmativeNotes(notes).toLowerCase();
+  const removesToilet =
+    /\b(?:remove|demo|demolition|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,40}\btoilet\b/.test(
+      n
+    ) || /\btoilet\b[^.]{0,30}\b(?:remove|demo|coming out)\b/.test(n);
+  const installsToilet =
+    /\b(?:new|install|replace)\b[^.]{0,40}\btoilet\b/.test(n) ||
+    /\bnew\s+toilet\b/.test(n);
+  const faucet = /\bfaucet\b/.test(n);
+  return {
+    bathroomDemoToiletCount: removesToilet ? 1 : null,
+    bathroomInstallToiletCount: installsToilet ? 1 : null,
+    bathroomInstallFaucetCount: faucet ? 1 : null,
+  };
 }
 
 export function inferExistingBathroomFixturesFromNotes(
@@ -362,7 +412,9 @@ export function inferBathroomFixtureInstallFromIntent(params: {
     bathroomInstallCounterCount: null,
   };
   const vanityRow = items.find((r) => r.id === 'vanity');
-  const noteNamesVanity = /\bvanit(?:y|ies)\b/.test(n);
+  const noteNamesVanity = /\bvanit(?:y|ies)\b/.test(
+    n.replace(/\bvanity\s+(?:lights?|lighting)\b/g, ' ')
+  );
   const vanityReplacing =
     noteNamesVanity &&
     ((vanityRow?.state === 'included' && vanityRow.choiceId === 'replacing') ||
@@ -558,18 +610,17 @@ function hydrateBathroomFixtures(ctx: QmPanelHydrateContext): Record<string, unk
   const saved = ctx.measurements;
   const hasSavedInstall = INSTALL_KEYS.some((k) => positiveCount(saved[k]));
   const hasSavedDemo = DEMO_KEYS.some((k) => positiveCount(saved[k]));
-  const hasSavedExisting = EXISTING_KEYS.some((k) => positiveCount(saved[k]));
 
-  let existing = readBathroomExistingFixtureCounts(saved);
-  if (ctx.hasSitePhotos) {
-    existing = {
-      ...emptyBathroomExistingFixtureCounts(),
-      ...inferExistingBathroomFixturesFromNotes(ctx.notes),
-      ...readBathroomExistingFixtureCounts(saved),
-    };
-  } else if (!hasSavedExisting) {
-    existing = emptyBathroomExistingFixtureCounts();
-  }
+  const inferredExisting = inferExistingBathroomFixturesFromNotes(ctx.notes);
+  const savedExisting = readBathroomExistingFixtureCounts(saved);
+  const existing: BathroomExistingFixtureCounts = {
+    bathroomExistingVanityCount:
+      savedExisting.bathroomExistingVanityCount ??
+      inferredExisting.bathroomExistingVanityCount,
+    bathroomExistingCounterCount:
+      savedExisting.    bathroomExistingCounterCount ??
+      inferredExisting.bathroomExistingCounterCount,
+  };
 
   const vanityDemo = ctx.checklistItems.find((r) => r.id === 'vanity_demo');
   const countertopDemo = ctx.checklistItems.find((r) => r.id === 'countertop_demo');
@@ -581,16 +632,23 @@ function hydrateBathroomFixtures(ctx: QmPanelHydrateContext): Record<string, unk
         checklistItems: ctx.checklistItems,
       });
 
-  const demo = hasSavedDemo
-    ? readBathroomDemoFixtureCounts(saved)
-    : resolveBathroomFixtureDemoFromIntent({
-        notes: ctx.notes,
-        existing,
-        install,
-        checklistItems: ctx.checklistItems,
-        vanityDemoIncluded: vanityDemo?.state === 'included',
-        countertopDemoIncluded: countertopDemo?.state === 'included',
-      });
+  const inferredDemo = resolveBathroomFixtureDemoFromIntent({
+    notes: ctx.notes,
+    existing,
+    install,
+    checklistItems: ctx.checklistItems,
+    vanityDemoIncluded: vanityDemo?.state === 'included',
+    countertopDemoIncluded: countertopDemo?.state === 'included',
+  });
+  const savedDemo = readBathroomDemoFixtureCounts(saved);
+  const demo: BathroomDemoFixtureCounts = hasSavedDemo
+    ? {
+        bathroomDemoVanityCount:
+          savedDemo.bathroomDemoVanityCount ?? inferredDemo.bathroomDemoVanityCount,
+        bathroomDemoCounterCount:
+          savedDemo.bathroomDemoCounterCount ?? inferredDemo.bathroomDemoCounterCount,
+      }
+    : inferredDemo;
 
   const patch: Record<string, unknown> = { ...existing, ...install, ...demo };
   const savedSqft = String(saved.countertopSqft ?? '').trim();
@@ -614,7 +672,22 @@ function hydrateBathroomFixtures(ctx: QmPanelHydrateContext): Record<string, unk
     if (inferredMaterial) patch.bathroomVanityCountertopMaterialType = inferredMaterial;
   }
 
-  return mergeFixtureCounts(saved, patch);
+  const merged = mergeFixtureCounts(saved, patch);
+  if (patch.countertopSqft) merged.countertopSqft = patch.countertopSqft;
+  if (patch.bathroomVanityCountertopMaterialType) {
+    merged.bathroomVanityCountertopMaterialType = patch.bathroomVanityCountertopMaterialType;
+  }
+  const toiletFaucet = inferBathroomToiletFaucetCounts(ctx.notes);
+  if (saved.bathroomDemoToiletCount == null && toiletFaucet.bathroomDemoToiletCount != null) {
+    merged.bathroomDemoToiletCount = toiletFaucet.bathroomDemoToiletCount;
+  }
+  if (saved.bathroomInstallToiletCount == null && toiletFaucet.bathroomInstallToiletCount != null) {
+    merged.bathroomInstallToiletCount = toiletFaucet.bathroomInstallToiletCount;
+  }
+  if (saved.bathroomInstallFaucetCount == null && toiletFaucet.bathroomInstallFaucetCount != null) {
+    merged.bathroomInstallFaucetCount = toiletFaucet.bathroomInstallFaucetCount;
+  }
+  return merged;
 }
 
 export const bathroomFixturesQmPanel: QmPanelDefinition = {

@@ -256,8 +256,12 @@ import {
 import {
   bathroomAffirmativeNotes,
   bathroomMeasurementNotes,
+  bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
+  notesKeepExistingWetArea,
+  shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
+import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
 import { withPlanScopeRecordMeasurements } from '@/utils/planScopeRecords';
 import {
   existingShellConversionElectricalBreakdown,
@@ -698,6 +702,9 @@ import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonab
 import {
   buildSuggestedPricingCardDisplay,
   compactSuggestedActionLabel,
+  formatSuggestedCardRateLine,
+  formatSuggestedCardSplitLine,
+  suggestedCardSourceChip,
   confirmScopeSuggestedCardShowsQuantityLine,
   displayPriceSourceLabel,
   includeUnconfirmedSuggestedPricingFill,
@@ -1452,15 +1459,30 @@ function ScopeIntelligenceNotice({
       intelligence.quantity.source === 'benchmark_estimate' ||
       Boolean(formula));
   // Measurement-needed essays duplicate the pricing card’s single amber status.
+  // Source and allowance notes duplicate the pricing card’s source chip.
   const otherNoticeRaw =
     pricingCardOwnsStatus &&
     (intelligence.validation.status === 'measurement_needed' ||
-      /^Measurement needed/i.test(cardDisplay.otherNotice || ''))
+      /^Measurement needed/i.test(cardDisplay.otherNotice || '') ||
+      /national average|budget placeholder/i.test(cardDisplay.otherNotice || ''))
       ? null
       : cardDisplay.otherNotice;
+
+  // Suggested-price cards own "Base national average / planning estimate" status — avoid duplicate vague copy.
+  const warningFullRaw = (cardDisplay.conciseBenchmarkWarning || '').trim();
+  const warningFull =
+    (compact && /^Base national average/i.test(warningFullRaw)) ||
+    (pricingCardOwnsStatus &&
+      /^This price source does not define/i.test(warningFullRaw))
+      ? ''
+      : warningFullRaw;
+  const hasWarningContent = pricingCardOwnsStatus
+    ? Boolean(warningFull)
+    : Boolean(cardDisplay.conciseBenchmarkWarning);
+
   if (compact) {
     if (
-      !cardDisplay.conciseBenchmarkWarning &&
+      !hasWarningContent &&
       !cardDisplay.duplicatePricingMessage &&
       !otherNoticeRaw &&
       !showFormulaDetails &&
@@ -1469,7 +1491,7 @@ function ScopeIntelligenceNotice({
       return null;
     }
   } else if (
-    !cardDisplay.conciseBenchmarkWarning &&
+    !hasWarningContent &&
     !cardDisplay.duplicatePricingMessage &&
     !otherNoticeRaw &&
     !showQuantity &&
@@ -1488,12 +1510,6 @@ function ScopeIntelligenceNotice({
           ? '#f59e0b'
           : '#60a5fa';
 
-  // Suggested-price cards own "Base national average / planning estimate" status — avoid duplicate vague copy.
-  const warningFullRaw = (cardDisplay.conciseBenchmarkWarning || '').trim();
-  const warningFull =
-    compact && /^Base national average/i.test(warningFullRaw)
-      ? ''
-      : warningFullRaw;
   const warningFirstSentence =
     warningFull.split(/(?<=\.)\s+/)[0] || warningFull;
   const warningPreview =
@@ -2069,11 +2085,15 @@ function SuggestedBudgetSplitRows({
   hasCurrentPricing = false,
   forceCompact = false,
   applyPending = false,
+  forceStandardCard = false,
+  onEdit,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUsePricing?: () => void;
+  /** Renders Edit beside Apply on the same row. */
+  onEdit?: () => void;
   adjusted?: boolean;
   itemId?: string;
   quantitySource?: string | null;
@@ -2086,6 +2106,8 @@ function SuggestedBudgetSplitRows({
   forceCompact?: boolean;
   /** Apply is in flight — keep suggested amounts visible until acceptance commits. */
   applyPending?: boolean;
+  /** Use the standard suggested-price card instead of the flooring line layout. */
+  forceStandardCard?: boolean;
 }) {
   const usesBenchmark =
     block.materialSource === 'local_benchmark' ||
@@ -2098,7 +2120,8 @@ function SuggestedBudgetSplitRows({
   const text = pricingTextColor(darkMode, Colors);
   const statusAmber = '#fbbf24';
   const divider = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.1)';
-  const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
+  const isFlooringLineCard =
+    !forceStandardCard && isFlooringConfirmScopePricingCard(itemId);
   const flooringTransitionLines = isFlooringLineCard
     ? String(block.pricingDetail || '')
         .split('\n')
@@ -2161,6 +2184,7 @@ function SuggestedBudgetSplitRows({
     adjusted,
     hasCurrentPricing,
     forceCompact,
+    forceStandardCard,
   });
 
   const rateLabel = String(block.rateSourceLabel || '');
@@ -2268,65 +2292,44 @@ function SuggestedBudgetSplitRows({
   );
   const insulationAssemblyRows = display.assemblyDetailLines ?? [];
 
-  return (
-    <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
-      {isFlooringLineCard ? (
-        <Text
-          style={{
-            color: caption,
-            fontSize: 12,
-            fontWeight: '600',
-            marginBottom: 8,
-          }}
-          numberOfLines={1}
-        >
-          {display.quantityLine || headerTitle}
-        </Text>
-      ) : (
-        <>
-          {display.quantityLine &&
-          !isInsulationAssemblyCard &&
-          !isHvacPackageLineCard ? (
-            <Text
-              style={{
-                color: caption,
-                fontSize: 12,
-                fontWeight: '600',
-                marginBottom: 8,
-              }}
-            >
-              {display.quantityLine}
-            </Text>
-          ) : null}
+  const keepsDescriptiveHeader =
+    Boolean(block.isComparison) ||
+    (semantics && usesBenchmark && block.benchmarkLevel === 'stage');
+  const cardLabel = keepsDescriptiveHeader
+    ? headerTitle
+    : /^Adjusted/i.test(display.title)
+      ? 'Adjusted'
+      : 'Suggested';
+  const rateLine = isInsulationAssemblyCard
+    ? null
+    : formatSuggestedCardRateLine(block) ?? display.quantityLine;
+  const splitLine = block.needsServiceAmperage
+    ? display.splitLine
+    : formatSuggestedCardSplitLine(block);
+  const sourceChip = suggestedCardSourceChip(block, display);
+  const bright = darkMode ? '#e2e8f0' : Colors.text;
+  const showApply = canWritePrice && Boolean(actionLabel);
 
-          <Text
-            style={[styles.budgetSplitHeaderTitle, { color: caption }]}
-            numberOfLines={2}
-            ellipsizeMode='tail'
-          >
-            {headerTitle}
-          </Text>
-        </>
-      )}
+  return (
+    <View style={styles.suggestedCardPanel}>
+      <Text
+        style={[styles.budgetSplitHeaderTitle, { color: caption }]}
+        numberOfLines={2}
+        ellipsizeMode='tail'
+      >
+        {cardLabel}
+      </Text>
 
       <Text
-        style={[CONFIRM_SCOPE_PRICE_TEXT, { color: text, marginTop: 6 }]}
+        style={[CONFIRM_SCOPE_PRICE_TEXT, { color: text, marginTop: 4 }]}
         accessibilityLabel={`Suggested total ${displayTotal}`}
       >
         {displayTotal}
       </Text>
 
-      {isHvacPackageLineCard && display.quantityLine ? (
-        <Text
-          style={{
-            color: caption,
-            fontSize: 13,
-            fontWeight: '600',
-            marginTop: 6,
-            lineHeight: 18,
-          }}
-        >
-          {display.quantityLine}
+      {rateLine ? (
+        <Text style={[styles.suggestedCardRateText, { color: bright }]}>
+          {rateLine}
         </Text>
       ) : null}
 
@@ -2358,18 +2361,51 @@ function SuggestedBudgetSplitRows({
           Colors={Colors}
           dividerColor={divider}
         />
-      ) : display.splitLine ? (
-        <Text
-          style={{
-            color: caption,
-            fontSize: 13,
-            fontWeight: '500',
-            marginTop: 6,
-            lineHeight: 18,
-          }}
-        >
-          {display.splitLine}
+      ) : splitLine ? (
+        <Text style={[styles.suggestedCardSplitText, { color: bright }]}>
+          {splitLine}
         </Text>
+      ) : null}
+
+      {sourceChip ? (
+        <View
+          style={[
+            styles.suggestedCardChip,
+            sourceChip.tone === 'gold'
+              ? {
+                  borderColor: darkMode
+                    ? 'rgba(251,191,36,0.35)'
+                    : 'rgba(245,158,11,0.28)',
+                  backgroundColor: darkMode
+                    ? 'rgba(251,191,36,0.1)'
+                    : 'rgba(245,158,11,0.08)',
+                }
+              : {
+                  borderColor: darkMode
+                    ? 'rgba(148,163,184,0.28)'
+                    : 'rgba(100,116,139,0.28)',
+                  backgroundColor: darkMode
+                    ? 'rgba(148,163,184,0.1)'
+                    : 'rgba(100,116,139,0.08)',
+                },
+          ]}
+        >
+          <Text
+            style={[
+              styles.suggestedCardChipText,
+              {
+                color:
+                  sourceChip.tone === 'gold'
+                    ? '#fbbf24'
+                    : darkMode
+                      ? '#cbd5e1'
+                      : '#475569',
+              },
+            ]}
+          >
+            {sourceChip.label}
+          </Text>
+        </View>
       ) : null}
 
       {showDetailedPricingDetails &&
@@ -2534,21 +2570,59 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {canWritePrice && actionLabel ? (
-        <SuggestedPricingApplyButton
-          label={actionLabel}
-          onPress={onUsePricing}
-          style={
-            isNationalComparison
-              ? styles.useComparisonPricingBtn
-              : styles.useSuggestedPricingBtn
-          }
-          textStyle={
-            isNationalComparison
-              ? styles.useComparisonPricingBtnText
-              : styles.useSuggestedPricingBtnText
-          }
-        />
+      {showApply || onEdit ? (
+        <View style={styles.suggestedCardActionRow}>
+          {showApply ? (
+            <View style={styles.suggestedCardApplySlot}>
+              <SuggestedPricingApplyButton
+                label={actionLabel!}
+                onPress={onUsePricing}
+                style={[
+                  isNationalComparison
+                    ? styles.useComparisonPricingBtn
+                    : styles.useSuggestedPricingBtn,
+                  { marginTop: 0 },
+                ]}
+                textStyle={
+                  isNationalComparison
+                    ? styles.useComparisonPricingBtnText
+                    : styles.useSuggestedPricingBtnText
+                }
+              />
+            </View>
+          ) : null}
+          {onEdit ? (
+            <TouchableOpacity
+              onPress={onEdit}
+              activeOpacity={0.75}
+              accessibilityRole='button'
+              accessibilityLabel='Edit pricing'
+              style={[
+                styles.suggestedCardEditBtn,
+                {
+                  borderColor: darkMode
+                    ? 'rgba(148,163,184,0.35)'
+                    : Colors.line,
+                  backgroundColor: darkMode ? '#3A3A3C' : Colors.surface2,
+                },
+              ]}
+            >
+              <Ionicons
+                name='create-outline'
+                size={15}
+                color={darkMode ? 'rgba(255,255,255,0.88)' : Colors.text}
+              />
+              <Text
+                style={[
+                  styles.suggestedCardEditText,
+                  { color: darkMode ? 'rgba(255,255,255,0.88)' : Colors.text },
+                ]}
+              >
+                Edit
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -6413,6 +6487,18 @@ function QuantitySection({
               productionStatus: 'review_required',
             }
           : null;
+      const hideNoteRateRows =
+        (itemId === 'shower_tile' && Boolean(suggestedBudgetSplit)) ||
+        (String(templateKey || '').toLowerCase() === 'kitchen' &&
+          [
+            'flooring',
+            'backsplash',
+            'trim',
+            'baseboard_install',
+            'countertops',
+            'cabinets',
+          ].includes(itemId) &&
+          Boolean(displayedPriceApplyBlock));
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -6609,7 +6695,8 @@ function QuantitySection({
           ) : (
             <>
               {displayResolved.dualCount &&
-              displayResolved.dualCount.quantity > 0 ? (
+              displayResolved.dualCount.quantity > 0 &&
+              !hideNoteRateRows ? (
                 <PricingAmountRow
                   value={formatDualCountQuantity(
                     displayResolved.dualCount.quantity,
@@ -6676,7 +6763,8 @@ function QuantitySection({
               ) : null}
               {noteVarianceNotice}
               {displayResolved.dualMaterial &&
-              displayResolved.dualMaterial.quantity > 0 ? (
+              displayResolved.dualMaterial.quantity > 0 &&
+              !hideNoteRateRows ? (
                 <PricingSplitRow
                   label='Material'
                   value={formatDraftMoney(
@@ -6691,7 +6779,8 @@ function QuantitySection({
                 />
               ) : null}
               {displayResolved.dualLabor &&
-              displayResolved.dualLabor.quantity > 0 ? (
+              displayResolved.dualLabor.quantity > 0 &&
+              !hideNoteRateRows ? (
                 <PricingSplitRow
                   label='Labor'
                   value={formatDraftMoney(displayResolved.dualLabor.quantity)}
@@ -6704,7 +6793,8 @@ function QuantitySection({
                 />
               ) : null}
               {displayResolved.dualAllowance &&
-              displayResolved.dualAllowance.quantity > 0 ? (
+              displayResolved.dualAllowance.quantity > 0 &&
+              !hideNoteRateRows ? (
                 <PricingSplitRow
                   label={
                     displayResolved.dualMaterial || displayResolved.dualLabor
@@ -6726,7 +6816,8 @@ function QuantitySection({
                 />
               ) : null}
               {displayResolved.quantitySource === 'notes' &&
-              (displayResolved.dualMaterial || displayResolved.dualLabor) ? (
+              (displayResolved.dualMaterial || displayResolved.dualLabor) &&
+              !hideNoteRateRows ? (
                 <View
                   style={[styles.pricingRowGap, { alignItems: 'flex-end' }]}
                 >
@@ -6739,7 +6830,8 @@ function QuantitySection({
                 darkMode={darkMode}
                 compact
                 pricingCardOwnsStatus={
-                  !hideSuggestion && Boolean(suggestedBudgetSplit)
+                  !hideSuggestion &&
+                  (Boolean(suggestedBudgetSplit) || hideNoteRateRows)
                 }
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
                 onRevertCalculatedQuantity={onRevertCalculated}
@@ -6770,6 +6862,40 @@ function QuantitySection({
                     ) || null
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  onEdit={
+                    !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
+                    !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
+                      ? () =>
+                          itemId === 'electrical'
+                            ? setPricingEditorOpen(true)
+                            : openPricingEditor()
+                      : undefined
+                  }
+                />
+              ) : displayedPriceApplyBlock && hideNoteRateRows ? (
+                <SuggestedBudgetSplitRows
+                  block={displayedPriceApplyBlock}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() =>
+                    applySuggestedPricingBlock(displayedPriceApplyBlock)
+                  }
+                  applyPending={pricingApplyPending}
+                  itemId={itemId}
+                  quantitySource={displayResolved.quantitySource}
+                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(
+                    displayResolved
+                  )}
+                  livingSf={
+                    Number(
+                      String(measurementsInput.floorAreaSqft || '').replace(
+                        /,/g,
+                        ''
+                      )
+                    ) || null
+                  }
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  forceStandardCard
                 />
               ) : displayedPriceApplyBlock ? (
                 <SuggestedPricingApplyButton
@@ -6824,7 +6950,8 @@ function QuantitySection({
                     true
                   )}
                 />
-              ) : scopePricingEditAction(suggestedBudgetSplit, () =>
+              ) : !(!hideSuggestion && suggestedBudgetSplit) &&
+                scopePricingEditAction(suggestedBudgetSplit, () =>
                   itemId === 'electrical'
                     ? setPricingEditorOpen(true)
                     : openPricingEditor()
@@ -7049,6 +7176,7 @@ function QuantitySection({
               Colors={Colors}
               darkMode={darkMode}
               compact
+              pricingCardOwnsStatus={!hidePlanningSuggestion && Boolean(planningFill)}
             />
           )}
           {!hidePlanningSuggestion && planningFill ? (
@@ -7070,6 +7198,11 @@ function QuantitySection({
                 ) || null
               }
               confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
+              onEdit={
+                !planningComparison && !shouldSuppressScopePricingEdit(planningFill)
+                  ? () => setPricingEditorOpen(true)
+                  : undefined
+              }
             />
           ) : null}
           {planningComparison ? (
@@ -7096,7 +7229,8 @@ function QuantitySection({
                 true
               )}
             />
-          ) : scopePricingEditAction(planningFill, () =>
+          ) : !(!hidePlanningSuggestion && planningFill) &&
+            scopePricingEditAction(planningFill, () =>
               setPricingEditorOpen(true)
             ) ? (
             <ScopePricingSecondaryActions
@@ -8212,6 +8346,15 @@ function QuantitySection({
                     ) || null
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  onEdit={
+                    !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
+                    !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
+                      ? () =>
+                          itemId === 'electrical'
+                            ? setPricingEditorOpen(true)
+                            : openPricingEditor()
+                      : undefined
+                  }
                 />
               ) : null}
               {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
@@ -8255,7 +8398,8 @@ function QuantitySection({
                     true
                   )}
                 />
-              ) : scopePricingEditAction(suggestedBudgetSplit, () =>
+              ) : !(!hideSuggestion && suggestedBudgetSplit) &&
+                scopePricingEditAction(suggestedBudgetSplit, () =>
                   itemId === 'electrical'
                     ? setPricingEditorOpen(true)
                     : openPricingEditor()
@@ -8488,6 +8632,12 @@ function QuantitySection({
               ) || null
             }
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
+            onEdit={
+              !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
+              !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
+                ? () => setPricingEditorOpen(true)
+                : undefined
+            }
           />
         ) : null}
         {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
@@ -8513,7 +8663,8 @@ function QuantitySection({
               true
             )}
           />
-        ) : scopePricingEditAction(suggestedBudgetSplit, () =>
+        ) : !(!hidePlanningSuggestion && suggestedBudgetSplit) &&
+          scopePricingEditAction(suggestedBudgetSplit, () =>
             setPricingEditorOpen(true)
           ) ? (
           <ScopePricingSecondaryActions
@@ -12124,6 +12275,12 @@ function ChoiceRow({
   const tier = scopeItemVisualTier(item, visualCtx);
   const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
+  const titleNoteBadge =
+    String(templateKey || '').toLowerCase() === 'kitchen' &&
+    item.id === 'flooring' &&
+    noteBadge === 'prefilled'
+      ? null
+      : noteBadge;
   const showToiletRelocateFloorPrompt =
     item.id === 'toilet' &&
     displayedChoiceId === 'relocating' &&
@@ -12147,7 +12304,7 @@ function ChoiceRow({
       {!embedded ? (
         <ScopeItemTitleRow
           label={checklistDisplayLabel(item, templateKey)}
-          noteBadge={noteBadge}
+          noteBadge={titleNoteBadge}
           darkMode={darkMode}
           Colors={Colors}
         />
@@ -15558,11 +15715,16 @@ function CollapsibleQuickMeasurements({
           bathroomNote
         );
       const keepPaint = notesRequireInteriorPaintMeasurements(bathroomNote);
+      const keepBathFloor =
+        /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/i.test(
+          bathroomNote
+        );
       const hiddenOnDedicatedBathroom = new Set<QuickMeasurementFieldKey>();
       if (!keepWallDemo) hiddenOnDedicatedBathroom.add('wallDemoSqft');
       if (!keepFlooringRemoval) hiddenOnDedicatedBathroom.add('floorDemoSqft');
       if (!keepShowerWalls) hiddenOnDedicatedBathroom.add('showerWallTileSqft');
       if (!keepShowerFloor) hiddenOnDedicatedBathroom.add('showerFloorTileSqft');
+      if (!keepBathFloor) hiddenOnDedicatedBathroom.add('bathroomFloorSqft');
       if (!keepPaint) {
         hiddenOnDedicatedBathroom.add('wallPaintSqft');
         hiddenOnDedicatedBathroom.add('ceilingPaintSqft');
@@ -16647,10 +16809,7 @@ function CollapsibleQuickMeasurements({
     /\b(?:install|new)\b[^.;\n]{0,50}\b(?:tile\s+)?(?:shower\s+pan|mud\s+pan|tub|prefab)|(?:tile\s+shower\s+pan|mud\s+pan)\b/i.test(
       bathroomNoteText
     );
-  const noteKeepsExistingWetArea =
-    /\b(?:keep(?:ing)?|reuse|leave)\b[^.;\n]{0,50}\b(?:the\s+)?(?:existing\s+)?(?:tub|shower|pan|enclosure)\b/i.test(
-      bathroomNoteText
-    );
+  const noteKeepsExistingWetArea = notesKeepExistingWetArea(bathroomNoteText);
   const showKeepingExistingWetAreaToggle =
     !bathroomNoteText.trim() ||
     noteKeepsExistingWetArea ||
@@ -16659,6 +16818,9 @@ function CollapsibleQuickMeasurements({
     String(measurements[key] ?? '').trim().length > 0;
   const showBathroomOption = (pattern: RegExp, hasUserValue = false): boolean =>
     !bathroomNotesCardFilter || pattern.test(bathroomNoteText) || hasUserValue;
+  // A leftover tile count must not reveal a row this note never names.
+  const showBathroomNote = (pattern: RegExp): boolean =>
+    !bathroomNotesCardFilter || pattern.test(bathroomNoteText);
   const groups = useMemo(() => {
     let grouped = groupQuickMeasurementFields(fieldResults);
     // Keep optional fields in their More measurements home after typing.
@@ -18279,41 +18441,29 @@ function CollapsibleQuickMeasurements({
   const renderDemoTearOutPanel = () => {
     if (fixtureOnlyBathroomRemoval) return null;
     if (keepingExistingWetArea && !explicitWetAreaDemoInNotes) return null;
-    const showDemoShowerWallTile = showBathroomOption(
-      /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,70}\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b|\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b[^.]{0,40}\b(?:remove|demo|demolition|tear[\s-]?out)\b/i,
-      hasBathroomMeasurement('showerWallTileSqft')
+    const showDemoShowerWallTile = showBathroomNote(
+      /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,70}\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b|\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b[^.]{0,40}\b(?:remove|demo|demolition|tear[\s-]?out)\b/i
     );
-    const showRemoveTub = showBathroomOption(
-      /\btub\b/i,
-      demoCounts.demoTubCount != null
-    );
-    const showRemoveTilePan = showBathroomOption(
-      /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
-      demoCounts.demoTilePanCount != null
+    const showRemoveTub = showBathroomNote(/\btub\b/i);
+    const showRemoveTilePan = showBathroomNote(
+      /\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i
     );
     const showDemoPanSqft =
       showRemoveTilePan &&
       demoCounts.demoTilePanCount != null &&
       demoCounts.demoTilePanCount > 0 &&
-      showBathroomOption(
-        /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
-        hasBathroomMeasurement('showerFloorTileSqft')
-      );
-    const showRemovePrefabPan = showBathroomOption(
-      /\bprefab\b/i,
-      demoCounts.demoPrefabPanCount != null
+      showBathroomNote(/\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i);
+    const showRemovePrefabPan = showBathroomNote(
+      /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/i
     );
-    const showRemovePrefabEnclosure = showBathroomOption(
-      /\bprefab\b/i,
-      demoCounts.demoPrefabEnclosureCount != null
+    const showRemovePrefabEnclosure = showBathroomNote(
+      /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/i
     );
-    const showRemoveShowerDoor = showBathroomOption(
-      /\b(?:remove|demo|tear[\s-]?out|replace)\b[^.]{0,40}\bshower\s+doors?\b|\bshower\s+doors?\b[^.]{0,40}\b(?:remove|demo|tear[\s-]?out|replace)\b/i,
-      demoCounts.demoShowerDoorCount != null
+    const showRemoveShowerDoor = showBathroomNote(
+      /\b(?:remove|demo|tear[\s-]?out|replace)\b[^.]{0,40}\bshower\s+doors?\b|\bshower\s+doors?\b[^.]{0,40}\b(?:remove|demo|tear[\s-]?out|replace)\b/i
     );
-    const showDemoBathFloor = showBathroomOption(
-      /\b(?:floor(?:ing)?|floor\s+tile)\b/i,
-      demoCounts.demoBathFloorTileCount != null && !fixtureOnlyBathroomRemoval
+    const showDemoBathFloor = showBathroomNote(
+      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/i
     );
     const onlyBathFloorDemo =
       showDemoBathFloor &&
@@ -18430,44 +18580,31 @@ function CollapsibleQuickMeasurements({
 
   const renderWetAreaFinishPanel = () => {
     const installPanelStyle = qmInstallScopePanelStyle(darkMode);
-    const showMudPan = showBathroomOption(
-      /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
-      displayTilePanCount > 0
+    const showMudPan = showBathroomNote(
+      /\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i
     );
     const showMudPanArea =
       showMudPan &&
       displayTilePanCount > 0 &&
-      showBathroomOption(
-        /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
-        hasBathroomMeasurement('showerFloorTileSqft')
-      );
-    const showPrefabPan = showBathroomOption(
-      /\bprefab\b/i,
-      displayPrefabPanCount > 0
+      showBathroomNote(/\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i);
+    const showPrefabPan = showBathroomNote(
+      /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/i
     );
-    const showPrefabEnclosure = showBathroomOption(
-      /\bprefab\b/i,
-      displayPrefabEnclosureCount > 0
+    const showPrefabEnclosure = showBathroomNote(
+      /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/i
     );
-    const showTubInstall = showBathroomOption(
-      /\btub\b/i,
-      displayTubBathCount > 0
-    );
+    const showTubInstall = showBathroomNote(/\btub\b/i);
     const showBathroomWallPaint = notesRequireInteriorPaintMeasurements(
       bathroomNoteText
     );
-    const showShowerWallTile = showBathroomOption(
-      /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile)\b/i,
-      hasBathroomMeasurement('showerWallTileSqft')
+    const showShowerWallTile = showBathroomNote(
+      /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile)\b/i
     );
-    const showBathFloorHeading = showBathroomOption(
-      /\b(?:floor(?:ing)?|floor\s+tile|shower\s+doors?)\b/i,
-      hasBathroomMeasurement('bathroomFloorSqft') ||
-        (existingCounts.existingShowerDoorCount ?? 0) > 0
+    const showBathFloorHeading = showBathroomNote(
+      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile|shower\s+doors?)\b/i
     );
-    const showBathFloorTile = showBathroomOption(
-      /\b(?:floor(?:ing)?|floor\s+tile)\b/i,
-      hasBathroomMeasurement('bathroomFloorSqft')
+    const showBathFloorTile = showBathroomNote(
+      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/i
     );
     const showShowerDoorReuse =
       showBathroomOption(
@@ -19612,6 +19749,7 @@ function CollapsibleQuickMeasurements({
       (windowsDoorsPlanImport &&
         windowsDoorsSuppressedQuickMeasurementFields.has(result.key)) ||
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
+      (kitchenQmJob && result.key === 'flooringSqft') ||
       (compactMixedScope &&
         kitchenInstallQmJob &&
         ['flooringSqft', 'floorDemoSqft'].includes(result.key)) ||
@@ -19664,6 +19802,9 @@ function CollapsibleQuickMeasurements({
         !explicitKitchenWordInNotes &&
         result.key === 'flooringSqft') ||
       (compactBathroomPlumbingFlow && result.key === 'cabinetLf') ||
+      (explicitBathroomScopeInNotes &&
+        !explicitKitchenWordInNotes &&
+        result.key === 'cabinetLf') ||
       (compactMixedScope &&
         !paintingPlanMeasurements &&
         result.key === 'ceilingPaintSqft' &&
@@ -22035,7 +22176,7 @@ function CollapsibleQuickMeasurements({
               style={styles.quickMeasurementsDone}
             >
               <Text
-                style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}
+                style={{ color: darkMode ? '#2dcc9a' : '#0f766e', fontSize: 12, fontWeight: '700' }}
               >
                 Done
               </Text>
@@ -23642,24 +23783,28 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.bathroomDemoCounterCount,
   ]);
 
-  const noteScopedChecklistItems = useMemo(
-    () =>
-      filterDedicatedBathroomConfirmItems(displayItems, {
-        notes:
-          String(notesFallback || '').trim() ||
-          String(draft?.originalNotes || '').trim() ||
-          scopeNotes,
-        templateKey: checklist?.templateKey,
-        projectType: draft?.projectType,
-        scopeMode:
-          draft?.scopeMode || draft?.classification?.scopeMode || null,
-        planBacked: Boolean(
-          measurements.planImportMode ||
-            measurements.planImportFingerprint ||
-            planImport
-        ),
-        wholeHome: isWholeHomeMixedRemodelNote,
-      }),
+  const noteScopedChecklistItems = useMemo(() => {
+    const noteScopeParams = {
+      notes:
+        String(notesFallback || '').trim() ||
+        String(draft?.originalNotes || '').trim() ||
+        scopeNotes,
+      templateKey: checklist?.templateKey,
+      projectType: draft?.projectType,
+      scopeMode:
+        draft?.scopeMode || draft?.classification?.scopeMode || null,
+      planBacked: Boolean(
+        measurements.planImportMode ||
+          measurements.planImportFingerprint ||
+          planImport
+      ),
+      wholeHome: isWholeHomeMixedRemodelNote,
+    };
+    return filterDedicatedKitchenConfirmItems(
+      filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
+      noteScopeParams
+    );
+  },
     [
       checklist?.templateKey,
       displayItems,
@@ -23769,8 +23914,14 @@ export default function AIEstimateScopeAssumptionsModal({
         items: appliedPricingItems,
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
+        notes: scopeNotes,
       }),
-    [appliedPricingItems, measurementsForAppliedPricing, scopePricingTemplateKey]
+    [
+      appliedPricingItems,
+      measurementsForAppliedPricing,
+      scopeNotes,
+      scopePricingTemplateKey,
+    ]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
   const step2AppliedPricingLines = useMemo(
@@ -23779,8 +23930,14 @@ export default function AIEstimateScopeAssumptionsModal({
         items: appliedPricingItems,
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
+        notes: scopeNotes,
       }),
-    [appliedPricingItems, measurementsForAppliedPricing, scopePricingTemplateKey]
+    [
+      appliedPricingItems,
+      measurementsForAppliedPricing,
+      scopeNotes,
+      scopePricingTemplateKey,
+    ]
   );
   const step2AppliedBuildCostPerLivingSf = useMemo(() => {
     if (singleTradePlanImport || !(step2AppliedEstimateTotal > 0)) return null;
@@ -27114,7 +27271,7 @@ export default function AIEstimateScopeAssumptionsModal({
       item => item.id === 'interior_door_install' && item.state !== 'excluded'
     );
     const bathroomRemainderItems = isBathroomFlow
-      ? displayItems.filter(
+      ? templateDisplayItems.filter(
           item =>
             !groupedItemIds.has(item.id) &&
             item.state !== 'excluded' &&
@@ -27169,6 +27326,28 @@ export default function AIEstimateScopeAssumptionsModal({
         ),
       }))
       .filter(group => group.items.length > 0);
+    const dedicatedBathroomLines = shouldLimitBathroomChecklistToNotes({
+      notes:
+        String(notesFallback || '').trim() ||
+        String(draft?.originalNotes || '').trim() ||
+        scopeNotes,
+      templateKey: checklist?.templateKey,
+      projectType: draft?.projectType,
+      scopeMode:
+        draft?.scopeMode || draft?.classification?.scopeMode || null,
+      planBacked: Boolean(
+        measurements.planImportMode ||
+          measurements.planImportFingerprint ||
+          planImport
+      ),
+      wholeHome: isWholeHomeMixedRemodelNote,
+    })
+      ? bathroomScopeLines(
+          String(notesFallback || '').trim() ||
+            String(draft?.originalNotes || '').trim() ||
+            scopeNotes
+        )
+      : null;
     groups.forEach(group => {
       group.items = group.items
         .map((item, index) => ({ item, index }))
@@ -27176,7 +27355,16 @@ export default function AIEstimateScopeAssumptionsModal({
           (a, b) =>
             itemOrder(a.item.id) - itemOrder(b.item.id) || a.index - b.index
         )
-        .map(entry => entry.item);
+        .map(entry => {
+          const line = dedicatedBathroomLines?.find(
+            candidate =>
+              candidate.id === entry.item.id ||
+              ((entry.item.id === 'paint' ||
+                entry.item.id === 'interior_paint') &&
+                candidate.id === 'paint_repair')
+          );
+          return line ? { ...entry.item, label: line.label } : entry.item;
+        });
     });
 
     const templateIsPainting =
@@ -27235,6 +27423,11 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     groupedItems,
     displayItems,
+    templateDisplayItems,
+    notesFallback,
+    scopeNotes,
+    isWholeHomeMixedRemodelNote,
+    planImport,
     checklist?.templateKey,
     draft?.projectType,
     embedQmScopeInQuickMeasurements,
@@ -28201,7 +28394,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const scopeItemsNeedingConfirmation = useMemo(
     () =>
-      listScopeItemsNeedingConfirmation(displayItems, normMeasurements, {
+      listScopeItemsNeedingConfirmation(noteScopedChecklistItems, normMeasurements, {
         templateKey: checklist?.templateKey,
         notes: scopeNotes,
         pricingAcceptance: measurements.pricingAcceptance,
@@ -28222,7 +28415,7 @@ export default function AIEstimateScopeAssumptionsModal({
           measurements.bathroomVanityCountertopMaterialType,
       }),
     [
-      displayItems,
+      noteScopedChecklistItems,
       normMeasurements,
       checklist?.templateKey,
       scopeNotes,
@@ -29430,10 +29623,10 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       // Never replace an already-committed price via the national comparison row
       // or footer bulk-apply path — that was adding phantom dollars (e.g. $960).
+      // The suggested card itself is also labeled "National Average". That
+      // label must still commit. Only a comparison row is blocked here.
       if (
-        (isNationalAverageComparisonBlock(block) ||
-          block.isComparison ||
-          /national\s*average/i.test(String(block.rateSourceLabel || ''))) &&
+        (isNationalAverageComparisonBlock(block) || block.isComparison) &&
         (scopeHasCommittedConfirmScopePrice({
           itemId,
           itemQuantities: currentMeasurements.itemQuantities,
@@ -31889,6 +32082,9 @@ export default function AIEstimateScopeAssumptionsModal({
                 const groupPricingStamp = JSON.stringify({
                   floor: measurements.floorAreaSqft,
                   garage: measurements.garageSqft,
+                  showerWall: measurements.showerWallTileSqft,
+                  showerFloor: measurements.showerFloorTileSqft,
+                  bathFloor: measurements.bathroomFloorSqft,
                   finish: measurements.drywallFinishIncluded,
                   acceptance: measurements.pricingAcceptance,
                   quantities: measurements.itemQuantities,
@@ -32116,10 +32312,10 @@ export default function AIEstimateScopeAssumptionsModal({
                         flushStagedElectricalMeasurements();
                       }
                       setExpandedPlumbingPlanGroups(prev => {
-                        if (group.title === 'Drywall finish') {
-                          const open = prev[group.title] !== false;
-                          return { ...prev, [group.title]: open ? false : true };
-                        }
+                      if (group.title === 'Drywall finish') {
+                        const open = prev[group.title] !== false;
+                        return { ...prev, [group.title]: open ? false : true };
+                      }
                         return {
                           ...prev,
                           [group.title]: !prev[group.title],
@@ -33007,6 +33203,57 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  suggestedCardPanel: {
+    marginTop: 12,
+  },
+  suggestedCardRateText: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  suggestedCardSplitText: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  suggestedCardChip: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 8,
+    maxWidth: '100%',
+  },
+  suggestedCardChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  suggestedCardActionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+    marginTop: 12,
+  },
+  suggestedCardApplySlot: {
+    flex: 1,
+  },
+  suggestedCardEditBtn: {
+    minHeight: 44,
+    minWidth: 88,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+  },
+  suggestedCardEditText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   compactSuggestedRow: {
     marginTop: 10,

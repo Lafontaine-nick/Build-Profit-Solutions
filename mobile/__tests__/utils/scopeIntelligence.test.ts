@@ -1167,6 +1167,55 @@ describe('scopeIntelligence', () => {
     expect(noConflict.hasOverlapRisk).toBe(false);
   });
 
+  it('does not treat vanity and toilet as duplicate pricing', () => {
+    const accepted = {
+      vanity: { selectionStatus: 'accepted' as const, totalAmount: 1100 },
+      toilet: { selectionStatus: 'accepted' as const, totalAmount: 900 },
+      sink_faucet: { selectionStatus: 'accepted' as const, totalAmount: 800 },
+    };
+    const fixturesOnly = evaluateAssemblyForScope({
+      scopeKey: 'vanity',
+      activeScopeKeys: ['vanity', 'toilet', 'sink_faucet'],
+    });
+    expect(
+      detectActualDuplicatePricingConflicts({
+        scopeKey: 'vanity',
+        activeScopeKeys: ['vanity', 'toilet', 'sink_faucet'],
+        overlaps: fixturesOnly?.possibleOverlaps || [],
+        pricingAcceptance: accepted,
+      }).hasOverlapRisk
+    ).toBe(false);
+    expect(
+      detectActualDuplicatePricingConflicts({
+        scopeKey: 'toilet',
+        activeScopeKeys: ['vanity', 'toilet', 'sink_faucet'],
+        overlaps:
+          evaluateAssemblyForScope({
+            scopeKey: 'toilet',
+            activeScopeKeys: ['vanity', 'toilet', 'sink_faucet'],
+          })?.possibleOverlaps || [],
+        pricingAcceptance: accepted,
+      }).hasOverlapRisk
+    ).toBe(false);
+
+    const withRough = detectActualDuplicatePricingConflicts({
+      scopeKey: 'vanity',
+      activeScopeKeys: ['vanity', 'toilet', 'plumbing_rough'],
+      overlaps:
+        evaluateAssemblyForScope({
+          scopeKey: 'vanity',
+          activeScopeKeys: ['vanity', 'toilet', 'plumbing_rough'],
+        })?.possibleOverlaps || [],
+      pricingAcceptance: {
+        ...accepted,
+        plumbing_rough: { selectionStatus: 'accepted', totalAmount: 2000 },
+      },
+    });
+    expect(withRough.hasOverlapRisk).toBe(true);
+    expect(withRough.reason).toMatch(/plumbing rough/i);
+    expect(withRough.reason).not.toMatch(/toilet/i);
+  });
+
   it('does not flag interior prep as duplicate exterior paint pricing', () => {
     const conflict = detectActualDuplicatePricingConflicts({
       scopeKey: 'exterior_paint',

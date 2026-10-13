@@ -49,6 +49,7 @@ export function bathroomAffirmativeNotes(
 ): string {
   return String(notes || '')
     .replace(/[^.]*\bstay(?:s|ing)?\s+in\s+place\b[^.]*/gi, ' ')
+    .replace(/[^.]*\ball\s+stay\b[^.]*/gi, ' ')
     .replace(
       /[^.]*\bleave\b[^.]{0,80}\b(?:bath(?:room)?\s+floor|vanity|toilet)\b[^.]*/gi,
       ' '
@@ -133,19 +134,16 @@ export function bathroomScopeLines(
     ) ||
     /\bprefab\s+(?:shower\s+)?pan\b[^.]{0,40}\bcoming out\b/i.test(affirmative)
   ) {
-    push('note:remove prefab shower pan', 'Remove existing prefab shower pan');
+    push('shower_floor_demo', 'Remove existing prefab shower pan');
   }
   if (
     (/\bprefab\s+surround\b/i.test(affirmative) &&
       /\bcoming out\b/i.test(affirmative)) ||
-    /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(?:existing\s+)?prefab\s+(?:shower(?:\s+enclosure)?|enclosure|surround)\b/i.test(
+    /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,80}\b(?:existing\s+)?prefab\s+(?:shower(?:\s+enclosure)?|enclosure|surround)\b/i.test(
       affirmative
     )
   ) {
-    push(
-      'note:remove prefab shower enclosure',
-      'Remove existing prefab shower enclosure'
-    );
+    push('shower_enclosure_demo', 'Remove existing prefab shower enclosure');
   }
   if (namedInNotes('shower_tile')) push('shower_tile', 'Shower wall tile');
   if (namedInNotes('shower_pan')) push('shower_pan', 'Tile shower pan');
@@ -170,15 +168,14 @@ export function bathroomScopeLines(
       !installsPrefabPan &&
       !installsPrefabEnclosure &&
       !named(TILE_PAN, text);
-    if (installsTub) push('wet_area_install', 'Tub install');
-    else if (installsPrefabEnclosure && !installsPrefabPan) {
-      push('wet_area_install', 'Prefab shower enclosure');
-    } else if (installsPrefabPan || named(PREFAB, text)) {
-      push(
-        'wet_area_install',
-        installsPrefabEnclosure ? 'Prefab shower' : 'Prefab shower pan'
-      );
-    } else push('wet_area_install', 'Wet area install');
+    if (installsPrefabPan) push('prefab_shower_pan', 'Prefab shower pan');
+    if (installsPrefabEnclosure) {
+      push('prefab_shower_enclosure', 'Prefab shower enclosure');
+    }
+    if (installsTub) push('tub_install', 'Tub install');
+    else if (!installsPrefabPan && !installsPrefabEnclosure) {
+      push('wet_area_install', 'Wet area install');
+    }
   }
   if (namedInNotes('paint_repair') || namedInNotes('paint') || namedInNotes('interior_paint')) {
     push(
@@ -186,7 +183,41 @@ export function bathroomScopeLines(
       /\bwalls?\b/i.test(affirmative) ? 'Bathroom wall paint' : 'Paint'
     );
   }
+  if (namedInNotes('vanity_demo')) push('vanity_demo', 'Remove vanity');
+  if (namedInNotes('countertop_demo')) push('countertop_demo', 'Remove vanity top');
   if (namedInNotes('vanity')) push('vanity', 'Vanity');
+  if (
+    /\bquartz\s+top\b/i.test(affirmative) ||
+    /\b(?:new|install)\b[^.]{0,40}\b(?:vanity\s+top|countertops?)\b/i.test(
+      affirmative
+    )
+  ) {
+    push('countertops', 'Vanity top');
+  }
+  if (namedInNotes('sink_faucet')) push('sink_faucet', 'Faucet');
+  if (namedInNotes('lighting')) {
+    const fixtureCount = affirmative.match(
+      /\b(\d+|two|three|four)\s+fixtures?\b/i
+    );
+    const fixtureCountLabel =
+      fixtureCount?.[1]?.toLowerCase() === 'two'
+        ? '2'
+        : fixtureCount?.[1]?.toLowerCase() === 'three'
+          ? '3'
+          : fixtureCount?.[1]?.toLowerCase() === 'four'
+            ? '4'
+            : fixtureCount?.[1];
+    const vanityLights = /\bvanity\s+(?:lights?|lighting)\b/i.test(affirmative);
+    push(
+      'lighting',
+      vanityLights
+        ? fixtureCountLabel
+          ? `Vanity lighting · ${fixtureCountLabel} fixtures`
+          : 'Vanity lighting'
+        : 'Lighting'
+    );
+  }
+  if (namedInNotes('exhaust_fan')) push('exhaust_fan', 'Bath exhaust fan');
   if (namedInNotes('toilet')) push('toilet', 'Toilet');
   if (namedInNotes('cleanup')) push('cleanup', 'Haul-off / dump fees');
   if (/\bmarble\s+thresholds?\b/i.test(affirmative)) {
@@ -223,13 +254,15 @@ export function bathroomChecklistItemNamedInNotes(
         /\b(?:remove|demo|demolition|tear[\s-]?out)\b/i.test(text)
       );
     case 'vanity_demo':
-      return /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,40}\bvanity\b/i.test(text);
+      return /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bvanity\b/i.test(
+        text
+      );
     case 'fixture_demo':
       return /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(?:toilet|fixtures?)\b/i.test(
         text
       );
     case 'countertop_demo':
-      return /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,40}\b(?:countertops?|counters?)\b/i.test(
+      return /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b/i.test(
         text
       );
     case 'wet_area_install':
@@ -261,7 +294,9 @@ export function bathroomChecklistItemNamedInNotes(
     case 'toilet':
       return /\btoilet\b/i.test(text);
     case 'vanity':
-      return /\bvanity\b/i.test(text);
+      return /\bvanity\b/i.test(
+        text.replace(/\bvanity\s+(?:lights?|lighting)\b/gi, ' ')
+      );
     case 'sink_faucet':
       return /\b(?:sink|faucet)\b/i.test(text);
     case 'lighting':
@@ -308,6 +343,23 @@ export function bathroomChecklistItemNamedInNotes(
     default:
       return false;
   }
+}
+
+/**
+ * True when the note is leaving the tub or shower in place.
+ * "Leave the alcove ready for the new tub" is a replacement, not a keep.
+ */
+export function notesKeepExistingWetArea(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomMeasurementNotes(notes);
+  return (
+    /\b(?:keep(?:ing)?|reuse)\b[^.;\n]{0,40}\b(?:the\s+)?(?:existing\s+)?(?:tub|shower)\b/i.test(
+      text
+    ) ||
+    /\b(?:tub|shower)\b[^.;\n]{0,30}\bstays?\b/i.test(text) ||
+    /\bleave\s+(?:the\s+)?(?:existing\s+)?(?:tub|shower)\b/i.test(text)
+  );
 }
 
 export function shouldLimitBathroomChecklistToNotes(params: {

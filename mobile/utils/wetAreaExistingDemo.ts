@@ -148,11 +148,13 @@ function notesMentionDemoTilePan(n: string): boolean {
 }
 
 function notesMentionDemoPrefabPan(n: string): boolean {
+  // "Demo and haul off the prefab shower pan" and "prefab pan … coming out"
+  // are tear-out even when words sit between the verb and the pan.
   return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?prefab\s+(?:shower\s+)?pan\b/.test(
+    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bprefab\s+(?:shower\s+)?pan\b/.test(
       n
     ) ||
-    /\bprefab\s+(?:shower\s+)?pan\s+(?:to\s+)?(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+    /\bprefab\s+(?:shower\s+)?pan\b[^.]{0,80}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|coming out)\b/.test(
       n
     )
   );

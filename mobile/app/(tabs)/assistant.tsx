@@ -28,6 +28,7 @@ import { workTaskProgressPct } from '@/src/lib/timelineScheduleProgress';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import type { CentralCommandTaxSource } from '@/src/lib/centralCommandTax';
+import { isCentralCommandContextReady } from '@/utils/centralCommandReadiness';
 
 /** Last wins per id (or title if id missing) — avoids duplicate rows inflating Command Center / compare counts. */
 function dedupeProjectsForAssistantAi(list: any[]): any[] {
@@ -408,15 +409,15 @@ export default function AssistantScreen() {
     };
   }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId, projectSnapshotsById, deletedProjectRecords]);
 
-  // Do not allow compare actions until we have loaded for the CURRENT project set.
-  // This prevents stale ProjectListContext progress (e.g. old 60%) from being used.
+  // Wait until the current project set and its timeline read have finished so
+  // compare answers do not use stale progress. An empty compare set is still ready.
   const totalProjectCount = (projects?.length ?? 0) || ([...activeProjects, ...estimates].length ?? 0);
-  const hasComparePayload =
-    compareProjectsData.length > 0 || Object.keys(progressByProjectId || {}).length > 0;
-  const isCompareContextReady =
-    projectsReady &&
-    isTimelineLoaded &&
-    (totalProjectCount === 0 || (hasComparePayload && projectOptions.length > 0));
+  const isCompareContextReady = isCentralCommandContextReady({
+    projectsReady,
+    timelineLoaded: isTimelineLoaded,
+    totalProjectCount,
+    projectOptionCount: projectOptions.length,
+  });
 
   const handleReturnHome = () => {
     // The back arrow is the Central Command home action. Clear the chat

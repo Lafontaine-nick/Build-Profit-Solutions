@@ -3662,11 +3662,11 @@ export function quickMeasurementRowsForInput(
       const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(notes);
       const keepField = (field: QuickMeasurementFieldDef) => {
         if (!optionalKitchenKeys.has(field.key)) return true;
-        if (
-          field.key === 'floorAreaSqft' ||
-          field.key === 'flooringSqft' ||
-          field.key === 'kitchenFloorSqft'
-        ) {
+        if (field.key === 'kitchenFloorSqft') return explicitFloorWork;
+        if (field.key === 'floorAreaSqft' || field.key === 'flooringSqft') {
+          // The kitchen install panel owns this takeoff. A second
+          // "Total Flooring Area" row repeats it under a living-area label.
+          if (resolvedKey === 'kitchen') return false;
           return explicitFloorWork;
         }
         if (field.key === 'drywallSqft') return explicitDrywall;

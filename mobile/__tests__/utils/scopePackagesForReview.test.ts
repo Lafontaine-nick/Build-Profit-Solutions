@@ -164,6 +164,38 @@ describe('scopePackagesForReview', () => {
     expect(rows.filter(row => row.id === 'demo')).toHaveLength(0);
   });
 
+  it('keeps shower wall tile demo beside bath floor demo on a bathroom note', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the shower wall tile and the tile shower pan, and demo the bathroom floor tile. Haul off the old tile and thinset. Install new shower wall tile, a new tile shower pan set in mortar, and new bathroom floor tile wall to wall.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'demo',
+          label: 'Shower tile demo / tear-out',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'floor_demo',
+          label: 'Demo bath floor tile',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {
+        showerWallTileSqft: '90',
+        showerFloorTileSqft: '25',
+        bathroomFloorSqft: '125',
+        demoTilePanCount: 1,
+      },
+      'bathroom',
+      notes
+    );
+
+    expect(rows.find(row => row.id === 'demo')?.state).toBe('included');
+    expect(rows.find(row => row.id === 'floor_demo')?.id).toBe('floor_demo');
+  });
+
   it('describes the measured flooring removal area on the flooring card', () => {
     const rows = buildConfirmScopeDisplayItems(
       [],

@@ -2,6 +2,7 @@ import {
   bathroomChecklistItemNamedInNotes,
   bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
+  notesKeepExistingWetArea,
   shouldLimitBathroomChecklistToNotes,
 } from '../../utils/bathroomNoteScope';
 
@@ -114,6 +115,21 @@ describe('bathroom note checklist', () => {
     expect(namedIds(TUB).sort()).toEqual(
       ['paint_repair', 'tub_demo', 'wet_area_install'].sort()
     );
+    expect(bathroomScopeLines(TUB).map(line => line.id).sort()).toEqual(
+      ['paint_repair', 'tub_demo', 'tub_install'].sort()
+    );
+  });
+
+  it('treats leave-the-alcove as a new tub, not keeping the old one', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing alcove tub and haul it off. Cap the drain and leave the alcove ready for the new tub. Install a new alcove tub and connect it to the existing drain. Paint the bathroom walls. Do not tile the shower, and do not replace the vanity or toilet.';
+    expect(notesKeepExistingWetArea(notes)).toBe(false);
+    expect(notesKeepExistingWetArea('Leave the existing tub in place.')).toBe(
+      true
+    );
+    expect(bathroomScopeLines(notes).map(line => line.id).sort()).toEqual(
+      ['paint_repair', 'tub_demo', 'tub_install'].sort()
+    );
   });
 
   it('uses one line list for the notes we walked', () => {
@@ -183,6 +199,48 @@ describe('bathroom note checklist', () => {
     );
   });
 
+  it('keeps a bath fan and vanity lights when the tub, floor, and cabinet stay', () => {
+    const notes =
+      'Replace the exhaust fan with a new bath fan and run the duct to the existing roof cap. Install new vanity lighting over the mirror, two fixtures. The tub, shower, floor tile, and vanity cabinet all stay. Do not demo any tile, do not replace the toilet, and do not paint the walls.';
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      ['Bath exhaust fan', 'Vanity lighting · 2 fixtures'].sort()
+    );
+    expect(bathroomChecklistItemNamedInNotes('vanity', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('floor_tile', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('tub_demo', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('paint_repair', notes)).toBe(
+      false
+    );
+  });
+
+  it('keeps prefab pan and surround demo and install as priced cards', () => {
+    const notes =
+      'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround, cap the drain, and leave the alcove ready. Install a new prefab shower pan, set it in mortar, and connect it to the existing drain. Install a new prefab shower surround on the walls.';
+    const filtered = filterDedicatedBathroomConfirmItems(
+      [
+        { id: 'wet_area_install' },
+        { id: 'shower_floor_demo' },
+        { id: 'shower_enclosure_demo' },
+        { id: 'prefab_shower_pan' },
+        { id: 'prefab_shower_enclosure' },
+        { id: 'shower_tile' },
+        { id: 'plumbing' },
+        { id: 'toilet' },
+        { id: 'cleanup' },
+      ],
+      { notes, templateKey: 'bathroom', scopeMode: 'dedicated' }
+    );
+    expect(filtered.map(item => item.id).sort()).toEqual(
+      [
+        'cleanup',
+        'prefab_shower_enclosure',
+        'prefab_shower_pan',
+        'shower_enclosure_demo',
+        'shower_floor_demo',
+      ].sort()
+    );
+  });
+
   it('drops package rows the note never names', () => {
     const filtered = filterDedicatedBathroomConfirmItems(
       [
@@ -199,6 +257,28 @@ describe('bathroom note checklist', () => {
       }
     );
     expect(filtered.map(item => item.id)).toEqual(['floor_tile']);
+  });
+
+  it('names the vanity, top, faucet, and toilet a fixture note asks for', () => {
+    const notes =
+      'Remodel the bathroom. Demo and haul off the existing vanity cabinet and the vanity top. Remove the existing toilet. Install a new 60-inch vanity with a quartz top, a new faucet, and a new toilet. Set the vanity and connect it to the existing supply and drain. Do not change the shower, the bathroom floor, or the paint.';
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      [
+        'Faucet',
+        'Haul-off / dump fees',
+        'Remove vanity',
+        'Remove vanity top',
+        'Toilet',
+        'Vanity',
+        'Vanity top',
+      ].sort()
+    );
+    expect(bathroomChecklistItemNamedInNotes('floor_tile', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('paint_repair', notes)).toBe(
+      false
+    );
+    expect(bathroomChecklistItemNamedInNotes('plumbing', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('shower_tile', notes)).toBe(false);
   });
 
   it('drops unnamed bathroom rows and keeps custom rows', () => {

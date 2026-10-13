@@ -49,10 +49,10 @@ function notesMentionDemoTileShowerPan(n: string): boolean {
 
 function notesMentionDemoPrefabPan(n: string): boolean {
   return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?prefab\s+(?:shower\s+)?pan\b/.test(
+    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bprefab\s+(?:shower\s+)?pan\b/.test(
       n
     ) ||
-    /\bprefab\s+(?:shower\s+)?pan\s+(?:to\s+)?(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+    /\bprefab\s+(?:shower\s+)?pan\b[^.]{0,80}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|coming out)\b/.test(
       n
     )
   );
@@ -175,11 +175,13 @@ export function inferWetAreaInstallSteppersFromIntent(
   }
 
   const out: WetAreaStepperCounts = { ...EMPTY_STEPPERS };
-
-  if (input.showerTileIncluded || notesMentionTileShowerWalls(n)) {
+  const notesPresent = Boolean(n);
+  // A saved bathroom checklist marks tile rows included by default.
+  // Once the note is present, only the note can turn those steppers on.
+  if (notesMentionTileShowerWalls(n) || (!notesPresent && input.showerTileIncluded)) {
     out.bathCount = 1;
   }
-  if (input.showerFloorTileIncluded || notesMentionTileShowerPan(n)) {
+  if (notesMentionTileShowerPan(n) || (!notesPresent && input.showerFloorTileIncluded)) {
     out.tilePanBathCount = 1;
   }
   if (notesMentionPrefabEnclosureInstall(n) || choice === 'prefab_enclosure') {
@@ -196,18 +198,27 @@ export function inferWetAreaInstallSteppersFromIntent(
   if (notesMentionTubInstall(n) || choice === 'tub') {
     out.tubBathCount = 1;
   }
-  if (choice === 'tile_pan' && !out.tilePanBathCount) {
+  if (
+    choice === 'tile_pan' &&
+    !out.tilePanBathCount &&
+    !notesMentionPrefabPan(n)
+  ) {
     out.tilePanBathCount = 1;
   }
   if (notesMentionBathFloorTile(n)) {
     out.bathFloorTileCount = 1;
   }
 
-  if (input.glassDoorIncluded || notesMentionShowerDoor(n)) {
+  if ((!notesPresent && input.glassDoorIncluded) || notesMentionShowerDoor(n)) {
     out.showerDoorCount = 1;
   }
 
-  return reconcileExclusiveShowerPanSteppers(out);
+  return reconcileExclusiveShowerPanSteppers(
+    out,
+    notesMentionPrefabPan(n) && !notesMentionTileShowerPan(n)
+      ? 'prefab_pan'
+      : undefined
+  );
 }
 
 /** Tile mud pan and prefab pan are mutually exclusive — one floor finish per shower. */

@@ -22,7 +22,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { aiFlowCardBackground, estimateStep1InputCardStyle } from '@/utils/estimateFlowCardStyle';
-import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
+import {
+  getEmbeddedAiFlowFooterBottomInset,
+  isDesktopWebLayoutWidth,
+} from '@/constants/ScreenLayout';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import {
   buildPlanImportSteps,
@@ -173,7 +176,7 @@ export default function AIEstimateBuilderModal({
   onGenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { getToken } = useAuth();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -704,9 +707,13 @@ export default function AIEstimateBuilderModal({
     backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
+  const desktopWeb = isDesktopWebLayoutWidth(windowWidth);
   const tabBarClearance = embedded
     ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
     : Math.max(insets.bottom, 16);
+  // Phone tab bar floats over this screen. Lift the scroller so cards end above it.
+  const embeddedTabClearance =
+    embedded && !desktopWeb && !isKeyboardVisible ? tabBarClearance : 0;
   // Generate CTA + Start fresh + disclaimer + footer top padding
   const footerChromeHeight = 118;
   const canGenerate = useMemo(
@@ -825,7 +832,11 @@ export default function AIEstimateBuilderModal({
       ? Math.max(keyboardHeight, 280) + 24
       : 0;
   const scrollContentPadBottom =
-    (embedded ? tabBarClearance + 8 : footerChromeHeight + tabBarClearance + 16) +
+    (embedded
+      ? embeddedTabClearance
+        ? 20
+        : tabBarClearance + 8
+      : footerChromeHeight + tabBarClearance + 16) +
     androidKeyboardBoost;
 
   const embeddedShellStyle = embedded
@@ -841,7 +852,7 @@ export default function AIEstimateBuilderModal({
 
   if (!visible) return null;
 
-  const notesMinHeight = embedded ? 220 : 200;
+  const notesMinHeight = embedded ? 168 : 200;
   const notesInputShellStyle = {
     backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
@@ -934,24 +945,28 @@ export default function AIEstimateBuilderModal({
     </>
   );
 
+  const stepLead = showDraftResumeActions
+    ? resumeToScopeConfirm
+      ? 'Your saved draft is ready. Continue below to confirm scope, or start fresh to clear this draft.'
+      : 'Your saved draft is ready. Continue below to review scope, or start fresh to clear this draft.'
+    : hasExistingDraft
+      ? 'Edit notes, photos, or plan if needed, then generate a new draft.'
+      : null;
+
   const notesField = (
     <>
-      <Text
-        style={{
-          color: Colors.sub,
-          fontSize: 13,
-          lineHeight: 18,
-          marginBottom: 10,
-        }}
-      >
-        {showDraftResumeActions
-          ? resumeToScopeConfirm
-            ? 'Your saved draft is ready. Continue below to confirm scope, or start fresh to clear this draft.'
-            : 'Your saved draft is ready. Continue below to review scope, or start fresh to clear this draft.'
-          : hasExistingDraft
-            ? 'Edit notes, photos, or plan if needed, then generate a new draft.'
-            : 'Paste or dictate job notes — AI drafts scope for review.'}
-      </Text>
+      {stepLead ? (
+        <Text
+          style={{
+            color: Colors.sub,
+            fontSize: 13,
+            lineHeight: 18,
+            marginBottom: 10,
+          }}
+        >
+          {stepLead}
+        </Text>
+      ) : null}
 
       <View>
         {!showDraftResumeActions ? (
@@ -1057,11 +1072,11 @@ export default function AIEstimateBuilderModal({
           marginBottom: 8,
         })}
       >
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
           Job notes
         </Text>
         <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: showSavedNotesHint ? 4 : 10 }}>
-          Paste or dictate your walkthrough — sizes, materials, or lump sums if you have them.
+          Sizes, materials, or lump sums. Paste them or dictate below.
         </Text>
         {showSavedNotesHint ? (
           <Text
@@ -1171,7 +1186,7 @@ export default function AIEstimateBuilderModal({
       />
       <ScrollView
         ref={scrollRef}
-        style={{ flex: 1 }}
+        style={{ flex: 1, marginBottom: embeddedTabClearance }}
         contentContainerStyle={[styles.scrollContent, scrollContentStyle]}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled={false}
@@ -1232,7 +1247,7 @@ const styles = StyleSheet.create({
   },
   notesInput: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,

@@ -652,7 +652,14 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
   }
 
   if (itemId === 'vanity') {
-    if (/\b(remove\s+and\s+replace|replace|new)\b.*\bvanity\b|\bvanity\b.*\b(replace|new)\b/.test(n)) {
+    const vanityText = n
+      .replace(/[^.]*\ball\s+stay\b[^.]*/g, ' ')
+      .replace(/\bvanity\s+(?:lights?|lighting)\b/g, ' ');
+    if (
+      /\b(remove\s+and\s+replace|replace|new)\b.*\bvanity\b|\bvanity\b.*\b(replace|new)\b/.test(
+        vanityText
+      )
+    ) {
       return 'replacing';
     }
   }

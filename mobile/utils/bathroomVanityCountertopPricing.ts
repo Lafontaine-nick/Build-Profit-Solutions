@@ -335,7 +335,10 @@ export function inferBathroomVanityCountertopMaterialFromNotes(
 
   if (
     /\bprefab(?:ricated)?\s+(?:quartz|stone)\b/.test(n) ||
-    (/\bvanity\s+top\b/.test(n) && /\bprefab(?:ricated)?\b/.test(n) && !/\bcustom\b/.test(n))
+    (/\bvanity\s+top\b/.test(n) && /\bprefab(?:ricated)?\b/.test(n) && !/\bcustom\b/.test(n)) ||
+    (/\bquartz\b/.test(n) &&
+      !/\bcustom\b/.test(n) &&
+      !/\b\d+(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf)\b/.test(n))
   ) {
     return 'prefab_quartz_stone';
   }
