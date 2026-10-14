@@ -5,7 +5,15 @@ import {
   filterDedicatedBathroomConfirmItems,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
-import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
+import {
+  filterDedicatedKitchenConfirmItems,
+  shouldLimitKitchenChecklistToNotes,
+} from '@/utils/kitchenNoteScope';
+import {
+  dedicatedDrywallRevealQuantity,
+  notesDescribeDedicatedDrywallJob,
+} from '@/utils/drywallNoteScope';
+import { notesNameRoughOpeningsOnly } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   filterConcreteRevealAttentionItems,
   notesAreImportedPlanSummary,
@@ -351,6 +359,36 @@ export function getInitialRevealConfirmItems(
       ),
   });
   if (draftNeedsScopeConfirmation(draft) && bathroomNoteLimit) {
+    const packages = getScopePackagesForReview(draft);
+    const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
+      const name = String(row.name || '').trim().toLowerCase();
+      if (!name) return false;
+      const pkg = packages.find(
+        item =>
+          String(item.name || item.scope || '').trim().toLowerCase() === name
+      );
+      return !pkg || scopePackageNeedsManualPrice(pkg, draft);
+    });
+    if (unpricedScope.length > 0) {
+      return splitInitialRevealConfirmItems(
+        unpricedScope.map(row => `Pricing for ${row.name}`)
+      );
+    }
+  }
+  const kitchenNoteLimit = shouldLimitKitchenChecklistToNotes({
+    notes: draft.originalNotes,
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+    planBacked: Boolean(
+      draft.scopeMeasurements?.planImportMode ||
+        draft.scopeMeasurements?.planImportFingerprint
+    ),
+    wholeHome:
+      /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+        String(draft.originalNotes || '')
+      ),
+  });
+  if (draftNeedsScopeConfirmation(draft) && kitchenNoteLimit) {
     const packages = getScopePackagesForReview(draft);
     const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
       const name = String(row.name || '').trim().toLowerCase();
@@ -1002,6 +1040,48 @@ function revealChecklistItemVisible(
   }
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  const revealTemplate = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  if (revealTemplate === 'painting') {
+    const paintingNotes = String(draft.originalNotes || '');
+    const deniesCeilings =
+      /\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?ceilings?\b/i.test(
+        paintingNotes
+      );
+    const deniesDoors =
+      /\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?(?:interior\s+)?doors?\b/i.test(
+        paintingNotes
+      );
+    const deniesCabinets =
+      /\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?cabinets?\b/i.test(
+        paintingNotes
+      );
+    const mentionsTrim =
+      /\b(?:baseboards?|casings?|interior\s+trim|door\s+trim)\b/i.test(
+        paintingNotes
+      );
+    const mentionsWindowTrim = /\bwindow\s+trim\b|\bwindows?\b/i.test(
+      paintingNotes
+    );
+    if (deniesCeilings && item.id === 'ceiling_paint') return false;
+    if (
+      deniesDoors &&
+      (item.id === 'door_paint' ||
+        item.id === 'door_casing_paint' ||
+        item.id === 'interior_door_install')
+    ) {
+      return false;
+    }
+    if (deniesCabinets && item.id === 'cabinet_paint') return false;
+    if (
+      !mentionsTrim &&
+      (item.id === 'trim_paint' || item.id === 'baseboard_install')
+    ) {
+      return false;
+    }
+    if (!mentionsWindowTrim && item.id === 'exterior_trim_paint') return false;
+  }
   if (
     item.id === 'electrical_service_upgrade' &&
     notesExcludeElectricalServiceUpgrade(draft.originalNotes) &&
@@ -1447,6 +1527,10 @@ function getInitialRevealScopeRows(
     String(draft.scopeChecklist?.templateKey || draft.projectType || '').toLowerCase() ===
       'room_remodel' ||
     wholeHomeMixedRemodelNote;
+  const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(notes);
+  const parsedDedicatedDrywallMeasurements = dedicatedDrywallNote
+    ? initialScopeMeasurementInputExtended(draft, notes)
+    : null;
   const classification = getRevealClassification(draft);
   const mixedScopeHint =
     classification.scopeMode === 'mixed' ||
@@ -1490,7 +1574,7 @@ function getInitialRevealScopeRows(
       notes
     );
   const explicitCountertop =
-    /\b(?:countertops?|counters?|quartz|granite)\b/i.test(notes);
+    /\b(?:countertops?|counters?|quartz|granite|tops)\b/i.test(notes);
   const explicitCabinetLfMatch =
     /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:feet|foot))\b[^.;\n]{0,25}\bcabinets?\b/i.exec(
       notes
@@ -1665,7 +1749,10 @@ function getInitialRevealScopeRows(
       return squares ? `${squares} squares` : null;
     }
     if (id === 'drywall') {
-      return sqft(measurements.patchRepairSqft ?? measurements.drywallSqft);
+      return sqft(measurements.drywallSqft ?? measurements.patchRepairSqft);
+    }
+    if (id === 'patch_repair') {
+      return sqft(measurements.patchRepairSqft);
     }
     if (id === 'interior_door_install' || id === 'interior_doors') {
       return each(measurements.interiorDoorCount);
@@ -1801,6 +1888,14 @@ function getInitialRevealScopeRows(
           ? {
               quantityOverride: roomRemodelQuantityOverride(
                 String(item.id || '').trim()
+              ),
+            }
+          : {}),
+        ...(dedicatedDrywallNote
+          ? {
+              quantityOverride: dedicatedDrywallRevealQuantity(
+                String(item.id || '').trim(),
+                parsedDedicatedDrywallMeasurements
               ),
             }
           : {}),
@@ -1989,8 +2084,13 @@ function getInitialRevealScopeRows(
   if (hasSpecificLandscapeRow) {
     rows = rows.filter(row => row.id !== 'landscaping');
   }
+  const deniesInteriorDoors =
+    /\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?(?:interior\s+)?doors?\b/i.test(
+      notes
+    );
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(notes) &&
+    !deniesInteriorDoors &&
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
   if (hasGenericDoorMention) {
     rows = rows.filter(row => row.id !== 'doors');
@@ -2387,7 +2487,11 @@ function getInitialRevealScopeRows(
       rows.push({ id: 'cleanup', name: 'Cleanup / disposal' });
     }
   }
-  if (drywallRepairSqft) {
+  if (dedicatedDrywallNote) {
+    const keep = new Set(['demo', 'demo_removal', 'drywall', 'patch_repair']);
+    rows = rows.filter(row => keep.has(row.id));
+  }
+  if (drywallRepairSqft && !dedicatedDrywallNote) {
     const drywallRowIndex = rows.findIndex(
       row =>
         row.id === 'drywall' ||
@@ -2646,7 +2750,7 @@ function getInitialRevealScopeRows(
     ),
     wholeHome: wholeHomeRemodelContext,
   };
-  return filterDedicatedKitchenConfirmItems(
+  const revealRows = filterDedicatedKitchenConfirmItems(
     alignDedicatedBathroomScopeRows(
       filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
       bathroomScopeParams
@@ -2659,6 +2763,20 @@ function getInitialRevealScopeRows(
       wholeHome: wholeHomeRemodelContext,
     }
   );
+  const scopedRevealRows = notesNameRoughOpeningsOnly(notes)
+    ? revealRows.filter(
+        row =>
+          row.id === 'openings' ||
+          /door\s*\/\s*window openings|rough openings/i.test(row.name)
+      )
+    : revealRows;
+  const visibleRevealRows = scopedRevealRows.length
+    ? scopedRevealRows
+    : notesNameRoughOpeningsOnly(notes)
+      ? [{ id: 'openings', name: 'Door / window openings' }]
+      : scopedRevealRows;
+  if (/\btile\b/i.test(notes)) return visibleRevealRows;
+  return visibleRevealRows.filter(row => !/\btile\s*demo\b/i.test(row.name));
 }
 
 /** Checklist rows for Scope found when priced packages are not built yet. */
@@ -2812,6 +2930,7 @@ export function getInitialRevealChecklistScopePreview(
   return scopeRows.slice(0, 50).map(row => ({
     name: row.name,
     amount: 0,
+    ...(row.quantityOverride ? { quantity: row.quantityOverride } : {}),
   }));
 }
 
@@ -3183,6 +3302,9 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
+  if (notesDescribeDedicatedDrywallJob(draft.originalNotes)) {
+    return 'Detected drywall job.';
+  }
   const planMeasurements = draft.scopeMeasurements as
     | { planImportFingerprint?: string | null; planImportMode?: string | null }
     | null

@@ -387,6 +387,45 @@ describe('estimateInitialRevealUi', () => {
     ]);
   });
 
+  it('keeps Scope found to rough openings when new walls are denied', () => {
+    const notes = 'Do not frame any new walls. Frame four rough openings.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'room_remodel',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'openings',
+            label: 'Door / window openings',
+            state: 'included',
+          },
+          {
+            id: 'paint',
+            label: 'Interior painting',
+            state: 'included',
+          },
+          {
+            id: 'framing',
+            label: 'Framing or layout changes',
+            state: 'included',
+          },
+        ],
+        scopeFacts: [
+          {
+            scopeId: 'interior_paint',
+            status: 'included',
+            catalogEntry: { displayName: 'Interior paint' },
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['Door / window openings']);
+  });
+
   it('builds primary CTA from attention count', () => {
     expect(getInitialRevealPrimaryCtaLabel(0)).toBe('Review & apply estimate');
     expect(getInitialRevealPrimaryCtaLabel(3)).toBe(

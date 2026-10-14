@@ -518,6 +518,39 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(paintPkg?.scopeQuantities?.[0]).toEqual({ quantity: 2560, unit: 'sqft' });
   });
 
+  it('does not offer baseboard LF on door trim that is already priced by the door count', () => {
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      baseboardLf: '180',
+      interiorDoorCount: '6',
+      itemQuantities: {},
+    } as any;
+    expect(
+      calculateFormulaForScope({
+        scopeKey: 'interior_trim',
+        measurements,
+        projectContext: 'painting',
+      })
+    ).toBeNull();
+    const formula = executeFormula('baseboard_lf_from_perimeter', {
+      perimeterLf: 180,
+    });
+    expect(
+      shouldShowFormulaQuantityButton({
+        scopeKey: 'interior_trim',
+        formula: formula!,
+        measurements,
+      })
+    ).toBe(false);
+    expect(
+      calculateFormulaForScope({
+        scopeKey: 'baseboard',
+        measurements,
+        projectContext: 'painting',
+      })?.roundedValue
+    ).toBe(180);
+  });
+
   it('does not offer cabinet-LF × depth countertop formula on ground_up (whole-home LF)', () => {
     expect(shouldSkipCountertopCabinetLfFormula('ground_up')).toBe(true);
     expect(shouldSkipCountertopCabinetLfFormula('kitchen')).toBe(false);
@@ -576,6 +609,27 @@ describe('resolveFormulaQuantityApplyTarget', () => {
       roundedValue: 50,
       unit: 'sqft',
     });
+    expect(formula?.formulaExplanation).toBe(
+      'Using 50 sqft from the entered countertop takeoff.'
+    );
+
+    const withIsland = calculateFormulaForScope({
+      scopeKey: 'countertops',
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        countertopSqft: '36',
+        kitchenIslandCounterSqft: '22',
+      } as any,
+      projectContext: 'kitchen',
+    });
+    expect(withIsland).toMatchObject({
+      formulaKey: 'countertop_area_from_explicit_takeoff',
+      roundedValue: 58,
+      unit: 'sqft',
+    });
+    expect(withIsland?.formulaExplanation).toBe(
+      'Using 58 sqft from the entered countertop takeoff (36 sqft perimeter + 22 sqft island).'
+    );
   });
 
   it('prices kitchen backsplash demo from the backsplash sqft takeoff', () => {

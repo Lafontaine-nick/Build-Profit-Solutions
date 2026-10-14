@@ -1,6 +1,7 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { hydrateWetAreaStepperCounts } from '@/utils/planBathRooms';
+import { notesReuseExistingShowerDoor } from '@/utils/bathroomNoteScope';
 import {
   inferExistingWetAreaFromNotes,
   mergeDemoCountsWithOverrides,
@@ -83,7 +84,11 @@ function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
     existing: effectiveExisting,
     install: steppers,
     keepingExisting: wet?.choiceId === 'staying',
-    reuseExistingShowerDoor: Boolean(ctx.measurements.reuseExistingShowerDoor),
+    reuseExistingShowerDoor:
+      ctx.measurements.reuseExistingShowerDoor === false
+        ? false
+        : Boolean(ctx.measurements.reuseExistingShowerDoor) ||
+          notesReuseExistingShowerDoor(ctx.notes),
     tubDemoIncluded: tubDemo?.state === 'included',
     showerFloorDemoIncluded: showerFloorDemo?.state === 'included',
     floorDemoIncluded: floorDemo?.state === 'included',
@@ -106,6 +111,11 @@ function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
     ...steppers,
     ...effectiveExisting,
     ...demo,
+    reuseExistingShowerDoor:
+      ctx.measurements.reuseExistingShowerDoor === false
+        ? false
+        : Boolean(ctx.measurements.reuseExistingShowerDoor) ||
+          notesReuseExistingShowerDoor(ctx.notes),
   };
 }
 

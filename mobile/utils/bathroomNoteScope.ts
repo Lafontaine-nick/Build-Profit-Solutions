@@ -20,6 +20,8 @@ const BATHROOM_TEMPLATE_IDS = new Set([
   'shower_niche',
   'shower_bench',
   'glass_door',
+  'glass_door_reuse_remove',
+  'glass_door_reuse_install',
   'floor_tile',
   'marble_threshold',
   'toilet',
@@ -75,8 +77,51 @@ export function bathroomMeasurementNotes(
   );
 }
 
-const SHOWER_TILE_WORK =
-  /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile|shower\s+pan|tile\s+pan|mud\s+pan)\b/i;
+/**
+ * A dumpster, a final clean, or hauling debris beyond the pieces being
+ * removed. "Haul off the old tile" stays on that demo line.
+ */
+export function notesAskForSeparateHaulOff(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomAffirmativeNotes(notes);
+  if (/\bdumpsters?\b/i.test(text)) return true;
+  if (/\bfinal\s+clean(?:up)?\b/i.test(text)) return true;
+  return text.split(/[.!?\n]/).some(sentence => {
+    if (!/\b(?:haul(?:ed)?[\s-]?off|disposal)\b/i.test(sentence)) return false;
+    if (
+      /\b(?:tile|pan|cabinet|vanity|toilet|tub|door|surround|counter(?:top)?|thinset)\b/i.test(
+        sentence
+      )
+    ) {
+      return false;
+    }
+    return /\bdebris\b/i.test(sentence);
+  });
+}
+
+/**
+ * "Waterproof the new mud pan" is the pan. Wall backer stays on wall sqft
+ * only when the note actually names the walls or wall tile.
+ */
+export function notesWaterproofPanNotWalls(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomAffirmativeNotes(notes);
+  if (!/\bwaterproof/i.test(text)) return false;
+  if (!/\b(?:mud\s+pan|shower\s+pan|tile\s+shower\s+pan|shower\s+floor)\b/i.test(text)) {
+    return false;
+  }
+  if (
+    /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|backer\s+board|cement\s+board)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 const TILE_PAN =
   /\b(?:tile\s+shower\s+pan|shower\s+pan|mud\s+pan|tile\s+pan)\b/i;
 const TUB_TEAR_OUT =
@@ -150,12 +195,24 @@ export function bathroomScopeLines(
   }
   if (namedInNotes('shower_tile')) push('shower_tile', 'Shower wall tile');
   if (namedInNotes('shower_pan')) push('shower_pan', 'Tile shower pan');
+  if (namedInNotes('shower_floor_tile')) {
+    push('shower_floor_tile', 'Shower floor tile');
+  }
   if (namedInNotes('waterproofing')) {
-    push('waterproofing', 'Shower waterproofing & backer board');
+    push(
+      'waterproofing',
+      notesWaterproofPanNotWalls(notes)
+        ? 'Shower pan waterproofing'
+        : 'Shower waterproofing & backer board'
+    );
   }
   if (namedInNotes('shower_niche')) push('shower_niche', 'Shower niche');
   if (namedInNotes('shower_bench')) push('shower_bench', 'Shower bench');
   if (namedInNotes('glass_door')) push('glass_door', 'Shower door');
+  if (notesReuseExistingShowerDoor(notes)) {
+    push('glass_door_reuse_remove', 'Remove existing shower door');
+    push('glass_door_reuse_install', 'Reinstall existing shower door');
+  }
   if (notesMentionDemoShowerDoor(affirmative)) {
     push('glass_door_demo', 'Remove shower door');
   }
@@ -243,15 +300,14 @@ export function bathroomChecklistItemNamedInNotes(
   const text = bathroomMeasurementNotes(notes);
   switch (id) {
     case 'demo':
+      // A mud-pan tear-out is the pan line. This card is wall tile coming out.
       if (
         named(PREFAB, text) &&
-        !/\b(?:tile\s+shower|shower\s+walls?|wall\s+tile|shower\s+tile)\b/i.test(
-          text
-        )
+        !named(SHOWER_WALL_TILE, text)
       ) {
         return false;
       }
-      return named(SHOWER_TILE_WORK, text);
+      return named(SHOWER_WALL_TILE, text);
     case 'floor_demo':
       return named(BATH_FLOOR_DEMO, text);
     case 'tub_demo':
@@ -297,6 +353,9 @@ export function bathroomChecklistItemNamedInNotes(
       return /\bbench\b/i.test(text);
     case 'glass_door':
       return notesInstallNewShowerDoor(text);
+    case 'glass_door_reuse_remove':
+    case 'glass_door_reuse_install':
+      return notesReuseExistingShowerDoor(notes);
     case 'floor_tile':
       return named(BATH_FLOOR_TILE, text);
     case 'marble_threshold':
@@ -344,8 +403,11 @@ export function bathroomChecklistItemNamedInNotes(
     case 'permits':
       return /\bpermits?\b/i.test(text);
     case 'cleanup':
-      return /\b(?:cleanup|clean[\s-]?up|haul(?:ed)?[\s-]?off|disposal)\b/i.test(
-        text
+      return (
+        notesAskForSeparateHaulOff(notes) ||
+        /\b(?:cleanup|clean[\s-]?up|haul(?:ed)?[\s-]?off|disposal)\b/i.test(
+          text
+        )
       );
     case 'drywall':
     case 'drywall_demo':
@@ -355,6 +417,27 @@ export function bathroomChecklistItemNamedInNotes(
     default:
       return false;
   }
+}
+
+/**
+ * The existing door stays on the job. It comes off for the tile and goes back on.
+ * A door that is torn out, or a new door, is not a reuse.
+ */
+export function notesReuseExistingShowerDoor(
+  notes: string | null | undefined
+): boolean {
+  if (notesInstallNewShowerDoor(notes) || notesMentionDemoShowerDoor(notes)) {
+    return false;
+  }
+  return String(notes || '')
+    .split(/[.!?\n]/)
+    .some(sentence => {
+      if (!/\bshower\s+doors?\b/i.test(sentence)) return false;
+      return (
+        /\b(?:keep(?:ing)?|reuse|reinstall|leave)\b/i.test(sentence) &&
+        /\b(?:existing|old|current)\b/i.test(sentence)
+      );
+    });
 }
 
 /**

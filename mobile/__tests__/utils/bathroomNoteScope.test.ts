@@ -2,6 +2,7 @@ import {
   bathroomChecklistItemNamedInNotes,
   bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
+  notesAskForSeparateHaulOff,
   notesKeepExistingWetArea,
   notesMentionStructuralFraming,
   shouldLimitBathroomChecklistToNotes,
@@ -97,6 +98,27 @@ describe('bathroom note checklist', () => {
     expect(bathroomChecklistItemNamedInNotes('paint_repair', notes)).toBe(
       false
     );
+  });
+
+  it('gives a dumpster and a final clean their own haul-off line', () => {
+    const notes =
+      'Remodel the bathroom. Demo the bathroom floor tile only. Scrape the thinset. Install new bathroom floor tile wall to wall. Order a dumpster for the debris and do a final clean when the tile is done. The tub, the shower walls, the vanity, and the toilet all stay in place. No paint and no new lighting.';
+    expect(namedIds(notes).sort()).toEqual(
+      ['cleanup', 'floor_demo', 'floor_tile'].sort()
+    );
+    expect(bathroomChecklistItemNamedInNotes('shower_floor_demo', notes)).toBe(
+      false
+    );
+    expect(bathroomChecklistItemNamedInNotes('lighting', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('paint_repair', notes)).toBe(
+      false
+    );
+    expect(notesAskForSeparateHaulOff(notes)).toBe(true);
+    expect(
+      notesAskForSeparateHaulOff(
+        'Remodel the bathroom. Demo the bathroom floor tile only. The thinset gets scraped and the old tile gets hauled off. Install new bathroom floor tile wall to wall.'
+      )
+    ).toBe(false);
   });
 
   it('keeps a floor-tile-only note off the tub, shower, vanity, and paint', () => {
@@ -300,12 +322,37 @@ describe('bathroom note checklist', () => {
     expect(filtered.map(item => item.id)).toEqual(['framing']);
   });
 
+  it('keeps a mud pan and shower floor tile off the walls and the bathroom floor', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing mud pan. Build a new mud pan and waterproof it. Install shower floor tile on the pan. Leave the shower walls, the bathroom floor, the vanity, and the toilet. No paint.';
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      [
+        'Remove tile shower pan',
+        'Shower floor tile',
+        'Shower pan waterproofing',
+        'Tile shower pan',
+        'Wet area install',
+      ].sort()
+    );
+    expect(bathroomChecklistItemNamedInNotes('demo', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('shower_tile', notes)).toBe(
+      false
+    );
+    expect(bathroomChecklistItemNamedInNotes('floor_tile', notes)).toBe(false);
+    expect(bathroomChecklistItemNamedInNotes('floor_demo', notes)).toBe(false);
+    expect(
+      bathroomChecklistItemNamedInNotes('shower_floor_tile', notes)
+    ).toBe(true);
+  });
+
   it('keeps the old shower door without a new door or a kept shower', () => {
     const notes =
       'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
     expect(notesKeepExistingWetArea(notes)).toBe(false);
     expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
       [
+        'Reinstall existing shower door',
+        'Remove existing shower door',
         'Remove tile shower pan',
         'Shower tile demo / tear-out',
         'Shower wall tile',
@@ -313,6 +360,10 @@ describe('bathroom note checklist', () => {
         'Wet area install',
       ].sort()
     );
+    expect(bathroomChecklistItemNamedInNotes('glass_door', notes)).toBe(false);
+    expect(
+      bathroomChecklistItemNamedInNotes('glass_door_demo', notes)
+    ).toBe(false);
     expect(notesKeepExistingWetArea('Leave the existing tub in place.')).toBe(
       true
     );

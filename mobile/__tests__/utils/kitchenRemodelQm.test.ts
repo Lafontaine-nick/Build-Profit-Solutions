@@ -603,6 +603,129 @@ describe('kitchenRemodel QM', () => {
     });
   });
 
+  it('prices unstated kitchen flooring as the national rate, matching the group total', () => {
+    const {
+      initialScopeMeasurementInputExtended,
+      resolveChecklistItemQuantity,
+      resolveScopeItemSuggestedPricing,
+    } = require('@/utils/scopeItemQuantities');
+    const { wholeProjectGroupDisplayTotal } = require('@/utils/benchmarkReasonablenessContext');
+    const { suggestedCardSourceChip, buildSuggestedPricingCardDisplay } = require('@/utils/suggestedPricingCardUi');
+    const notes =
+      'Kitchen remodel. Demo existing cabinets and countertops. Install 18 LF perimeter cabinets and a new island with 22 sqft of quartz. Perimeter counters 36 sqft. Tile backsplash 30 sqft. Kitchen floor 140 sqft LVP. Haul-off lump sum $650.';
+    const input = {
+      ...initialScopeMeasurementInputExtended(),
+      cabinetLf: '18',
+      countertopSqft: '36',
+      kitchenIslandCounterSqft: '22',
+      backsplashSqft: '30',
+      kitchenFloorSqft: '140',
+      flooringSqft: '140',
+    };
+    const flooringResolved = resolveChecklistItemQuantity('flooring', input, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    const flooring = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'kitchen',
+      flooringResolved,
+      null,
+      null,
+      notes
+    );
+    const backsplashResolved = resolveChecklistItemQuantity('backsplash', input, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    const backsplash = resolveScopeItemSuggestedPricing(
+      'backsplash',
+      input,
+      'kitchen',
+      backsplashResolved,
+      null,
+      null,
+      notes
+    );
+    expect(flooring.fill).toMatchObject({
+      total: 1199.8,
+      material: 533.4,
+      labor: 666.4,
+      mode: 'suggested_price',
+    });
+    expect(flooring.fill?.rateSourceLabel).toMatch(/national/i);
+    expect(flooring.fill?.mode).not.toBe('note_total_split');
+    const flooringDisplay = buildSuggestedPricingCardDisplay({
+      itemId: 'flooring',
+      block: flooring.fill,
+      forceStandardCard: true,
+    });
+    expect(suggestedCardSourceChip(flooring.fill, flooringDisplay)?.label).toBe(
+      'National average'
+    );
+    expect(backsplash.fill).toMatchObject({
+      total: 750,
+      mode: 'suggested_price',
+    });
+    const group = wholeProjectGroupDisplayTotal({
+      items: [
+        { id: 'backsplash', label: 'Backsplash', state: 'included', inputType: 'yes_no' },
+        { id: 'flooring', label: 'Kitchen flooring', state: 'included', inputType: 'yes_no' },
+      ],
+      measurements: input,
+      templateKey: 'kitchen',
+      notes,
+    });
+    expect(group).toBe(
+      Math.round(((backsplash.fill?.total || 0) + (flooring.fill?.total || 0)) * 100) / 100
+    );
+  });
+
+  it('prices a stated haul-off lump instead of the national cleanup allowance', () => {
+    const {
+      initialScopeMeasurementInputExtended,
+      resolveChecklistItemQuantity,
+      resolveScopeItemSuggestedPricing,
+    } = require('@/utils/scopeItemQuantities');
+    const notes =
+      'Kitchen remodel. Demo existing cabinets and countertops. Haul-off lump sum $650.';
+    const input = {
+      ...initialScopeMeasurementInputExtended(),
+      itemQuantities: {
+        haul_off: {
+          quantity: 650,
+          unit: 'lump_sum',
+          quantitySource: 'notes',
+        },
+      },
+    };
+    const resolved = resolveChecklistItemQuantity('haul_off', input, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'haul_off',
+      input,
+      'kitchen',
+      resolved,
+      null,
+      null,
+      notes
+    );
+    expect(resolved).toMatchObject({
+      quantity: 650,
+      unit: 'lump_sum',
+      quantitySource: 'notes',
+    });
+    expect(pricing.fill).toMatchObject({
+      total: 650,
+      material: 0,
+      labor: 650,
+      lumpSumOnly: true,
+    });
+  });
+
   it('syncs island demo and install scope cards from QM steppers', () => {
     const items = [
       item('island_demo', 'unsure'),

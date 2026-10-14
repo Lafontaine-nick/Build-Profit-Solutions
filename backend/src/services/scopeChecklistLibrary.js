@@ -2996,6 +2996,17 @@ function notesImplyDedicatedElectricalScope(notes) {
   return !companionTradeSignal.test(text);
 }
 
+function notesDescribeDedicatedDrywallJob(notes) {
+  const text = String(notes || "");
+  if (!/\bhang\s+and\s+finish\b/i.test(text)) return false;
+  const namesDrywall = /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
+  const namesFinishWork = /\b(?:tape|mud|texture)\b/i.test(text);
+  if (!namesDrywall && !namesFinishWork) return false;
+  return !/\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i.test(
+    text,
+  );
+}
+
 function checklistTemplateKey(draft, estimateTier, originalNotes) {
   const projectType = String(draft.projectType || "other").toLowerCase();
   const notes = notesText(draft, originalNotes);
@@ -3206,6 +3217,7 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   }
   if (
     projectType === "drywall" ||
+    notesDescribeDedicatedDrywallJob(notes) ||
     /\b(drywall\s+(?:hang|finish|patch)|sheetrock)\b/i.test(notes)
   ) {
     return "drywall";

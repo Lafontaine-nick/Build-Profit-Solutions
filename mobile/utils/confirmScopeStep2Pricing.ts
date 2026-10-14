@@ -1,5 +1,8 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
-import { resolveBathroomGlassDoorSuggestedPricing } from '@/utils/bathroomGlassDoorPricing';
+import {
+  notesInferBathroomGlassDoorStyle,
+  resolveBathroomGlassDoorSuggestedPricing,
+} from '@/utils/bathroomGlassDoorPricing';
 import { resolveKitchenBacksplashDemoSuggestedPricing } from '@/utils/kitchenBacksplashDemoPricing';
 import {
   parseEnteredBathroomPatchSqft,
@@ -161,6 +164,8 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   floor_tile: { tier: 'auto_planning' },
   marble_threshold: { tier: 'auto_planning' },
   waterproofing: { tier: 'auto_planning' },
+  glass_door_reuse_remove: { tier: 'auto_planning' },
+  glass_door_reuse_install: { tier: 'auto_planning' },
   glass_door: {
     tier: 'prompt_first',
     promptKey: 'glass_door_style',
@@ -460,6 +465,7 @@ export function step2TierNeedsInlineTakeoffEntry(
 export type Step2ComponentSuggestedPricingParams = {
   itemId: string;
   templateKey?: string | null;
+  notes?: string | null;
   measurementsInput: ScopeMeasurementsInputExtended;
   resolved: {
     quantity?: number | null;
@@ -772,10 +778,17 @@ export function resolveStep2ComponentSuggestedPricing(
       qty != null && qty > 0
         ? qty
         : parseScopeMeasurementInput(measurementsInput.showerDoorCount) || 1;
+    const userPickedStyle =
+      measurementsInput.bathroomGlassDoorStyleSource === 'user_selected' &&
+      Boolean(measurementsInput.bathroomGlassDoorStyle);
+    const style = userPickedStyle
+      ? measurementsInput.bathroomGlassDoorStyle
+      : notesInferBathroomGlassDoorStyle(params.notes) ||
+        measurementsInput.bathroomGlassDoorStyle;
     const glass = resolveBathroomGlassDoorSuggestedPricing({
       quantity: doors,
       showerDoorCount: parseScopeMeasurementInput(measurementsInput.showerDoorCount),
-      style: measurementsInput.bathroomGlassDoorStyle,
+      style,
     });
     if (glass !== undefined) return glass;
     return undefined;

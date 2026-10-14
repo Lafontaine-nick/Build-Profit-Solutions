@@ -422,6 +422,42 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(premium?.fill?.total).toBe(2500);
   });
 
+  it('prices a new frameless shower door at the premium tier from the note', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile, the tile shower pan, and the old shower door. Install new shower wall tile, a new tile shower pan, and a new frameless shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+    } as never);
+    const priced = resolveScopeItemSuggestedPricing(
+      'glass_door',
+      { ...input, showerDoorCount: 1 },
+      'bathroom',
+      { quantity: 1, unit: 'each', quantitySource: 'inferred' },
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(2500);
+    expect(priced.fill?.material).toBe(1550);
+    expect(priced.fill?.labor).toBe(950);
+
+    const kept = resolveScopeItemSuggestedPricing(
+      'glass_door',
+      {
+        ...input,
+        showerDoorCount: 1,
+        bathroomGlassDoorStyle: 'standard_slider',
+        bathroomGlassDoorStyleSource: 'user_selected',
+      },
+      'bathroom',
+      { quantity: 1, unit: 'each', quantitySource: 'inferred' },
+      {},
+      null,
+      notes
+    );
+    expect(kept.fill?.total).toBe(1450);
+  });
+
   it('does not create a ready paint price until paint scope option is selected', () => {
     const input = initialScopeMeasurementInputExtended({
       scopeChecklist: { templateKey: 'bathroom' },
@@ -784,6 +820,69 @@ describe('bathroom shower tile demo suggested pricing', () => {
     expect(doorDemo.fill?.total).toBe(125);
   });
 
+  it('prices nonstructural wall demolition from the wall demo area', () => {
+    const notes =
+      'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';
+    const priced = resolveScopeItemSuggestedPricing(
+      'demo',
+      { wallDemoSqft: '200', itemQuantities: {} },
+      'framing',
+      { quantity: 200, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(300);
+    expect(priced.fill?.material).toBe(50);
+    expect(priced.fill?.labor).toBe(250);
+    expect(priced.fill?.displayUnitRateLabel).toBe('200 sqft × $1.50/sqft');
+  });
+
+  it('prices noted wall sqft as stud wall linear feet, not the house shell rate', () => {
+    const notes =
+      'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      { wallFramingSqft: '1600', itemQuantities: {} },
+      'framing',
+      { quantity: 1600, unit: 'sqft', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(2400);
+    expect(priced.fill?.material).toBe(800);
+    expect(priced.fill?.labor).toBe(1600);
+    expect(priced.fill?.displayUnitRateLabel).toBe(
+      `${(1600).toLocaleString()} sqft at 8 ft · 200 LF × $12/LF`
+    );
+  });
+
+  it('does not price noted wall sqft as 1,600 linear feet', () => {
+    const notes =
+      'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      {
+        framedAreaSqft: '1600',
+        itemQuantities: {
+          wall_framing: {
+            quantity: 1600,
+            unit: 'lf',
+            quantitySource: 'notes',
+          },
+        },
+      },
+      'framing',
+      { quantity: 1600, unit: 'lf', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(2400);
+    expect(priced.fill?.basis).toMatchObject({ quantity: 200, unit: 'lf' });
+  });
+
   it('prices bathroom wall framing as stud wall linear feet, not the house shell rate', () => {
     const notes =
       'Remodel the bathroom. Frame the bathroom walls to move the shower to the opposite wall. Leave the vanity and the toilet. No paint.';
@@ -853,5 +952,42 @@ describe('bathroom shower tile demo suggested pricing', () => {
     expect(threshold.fill?.labor).toBe(165);
     expect(threshold.fill?.basis).toMatchObject({ quantity: 1, unit: 'each' });
     expect(floorTile.fill?.total).toBe(1250);
+  });
+
+  it('prices a kept shower door as a pull and a rehang, not a new door', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    const measurements = { itemQuantities: {} };
+    const remove = resolveScopeItemSuggestedPricing(
+      'glass_door_reuse_remove',
+      measurements,
+      'bathroom',
+      resolveChecklistItemQuantity('glass_door_reuse_remove', measurements as never, {
+        templateKey: 'bathroom',
+        notes,
+      }),
+      {},
+      null,
+      notes
+    );
+    const rehang = resolveScopeItemSuggestedPricing(
+      'glass_door_reuse_install',
+      measurements,
+      'bathroom',
+      resolveChecklistItemQuantity('glass_door_reuse_install', measurements as never, {
+        templateKey: 'bathroom',
+        notes,
+      }),
+      {},
+      null,
+      notes
+    );
+    expect(remove.fill?.total).toBe(150);
+    expect(remove.fill?.material).toBe(25);
+    expect(remove.fill?.labor).toBe(125);
+    expect(rehang.fill?.total).toBe(320);
+    expect(rehang.fill?.material).toBe(40);
+    expect(rehang.fill?.labor).toBe(280);
+    expect(rehang.fill?.basis).toMatchObject({ quantity: 1, unit: 'each' });
   });
 });

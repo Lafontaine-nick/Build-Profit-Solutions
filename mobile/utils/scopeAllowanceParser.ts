@@ -114,9 +114,16 @@ const ITEM_ALLOWANCE_MATCHERS: AllowanceMatcher[] = [
     unit: 'allowance',
   },
   {
+    id: 'haul_off',
+    match: /\bhaul[\s-]?off\b/i,
+    exclude:
+      /\b(?:demo|demolition|tear[\s-]?out|cabinets?|countertops?|counters?|backsplash|floor(?:ing)?)\b/i,
+    unit: 'lump_sum',
+  },
+  {
     id: 'cleanup',
     match:
-      /\b(cleanup|disposal|dumpster|debris|haul[\s-]?off|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
+      /\b(cleanup|disposal|dumpster|debris|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
     exclude: /\b(demo|demolition|tear[\s-]?out)\b/i,
     unit: 'lump_sum',
   },

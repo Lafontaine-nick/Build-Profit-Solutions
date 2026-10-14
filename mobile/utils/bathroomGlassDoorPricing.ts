@@ -46,6 +46,29 @@ export function resolveBathroomGlassDoorStyle(
   return 'unsure';
 }
 
+/**
+ * A new frameless shower door is the premium tier. Semi-frameless stays a
+ * standard slider. Keeping the existing door is not a style.
+ */
+export function notesInferBathroomGlassDoorStyle(
+  notes: string | null | undefined
+): BathroomGlassDoorStyle | null {
+  const frameless = String(notes || '')
+    .split(/[.!?\n]/)
+    .some(sentence => {
+      if (!/\bshower\s+doors?\b/i.test(sentence)) return false;
+      if (
+        /\b(?:keep(?:ing)?|reuse|reinstall|leave)\b/i.test(sentence) &&
+        /\b(?:existing|old|current)\b/i.test(sentence) &&
+        !/\b(?:install|new|replace)\b/i.test(sentence)
+      ) {
+        return false;
+      }
+      return /(?<!semi[-\s])frameless\b/i.test(sentence);
+    });
+  return frameless ? 'premium_frameless' : null;
+}
+
 export function resolveBathroomGlassDoorDoorCount(params: {
   quantity?: number | null;
   showerDoorCount?: number | null;

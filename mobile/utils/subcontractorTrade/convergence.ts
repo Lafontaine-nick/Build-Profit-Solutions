@@ -37,6 +37,8 @@ import {
   isShellFramingPackageBid,
   normalizeFramingPlanMeasurements,
   normalizeFramingScalarMeasurements,
+  notesFrameExplicitWallArea,
+  notesNameCoveredFramedFloor,
   parseFramingMeasurementsFromNotes,
   shouldStripShellFramingComponentMeasurement,
 } from './framingPlanConvergence';
@@ -475,13 +477,21 @@ export function normalizeTradeMeasurements(
   }
 
   if (tradeKey === 'framing') {
+    const framingNotes = String(input.notes || '');
+    const parsedFramingNotes = parseFramingMeasurementsFromNotes(framingNotes);
     const framingInput =
       source === 'plan'
         ? normalizeFramingPlanMeasurements(input)
         : source === 'notes'
           ? {
-              ...parseFramingMeasurementsFromNotes(String(input.notes || '')),
+              ...parsedFramingNotes,
               ...input,
+              ...parsedFramingNotes,
+              ...(parsedFramingNotes.wallFramingSqft &&
+              notesFrameExplicitWallArea(framingNotes) &&
+              !notesNameCoveredFramedFloor(framingNotes)
+                ? { framedAreaSqft: undefined, floorAreaSqft: undefined }
+                : {}),
             }
           : input;
     const quantitySource = source === 'plan' ? 'plan_detected' : 'user_entered';

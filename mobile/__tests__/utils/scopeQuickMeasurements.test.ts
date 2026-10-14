@@ -821,6 +821,41 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('cabinetLf');
   });
 
+  it('keeps a wall-framing note off garage and living area fields', () => {
+    const notes =
+      'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';
+    const keys = quickMeasurementRowsForTemplate('framing', 'framing', notes)
+      .flat()
+      .map(field => field.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'wallFramingSqft',
+        'wallDemoSqft',
+        'sheathingSqft',
+        'framingOpeningCount',
+      ])
+    );
+    expect(keys.filter(key => key === 'wallFramingSqft')).toHaveLength(1);
+    expect(keys).not.toContain('framedAreaSqft');
+    expect(keys).not.toContain('wallFramingLf');
+    expect(keys).not.toContain('garageSqft');
+    expect(keys).not.toContain('floorAreaSqft');
+  });
+
+  it('does not ask for wall area when the note only frames rough openings', () => {
+    const notes = 'Do not frame any new walls. Frame four rough openings.';
+    const keys = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('framingOpeningCount');
+    expect(keys).not.toContain('wallFramingSqft');
+    expect(keys).not.toContain('framedAreaSqft');
+    expect(keys).not.toContain('wallFramingLf');
+  });
+
   it('exposes note-backed framing measurements inside a mixed remodel', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
@@ -832,7 +867,7 @@ describe('scopeQuickMeasurements', () => {
 
     expect(keys).toEqual(
       expect.arrayContaining([
-        'framedAreaSqft',
+        'wallFramingSqft',
         'framingOpeningCount',
         'sheathingSqft',
         'drywallSqft',

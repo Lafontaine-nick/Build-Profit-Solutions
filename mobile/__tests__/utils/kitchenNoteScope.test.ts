@@ -1,6 +1,16 @@
+import { repairDraftRatePricingFromNotes } from '../../utils/estimateAiDraft';
+import { groupScopeChecklistItems } from '../../utils/estimateScopeChecklistUi';
+import {
+  getInitialRevealConfirmItems,
+  getInitialRevealUnderstoodBullets,
+} from '../../utils/estimateInitialRevealUi';
 import {
   filterDedicatedKitchenConfirmItems,
+  kitchenConfirmScopeSeedItems,
   kitchenNoteIncludesFloorWork,
+  kitchenNoteNamesBacksplash,
+  kitchenNoteNamesCabinetWork,
+  kitchenNoteNamesCounterWork,
   kitchenNoteNamesSurfaceDemo,
 } from '../../utils/kitchenNoteScope';
 
@@ -172,7 +182,106 @@ describe('kitchen measurement visibility from notes', () => {
       'island',
       'cabinets',
       'countertops',
-      'cleanup',
+      'haul_off',
+    ]);
+  });
+
+  it('reads a shorthand kitchen reno as kitchen confirm scope', () => {
+    const notes =
+      'Kitchen reno. Cabs 20 LF, tops 48 sqft, splash 35 sqft, LVP 160 sqft. Four can lights. Sink hookup. No prices yet.';
+    expect(kitchenNoteNamesCabinetWork(notes)).toBe(true);
+    expect(kitchenNoteNamesCounterWork(notes)).toBe(true);
+    expect(kitchenNoteNamesBacksplash(notes)).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'cabinet')).toBe(false);
+    expect(kitchenNoteIncludesFloorWork(notes)).toBe(true);
+    const filtered = filterDedicatedKitchenConfirmItems(
+      kitchenConfirmScopeSeedItems(),
+      { templateKey: 'kitchen', projectType: 'kitchen', notes }
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'flooring',
+      'lighting',
+      'plumbing',
+    ]);
+    const withPricedCans = filterDedicatedKitchenConfirmItems(
+      [
+        ...kitchenConfirmScopeSeedItems(),
+        {
+          id: 'electrical_recessed_light',
+          label: 'Recessed / canless / wafer light',
+        },
+      ],
+      { templateKey: 'kitchen', projectType: 'kitchen', notes }
+    );
+    expect(withPricedCans.map(item => item.id)).toEqual([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'flooring',
+      'plumbing',
+      'electrical_recessed_light',
+    ]);
+    expect(
+      withPricedCans.find(item => item.id === 'electrical_recessed_light')
+        ?.label
+    ).toBe('Can lights');
+    const trades = groupScopeChecklistItems(withPricedCans, 'kitchen', {
+      notes,
+    }).find(group => group.title === 'Trades');
+    expect(trades?.items.map(item => item.id)).toEqual([
+      'plumbing',
+      'electrical_recessed_light',
+    ]);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'flooring',
+        projectTitle: 'Kitchen Renovation Estimate',
+        estimateTier: 'simple_unit',
+        originalNotes: notes,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+        scopePackages: [{ name: 'Kitchen' }],
+        rooms: [],
+        inclusions: [],
+        exclusions: [],
+        missingInfo: [],
+        pricingWarnings: [],
+        whatAiDid: ['Detected flooring job.'],
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    expect(repaired.projectType).toBe('kitchen');
+    expect(repaired.estimateTier).toBe('room_remodel');
+    expect(repaired.scopeChecklist?.templateKey).toBe('kitchen');
+    expect(repaired.requiresScopeConfirmation).toBe(true);
+    expect(repaired.whatAiDid).toEqual(['Detected kitchen remodel.']);
+    expect(repaired.scopeMeasurements?.cabinetLf).toBe(20);
+    expect(repaired.scopeMeasurements?.countertopSqft).toBe(48);
+    expect(repaired.scopeMeasurements?.backsplashSqft).toBe(35);
+    expect(repaired.scopeMeasurements?.kitchenFloorSqft).toBe(160);
+    expect(repaired.scopeMeasurements?.recessedLightCount).toBe(4);
+    expect(repaired.scopeMeasurements?.itemQuantities?.lighting).toMatchObject({
+      quantity: 4,
+      unit: 'each',
+    });
+    expect(repaired.stillNeededReview).toEqual([]);
+    expect(getInitialRevealUnderstoodBullets(repaired, 6)).toEqual([
+      'Cabinets',
+      'Countertops',
+      'Backsplash',
+      'Kitchen flooring',
+      'Can lights',
+      'Sink hookup',
+    ]);
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
+      'Price needed for Cabinets',
+      'Price needed for Countertops',
+      'Price needed for Backsplash',
+      'Price needed for Kitchen flooring',
+      'Price needed for Can lights',
+      'Price needed for Sink hookup',
     ]);
   });
 

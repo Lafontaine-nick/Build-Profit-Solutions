@@ -1,3 +1,4 @@
+import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   parsePlumbingMeasurementsFromNotes,
@@ -345,6 +346,7 @@ const MEASUREMENT_FIELD_TYPES: Record<string, MeasurementType[]> = {
   wallPaintSqft: ['paintable_surface_area', 'wall_surface_area', 'ceiling_surface_area'],
   framedAreaSqft: ['building_floor_area', 'conditioned_floor_area'],
   sheathingSqft: ['exterior_wall_area', 'wall_surface_area'],
+  wallFramingSqft: ['wall_surface_area', 'linear_length'],
   wallFramingLf: ['linear_length', 'perimeter'],
   framingOpeningCount: ['opening_count'],
 };
@@ -498,8 +500,8 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   framing: ENTRY('framing', ['sqft'], ['building_floor_area', 'conditioned_floor_area'], ['linear_length'], {
     alternateUnits: ['lf', 'each', 'board_foot', 'allowance', 'lump_sum'],
   }),
-  wall_framing: ENTRY('framing', ['lf'], ['linear_length'], ['building_floor_area'], {
-    alternateUnits: ['sqft', 'each', 'allowance', 'lump_sum'],
+  wall_framing: ENTRY('framing', ['lf', 'sqft'], ['linear_length', 'wall_surface_area'], [], {
+    alternateUnits: ['each', 'allowance', 'lump_sum'],
   }),
   shear_sheathing: ENTRY('framing', ['sqft'], ['exterior_wall_area', 'wall_surface_area'], ['building_floor_area'], {
     alternateUnits: ['allowance', 'lump_sum'],
@@ -1318,11 +1320,19 @@ export function resolveScopeItemIntelligence(params: {
     rule,
     resolved: params.resolved,
   });
-  const formula = calculateFormulaForScope({
-    scopeKey: params.scopeKey,
-    measurements: params.measurements,
-    projectContext: params.templateKey,
-  });
+  const statedDrywallHang =
+    notesDescribeDedicatedDrywallJob(params.notes) &&
+    (params.scopeKey === 'drywall' ||
+      params.scopeKey === 'hang' ||
+      params.scopeKey === 'finish_tape') &&
+    Number(params.resolved.quantity) > 0;
+  const formula = statedDrywallHang
+    ? null
+    : calculateFormulaForScope({
+        scopeKey: params.scopeKey,
+        measurements: params.measurements,
+        projectContext: params.templateKey,
+      });
   const calculatedValue = formula?.roundedValue ?? null;
   const formulaComparison =
     formula && params.resolved.quantity != null && calculatedValue != null && params.resolved.quantity > 0

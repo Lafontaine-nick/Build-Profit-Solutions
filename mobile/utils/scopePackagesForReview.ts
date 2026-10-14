@@ -19,6 +19,13 @@ import {
   type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
+import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import {
+  notesFrameExplicitWallArea,
+  notesMentionAffirmativeWallFraming,
+  notesNameCoveredFramedFloor,
+  notesWithoutDeniedSentences,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { benchmarkEngineV1Enabled } from '@/utils/benchmarkEngine';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics/flags';
 import type { NormalizedScopeMeasurements } from '@/utils/scopeItemQuantities';
@@ -203,7 +210,11 @@ export function buildConfirmScopeDisplayItems(
           'Install the note-specified flooring area; confirm the flooring product.',
       };
     }
-    if (row.id === 'drywall' && genericExistingDrywall) {
+    if (
+      row.id === 'drywall' &&
+      genericExistingDrywall &&
+      !notesDescribeDedicatedDrywallJob(noteText)
+    ) {
       return {
         ...row,
         label: 'Drywall patch / repair',
@@ -215,15 +226,14 @@ export function buildConfirmScopeDisplayItems(
   });
   const noteBackedStructuralCards: Array<ScopeChecklistItem> = [];
   const noteMentionsWallDemolition = noteMentionsGeneralWallDemolition(noteText);
-  const noteMentionsWallFraming =
-    /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
-      notesWithoutWetAreaFraming(noteText)
-    );
+  const noteMentionsWallFraming = notesMentionAffirmativeWallFraming(
+    notesWithoutWetAreaFraming(noteText)
+  );
   const noteMentionsSheathing =
     /\b(?:structural\s+)?sheathing\b/i.test(noteText);
   const noteMentionsOpenings =
-    /\b(?:\w+\s+)?(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
-      noteText
+    /\brough\s+openings?\b|\b(?:\w+\s+)?(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+      notesWithoutDeniedSentences(noteText)
     );
   const noteMentionsExteriorTrimPaint =
     /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
@@ -246,9 +256,13 @@ export function buildConfirmScopeDisplayItems(
       noteBacked: true,
     });
   }
+  const dedicatedWallAreaFraming =
+    String(templateKey || '').toLowerCase() === 'framing' &&
+    notesFrameExplicitWallArea(noteText) &&
+    !notesNameCoveredFramedFloor(noteText);
   if (noteMentionsWallFraming) {
     noteBackedStructuralCards.push({
-      id: 'framing',
+      id: dedicatedWallAreaFraming ? 'wall_framing' : 'framing',
       inputType: 'yes_no',
       label: 'Wall framing',
       helperText:
@@ -336,6 +350,25 @@ export function buildConfirmScopeDisplayItems(
         expanded.push(card);
       }
     }
+  }
+  if (dedicatedWallAreaFraming) {
+    const includedInStudWall = new Set([
+      'framing',
+      'layout',
+      'blocking',
+      'hardware',
+      'materials_package',
+      'labor',
+    ]);
+    const noteMentionsFramingCleanup =
+      /\b(?:cleanup|clean[\s-]?up|haul[\s-]?off|dumpster|debris|disposal)\b/i.test(
+        noteText
+      );
+    expanded = expanded.filter(
+      row =>
+        !includedInStudWall.has(row.id) &&
+        (noteMentionsFramingCleanup || row.id !== 'cleanup')
+    );
   }
   if (
     ['flooring', 'room_remodel'].includes(

@@ -129,6 +129,134 @@ describe('scopePackagesForReview', () => {
     );
   });
 
+  it('keeps a wall-area framing note to the named cards', () => {
+    const notes =
+      'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        { id: 'layout', label: 'Layout', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'wall_framing',
+          label: 'Wall framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'openings',
+          label: 'Door / window openings',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'blocking',
+          label: 'Blocking / backing',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'shear_sheathing',
+          label: 'Shear / sheathing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'hardware',
+          label: 'Hardware / connectors',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'materials_package',
+          label: 'Material package',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'labor',
+          label: 'Framing labor',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'cleanup',
+          label: 'Cleanup & disposal',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'framing',
+          label: 'Wall framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'framing',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual([
+      'wall_framing',
+      'openings',
+      'shear_sheathing',
+      'demo',
+    ]);
+    expect(rows.filter(row => row.label === 'Wall framing')).toHaveLength(1);
+  });
+
+  it('keeps a denied wall-framing note to rough openings only', () => {
+    const notes = 'Do not frame any new walls. Frame four rough openings.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'framing',
+          label: 'Wall framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'plumbing',
+          label: 'Plumbing',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'electrical',
+          label: 'Electrical',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'drywall',
+          label: 'Drywall',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'flooring',
+          label: 'Flooring',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        { id: 'paint', label: 'Paint', state: 'unsure', inputType: 'yes_no' },
+        { id: 'permits', label: 'Permits', state: 'unsure', inputType: 'yes_no' },
+        { id: 'demo', label: 'Demolition', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'openings',
+          label: 'Door / window openings',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual(['openings']);
+    expect(rows[0]?.state).toBe('included');
+  });
+
   it('restores note-backed framing cards in a mixed remodel', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';

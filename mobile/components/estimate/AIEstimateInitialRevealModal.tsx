@@ -21,6 +21,7 @@ import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AnimatedNumberText from '@/components/motion/AnimatedNumberText';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { notesDescribeDedicatedKitchenRemodel } from '@/utils/kitchenNoteScope';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import {
   countInitialRevealAttentionItems,
@@ -166,7 +167,10 @@ function AIEstimateInitialRevealModal({
             ) ||
             /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(bathroomRemodelNote)
           ? 8
-          : 2
+          : draft.projectType === 'kitchen' ||
+              notesDescribeDedicatedKitchenRemodel(bathroomRemodelNote)
+            ? 6
+            : 2
     );
 
     return {

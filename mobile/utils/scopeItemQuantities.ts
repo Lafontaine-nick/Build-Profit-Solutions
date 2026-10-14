@@ -3,6 +3,12 @@
  * Backend source of truth: backend/src/services/scopeItemQuantityCatalog.js
  */
 
+import { notesInferBathroomGlassDoorStyle } from '@/utils/bathroomGlassDoorPricing';
+import { notesWaterproofPanNotWalls } from '@/utils/bathroomNoteScope';
+import {
+  TILE_DEMO_LABOR_RATE,
+  TILE_PAN_DEMO_INSTALLED_RATE,
+} from '@/utils/bathroomWetAreaDemoPricing';
 import {
   kitchenNoteInstallsNewCabinets,
   kitchenNoteNamesSurfaceDemo,
@@ -251,6 +257,11 @@ import {
   isUndercountedDrywallSurface,
   syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
+import {
+  dedicatedDrywallIncludedPatchSqft,
+  notesDescribeDedicatedDrywallJob,
+  statedDedicatedDrywallDemoSqft,
+} from '@/utils/drywallNoteScope';
 import {
   copyDrywallQuantityFields,
   drywallPackageSurfacePlanningQuantity,
@@ -687,6 +698,7 @@ export type NormalizedScopeMeasurements = {
   patchRepairSqft: number | null;
   wallDemoSqft: number | null;
   framedAreaSqft: number | null;
+  wallFramingSqft: number | null;
   wallFramingLf: number | null;
   sheathingSqft: number | null;
   framingOpeningCount: number | null;
@@ -1151,6 +1163,45 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 615,
     sourceLabel:
       'Suggested budget split · National Average · shower door installed (standard slider)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'glazing',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  /**
+   * Pull and store the existing door so tile can go in. Not the $125 haul-off
+   * for a door that is leaving the job.
+   */
+  glass_door_reuse_remove: {
+    unit: 'each',
+    material: 25,
+    labor: 125,
+    materialBucketLabel: 'Protection',
+    laborBucketLabel: 'Pull and protect',
+    sourceLabel:
+      'Suggested budget split · National Average · remove and protect existing shower door',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'glazing',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  /**
+   * Hang the same door back after tile. No new door unit. New-door labor is $615.
+   */
+  glass_door_reuse_install: {
+    unit: 'each',
+    material: 40,
+    labor: 280,
+    materialBucketLabel: 'Silicone and hardware',
+    laborBucketLabel: 'Rehang existing door',
+    sourceLabel:
+      'Suggested budget split · National Average · reinstall existing shower door',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -1841,6 +1892,14 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     material: 0.85,
     labor: 1.25,
     sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
+  },
+  drywall_demo: {
+    unit: 'sqft',
+    // Removal is labor plus disposal. Labor uses the hang labor band.
+    material: 0.25,
+    labor: 1.25,
+    materialBucketLabel: 'Material',
+    sourceLabel: 'Suggested · National Average · drywall demolition sqft',
   },
   decking: {
     unit: 'sqft',
@@ -5378,6 +5437,7 @@ function buildSuggestedPricingCostBuckets(params: {
   materialRate?: number | null;
   laborRate?: number | null;
   lumpSumOnly?: boolean;
+  materialBucketLabel?: string | null;
   laborBucketLabel?: string | null;
 }): SuggestedPricingCostBucket[] {
   if (params.lumpSumOnly) {
@@ -5432,10 +5492,9 @@ function buildSuggestedPricingCostBuckets(params: {
   }
   const buckets: SuggestedPricingCostBucket[] = [];
   if (params.material > 0) {
-    const label = nationalAverageMaterialBucketLabel(
-      params.itemId,
-      params.average
-    );
+    const label =
+      params.materialBucketLabel ||
+      nationalAverageMaterialBucketLabel(params.itemId, params.average);
     buckets.push({
       key: costBucketKindForLabel(label),
       label,
@@ -5851,6 +5910,18 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['each'],
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 shower door removal. Edit if multiple.',
+  },
+  glass_door_reuse_remove: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper: 'One existing door pulled and protected. The door stays on the job.',
+  },
+  glass_door_reuse_install: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper: 'Hang the same door back after the tile. No new door unit.',
   },
   shower_tile: {
     defaultUnit: 'sqft',
@@ -7449,6 +7520,7 @@ export function normalizeScopeMeasurements(
     patchRepairSqft: num(measurements?.patchRepairSqft),
     wallDemoSqft: num(measurements?.wallDemoSqft),
     framedAreaSqft: num(measurements?.framedAreaSqft),
+    wallFramingSqft: num(measurements?.wallFramingSqft),
     wallFramingLf: num(measurements?.wallFramingLf),
     sheathingSqft: num(measurements?.sheathingSqft),
     framingOpeningCount: num(measurements?.framingOpeningCount),
@@ -8356,13 +8428,14 @@ const FRAMING_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   wall_framing: {
     defaultUnit: 'lf',
-    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallFramingLf',
+    measurementKeys: ['wallFramingSqft', 'wallFramingLf'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Enter stud wall LF when documented — separate from shell SF framing.',
-    missingMessage: 'Enter wall framing LF or pricing.',
+      'Square feet of walls being framed. An 8 ft wall is priced as stud wall by the linear foot.',
+    missingMessage: 'Enter wall framing area sqft or pricing.',
   },
   shear_sheathing: {
     defaultUnit: 'sqft',
@@ -9832,6 +9905,8 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     lighting: { unit: 'each' },
     exhaust_fan: { unit: 'each' },
     glass_door: { unit: 'each' },
+    glass_door_reuse_remove: { unit: 'each' },
+    glass_door_reuse_install: { unit: 'each' },
     appliances: { unit: 'each' },
     appliance_removal: { unit: 'each' },
     sink_faucet: { unit: 'each' },
@@ -10928,6 +11003,36 @@ export function getChecklistItemQuantityRuleOrDefault(
     getChecklistItemQuantityRule(itemId, templateKey) ??
     DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE
   );
+}
+
+function noteStatedLumpAmount(
+  measurements: {
+    itemQuantities?: Record<
+      string,
+      {
+        quantity?: unknown;
+        unit?: string | null;
+        quantitySource?: string | null;
+      } | undefined
+    > | null;
+  },
+  itemId: string
+): number | null {
+  const keys = itemId === 'haul_off' ? ['haul_off', 'cleanup'] : [itemId];
+  for (const key of keys) {
+    const stored = measurements.itemQuantities?.[key];
+    const amount = Number(String(stored?.quantity ?? '').replace(/,/g, ''));
+    const unit = String(stored?.unit || '').toLowerCase();
+    if (
+      stored?.quantitySource === 'notes' &&
+      Number.isFinite(amount) &&
+      amount > 1 &&
+      (unit === 'lump_sum' || unit === 'allowance')
+    ) {
+      return amount;
+    }
+  }
+  return null;
 }
 
 function parseStoredItemQuantity(
@@ -15633,6 +15738,107 @@ export function resolveScopeItemSuggestedPricing(
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const notesText = String(originalNotes || '');
+  const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(
+    notesText || String(measurementsInput.scopeNotes || '')
+  );
+  if (
+    dedicatedDrywallNote &&
+    (itemId === 'demo' || itemId === 'demo_removal') &&
+    Number(resolved.quantity) > 0 &&
+    String(resolved.unit || '').toLowerCase() === 'sqft'
+  ) {
+    const average = getNationalAverageBudgetSplit('drywall_demo', 'sqft');
+    const quantity = Number(resolved.quantity);
+    if (average && quantity > 0) {
+      const material = round2(quantity * average.material);
+      const labor = round2(quantity * average.labor);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: average.sourceLabel,
+          helper:
+            resolved.quantitySource === 'user_entered'
+              ? 'Drywall demolition area from Quick measurements.'
+              : 'Drywall demolition area from the notes.',
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity, unit: 'sqft' },
+          benchmarkAction: 'price_ready',
+          costBuckets: [
+            {
+              key: 'material',
+              label: 'Material',
+              amount: material,
+              rate: average.material,
+              source: 'national_average',
+            },
+            {
+              key: 'labor',
+              label: 'Labor',
+              amount: labor,
+              rate: average.labor,
+              source: 'national_average',
+            },
+          ],
+        },
+        comparison: null,
+      };
+    }
+  }
+  const includedPatch = dedicatedDrywallIncludedPatchSqft(
+    notesText || String(measurementsInput.scopeNotes || ''),
+    measurementsInput
+  );
+  if (itemId === 'patch_repair' && includedPatch) {
+    const hangLabel = includedPatch.hangSqft.toLocaleString();
+    const patchLabel = includedPatch.patchSqft.toLocaleString();
+    return {
+      fill: {
+        material: 0,
+        labor: 0,
+        total: 0,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'Included in drywall hang / finish',
+        helper: `${patchLabel} sqft of patch repair is already in that price. No separate charge.`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity: includedPatch.patchSqft, unit: 'sqft' },
+        benchmarkAction: 'included_in_stage',
+        includedInStageLabel: `the ${hangLabel} sqft hang / finish`,
+        benchmarkScopeKey: 'patch_repair',
+      },
+      comparison: null,
+    };
+  }
+  if (itemId === 'haul_off' || itemId === 'cleanup') {
+    const amount = noteStatedLumpAmount(measurementsInput, itemId);
+    if (amount != null) {
+      const total = round2(amount);
+      return {
+        fill: {
+          material: 0,
+          labor: total,
+          total,
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: SCOPE_PARSED_FROM_NOTES_LABEL,
+          helper:
+            itemId === 'haul_off'
+              ? 'Haul-off allowance parsed from notes.'
+              : 'Cleanup allowance parsed from notes.',
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          benchmarkAction: 'price_ready',
+        },
+        comparison: null,
+      };
+    }
+  }
   if (
     itemId === 'framing' &&
     String(templateKey || '').toLowerCase() === 'bathroom'
@@ -15680,6 +15886,107 @@ export function resolveScopeItemSuggestedPricing(
       },
       comparison: null,
     };
+  }
+  if (
+    itemId === 'demo' &&
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,55}\bwalls?\b/i.test(
+      notesText
+    ) &&
+    !/\btile\b/i.test(notesText)
+  ) {
+    const wallDemoSqft = parseScopeMeasurementInput(
+      measurementsInput.wallDemoSqft
+    );
+    const average = getNationalAverageBudgetSplit('drywall_demo', 'sqft');
+    if (wallDemoSqft && wallDemoSqft > 0 && average) {
+      const material = round2(wallDemoSqft * average.material);
+      const labor = round2(wallDemoSqft * average.labor);
+      const perSqft = round2(average.material + average.labor);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: average.sourceLabel,
+          helper: 'Nonstructural wall demolition from Quick measurements.',
+          mode: 'suggested_price',
+          basis: { quantity: wallDemoSqft, unit: 'sqft' },
+          displayUnitRateLabel: `${wallDemoSqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'demo',
+        },
+        comparison: null,
+      };
+    }
+  }
+  if (itemId === 'wall_framing') {
+    const notedWallSqft = notesText.match(
+      /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i
+    );
+    const notedSqft = notedWallSqft
+      ? parseScopeMeasurementInput(notedWallSqft[1])
+      : null;
+    const wallSqft =
+      parseScopeMeasurementInput(
+        (measurementsInput as { wallFramingSqft?: unknown }).wallFramingSqft
+      ) ||
+      (notedSqft
+        ? null
+        : parseScopeMeasurementInput(measurementsInput.framedAreaSqft)) ||
+      notedSqft ||
+      (String(resolved.unit || '').toLowerCase() === 'sqft' &&
+      Number(resolved.quantity) > 0
+        ? Number(resolved.quantity)
+        : null);
+    if (wallSqft && wallSqft > 0) {
+      const studWall = regionalAdjustedNationalAverage(
+        'wall_framing',
+        'lf',
+        pricingContext
+      ).average;
+      const materialRate = Number(studWall?.material ?? 4);
+      const laborRate = Number(studWall?.labor ?? 8);
+      if (!(materialRate > 0) || !(laborRate > 0)) return empty;
+      const wallHeightFt = 8;
+      const linearFeet = Math.round((wallSqft / wallHeightFt) * 10) / 10;
+      const material = round2(linearFeet * materialRate);
+      const labor = round2(linearFeet * laborRate);
+      const perLf = round2(materialRate + laborRate);
+      const lfLabel = Number.isInteger(linearFeet)
+        ? String(linearFeet)
+        : linearFeet.toFixed(1);
+      const perLfLabel = Number.isInteger(perLf)
+        ? `$${perLf}`
+        : `$${perLf.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            studWall?.sourceLabel ||
+            'Suggested budget split · National Average · stud wall framing',
+          helper: `${wallSqft.toLocaleString()} sqft of wall at ${wallHeightFt} ft is ${lfLabel} LF of stud wall.`,
+          mode: 'suggested_price',
+          basis: { quantity: linearFeet, unit: 'lf' },
+          displayUnitRateLabel: `${wallSqft.toLocaleString()} sqft at ${wallHeightFt} ft · ${lfLabel} LF × ${perLfLabel}/LF`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'wall_framing',
+        },
+        comparison: null,
+      };
+    }
   }
   if (
     (itemId === 'backsplash' || itemId === 'flooring') &&
@@ -15810,6 +16117,34 @@ export function resolveScopeItemSuggestedPricing(
         : itemId === 'returns'
           ? 'return_grilles'
           : null;
+  if (
+    itemId === 'shower_floor_demo' &&
+    String(resolved.unit || '').toLowerCase() === 'sqft' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const qty = Number(resolved.quantity);
+    const materialRate = TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE;
+    const material = Math.round(qty * materialRate * 100) / 100;
+    const labor = Math.round(qty * TILE_DEMO_LABOR_RATE * 100) / 100;
+    return {
+      fill: {
+        material,
+        labor,
+        total: Math.round((material + labor) * 100) / 100,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested budget split · National Average · mud pan tear-out',
+        helper: `${qty.toLocaleString()} sqft mud pan × $${TILE_PAN_DEMO_INSTALLED_RATE.toFixed(2)}/SF`,
+        mode: 'suggested_price',
+        basis: { quantity: qty, unit: 'sqft' },
+        splitSource: 'source',
+        splitConfidence: 'medium',
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
+  }
   const canonicalPricingId =
     hvacCanonicalPricingId ||
     (itemId === 'interior_door_install'
@@ -18524,6 +18859,7 @@ export function resolveScopeItemSuggestedPricing(
   const componentSuggested = resolveStep2ComponentSuggestedPricing({
     itemId,
     templateKey,
+    notes: notesText,
     measurementsInput,
     resolved,
     pricingContext,
@@ -18684,6 +19020,10 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext
   );
   let average = averageInitial;
+  if (dedicatedDrywallNote && itemId === 'drywall') {
+    const national = getNationalAverageBudgetSplit(itemId, preferredUnit);
+    if (national) average = { ...national };
+  }
   const fixtureSupplyNotes = String(
     originalNotes || measurementsInput.scopeNotes || ''
   );
@@ -20217,7 +20557,8 @@ export function resolveScopeItemSuggestedPricing(
     ) &&
     !wholeProjectPlanOmitsFormulaTakeoff(
       measurementsInput as unknown as Record<string, unknown>
-    )
+    ) &&
+    !dedicatedDrywallNote
   ) {
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
@@ -20757,7 +21098,7 @@ export function resolveScopeItemSuggestedPricing(
     : dynamicFloorPrep || dynamicFlooringInstall
       ? (average?.labor ?? null)
       : (template?.laborRate ?? average?.labor ?? null);
-  if (itemId === 'drywall' && count > 0) {
+  if (itemId === 'drywall' && count > 0 && !dedicatedDrywallNote) {
     const measurementRecord = measurementsInput as Record<string, unknown>;
     const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
       measurementRecord,
@@ -20884,8 +21225,13 @@ export function resolveScopeItemSuggestedPricing(
   };
   const noteMaterial = enteredSplitQuantity(resolved.dualMaterial);
   const noteLabor = enteredSplitQuantity(resolved.dualLabor);
+  // Catalog planning dollars stored on the allowance are not a price the note
+  // stated. Treating them as a note lump keeps the national total, then
+  // re-splits it against the calibrated unit rate, so the card and the group
+  // total disagree and the chip says From notes.
+  const statedAllowance = enteredSplitQuantity(resolved.dualAllowance);
   const noteTotal =
-    resolved.dualAllowance?.quantity ??
+    statedAllowance ??
     (resolved.quantitySource === 'notes' &&
     (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
       ? resolved.quantity
@@ -21421,7 +21767,9 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext?.checklistItems
   );
   const drywallLaborBucketLabel =
-    itemId === 'drywall'
+    dedicatedDrywallNote && itemId === 'drywall'
+      ? 'Labor'
+      : itemId === 'drywall'
       ? drywallFinishLaborBucketLabel(drywallFinishChoice, {
           scope: 'complete',
         })
@@ -21479,6 +21827,8 @@ export function resolveScopeItemSuggestedPricing(
       laborSource: pricedLaborSource,
       materialRate: drywallBarometerLabel ? null : effectiveMaterialRateForBuckets,
       laborRate: drywallBarometerLabel ? null : effectiveLaborRate,
+      materialBucketLabel:
+        dedicatedDrywallNote && itemId === 'drywall' ? 'Material' : undefined,
       laborBucketLabel: drywallLaborBucketLabel,
     }),
     pricingRecordId: `bps_national:${itemId}:${unit}`,
@@ -21773,7 +22123,11 @@ export function overlayDualRatePricingDisplay(
     laborEntry == null
   ) {
     const split = getNationalAverageBudgetSplit(itemId, 'sqft');
-    if (split && (Number(split.material) > 0 || Number(split.labor) > 0)) {
+    if (
+      split &&
+      String(split.unit || 'sqft').toLowerCase() === 'sqft' &&
+      (Number(split.material) > 0 || Number(split.labor) > 0)
+    ) {
       materialEntry = {
         quantity: round2(countEntry.quantity * Number(split.material)),
         unit: 'allowance',
@@ -22926,6 +23280,16 @@ function resolveChecklistItemQuantityCore(
       missingMessage: 'Enter damaged drywall demolition area sqft.',
     };
   }
+  if (itemId === 'waterproofing' && notesWaterproofPanNotWalls(ctx.notes)) {
+    rule = {
+      ...rule,
+      measurementKey: 'showerFloorTileSqft',
+      measurementKeys: ['showerFloorTileSqft'],
+      quantityHelper:
+        'Mud pan sqft — membrane on the new pan. Wall backer stays off when the walls stay.',
+      missingMessage: 'Enter the mud pan sqft to price waterproofing.',
+    };
+  }
 
   const plumbingQuickMeasurement = resolvePlumbingCardQuickMeasurementQuantity(
     itemId,
@@ -23807,6 +24171,83 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  if (itemId === 'wall_framing') {
+    const wallSqft = Number(
+      String(measurements.wallFramingSqft ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(wallSqft) && wallSqft > 0) {
+      return {
+        quantity: wallSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Square feet of walls being framed. An 8 ft wall is priced as stud wall by the linear foot.',
+        missingMessage: 'Enter wall framing area sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (
+    (itemId === 'demo' || itemId === 'demo_removal') &&
+    notesDescribeDedicatedDrywallJob(ctx.notes)
+  ) {
+    const measuredDemoSqft = Number(
+      String(measurements.wallDemoSqft ?? '').replace(/,/g, '')
+    );
+    const demoSqft =
+      Number.isFinite(measuredDemoSqft) && measuredDemoSqft > 0
+        ? measuredDemoSqft
+        : statedDedicatedDrywallDemoSqft(ctx.notes);
+    if (demoSqft != null && demoSqft > 0) {
+      const userEntered = Boolean(
+        measurements.quickMeasurementUserOverrides?.wallDemoSqft
+      );
+      return {
+        quantity: demoSqft,
+        unit: 'sqft',
+        quantitySource: userEntered ? 'user_entered' : 'notes',
+        sourceLabel: userEntered ? 'Quick Measurements' : 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Drywall demolition area from Quick measurements.',
+        missingMessage: 'Enter drywall demolition sqft.',
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit: 'sqft',
+      quantitySource: 'missing',
+      sourceLabel: null,
+      pricingReady: false,
+      quantityHelper:
+        'Enter the demolition area in Quick measurements. The note does not give one.',
+      missingMessage: 'Enter drywall demolition sqft.',
+      showInput: false,
+    };
+  }
+  if (
+    itemId === 'drywall' &&
+    notesDescribeDedicatedDrywallJob(ctx.notes)
+  ) {
+    const hangSqft = Number(
+      String(measurements.drywallSqft ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(hangSqft) && hangSqft > 0) {
+      return {
+        quantity: hangSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Hang and finish area from the notes, including tape, mud, sanding, and texture.',
+        missingMessage: 'Enter hang and finish sqft.',
+        showInput: true,
+      };
+    }
+  }
   if (itemId === 'pour_flatwork') {
     const living = Number(
       String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
@@ -23875,6 +24316,24 @@ export function resolveChecklistItemQuantity(
       missingMessage: 'Needs conditioned living area for air sealing.',
       showInput: true,
     };
+  }
+  if (itemId === 'haul_off' || itemId === 'cleanup') {
+    const amount = noteStatedLumpAmount(measurements, itemId);
+    if (amount != null) {
+      return {
+        quantity: amount,
+        unit: 'lump_sum',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          itemId === 'haul_off'
+            ? 'Haul-off allowance from the note.'
+            : 'Cleanup allowance from the note.',
+        missingMessage: 'Enter haul-off pricing.',
+        showInput: true,
+      };
+    }
   }
   if (itemId === 'cabinet_hardware') {
     const stored = measurements.itemQuantities?.cabinet_hardware;
@@ -24052,7 +24511,9 @@ export function resolveChecklistItemQuantity(
         quantitySource: 'notes',
         sourceLabel: 'From notes',
         pricingReady: true,
-        quantityHelper: 'Uses the drywall repair area identified in the notes.',
+        quantityHelper: dedicatedDrywallIncludedPatchSqft(ctx.notes, measurements)
+          ? 'Included in the hang / finish area. No separate charge.'
+          : 'Uses the drywall repair area identified in the notes.',
         missingMessage: 'Enter patch/repair sqft.',
         showInput: true,
       };
@@ -24117,49 +24578,67 @@ export function resolveChecklistItemQuantity(
     }
   }
   if (itemId === 'shower_floor_demo') {
+    const notesText = String(ctx.notes || '');
+    const prefabPanCount = Number(
+      String(measurements.demoPrefabPanCount ?? '').replace(/,/g, '')
+    );
+    const prefabPan =
+      (Number.isFinite(prefabPanCount) && prefabPanCount > 0) ||
+      /\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b/i.test(notesText);
+    if (prefabPan) {
+      const count =
+        Number.isFinite(prefabPanCount) && prefabPanCount > 0
+          ? Math.round(prefabPanCount)
+          : 1;
+      return {
+        quantity: count,
+        unit: 'each',
+        quantitySource: 'calculated',
+        sourceLabel: 'Quick Measurements · prefab pan tear-out',
+        pricingReady: true,
+        quantityHelper: 'Prefab shower pan removal count.',
+        showInput: true,
+      };
+    }
     const existingTilePanCount = Number(
       String(measurements.existingTilePanCount ?? '').replace(/,/g, '')
     );
     const demoTilePanCount = Number(
       String(measurements.demoTilePanCount ?? '').replace(/,/g, '')
     );
-    const tilePanCount =
-      Number.isFinite(existingTilePanCount) && existingTilePanCount > 0
-        ? existingTilePanCount
-        : Number.isFinite(demoTilePanCount) && demoTilePanCount > 0
-          ? demoTilePanCount
-          : null;
-    if (tilePanCount != null) {
+    const tileOrMudPan =
+      (Number.isFinite(existingTilePanCount) && existingTilePanCount > 0) ||
+      (Number.isFinite(demoTilePanCount) && demoTilePanCount > 0) ||
+      (String(ctx.templateKey || '').toLowerCase() === 'bathroom' &&
+        /\b(?:tile\s+shower\s+pan|shower\s+pan|pan\s+liner|tile\s+pan|mud\s+pan)\b/i.test(
+          notesText
+        ));
+    if (tileOrMudPan) {
+      const panSqft = Number(
+        String(measurements.showerFloorTileSqft ?? '').replace(/,/g, '')
+      );
+      if (Number.isFinite(panSqft) && panSqft > 0) {
+        return {
+          quantity: panSqft,
+          unit: 'sqft',
+          quantitySource: measurements.quickMeasurementUserOverrides
+            ?.showerFloorTileSqft
+            ? 'user_entered'
+            : 'inferred',
+          sourceLabel: 'Quick Measurements · mud pan tear-out',
+          pricingReady: true,
+          quantityHelper: 'Mud pan tear-out area.',
+          showInput: true,
+        };
+      }
       return {
-        quantity: tilePanCount,
-        unit: 'each',
-        quantitySource:
-          existingTilePanCount > 0 ? 'user_entered' : 'calculated',
-        sourceLabel:
-          existingTilePanCount > 0
-            ? 'Quick Measurements · existing tile pan'
-            : 'Quick Measurements · tile pan tear-out',
-        pricingReady: true,
-        quantityHelper: 'Tile shower pan removal count.',
-        showInput: true,
-      };
-    }
-    if (
-      String(ctx.templateKey || '').toLowerCase() === 'bathroom' &&
-      /\b(?:tile\s+shower|shower\s+pan|pan\s+liner|tile\s+pan|mud\s+pan)\b/i.test(
-        String(ctx.notes || '')
-      ) &&
-      !/\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b/i.test(
-        String(ctx.notes || '')
-      )
-    ) {
-      return {
-        quantity: 1,
-        unit: 'each',
-        quantitySource: 'calculated',
-        sourceLabel: 'Notes · tile shower pan / liner',
-        pricingReady: true,
-        quantityHelper: 'Tile shower pan / liner removal count.',
+        quantity: null,
+        unit: 'sqft',
+        quantitySource: 'missing',
+        sourceLabel: sourceLabel('missing'),
+        pricingReady: false,
+        quantityHelper: 'Enter the mud pan sqft to price the tear-out.',
+        missingMessage: 'Enter the mud pan sqft to price the tear-out.',
         showInput: true,
       };
     }
@@ -25607,6 +26086,16 @@ function syncFramingQuantitiesIntoItemQuantities(
     let quantity = Number(
       String(enriched[card.measurementKey] ?? '').replace(/,/g, '')
     );
+    let quantityUnit = card.unit;
+    if (card.itemId === 'wall_framing' && !(quantity > 0)) {
+      const wallSqft = Number(
+        String(enriched.wallFramingSqft ?? '').replace(/,/g, '')
+      );
+      if (wallSqft > 0) {
+        quantity = wallSqft;
+        quantityUnit = 'sqft';
+      }
+    }
     if (
       card.measurementKey === 'framedAreaSqft' &&
       resolveCoveredFramedAreaSqft(enriched) != null
@@ -25631,10 +26120,12 @@ function syncFramingQuantitiesIntoItemQuantities(
         : 'user_entered';
     nextQuantities[card.itemId] = {
       quantity: String(quantity),
-      unit: card.unit,
+      unit: quantityUnit,
       quantitySource: source,
     };
-    enriched[card.measurementKey] = String(quantity);
+    if (quantityUnit === card.unit) {
+      enriched[card.measurementKey] = String(quantity);
+    }
     changed = true;
   }
   return changed
@@ -25976,6 +26467,7 @@ export function scopeMeasurementsToPayload(
     patchRepairSqft: parseScopeMeasurementInput(sanitized.patchRepairSqft),
     wallDemoSqft: parseScopeMeasurementInput(sanitized.wallDemoSqft),
     framedAreaSqft: parseScopeMeasurementInput(sanitized.framedAreaSqft),
+    wallFramingSqft: parseScopeMeasurementInput(sanitized.wallFramingSqft),
     wallFramingLf: parseScopeMeasurementInput(sanitized.wallFramingLf),
     sheathingSqft: parseScopeMeasurementInput(sanitized.sheathingSqft),
     framingOpeningCount: parseScopeMeasurementInput(
@@ -27990,6 +28482,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   plumbingScope?: ScopeMeasurements['plumbingScope'];
   framingScope?: ScopeMeasurements['framingScope'];
   framedAreaSqft?: string | number | null;
+  wallFramingSqft?: string | number | null;
   wallFramingLf?: string | number | null;
   sheathingSqft?: string | number | null;
   framingOpeningCount?: string | number | null;
@@ -29315,13 +29808,22 @@ export function initialScopeMeasurementInputExtended(
       suggested?.bathroomInteriorPaintConditionSource ??
       null,
     bathroomGlassDoorStyle:
-      saved?.bathroomGlassDoorStyle ??
-      suggested?.bathroomGlassDoorStyle ??
-      null,
+      saved?.bathroomGlassDoorStyleSource === 'user_selected' &&
+      saved?.bathroomGlassDoorStyle
+        ? saved.bathroomGlassDoorStyle
+        : notesInferBathroomGlassDoorStyle(scopeNotes) ||
+          saved?.bathroomGlassDoorStyle ||
+          suggested?.bathroomGlassDoorStyle ||
+          null,
     bathroomGlassDoorStyleSource:
-      saved?.bathroomGlassDoorStyleSource ??
-      suggested?.bathroomGlassDoorStyleSource ??
-      null,
+      saved?.bathroomGlassDoorStyleSource === 'user_selected' &&
+      saved?.bathroomGlassDoorStyle
+        ? 'user_selected'
+        : notesInferBathroomGlassDoorStyle(scopeNotes)
+          ? 'ai_inferred'
+          : (saved?.bathroomGlassDoorStyleSource ??
+            suggested?.bathroomGlassDoorStyleSource ??
+            null),
     demoTubCount: saved?.demoTubCount ?? suggested?.demoTubCount ?? null,
     demoTileWallCount:
       saved?.demoTileWallCount ?? suggested?.demoTileWallCount ?? null,

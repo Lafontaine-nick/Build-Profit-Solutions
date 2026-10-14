@@ -265,17 +265,10 @@ function classifyEstimateTier(draft, originalNotes) {
     return "room_remodel";
   }
 
-  // Whole-home / multi-floor painting needs Confirm Scope cards for combined
-  // surface area, occupancy, prep, doors, and trim. Clear floor quantities
-  // alone must not route it through the simple-unit review page.
-  if (
-    projectType === "painting" &&
-    (/\b(?:2|two|multi)[-\s]?stor(?:y|ies)\b/i.test(notes) ||
-      /\b(?:main|upper|lower|first|second)\s+floor\b/i.test(notes) ||
-      /\bpaint(?:ing)?\b[^.;]{0,60}\b(?:walls?|ceilings?|baseboards?|trim|doors?)\b/i.test(
-        notes,
-      ))
-  ) {
+  // Painting uses Confirm scope for walls, ceilings, prep, and exterior.
+  // "Paint the interior" with a sqft and no surface name is still that bid.
+  // A clear quantity alone must not skip quick measurements.
+  if (projectType === "painting") {
     return "room_remodel";
   }
 

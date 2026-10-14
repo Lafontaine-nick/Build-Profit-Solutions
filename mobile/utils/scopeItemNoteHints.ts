@@ -16,6 +16,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   cabinet_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(?:cabinets?|built[\s-]?ins?)\b|\b(?:cabinets?|built[\s-]?ins?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b|\btear[\s-]?out\s+old\s+cabinets?\b/,
   cabinet_hardware: /\b(?:cabinet\s+hardware|pulls|knobs)\b/,
+  haul_off: /\bhaul[\s-]?off\b/,
   countertop_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   backsplash_demo:

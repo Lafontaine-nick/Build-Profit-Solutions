@@ -19,6 +19,9 @@ const BATHROOM_ONLY_IDS = new Set([
   'shower_floor_demo',
   'shower_enclosure_demo',
   'glass_door',
+  'glass_door_demo',
+  'glass_door_reuse_remove',
+  'glass_door_reuse_install',
   'wet_area_install',
   'vanity',
   'toilet',
@@ -107,10 +110,108 @@ export function kitchenNoteInstallsNewCabinets(notes: string | null | undefined)
     });
 }
 
-function kitchenNoteNamesWork(notes: string): boolean {
-  return /\b(?:cabinets?|countertops?|counters?|backsplash|baseboards?|lvp|vinyl|flooring|dishwasher|sinks?|quartz|granite)\b/i.test(
-    notes
+/** "Kitchen reno" is the same dedicated remodel as "kitchen renovation". */
+export function notesDescribeDedicatedKitchenRemodel(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:remodel|renovate|renovation|reno)\s+(?:the\s+)?kitchen\b/i.test(
+      text
+    ) || /\bkitchen\s+(?:remodel|renovation|reno)\b/i.test(text)
   );
+}
+
+export function kitchenNoteNamesCabinetWork(
+  notes: string | null | undefined
+): boolean {
+  return /\bcabinets?\b|\bcabinetry\b|\bcabs\b/i.test(String(notes || ''));
+}
+
+export function kitchenNoteNamesCounterWork(
+  notes: string | null | undefined
+): boolean {
+  return /\b(?:countertops?|counters?|quartz|granite|tops)\b/i.test(
+    String(notes || '')
+  );
+}
+
+export function kitchenNoteNamesBacksplash(
+  notes: string | null | undefined
+): boolean {
+  return /\bback\s*splash\b|\bbacksplash\b|\bsplash\b/i.test(
+    String(notes || '')
+  );
+}
+
+function kitchenNoteNamesWork(notes: string): boolean {
+  return (
+    kitchenNoteNamesCabinetWork(notes) ||
+    kitchenNoteNamesCounterWork(notes) ||
+    kitchenNoteNamesBacksplash(notes) ||
+    /\b(?:baseboards?|lvp|vinyl|flooring|dishwasher|sinks?)\b/i.test(notes)
+  );
+}
+
+/** Used when a shorthand kitchen note arrived as a flooring or empty checklist. */
+export function kitchenConfirmScopeSeedItems(): Array<{
+  id: string;
+  label: string;
+  helperText: string;
+  category: string;
+  inputType: 'yes_no';
+  state: 'included';
+}> {
+  return [
+    {
+      id: 'cabinets',
+      label: 'Cabinets',
+      helperText: 'Cabinet run length for this kitchen.',
+      category: 'cabinets',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+    {
+      id: 'countertops',
+      label: 'Countertops',
+      helperText: 'Perimeter countertop area.',
+      category: 'cabinets',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+    {
+      id: 'backsplash',
+      label: 'Backsplash',
+      helperText: 'Backsplash area.',
+      category: 'tile',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+    {
+      id: 'flooring',
+      label: 'Kitchen flooring',
+      helperText: 'Kitchen floor area.',
+      category: 'flooring',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+    {
+      id: 'lighting',
+      label: 'Can lights',
+      helperText: 'Recessed can lights.',
+      category: 'electrical',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+    {
+      id: 'plumbing',
+      label: 'Sink hookup',
+      helperText: 'Sink plumbing hookup.',
+      category: 'plumbing',
+      inputType: 'yes_no',
+      state: 'included',
+    },
+  ];
 }
 
 export function shouldLimitKitchenChecklistToNotes(
@@ -136,9 +237,9 @@ function notesNameFloorTile(notes: string): boolean {
 }
 
 const KITCHEN_DEMO_PRODUCT: Record<string, RegExp> = {
-  cabinet_demo: /\bcabinets?\b/i,
-  countertop_demo: /\b(?:countertops?|counters?|quartz|granite)\b/i,
-  backsplash_demo: /\bbacksplashes?\b|\bbacksplash\b/i,
+  cabinet_demo: /\bcabinets?\b|\bcabs\b/i,
+  countertop_demo: /\b(?:countertops?|counters?|quartz|granite|tops)\b/i,
+  backsplash_demo: /\bbacksplashes?\b|\bbacksplash\b|\bsplash\b/i,
   floor_demo: /\b(?:vinyl(?:\s+floor)?|lvp|laminate|carpet|floor(?:ing)?)\b/i,
   island_demo: /\bisland\b/i,
 };
@@ -252,7 +353,7 @@ export function filterDedicatedKitchenConfirmItems<
   if (!shouldLimitKitchenChecklistToNotes(params)) return items;
   const notes = String(params.notes || '');
   const present = new Set(items.map(item => String(item.id || '')));
-  return items.filter(item => {
+  const kept = items.filter(item => {
     const id = String(item.id || '');
     const label = itemText(item);
     if (id.startsWith('custom_')) return true;
@@ -265,6 +366,13 @@ export function filterDedicatedKitchenConfirmItems<
     if (
       (id === 'framing' || id === 'labor' || /^framing labor$/i.test(label)) &&
       !/\b(?:fram(?:e|ing|ed)|reframe)\b/i.test(notes)
+    ) {
+      return false;
+    }
+    if (
+      id === 'cleanup' &&
+      /\bhaul[\s-]?off\b/i.test(notes) &&
+      !/\b(?:final\s+clean|clean[\s-]?up|dumpster|disposal)\b/i.test(notes)
     ) {
       return false;
     }
@@ -328,6 +436,13 @@ export function filterDedicatedKitchenConfirmItems<
     ) {
       return false;
     }
+    if (
+      id === 'lighting' &&
+      items.some(row => String(row.id || '') === 'electrical_recessed_light') &&
+      /\b(?:can|recessed|canless|wafer)\s+lights?\b/i.test(notes)
+    ) {
+      return false;
+    }
     const optional = OPTIONAL_KITCHEN_IDS[id];
     if (optional) return optional.test(notes);
     if (id === 'plumbing' || id === 'plumbing_rough' || id === 'plumbing_trim') {
@@ -354,10 +469,10 @@ export function filterDedicatedKitchenConfirmItems<
         ]
       : [],
     /\bhaul[\s-]?off\b/i.test(notes) &&
-      !items.some(item => String(item.id || '') === 'cleanup')
+      !items.some(item => String(item.id || '') === 'haul_off')
       ? [
           {
-            id: 'cleanup',
+            id: 'haul_off',
             label: 'Haul-off',
             name: 'Haul-off',
             helperText: 'Debris haul-off and disposal.',
@@ -384,5 +499,11 @@ export function filterDedicatedKitchenConfirmItems<
           } as T,
         ]
       : []
+  );
+  if (!/\bcan\s+lights?\b/i.test(notes)) return kept;
+  return kept.map(item =>
+    String(item.id || '') === 'electrical_recessed_light'
+      ? { ...item, label: 'Can lights' }
+      : item
   );
 }

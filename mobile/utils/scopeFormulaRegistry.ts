@@ -553,13 +553,28 @@ const FORMULAS: FormulaDefinition[] = [
     outputMeasurementType: 'countertop_area',
     outputUnit: 'sqft',
     requiredInputs: [input('countertopSqft', 'entered countertop area', 'sqft', ['countertopSqft'])],
-    calculate: ({ countertopSqft }) => ({
-      exactValue: countertopSqft,
-      trace: [`${countertopSqft} sqft entered countertop takeoff`],
-    }),
+    optionalInputs: [
+      input('islandCounterSqft', 'island counter area', 'sqft', ['kitchenIslandCounterSqft'], false),
+    ],
+    calculate: ({ countertopSqft, islandCounterSqft }) => {
+      const island = Number(islandCounterSqft) > 0 ? Number(islandCounterSqft) : 0;
+      const exactValue = Number(countertopSqft) + island;
+      return {
+        exactValue,
+        trace: island
+          ? [`${countertopSqft} sqft perimeter + ${island} sqft island`]
+          : [`${countertopSqft} sqft entered countertop takeoff`],
+      };
+    },
     rounding: 'sqft',
-    explanation: ({ roundedValue }) =>
-      `Using ${roundedValue.toLocaleString()} sqft from the entered countertop takeoff.`,
+    explanation: ({ roundedValue, inputs }) => {
+      const perimeter = inputs.find(entry => entry.key === 'countertopSqft');
+      const island = inputs.find(entry => entry.key === 'islandCounterSqft');
+      if (perimeter && island && island.value > 0) {
+        return `Using ${roundedValue.toLocaleString()} sqft from the entered countertop takeoff (${perimeter.value.toLocaleString()} sqft perimeter + ${island.value.toLocaleString()} sqft island).`;
+      }
+      return `Using ${roundedValue.toLocaleString()} sqft from the entered countertop takeoff.`;
+    },
   },
   {
     key: 'countertop_area_from_cabinet_lf',
@@ -768,6 +783,13 @@ export function calculateFormulaForScope(params: {
     ) {
       continue;
     }
+    if (
+      formula.key === 'baseboard_lf_from_perimeter' &&
+      params.scopeKey === 'interior_trim' &&
+      Number(params.measurements?.interiorDoorCount) > 0
+    ) {
+      continue;
+    }
     const result = calculateFormula(formula, params.measurements, {}, {
       scopeKey: params.scopeKey,
       projectContext: params.projectContext,
@@ -850,6 +872,13 @@ export function shouldShowFormulaQuantityButton(params: {
   // Explicit countertop sqft is already the authoritative pricing basis; do
   // not offer a second "Use calculated quantity" action for cabinet-LF math.
   if (params.scopeKey === 'countertops') return false;
+  if (
+    params.scopeKey === 'interior_trim' &&
+    params.formula.formulaKey === 'baseboard_lf_from_perimeter' &&
+    Number(params.measurements?.interiorDoorCount) > 0
+  ) {
+    return false;
+  }
   if (
     params.formula.formulaKey === 'countertop_area_from_cabinet_lf' &&
     shouldSkipCountertopCabinetLfFormula(params.projectContext)

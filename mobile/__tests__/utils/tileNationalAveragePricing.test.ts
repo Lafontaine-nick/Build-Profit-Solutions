@@ -224,6 +224,96 @@ describe('tile national-average subtype pricing', () => {
     expect(floor.labor + floor.material).toBeGreaterThan(wall.labor + wall.material);
   });
 
+  it('prices a mud pan tear-out by the pan sqft', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing mud pan. Build a new mud pan and waterproof it. Install shower floor tile on the pan. Leave the shower walls, the bathroom floor, the vanity, and the toilet. No paint.';
+    const panInput = {
+      ...emptyQuickMeasurementInput(),
+      showerFloorTileSqft: '25',
+      demoTilePanCount: 1,
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity(
+      'shower_floor_demo',
+      buildNormalizedScopeMeasurementsFromInput(panInput),
+      { templateKey: 'bathroom', notes }
+    );
+    expect(resolved).toMatchObject({ quantity: 25, unit: 'sqft' });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'shower_floor_demo',
+      panInput,
+      'bathroom',
+      resolved,
+      undefined,
+      undefined,
+      notes
+    );
+    expect(pricing.fill).toMatchObject({
+      material: 100,
+      labor: 125,
+      total: 225,
+    });
+  });
+
+  it('prices pan waterproofing on the mud pan sqft when the walls stay', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing mud pan. Build a new mud pan and waterproof it. Install shower floor tile on the pan. Leave the shower walls, the bathroom floor, the vanity, and the toilet. No paint.';
+    const panInput = {
+      ...emptyQuickMeasurementInput(),
+      showerFloorTileSqft: '25',
+      showerWallTileSqft: '',
+      itemQuantities: {},
+    } as any;
+    const normalized = buildNormalizedScopeMeasurementsFromInput(panInput);
+    const resolved = resolveChecklistItemQuantity('waterproofing', normalized, {
+      templateKey: 'bathroom',
+      notes,
+    });
+    expect(resolved.quantity).toBe(25);
+    expect(resolved.unit).toBe('sqft');
+    const pricing = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      panInput,
+      'bathroom',
+      resolved,
+      undefined,
+      undefined,
+      notes
+    );
+    expect(pricing.fill).toMatchObject({
+      material: 125,
+      labor: 175,
+      total: 300,
+    });
+  });
+
+  it('keeps wall waterproofing on wall sqft when the note names the walls', () => {
+    const notes =
+      'Remodel the bathroom. Install new shower wall tile and a new tile shower pan. Waterproof the shower walls with backer board and a membrane before the tile goes on.';
+    const wallInput = {
+      ...emptyQuickMeasurementInput(),
+      showerWallTileSqft: '95',
+      showerFloorTileSqft: '25',
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity(
+      'waterproofing',
+      buildNormalizedScopeMeasurementsFromInput(wallInput),
+      { templateKey: 'bathroom', notes }
+    );
+    expect(resolved.quantity).toBe(95);
+    const pricing = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      wallInput,
+      'bathroom',
+      resolved,
+      undefined,
+      undefined,
+      notes
+    );
+    expect(pricing.fill?.total).toBe(1140);
+  });
+
   it('includes backer board assembly components in the waterproofing benchmark profile', () => {
     const normalized = buildNormalizedScopeMeasurementsFromInput(input);
     const resolved = resolveChecklistItemQuantity('waterproofing', normalized, {

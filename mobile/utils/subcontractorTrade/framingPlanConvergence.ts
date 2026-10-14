@@ -6,6 +6,7 @@ import type { ScopePricingBehavior } from './scopePricingBehavior';
 
 export type FramingQuantityKey =
   | 'framedAreaSqft'
+  | 'wallFramingSqft'
   | 'wallFramingLf'
   | 'sheathingSqft'
   | 'framingOpeningCount'
@@ -111,6 +112,7 @@ export const FRAMING_QUANTITY_KEYS = FRAMING_CARDS.map(
 
 export const FRAMING_REVIEW_MEASUREMENT_KEYS = [
   'framedAreaSqft',
+  'wallFramingSqft',
   'wallFramingLf',
   'sheathingSqft',
   'framingOpeningCount',
@@ -122,12 +124,57 @@ export const FRAMING_REVIEW_MEASUREMENT_KEYS = [
 
 export const FRAMING_PLAN_QUICK_MEASUREMENT_KEYS = [
   'framedAreaSqft',
+  'wallFramingSqft',
   'sheathingSqft',
   'floorAreaSqft',
   'garageSqft',
   'wallFramingLf',
   'framingOpeningCount',
 ] as const;
+
+/** Drop "do not / don't / never …" sentences before scope matching. */
+export function notesWithoutDeniedSentences(notes: string): string {
+  return String(notes || '').replace(
+    /\b(?:do not|don't|dont|never)\b[^.]*/gi,
+    ' '
+  );
+}
+
+/**
+ * The note only asks for rough openings. Denied wall framing and unnamed
+ * remodel trades stay off Scope found and Confirm scope.
+ */
+export function notesNameRoughOpeningsOnly(notes: string): boolean {
+  const affirmative = notesWithoutDeniedSentences(notes);
+  return (
+    /\brough\s+openings?\b/i.test(affirmative) &&
+    !notesMentionAffirmativeWallFraming(affirmative) &&
+    !/\b(?:kitchen|bath(?:room)?s?|flooring|lvp|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|drywall|sheetrock|cabinets?|demolish|demolition|sheathing|addition|roof(?:ing)?|concrete|tile|vanity|toilet|siding|stucco|insulation|windows?|doors?|trim|baseboard)\b/i.test(
+      affirmative
+    )
+  );
+}
+
+/** "Frame the walls" after denied sentences are removed. */
+export function notesMentionAffirmativeWallFraming(notes: string): boolean {
+  return /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
+    notesWithoutDeniedSentences(notes)
+  );
+}
+
+/** "Frame 1,600 sqft of walls" is wall area, not covered floor area. */
+export function notesFrameExplicitWallArea(notes: string): boolean {
+  return /(?:frame|framing|framed)\b[^.;\n]{0,48}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i.test(
+    notesWithoutDeniedSentences(notes)
+  );
+}
+
+/** Living, garage, or addition language is a covered floor shell. */
+export function notesNameCoveredFramedFloor(notes: string): boolean {
+  return /\b(?:living\s+area|garage|addition|framed\s+floor|floor\s+area)\b/i.test(
+    notes
+  );
+}
 
 /** LF/count lines that duplicate the covered-SF shell package on ground-up bids. */
 export const FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS = [
@@ -229,6 +276,7 @@ export function framingScopeItemIdsForInput(
   const shellBid = isShellFramingPackageBid(input);
   const scope: string[] = [];
   if (resolveCoveredFramedAreaSqft(input) != null) scope.push('framing');
+  if (positiveNumber(input.wallFramingSqft) != null) scope.push('wall_framing');
   if (
     resolveFramingSheathingSqft(input) != null &&
     !shellPackageIncludesSheathing(input)
@@ -401,13 +449,16 @@ export function parseFramingMeasurementsFromNotes(
       )
   );
   assign(
+    'wallFramingSqft',
+    count(
+      /(?:frame|framing|framed)\b[^.;\n]{0,48}?(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\.?\s*ft|sqft|square\s*feet)\s*(?:of\s+)?walls?\b/i
+    )
+  );
+  assign(
     'framedAreaSqft',
     count(
-      /(?:frame|framing|framed)\b[^.;\n]{0,24}?(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s+)?walls?\b/i
+      /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
     ) ??
-      count(
-        /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
-      ) ??
       count(
         /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:room\s+)?addition\b/i
       ) ??
@@ -417,13 +468,15 @@ export function parseFramingMeasurementsFromNotes(
   );
   const openingMatches = Array.from(
     text.matchAll(
-      /(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s*(?:(?:exterior|interior|entry|new)\s+)?(?:door|window)\s+openings?\b|(?:rough\s+)?openings?\s*(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\b|(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+headers?\b|headers?\s+(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+(?:door|window)s?\b/gi
+      /(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+rough\s+openings?\b|(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s*(?:(?:exterior|interior|entry|new)\s+)?(?:door|window)\s+openings?\b|(?:rough\s+)?openings?\s*(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\b|(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+headers?\b|headers?\s+(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+(?:door|window)s?\b/gi
     )
   );
   const openingTotal = openingMatches.reduce(
     (sum, match) =>
       sum +
-      (countToken(match[1] || match[2] || match[3] || match[4] || '') || 0),
+      (countToken(
+        match[1] || match[2] || match[3] || match[4] || match[5] || ''
+      ) || 0),
     0
   );
   assign(
@@ -434,6 +487,18 @@ export function parseFramingMeasurementsFromNotes(
         ? 1
         : null
   );
+  if (
+    out.wallFramingSqft &&
+    notesFrameExplicitWallArea(text) &&
+    !notesNameCoveredFramedFloor(text)
+  ) {
+    if (out.framedAreaSqft === out.wallFramingSqft) delete out.framedAreaSqft;
+    if (
+      !/\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i.test(text)
+    ) {
+      delete out.wallFramingLf;
+    }
+  }
 
   return out;
 }
@@ -473,6 +538,17 @@ function buildItemQuantities(
       continue;
     }
     let quantity = explicitQuantity(input, card.measurementKey);
+    if (card.itemId === 'wall_framing' && quantity == null) {
+      const wallSqft = positiveNumber(input.wallFramingSqft);
+      if (wallSqft != null) {
+        out[card.itemId] = {
+          quantity: wallSqft,
+          unit: 'sqft',
+          quantitySource: source,
+        };
+        continue;
+      }
+    }
     if (card.measurementKey === 'framedAreaSqft') {
       quantity = resolveCoveredFramedAreaSqft(input);
     }
@@ -619,6 +695,12 @@ export function syncFramingScopeItems<T extends { id: string; state?: string }>(
   const active = new Set([...included, ...fromQuantity]);
   const hiddenOnShell = new Set<string>();
   const quantities = (params.quantities || {}) as Record<string, unknown>;
+  if (
+    positiveNumber(quantities.wallFramingSqft) != null &&
+    resolveCoveredFramedAreaSqft(quantities) == null
+  ) {
+    hiddenOnShell.add('framing');
+  }
   if (isShellFramingPackageBid(quantities)) {
     if (positiveNumber(quantities.framingCleanupCount) == null) {
       hiddenOnShell.add('cleanup');

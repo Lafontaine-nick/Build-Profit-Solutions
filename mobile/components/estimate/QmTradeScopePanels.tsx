@@ -29,6 +29,9 @@ import {
 } from '@/constants/qmMeasurementShellStyle';
 import {
   kitchenNoteIncludesFloorWork,
+  kitchenNoteNamesBacksplash,
+  kitchenNoteNamesCabinetWork,
+  kitchenNoteNamesCounterWork,
   kitchenNoteNamesSurfaceDemo,
 } from '@/utils/kitchenNoteScope';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
@@ -1467,11 +1470,9 @@ export function QmKitchenScopePanels({
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
   const kitchenNoteText = String(notes || '');
   const condensedKitchenScope = {
-    cabinets: /\bcabinet(?:s|ry)?\b/i.test(kitchenNoteText),
-    counters: /\b(?:countertops?|counters?|quartz|granite)\b/i.test(
-      kitchenNoteText
-    ),
-    backsplash: /\bbacksplash\b/i.test(kitchenNoteText),
+    cabinets: kitchenNoteNamesCabinetWork(kitchenNoteText),
+    counters: kitchenNoteNamesCounterWork(kitchenNoteText),
+    backsplash: kitchenNoteNamesBacksplash(kitchenNoteText),
     flooring: /\b(?:flooring|lvp|vinyl|laminate|tile)\b/i.test(kitchenNoteText),
     island: /\bisland\b/i.test(kitchenNoteText),
     appliances:

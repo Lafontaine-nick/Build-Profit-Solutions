@@ -248,6 +248,9 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
     M('framedAreaSqft', 'Framed floor area', 'sqft', 'primary', {
       quickMeasurementKey: 'framedAreaSqft',
     }),
+    M('wallFramingSqft', 'Wall framing area', 'sqft', 'primary', {
+      quickMeasurementKey: 'wallFramingSqft',
+    }),
     M('wallFramingLf', 'Wall framing', 'LF', 'primary', {
       quickMeasurementKey: 'wallFramingLf',
     }),

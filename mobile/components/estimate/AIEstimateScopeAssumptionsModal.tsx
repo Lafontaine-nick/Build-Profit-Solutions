@@ -115,6 +115,10 @@ import {
 } from '@/utils/projectComplexityAdjustments';
 import {
   buildFramingStructuredMeasurements,
+  notesFrameExplicitWallArea,
+  notesMentionAffirmativeWallFraming,
+  notesNameCoveredFramedFloor,
+  notesWithoutDeniedSentences,
   parseFramingMeasurementsFromNotes,
   shellPackageIncludesSheathing,
   syncFramingScopeItems,
@@ -253,12 +257,15 @@ import {
   drywallFinishCrewSelection,
   stripStandaloneDrywallTextureItem,
 } from '@/utils/estimateScopeChecklistUi';
+import { confirmScopeDrywallSqftLabel } from '@/utils/drywallNoteScope';
 import {
   bathroomAffirmativeNotes,
+  bathroomChecklistItemNamedInNotes,
   bathroomMeasurementNotes,
   bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
   notesKeepExistingWetArea,
+  notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
@@ -360,6 +367,7 @@ import {
 import {
   BATHROOM_GLASS_DOOR_STYLE_OPTIONS,
   GLASS_DOOR_DOOR_ONLY_NOTE,
+  notesInferBathroomGlassDoorStyle,
   resolveBathroomGlassDoorStyle,
   type BathroomGlassDoorStyle,
 } from '@/utils/bathroomGlassDoorPricing';
@@ -2161,6 +2169,26 @@ function SuggestedBudgetSplitRows({
       block.material > 0 ||
       block.labor > 0);
 
+  if (
+    block.benchmarkAction === 'included_in_stage' &&
+    block.benchmarkScopeKey === 'patch_repair' &&
+    block.helper
+  ) {
+    const stageName = block.includedInStageLabel || 'the hang / finish area';
+    return (
+      <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
+        <Text style={{ color: text, fontSize: 13, fontWeight: '700' }}>
+          Included in {stageName}
+        </Text>
+        <Text
+          style={{ color: caption, fontSize: 12, lineHeight: 17, marginTop: 4 }}
+        >
+          {block.helper}
+        </Text>
+      </View>
+    );
+  }
+
   if (semantics && includedInStage) {
     const stageName =
       block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
@@ -2307,6 +2335,8 @@ function SuggestedBudgetSplitRows({
       : 'Suggested';
   const rateLine = isInsulationAssemblyCard
     ? null
+    : block.displayUnitRateLabel
+      ? block.displayUnitRateLabel
     : itemId === 'demo' && block.displayQuantityLine
       ? block.displayQuantityLine
       : formatSuggestedCardRateLine(block) ?? display.quantityLine;
@@ -3594,6 +3624,7 @@ function scoreScopeNotesForMeasurements(
   }
   const framing = parseFramingMeasurementsFromNotes(text);
   if (framing.framedAreaSqft) score += 8;
+  if (framing.wallFramingSqft) score += 8;
   if (framing.wallFramingLf) score += 5;
   if (framing.framingOpeningCount) score += 4;
   if (/\b(?:structural\s+)?sheathing\b/i.test(text)) score += 3;
@@ -3931,16 +3962,16 @@ function CustomScopeUnitToggle({
               styles.pricingEntryModeChip,
               {
                 borderColor: active
-                  ? '#22c55e'
+                  ? 'rgba(45, 204, 154, 0.55)'
                   : darkMode
-                    ? 'rgba(148, 163, 184, 0.2)'
+                    ? 'rgba(148, 163, 184, 0.35)'
                     : Colors.line,
                 backgroundColor: active
                   ? darkMode
-                    ? 'rgba(34, 197, 94, 0.12)'
-                    : 'rgba(34, 197, 94, 0.08)'
+                    ? 'rgba(45, 204, 154, 0.16)'
+                    : 'rgba(45, 204, 154, 0.1)'
                   : darkMode
-                    ? 'rgba(255,255,255,0.03)'
+                    ? '#3A3A3C'
                     : 'transparent',
               },
             ]}
@@ -3948,7 +3979,9 @@ function CustomScopeUnitToggle({
             <Text
               style={{
                 color: active
-                  ? '#22c55e'
+                  ? darkMode
+                    ? '#8eecc9'
+                    : '#0f766e'
                   : darkMode
                     ? 'rgba(255,255,255,0.72)'
                     : Colors.sub,
@@ -6507,10 +6540,18 @@ function QuantitySection({
             'countertops',
             'cabinets',
           ].includes(itemId)) ||
-          ['paint', 'interior_paint', 'paint_repair'].includes(itemId));
+          ['paint', 'interior_paint', 'paint_repair', 'haul_off'].includes(
+            itemId
+          ));
+      const framingStandardSuggestedCard =
+        Boolean(suggestedBudgetSplit) &&
+        ['shear_sheathing', 'wall_framing', 'openings', 'framing'].includes(
+          itemId
+        );
       const hideNoteRateRows =
         (itemId === 'shower_tile' && Boolean(suggestedBudgetSplit)) ||
-        kitchenStandardSuggestedCard;
+        kitchenStandardSuggestedCard ||
+        framingStandardSuggestedCard;
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -10138,7 +10179,7 @@ function YesNoRow({
             activeOpacity={0.75}
             style={styles.customRenameAction}
           >
-            <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '800' }}>
+            <Text style={{ color: '#2dcc9a', fontSize: 12, fontWeight: '800' }}>
               Save
             </Text>
           </TouchableOpacity>
@@ -10158,7 +10199,7 @@ function YesNoRow({
                 >
                   <Text
                     style={{
-                      color: '#60a5fa',
+                      color: darkMode ? '#8eecc9' : '#0f766e',
                       fontSize: 10,
                       fontWeight: '700',
                     }}
@@ -10173,7 +10214,7 @@ function YesNoRow({
                     activeOpacity={0.75}
                     style={styles.customIconBtn}
                   >
-                    <Ionicons name='pencil-outline' size={15} color='#60a5fa' />
+                    <Ionicons name='pencil-outline' size={15} color='#2dcc9a' />
                   </TouchableOpacity>
                 ) : null}
                 {onDelete ? (
@@ -15360,7 +15401,10 @@ function CollapsibleQuickMeasurements({
     putNonnegative('stuccoWallHeightFt', parsedStucco.stuccoWallHeightFt);
 
     const framingNotes = parseFramingMeasurementsFromNotes(notes || '');
-    put('framedAreaSqft', framingNotes.framedAreaSqft);
+    put('wallFramingSqft', framingNotes.wallFramingSqft);
+    if (!framingNotes.wallFramingSqft) {
+      put('framedAreaSqft', framingNotes.framedAreaSqft);
+    }
     put('wallFramingLf', framingNotes.wallFramingLf);
     put('sheathingSqft', framingNotes.sheathingSqft);
     // Opening counts are framing measurements even when the note does not
@@ -15635,14 +15679,29 @@ function CollapsibleQuickMeasurements({
         activeScopeSet.has('shear_sheathing') ||
         activeScopeSet.has('openings'))
     ) {
-      ensureScopeField('framedAreaSqft', {
-        label: 'Wall framing area',
-        helperText:
-          'Square feet of walls explicitly identified for framing in the notes.',
-      });
-      ensureScopeField('wallFramingLf');
-      ensureScopeField('sheathingSqft');
-      ensureScopeField('framingOpeningCount');
+      const wallAreaOnly =
+        notesFrameExplicitWallArea(notesTextForScopeFields) &&
+        !notesNameCoveredFramedFloor(notesTextForScopeFields);
+      const openingsOnly =
+        /\brough\s+openings?\b/i.test(
+          notesWithoutDeniedSentences(notesTextForScopeFields)
+        ) && !notesMentionAffirmativeWallFraming(notesTextForScopeFields);
+      if (openingsOnly) {
+        ensureScopeField('framingOpeningCount');
+      } else if (wallAreaOnly) {
+        ensureScopeField('wallFramingSqft');
+        ensureScopeField('sheathingSqft');
+        ensureScopeField('framingOpeningCount');
+      } else {
+        ensureScopeField('framedAreaSqft', {
+          label: 'Wall framing area',
+          helperText:
+            'Square feet of walls explicitly identified for framing in the notes.',
+        });
+        ensureScopeField('wallFramingLf');
+        ensureScopeField('sheathingSqft');
+        ensureScopeField('framingOpeningCount');
+      }
     }
     if (
       hasScopeOrNote(
@@ -15710,6 +15769,19 @@ function CollapsibleQuickMeasurements({
           []
         ),
       ];
+    }
+    if (
+      notesFrameExplicitWallArea(notesTextForScopeFields) &&
+      !notesNameCoveredFramedFloor(notesTextForScopeFields)
+    ) {
+      baseRows = baseRows
+        .map(row =>
+          row.filter(
+            field =>
+              field.key !== 'framedAreaSqft' && field.key !== 'wallFramingLf'
+          )
+        )
+        .filter(row => row.length > 0);
     }
     // A dedicated bathroom note already owns shower-wall, pan, and bath-floor
     // quantities on the wet-area cards. Package scope keys must not add the
@@ -16056,9 +16128,12 @@ function CollapsibleQuickMeasurements({
               field.key === 'wallPaintSqft' ||
               field.key === 'ceilingPaintSqft' ||
               field.key === 'paintAreaSqft';
+            const wallAreaOnly =
+              notesFrameExplicitWallArea(noteText) &&
+              !notesNameCoveredFramedFloor(noteText);
             const framingField = [
-              'framedAreaSqft',
-              'wallFramingLf',
+              wallAreaOnly ? 'wallFramingSqft' : 'framedAreaSqft',
+              wallAreaOnly ? 'wallFramingSqft' : 'wallFramingLf',
               'sheathingSqft',
               'framingOpeningCount',
               'wallDemoSqft',
@@ -16074,18 +16149,21 @@ function CollapsibleQuickMeasurements({
               /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
                 noteText
               );
+            const affirmativeFramingNotes = notesWithoutDeniedSentences(
+              activeNotesForScopeFields
+            );
             const notesMentionFramingField =
               framingField &&
               !dedicatedStuccoScope &&
-              (/\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
-                activeNotesForScopeFields
-              ) ||
-                /\b(?:structural\s+)?sheathing\b/i.test(
-                  activeNotesForScopeFields
-                ) ||
-                /\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
-                  activeNotesForScopeFields
-                ));
+              (notesMentionAffirmativeWallFraming(affirmativeFramingNotes) ||
+                (field.key === 'sheathingSqft' &&
+                  /\b(?:structural\s+)?sheathing\b/i.test(
+                    affirmativeFramingNotes
+                  )) ||
+                (field.key === 'framingOpeningCount' &&
+                  /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+                    affirmativeFramingNotes
+                  )));
             if (dedicatedStuccoScope && (paintField || framingField)) {
               return false;
             }
@@ -16195,14 +16273,30 @@ function CollapsibleQuickMeasurements({
     if (scope.includes('exterior')) allowed.add('exteriorPaintSqft');
     if (bothWallsCeilings && measurements.paintPricingMethod !== 'separate')
       allowed.add('paintAreaSqft');
-    if (
-      /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b|\b(?:structural\s+)?sheathing\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
-        String(notes || '')
+    const paintingFramingNotes = notesWithoutDeniedSentences(String(notes || ''));
+    const paintingOpeningsOnly =
+      /\brough\s+openings?\b/i.test(paintingFramingNotes) &&
+      !notesMentionAffirmativeWallFraming(paintingFramingNotes);
+    if (paintingOpeningsOnly) {
+      allowed.add('framingOpeningCount');
+    } else if (
+      notesMentionAffirmativeWallFraming(paintingFramingNotes) ||
+      /\b(?:structural\s+)?sheathing\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+        paintingFramingNotes
       )
     ) {
-      allowed.add('framedAreaSqft');
-      allowed.add('wallFramingLf');
-      allowed.add('sheathingSqft');
+      if (
+        notesFrameExplicitWallArea(paintingFramingNotes) &&
+        !notesNameCoveredFramedFloor(paintingFramingNotes)
+      ) {
+        allowed.add('wallFramingSqft');
+      } else if (notesMentionAffirmativeWallFraming(paintingFramingNotes)) {
+        allowed.add('framedAreaSqft');
+        allowed.add('wallFramingLf');
+      }
+      if (/\b(?:structural\s+)?sheathing\b/i.test(paintingFramingNotes)) {
+        allowed.add('sheathingSqft');
+      }
       allowed.add('framingOpeningCount');
     }
     return baseRows
@@ -16508,9 +16602,31 @@ function CollapsibleQuickMeasurements({
     () => new Set(ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS),
     []
   );
+  const paintingEmbeddedMeasurementKeys = useMemo(
+    () =>
+      new Set<QuickMeasurementFieldKey>([
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'paintAreaSqft',
+        'baseboardLf',
+        'interiorDoorCount',
+        'cabinetPaintSqft',
+        'cabinetRunLf',
+        'exteriorPaintSqft',
+      ]),
+    []
+  );
+  const paintScopePanelOwnsMeasurements =
+    String(templateKey || '').toLowerCase() === 'painting';
   const fieldResultsForSummary = useMemo(
     () =>
       fieldResults.filter(result => {
+        if (
+          paintScopePanelOwnsMeasurements &&
+          paintingEmbeddedMeasurementKeys.has(result.key)
+        ) {
+          return false;
+        }
         if (roofingQmJob && roofingEmbeddedMeasurementKeys.has(result.key)) {
           return false;
         }
@@ -16557,6 +16673,8 @@ function CollapsibleQuickMeasurements({
       }),
     [
       fieldResults,
+      paintScopePanelOwnsMeasurements,
+      paintingEmbeddedMeasurementKeys,
       roofingQmJob,
       hvacQmJob,
       deckQmJob,
@@ -18525,7 +18643,7 @@ function CollapsibleQuickMeasurements({
     const showRemoveShowerDoor =
       !bathroomNotesCardFilter || notesMentionDemoShowerDoor(bathroomNoteText);
     const showDemoBathFloor = showBathroomNote(
-      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/i
+      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
     );
     const onlyBathFloorDemo =
       showDemoBathFloor &&
@@ -18662,12 +18780,11 @@ function CollapsibleQuickMeasurements({
     const showShowerWallTile = showBathroomNote(
       /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile)\b/i
     );
-    const showBathFloorHeading = showBathroomNote(
-      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile|shower\s+doors?)\b/i
-    );
     const showBathFloorTile = showBathroomNote(
-      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/i
+      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
     );
+    const showBathFloorHeading =
+      showBathFloorTile || showBathroomNote(/\bshower\s+doors?\b/i);
     const showShowerDoorReuse =
       showerDoorReuseOffered({
         notes: bathroomNoteText,
@@ -18863,13 +18980,15 @@ function CollapsibleQuickMeasurements({
                   borderColor: reuseExistingShowerDoor
                     ? '#2dcc9a'
                     : darkMode
-                      ? 'rgba(255,255,255,0.16)'
-                      : Colors.line,
+                      ? '#454549'
+                      : '#D1D5DB',
                   backgroundColor: reuseExistingShowerDoor
                     ? darkMode
                       ? 'rgba(52, 211, 153, 0.12)'
                       : 'rgba(52, 211, 153, 0.08)'
-                    : 'transparent',
+                    : darkMode
+                      ? '#333336'
+                      : '#E5E7EB',
                 }}
               >
                 <Text
@@ -19603,6 +19722,10 @@ function CollapsibleQuickMeasurements({
       /\b(?:drywall|sheetrock|gypsum)\s+(?:repair|repairs|repairing|patch|patching)\b|\b(?:repair|repairs|repairing|patch|patching)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
         String(notes || '')
       );
+    const drywallSqftLabel = confirmScopeDrywallSqftLabel(notes, {
+      installNamed: notesSpecifyDrywallInstall,
+      repairNamed: notesSpecifyDrywallRepair,
+    });
     const explicitFramingOpeningCount = parseFramingMeasurementsFromNotes(
       String(notes || '')
     ).framingOpeningCount;
@@ -19634,13 +19757,8 @@ function CollapsibleQuickMeasurements({
       ...(field.key === 'wallPaintSqft' && notesSpecifyWallsAndCeilingsPaint
         ? { label: 'Walls & ceilings paint' }
         : {}),
-      ...(field.key === 'drywallSqft'
-        ? {
-            label:
-              notesSpecifyDrywallInstall && !notesSpecifyDrywallRepair
-                ? 'Drywall install'
-                : 'Drywall repair area',
-          }
+      ...(field.key === 'drywallSqft' && drywallSqftLabel
+        ? { label: drywallSqftLabel }
         : {}),
       ...(floorPrepExceedsTotal
         ? {
@@ -19649,13 +19767,8 @@ function CollapsibleQuickMeasurements({
         : {}),
       ...(field.key === 'windowCount'
         ? { label: 'Window replacement' }
-        : field.key === 'drywallSqft'
-          ? {
-              label:
-                notesSpecifyDrywallInstall && !notesSpecifyDrywallRepair
-                  ? 'Drywall install'
-                  : 'Drywall repair area',
-            }
+        : field.key === 'drywallSqft' && drywallSqftLabel
+          ? { label: drywallSqftLabel }
           : field.key === 'paintAreaSqft' &&
               notesSpecifyPaintCeilings &&
               !notesSpecifyPaintWalls
@@ -19778,16 +19891,6 @@ function CollapsibleQuickMeasurements({
     'stuccoStories',
     'stuccoWallHeightFt',
   ]);
-  const paintingEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
-    'wallPaintSqft',
-    'ceilingPaintSqft',
-    'paintAreaSqft',
-    'baseboardLf',
-    'interiorDoorCount',
-    'cabinetPaintSqft',
-    'cabinetRunLf',
-    'exteriorPaintSqft',
-  ]);
   const flooringInstallSqft =
     Number(measurements.flooringLvpSqft || 0) +
     Number(measurements.flooringLaminateSqft || 0) +
@@ -19847,7 +19950,8 @@ function CollapsibleQuickMeasurements({
       (stuccoQmJob && stuccoEmbeddedMeasurementKeys.has(result.key)) ||
       (stuccoQmJob &&
         ['exteriorPaintSqft', 'baseboardLf'].includes(result.key)) ||
-      (paintingQmJob && paintingEmbeddedMeasurementKeys.has(result.key)) ||
+      ((paintingQmJob || paintScopePanelOwnsMeasurements) &&
+        paintingEmbeddedMeasurementKeys.has(result.key)) ||
       ((deckQmJob || hvacQmJob || roofingQmJob) &&
         simpleTradeEmbeddedMeasurementKeys.has(result.key)) ||
       (compactMixedScope &&
@@ -23437,10 +23541,25 @@ export default function AIEstimateScopeAssumptionsModal({
                 /\bbaseboards?\b|\bbase\s*board\b/i.test(currentUserNote))
           )
         : withoutLegacyDoorCasingInstall;
+    const notesKeepGenericDemo =
+      !shouldLimitBathroomChecklistToNotes({
+        notes: currentUserNote,
+        templateKey: checklist?.templateKey,
+        projectType: draft?.projectType,
+        scopeMode:
+          draft?.scopeMode || draft?.classification?.scopeMode || null,
+        planBacked: Boolean(
+          measurements.planImportMode ||
+            measurements.planImportFingerprint ||
+            planImport
+        ),
+        wholeHome: isWholeHomeMixedRemodelNote,
+      }) || bathroomChecklistItemNamedInNotes('demo', currentUserNote);
     const bathroomTilePanAlreadyInGenericDemo =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' &&
       Number(measurements.demoTilePanCount || 0) > 0 &&
-      items.some(item => item.id === 'demo' && item.state !== 'excluded');
+      items.some(item => item.id === 'demo' && item.state !== 'excluded') &&
+      notesKeepGenericDemo;
     const withoutDuplicateShowerPanDemo = bathroomTilePanAlreadyInGenericDemo
       ? withoutDuplicateInteriorTrimCards.filter(
           item => item.id !== 'shower_floor_demo'
@@ -23550,6 +23669,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     );
     const drywallLayoutCtx = {
+      notes: currentUserNote,
       measurements: measurements as Record<string, unknown>,
       planImportMode: measurements.planImportMode ?? null,
       planImportTradeKey: measurements.planImportTradeKey ?? null,
@@ -23875,9 +23995,20 @@ export default function AIEstimateScopeAssumptionsModal({
       ),
       wholeHome: isWholeHomeMixedRemodelNote,
     };
-    return filterDedicatedKitchenConfirmItems(
+    const filtered = filterDedicatedKitchenConfirmItems(
       filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
       noteScopeParams
+    );
+    if (!notesWaterproofPanNotWalls(noteScopeParams.notes)) return filtered;
+    return filtered.map(item =>
+      item.id === 'waterproofing'
+        ? {
+            ...item,
+            label: 'Shower pan waterproofing',
+            helperText:
+              'Membrane on the new mud pan. The walls stay, so this is not backer board or wall-cavity insulation.',
+          }
+        : item
     );
   },
     [
@@ -24974,6 +25105,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     const framingMeasurementKeys = [
       'framedAreaSqft',
+      'wallFramingSqft',
       'wallFramingLf',
       'sheathingSqft',
       'framingOpeningCount',
@@ -24995,6 +25127,29 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         hydratedFramingMeasurements[key] = String(parsedNumber);
       }
+    }
+    if (
+      Number(parsedFramingMeasurements.wallFramingSqft || 0) > 0 &&
+      !/\b(?:living\s+area|garage|addition|framed\s+floor|floor\s+area)\b/i.test(
+        measurementNotes
+      )
+    ) {
+      hydratedFramingMeasurements.framedAreaSqft = '';
+      hydratedFramingMeasurements.floorAreaSqft = '';
+      hydratedFramingMeasurements.garageSqft = '';
+      hydratedFramingMeasurements.wallFramingLf = '';
+      const nextItemQuantities = {
+        ...(hydratedFramingMeasurements.itemQuantities || {}),
+      };
+      delete nextItemQuantities.framing;
+      const wallFramingQuantity = nextItemQuantities.wall_framing;
+      if (
+        wallFramingQuantity &&
+        String(wallFramingQuantity.unit || '').toLowerCase() === 'lf'
+      ) {
+        delete nextItemQuantities.wall_framing;
+      }
+      hydratedFramingMeasurements.itemQuantities = nextItemQuantities;
     }
     nextMeasurements = hydratedFramingMeasurements;
     if (
@@ -26833,6 +26988,24 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  useEffect(() => {
+    const inferred = notesInferBathroomGlassDoorStyle(
+      String(notesFallback || '').trim() ||
+        String(draft?.originalNotes || '').trim() ||
+        scopeNotes
+    );
+    if (inferred !== 'premium_frameless') return;
+    setMeasurementsSynced(prev => {
+      if (prev.bathroomGlassDoorStyleSource === 'user_selected') return prev;
+      if (prev.bathroomGlassDoorStyle === 'premium_frameless') return prev;
+      return {
+        ...prev,
+        bathroomGlassDoorStyle: 'premium_frameless',
+        bathroomGlassDoorStyleSource: 'ai_inferred',
+      };
+    });
+  }, [draft?.originalNotes, notesFallback, scopeNotes, setMeasurementsSynced]);
+
   const handleKitchenBacksplashDemoDifficultyChange = useCallback(
     (difficulty: KitchenBacksplashDemoDifficulty | null) => {
       setMeasurementsSynced(prev => {
@@ -27453,6 +27626,73 @@ export default function AIEstimateScopeAssumptionsModal({
     const templateIsPainting =
       String(checklist?.templateKey || '').toLowerCase() === 'painting';
     if (templateIsPainting) {
+      const paintScope = measurements.paintScope;
+      if (Array.isArray(paintScope)) {
+        const hiddenPaintCards = new Set<string>();
+        if (!paintScope.includes('exterior')) {
+          hiddenPaintCards.add('exterior_paint');
+          hiddenPaintCards.add('exterior_prep');
+          hiddenPaintCards.add('exterior_trim_paint');
+          hiddenPaintCards.add('exterior_door_paint');
+        }
+        if (!paintScope.includes('cabinets')) {
+          hiddenPaintCards.add('cabinet_paint');
+        }
+        if (
+          !paintScope.includes('walls') &&
+          !paintScope.includes('ceilings')
+        ) {
+          hiddenPaintCards.add('prep');
+          hiddenPaintCards.add('interior_paint');
+          hiddenPaintCards.add('paint');
+        }
+        if (
+          !paintScope.includes('ceilings') ||
+          (paintScope.includes('walls') &&
+            measurements.paintPricingMethod !== 'separate')
+        ) {
+          hiddenPaintCards.add('ceiling_paint');
+        }
+        if (!paintScope.includes('doors')) {
+          hiddenPaintCards.add('door_paint');
+          hiddenPaintCards.add('door_casing_paint');
+        }
+        if (!paintScope.includes('trim')) {
+          hiddenPaintCards.add('trim_paint');
+          hiddenPaintCards.add('baseboard_install');
+        }
+        const windowTrimCount =
+          Number(measurements.windowCount) > 0 ||
+          Number(measurements.exteriorDoorCount) > 0;
+        if (
+          !windowTrimCount &&
+          !/\bwindow\s+trim\b/i.test(String(scopeNotes || ''))
+        ) {
+          hiddenPaintCards.add('exterior_trim_paint');
+          hiddenPaintCards.add('trim_finish');
+        }
+        if (hiddenPaintCards.size) {
+          for (let index = groups.length - 1; index >= 0; index -= 1) {
+            groups[index].items = groups[index].items.filter(
+              item => !hiddenPaintCards.has(item.id)
+            );
+            if (!groups[index].items.length) groups.splice(index, 1);
+          }
+        }
+        if (
+          paintScope.includes('walls') &&
+          (!paintScope.includes('ceilings') ||
+            measurements.paintPricingMethod === 'separate')
+        ) {
+          for (const group of groups) {
+            group.items = group.items.map(item =>
+              item.id === 'interior_paint'
+                ? { ...item, label: 'Interior paint — walls' }
+                : item
+            );
+          }
+        }
+      }
       groups.forEach(group => {
         if (group.groupKey !== 'painting') return;
         group.items = group.items
@@ -27884,6 +28124,7 @@ export default function AIEstimateScopeAssumptionsModal({
         windowCount: measurements.windowCount,
         exteriorDoorCount: measurements.exteriorDoorCount,
         notes: scopeNotes,
+        templateKey: checklist?.templateKey,
       })
     );
   }, [
@@ -27903,6 +28144,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.exteriorPaintSqft,
     measurements.windowCount,
     measurements.exteriorDoorCount,
+    scopeNotes,
+    checklist?.templateKey,
   ]);
 
   useEffect(() => {
@@ -28156,6 +28399,9 @@ export default function AIEstimateScopeAssumptionsModal({
         deferredMeasurements.backsplashSqft ?? '',
         deferredMeasurements.kitchenFloorSqft ?? '',
         deferredMeasurements.baseboardLf ?? '',
+        deferredMeasurements.wallDemoSqft ?? '',
+        deferredMeasurements.drywallSqft ?? '',
+        deferredMeasurements.patchRepairSqft ?? '',
         JSON.stringify(deferredMeasurements.pricingAcceptance ?? {}),
       ].join('\u001f'),
     [
@@ -30351,16 +30597,33 @@ export default function AIEstimateScopeAssumptionsModal({
     const lightingHasSelection = lightingChoices.some(
       choiceId => choiceId !== 'unsure' && choiceId !== 'not_in_scope'
     );
-    if (lightingItem && !lightingItem.noteBacked && !lightingHasSelection) {
+    const kitchenTemplate =
+      String(checklist?.templateKey || '').toLowerCase() === 'kitchen';
+    const recessedOwnsCanLights = displayItems.some(
+      row =>
+        row.id === 'electrical_recessed_light' && row.state !== 'excluded'
+    );
+    if (
+      lightingItem &&
+      !lightingItem.noteBacked &&
+      !lightingHasSelection &&
+      !(kitchenTemplate && recessedOwnsCanLights)
+    ) {
       ids.add('lighting');
     }
     // Plumbing connections has several mutually exclusive button choices;
-    // keep the long option list compact until the user opens it.
-    if (displayItems.some(row => row.id === 'plumbing')) {
+    // keep the long option list compact until the user opens it. A kitchen
+    // sink hookup is a normal trade card and stays in the Trades group.
+    const kitchenSinkHookup =
+      kitchenTemplate &&
+      /\b(?:sink\s+)?hook[\s-]?ups?\b|\bsink\s+hookup\b/i.test(
+        String(scopeNotes || '')
+      );
+    if (displayItems.some(row => row.id === 'plumbing') && !kitchenSinkHookup) {
       ids.add('plumbing');
     }
     return ids;
-  }, [displayItems]);
+  }, [checklist?.templateKey, displayItems, scopeNotes]);
 
   const renderItem = (
     item: ScopeChecklistItem,
@@ -32258,7 +32521,16 @@ export default function AIEstimateScopeAssumptionsModal({
                           : scopePricingTemplateKey;
                 const groupPricingCacheKey = `${groupPricingTemplateKey}|${group.title}|${drywallFinishOn}|${scopeNotes}|${pricedItems
                   .map(item => `${item.id}:${item.state}:${item.choiceId || ''}`)
-                  .join(',')}`;
+                  .join(',')}|${[
+                  measurements.wallFramingSqft,
+                  measurements.wallFramingLf,
+                  measurements.framedAreaSqft,
+                  measurements.sheathingSqft,
+                  measurements.framingOpeningCount,
+                  measurements.wallDemoSqft,
+                  measurements.drywallSqft,
+                  measurements.patchRepairSqft,
+                ].join(':')}`;
                 let cachedGroupPricing =
                   groupPricingCacheRef.current.get(groupPricingCacheKey);
                 if (!cachedGroupPricing) {
@@ -32398,13 +32670,20 @@ export default function AIEstimateScopeAssumptionsModal({
                         ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
                         : (() => {
                             const electricalNote =
-                              electricalPricingCardMeasurementNote(
-                                visibleItems,
-                                measurementsForAppliedPricing as Record<
-                                  string,
-                                  unknown
-                                >
-                              );
+                              visibleItems.length > 0 &&
+                              visibleItems.every(item =>
+                                ELECTRICAL_CARDS.some(
+                                  card => card.itemId === item.id
+                                )
+                              )
+                                ? electricalPricingCardMeasurementNote(
+                                    visibleItems,
+                                    measurementsForAppliedPricing as Record<
+                                      string,
+                                      unknown
+                                    >
+                                  )
+                                : null;
                             if (!electricalNote) return null;
                             return groupCollapsed
                               ? `${electricalNote} · Tap for detail`
@@ -33040,12 +33319,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   customBadgeLight: {
-    borderColor: 'rgba(96, 165, 250, 0.32)',
-    backgroundColor: 'rgba(96, 165, 250, 0.08)',
+    borderColor: 'rgba(45, 204, 154, 0.45)',
+    backgroundColor: 'rgba(45, 204, 154, 0.1)',
   },
   customBadgeDark: {
-    borderColor: 'rgba(96, 165, 250, 0.35)',
-    backgroundColor: 'rgba(96, 165, 250, 0.12)',
+    borderColor: 'rgba(45, 204, 154, 0.55)',
+    backgroundColor: 'rgba(45, 204, 154, 0.16)',
   },
   customIconBtn: {
     paddingHorizontal: 6,
@@ -33090,21 +33369,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
   },
-  savePricingBtn: {
-    marginTop: 10,
-    alignSelf: 'stretch',
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    paddingVertical: 11,
-    backgroundColor: '#22c55e',
-  },
-  savePricingBtnText: {
-    color: '#0f172a',
-    fontSize: 13,
-    fontWeight: '800',
-  },
+  savePricingBtn: confirmScopeApplyButtonStyle(),
+  savePricingBtnText: confirmScopeApplyButtonTextStyle(),
   useSuggestedPricingBtn: confirmScopeApplyButtonStyle(),
   useSuggestedPricingBtnText: confirmScopeApplyButtonTextStyle(),
   /** Secondary opt-in for national comparison (distinct from green Apply). */

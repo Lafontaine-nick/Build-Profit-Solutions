@@ -8,6 +8,8 @@
  * ground-up stage ids (paint_trim, cabinets_counters, tile_flooring) so
  * Confirm Scope grouping stays accurate across templates.
  */
+import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
@@ -176,6 +178,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     wallDemoSqft: ['demo', 'wall_demo'],
     framedAreaSqft: ['framing'],
     wallFramingLf: ['wall_framing'],
+    wallFramingSqft: ['wall_framing'],
     sheathingSqft: ['shear_sheathing'],
     framingOpeningCount: ['openings'],
     floorDemoSqft: ['floor_demo', 'demo', 'flooring'],
@@ -358,10 +361,15 @@ export function getMeasurementRelevance(params: {
     /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
       notesText
     );
+  const dedicatedDrywallRemoval =
+    measurementKey === 'wallDemoSqft' &&
+    notesDescribeDedicatedDrywallJob(notesText) &&
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(notesText);
   if (
     (measurementKey === 'drywallSqft' && explicitDrywallNotes) ||
     (measurementKey === 'patchRepairSqft' && explicitDrywallPatchNotes) ||
     (measurementKey === 'wallDemoSqft' && explicitWallDemolitionNotes) ||
+    dedicatedDrywallRemoval ||
     (measurementKey === 'floorDemoSqft' && explicitFlooringRemovalNotes)
   ) {
     return {
@@ -369,6 +377,28 @@ export function getMeasurementRelevance(params: {
       blockingPrice: true,
       relatedScopeKeys,
       reason: undefined,
+    };
+  }
+  const bathroomPaintNotes =
+    String(params.templateKey || '').toLowerCase() === 'bathroom' ||
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notesText);
+  const paintAreaMeasurement =
+    measurementKey === 'wallPaintSqft' ||
+    measurementKey === 'ceilingPaintSqft' ||
+    measurementKey === 'paintAreaSqft';
+  if (
+    bathroomPaintNotes &&
+    notesText.trim() &&
+    paintAreaMeasurement &&
+    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      bathroomAffirmativeNotes(notesText)
+    )
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Not needed unless this bathroom note asks for paint.',
     };
   }
   const explicitInteriorPaintNotes =

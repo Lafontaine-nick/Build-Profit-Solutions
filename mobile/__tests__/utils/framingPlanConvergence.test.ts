@@ -128,7 +128,28 @@ describe('framing canonical architecture', () => {
         'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.'
       )
     ).toEqual({
-      framedAreaSqft: 1600,
+      wallFramingSqft: 1600,
+      framingOpeningCount: 2,
+    });
+  });
+
+  it('counts rough openings when new walls are denied', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Do not frame any new walls. Frame four rough openings.'
+      )
+    ).toEqual({
+      framingOpeningCount: 4,
+    });
+  });
+
+  it('keeps wall sqft off the framed floor area and counts rough openings', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.'
+      )
+    ).toEqual({
+      wallFramingSqft: 1600,
       framingOpeningCount: 2,
     });
   });

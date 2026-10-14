@@ -87,6 +87,7 @@ type MeasurementLookup = Partial<
   planRooms?: PlanRoomMeasurement[];
   wetAreaFinish?: WetAreaFinishChoice | null;
   bathCount?: number | null;
+  tilePanBathCount?: number | null;
   prefabBathCount?: number | null;
   tubBathCount?: number | null;
   itemQuantities?: Record<
@@ -1496,6 +1497,22 @@ export function getQuickMeasurementEstimate(
     }
     case 'showerWallTileSqft':
     case 'showerFloorTileSqft': {
+      const notesText = String(options?.notes || '').trim();
+      const showerTemplate = String(
+        templateKey ?? measurements.templateKey ?? options?.projectType ?? ''
+      ).toLowerCase();
+      const planRoomsBackTheShower =
+        Array.isArray(measurements.planRooms) && measurements.planRooms.length > 0;
+      // A bathroom note names the pan and the tile. It does not invent wall
+      // or pan square footage, even when the draft still has a living-area fact.
+      if (
+        notesText &&
+        !planRoomsBackTheShower &&
+        (showerTemplate === 'bathroom' ||
+          /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notesText))
+      ) {
+        return null;
+      }
       const finishParams = {
         bathCount: measurements.bathCount,
         tilePanBathCount: measurements.tilePanBathCount,

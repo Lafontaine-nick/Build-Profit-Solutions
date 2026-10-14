@@ -175,6 +175,21 @@ describe('scopeMeasurementParser', () => {
     expect(inferItemStateFromNotes('cleanup', notes)).toBe('included');
   });
 
+  test('routes a hang-and-finish drywall note to the drywall checklist', () => {
+    const notes =
+      'Remove the damaged drywall. Hang and finish 2,400 sqft with tape, mud, sanding, and texture, including 300 sqft of patch repair.';
+    expect(
+      checklistTemplateKey({ projectType: 'other', originalNotes: notes }, 'room_remodel')
+    ).toBe('drywall');
+  });
+
+  test('routes hang and finish with tape, mud, and texture to the drywall checklist', () => {
+    const notes = 'Hang and finish 1,800 sqft. Tape, mud, and texture.';
+    expect(
+      checklistTemplateKey({ projectType: 'other', originalNotes: notes }, 'room_remodel')
+    ).toBe('drywall');
+  });
+
   test('parses kitchen floor and backsplash from notes', () => {
     const notes = 'Kitchen remodel, 220 sqft kitchen floor, 45 sqft backsplash tile';
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });

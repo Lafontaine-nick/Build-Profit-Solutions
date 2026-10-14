@@ -5,8 +5,18 @@
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { notesWithoutWetAreaFraming } from '@/utils/bathroomNoteScope';
 import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
+import {
+  notesDescribeDedicatedDrywallJob,
+  notesIncludeDrywallPatchInHang,
+  statedDedicatedDrywallDemoSqft,
+} from '@/utils/drywallNoteScope';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  notesFrameExplicitWallArea,
+  notesMentionAffirmativeWallFraming,
+  notesNameCoveredFramedFloor,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 export type QuickMeasurementFieldKey =
   | 'bathroomFloorSqft'
@@ -195,6 +205,7 @@ export type QuickMeasurementFieldKey =
   | 'stuccoStories'
   | 'stuccoWallHeightFt'
   | 'framedAreaSqft'
+  | 'wallFramingSqft'
   | 'wallFramingLf'
   | 'sheathingSqft'
   | 'framingOpeningCount'
@@ -1244,6 +1255,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'structure',
     undefined,
     'Covered framed SF — living plus garage when both are documented.'
+  ),
+  wallFramingSqft: F(
+    'wallFramingSqft',
+    'Wall framing area',
+    'e.g. 1600',
+    'sqft',
+    'structure',
+    undefined,
+    'Square feet of walls explicitly identified for framing in the notes.'
   ),
   wallFramingLf: F(
     'wallFramingLf',
@@ -2765,8 +2785,31 @@ export function quickMeasurementRowsForTemplate(
           )
           .filter(row => row.length > 0)
       : remodelRows;
+  const wallAreaFramingRows =
+    key === 'framing' &&
+    notesFrameExplicitWallArea(framingNoteText) &&
+    !notesNameCoveredFramedFloor(framingNoteText)
+      ? [
+          ...kitchenScopedRows
+            .map(row =>
+              row.filter(
+                field =>
+                  field.key !== 'framedAreaSqft' &&
+                  field.key !== 'garageSqft' &&
+                  field.key !== 'floorAreaSqft' &&
+                  field.key !== 'wallFramingLf'
+              )
+            )
+            .filter(row => row.length > 0),
+          ...(kitchenScopedRows.some(row =>
+            row.some(field => field.key === 'wallFramingSqft')
+          )
+            ? []
+            : [[QUICK_MEASUREMENT_FIELD_DEFS.wallFramingSqft]]),
+        ]
+      : kitchenScopedRows;
   if (key !== 'room_remodel' || !String(notes || '').trim()) {
-    return kitchenScopedRows
+    return wallAreaFramingRows
       .map(row => row.filter(noteBackedCrossTradeFields))
       .filter(row => row.length > 0);
   }
@@ -3086,12 +3129,12 @@ function applyDrywallNoteSemantics(
     /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       text
     );
-  const shouldTreatAsDrywallInstall =
-    hasDrywallInstall || (!hasDrywallRepair && !hasDrywallDemo);
   const hasDrywallInstall =
     /\b(?:hang|install|installation)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:hang|install|installation)\b/i.test(
       text
     );
+  const shouldTreatAsDrywallInstall =
+    hasDrywallInstall || (!hasDrywallRepair && !hasDrywallDemo);
   return rows
     .map(row =>
       row
@@ -3129,6 +3172,50 @@ function applyDrywallNoteSemantics(
     .filter(row => row.length > 0);
 }
 
+function dedicatedDrywallMeasurementRows(
+  notes: string
+): QuickMeasurementRow[] {
+  const rows: QuickMeasurementRow[] = [];
+  if (/\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(notes)) {
+    rows.push([
+      {
+        ...QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft,
+        label: 'Drywall demo',
+        placeholder: 'Enter',
+        ...(statedDedicatedDrywallDemoSqft(notes)
+          ? {}
+          : {
+              helperText:
+                'Square feet of drywall being removed. The note does not give this area.',
+            }),
+      },
+    ]);
+  }
+  rows.push([
+    {
+      ...QUICK_MEASUREMENT_FIELD_DEFS.drywallSqft,
+      label: 'Drywall hang / finish',
+      placeholder: '2400',
+    },
+  ]);
+  if (/\b(?:patch(?:ing)?|repair)\b/i.test(notes)) {
+    rows.push([
+      {
+        ...QUICK_MEASUREMENT_FIELD_DEFS.patchRepairSqft,
+        label: 'Drywall patch / repair',
+        placeholder: '300',
+        ...(notesIncludeDrywallPatchInHang(notes)
+          ? {
+              helperText:
+                'Included in the hang / finish area. No separate charge.',
+            }
+          : {}),
+      },
+    ]);
+  }
+  return rows;
+}
+
 export function quickMeasurementRowsForInput(
   templateKey: string | null | undefined,
   projectType: string | null | undefined,
@@ -3147,6 +3234,9 @@ export function quickMeasurementRowsForInput(
     scopeNotes?: string | null;
   }
 ): QuickMeasurementRow[] {
+  if (notesDescribeDedicatedDrywallJob(options?.scopeNotes)) {
+    return dedicatedDrywallMeasurementRows(String(options?.scopeNotes || ''));
+  }
   const resolvedKey = resolveQuickMeasurementTemplateKey(
     templateKey,
     projectType
@@ -3418,14 +3508,29 @@ export function quickMeasurementRowsForInput(
       QUICK_MEASUREMENT_FIELD_DEFS.insulationRValue
     );
   }
+  const wallAreaFraming =
+    notesFrameExplicitWallArea(scopeNotes) &&
+    !notesNameCoveredFramedFloor(scopeNotes);
+  if (wallAreaFraming) {
+    baseRows = baseRows
+      .map(row =>
+        row.filter(
+          field =>
+            field.key !== 'framedAreaSqft' &&
+            field.key !== 'garageSqft' &&
+            field.key !== 'floorAreaSqft' &&
+            field.key !== 'wallFramingLf'
+        )
+      )
+      .filter(row => row.length > 0);
+  }
   if (
     resolvedKey === 'room_remodel' ||
     resolvedKey === 'framing'
   ) {
-    const structuralFramingMention =
-      /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
-        notesWithoutWetAreaFraming(scopeNotes)
-      );
+    const structuralFramingMention = notesMentionAffirmativeWallFraming(
+      notesWithoutWetAreaFraming(scopeNotes)
+    );
     const sheathingMention = /\b(?:structural\s+)?sheathing\b/i.test(
       scopeNotes
     );
@@ -3457,7 +3562,15 @@ export function quickMeasurementRowsForInput(
       );
     }
     if (
+      wallAreaFraming &&
+      !baseRows.some(row => row.some(field => field.key === 'wallFramingSqft'))
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.wallFramingSqft
+      );
+    } else if (
       structuralFramingMention &&
+      !wallAreaFraming &&
       !baseRows.some(row => row.some(field => field.key === 'framedAreaSqft'))
     ) {
       noteBackedFieldsToAppend.push({
@@ -4350,6 +4463,7 @@ export function emptyQuickMeasurementInput(): Record<
     stuccoWallHeightFt: '',
     framedAreaSqft: '',
     wallFramingLf: '',
+    wallFramingSqft: '',
     sheathingSqft: '',
     framingOpeningCount: '',
     framingCleanupCount: '',

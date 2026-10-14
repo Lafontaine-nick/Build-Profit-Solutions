@@ -12,6 +12,14 @@ import {
   checklistItemInScope,
 } from '@/utils/scopeItemQuantities';
 import { resolveKitchenCountertopTakeoffSqft } from '@/utils/qmScopePanels/kitchenRemodel';
+import {
+  kitchenConfirmScopeSeedItems,
+  notesDescribeDedicatedKitchenRemodel,
+} from '@/utils/kitchenNoteScope';
+import {
+  dedicatedDrywallConfirmScopeItems,
+  notesDescribeDedicatedDrywallJob,
+} from '@/utils/drywallNoteScope';
 import { isContingencyScopePackage, isSoftCostScopePackage } from '@/utils/softCostScope';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import {
@@ -923,6 +931,7 @@ export type ScopeMeasurements = {
   /** Framing canonical plan export / notes selections. */
   framingScope?: string[] | null;
   framedAreaSqft?: number | null;
+  wallFramingSqft?: number | null;
   wallFramingLf?: number | null;
   sheathingSqft?: number | null;
   framingOpeningCount?: number | null;
@@ -1349,6 +1358,7 @@ export function repairDraftRatePricingFromNotes(
 ): EstimateAiDraft {
   const text = String(notes || draft.originalNotes || '').trim();
   if (!text) return draft;
+  const dedicatedKitchenRemodel = notesDescribeDedicatedKitchenRemodel(text);
 
   const parsed = parseScopeMeasurementsFromNotes(text, {
     templateKey: draft.scopeChecklist?.templateKey,
@@ -1416,8 +1426,9 @@ export function repairDraftRatePricingFromNotes(
     );
   }
   if (
-    draft.scopeChecklist?.templateKey === 'flooring' ||
-    draft.projectType === 'flooring'
+    !dedicatedKitchenRemodel &&
+    (draft.scopeChecklist?.templateKey === 'flooring' ||
+      draft.projectType === 'flooring')
   ) {
     const normalizedFlooring = normalizeTradeMeasurements(
       'flooring',
@@ -1442,11 +1453,47 @@ export function repairDraftRatePricingFromNotes(
       mergedScopeMeasurements,
       normalizedPainting
     );
+    if (/\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?ceilings?\b/i.test(text)) {
+      delete mergedScopeMeasurements.ceilingPaintSqft;
+      if (Number(mergedScopeMeasurements.wallPaintSqft) > 0) {
+        delete mergedScopeMeasurements.combinedPaintableAreaSqft;
+        mergedScopeMeasurements.paintAreaSqft = Number(
+          mergedScopeMeasurements.wallPaintSqft
+        );
+        mergedScopeMeasurements.paintPricingMethod = 'separate';
+      }
+      if (Array.isArray(mergedScopeMeasurements.paintScope)) {
+        mergedScopeMeasurements.paintScope =
+          mergedScopeMeasurements.paintScope.filter(
+            surface => surface !== 'ceilings'
+          );
+      }
+    }
+    const notePaintsCabinets =
+      /(?:paint(?:ing)?|repaint(?:ing)?|refinish(?:ing)?)\b[^.;\n]{0,80}\b(?:kitchen\s+)?cabinets?\b|\b(?:kitchen\s+)?cabinets?\b[^.;\n]{0,80}\b(?:paint(?:ing)?|repaint(?:ing)?|refinish(?:ing)?)/i.test(
+        text
+      ) &&
+      !/\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included|stay off)\b/i.test(
+        text
+      ) &&
+      !/\b(?:no|not|without|don'?t|do not)\s+(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
+        text
+      );
+    if (
+      !notePaintsCabinets &&
+      Array.isArray(mergedScopeMeasurements.paintScope)
+    ) {
+      mergedScopeMeasurements.paintScope =
+        mergedScopeMeasurements.paintScope.filter(
+          surface => surface !== 'cabinets'
+        );
+    }
   }
   if (
-    draft.scopeChecklist?.templateKey === 'electrical' ||
-    draft.projectType === 'electrical' ||
-    String(draft.projectType || '').toLowerCase() === 'electrical service'
+    !dedicatedKitchenRemodel &&
+    (draft.scopeChecklist?.templateKey === 'electrical' ||
+      draft.projectType === 'electrical' ||
+      String(draft.projectType || '').toLowerCase() === 'electrical service')
   ) {
     const normalizedElectrical = normalizeTradeMeasurements(
       'electrical',
@@ -1661,14 +1708,21 @@ export function repairDraftRatePricingFromNotes(
       },
     };
   }
-  const explicitKitchenRemodel =
-    /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(text) ||
-    /\bkitchen\s+(?:remodel|renovation)\b/i.test(text);
   if (
-    explicitKitchenRemodel &&
+    dedicatedKitchenRemodel &&
     (repairedDraft.scopeChecklist?.templateKey !== 'kitchen' ||
-      repairedDraft.projectType !== 'kitchen')
+      repairedDraft.projectType !== 'kitchen' ||
+      repairedDraft.estimateTier === 'simple_unit' ||
+      !repairedDraft.estimateTier)
   ) {
+    const incomingKey = String(
+      repairedDraft.scopeChecklist?.templateKey || ''
+    ).toLowerCase();
+    const incomingItems = repairedDraft.scopeChecklist?.items || [];
+    const kitchenItems =
+      incomingKey === 'kitchen' && incomingItems.length
+        ? incomingItems
+        : kitchenConfirmScopeSeedItems();
     return {
       ...repairedDraft,
       projectType: 'kitchen',
@@ -1676,13 +1730,19 @@ export function repairDraftRatePricingFromNotes(
         ? repairedDraft.projectTitle
         : 'Kitchen Remodel Estimate',
       estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'dedicated',
+      },
       scopeChecklist: {
         ...(repairedDraft.scopeChecklist || {}),
         estimateTier: 'room_remodel',
         templateKey: 'kitchen',
         title: 'Kitchen remodel — confirm project scope',
         intro: 'Confirm what work is in this bid before pricing.',
-        items: repairedDraft.scopeChecklist?.items || [],
+        items: kitchenItems,
         suggestedMeasurements:
           repairedDraft.scopeChecklist?.suggestedMeasurements || null,
         requiresConfirmation: true,
@@ -1690,8 +1750,89 @@ export function repairDraftRatePricingFromNotes(
       scopePackages: [],
       rooms: [],
       detectedTrades: [],
-      whatAiDid: [],
+      scopeTradeLabels: ['Kitchen'],
+      whatAiDid: ['Detected kitchen remodel.'],
       projectDescription: '',
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (notesDescribeDedicatedDrywallJob(text)) {
+    const title = String(repairedDraft.projectTitle || '').trim();
+    const measurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    const statedDemoSqft = Number(
+      String(parsed.wallDemoSqft ?? '').replace(/,/g, '')
+    );
+    const userEnteredDemo =
+      Boolean(measurements.quickMeasurementUserOverrides?.wallDemoSqft) ||
+      measurements.quickMeasurementSources?.wallDemoSqft === 'user_entered' ||
+      measurements.quickMeasurementSources?.wallDemoSqft === 'manual_override';
+    if (
+      !userEnteredDemo &&
+      !(Number.isFinite(statedDemoSqft) && statedDemoSqft > 0)
+    ) {
+      delete measurements.wallDemoSqft;
+    }
+    if (!/\b(?:home|living\s+area|floor\s+area)\b/i.test(text)) {
+      delete measurements.floorAreaSqft;
+    }
+    const hang = Number(String(measurements.drywallSqft ?? '').replace(/,/g, ''));
+    const patch = Number(
+      String(measurements.patchRepairSqft ?? '').replace(/,/g, '')
+    );
+    const itemQuantities = {
+      ...(measurements.itemQuantities || {}),
+    };
+    delete itemQuantities.demo;
+    delete itemQuantities.demo_removal;
+    if (hang > 0) {
+      itemQuantities.drywall = {
+        quantity: hang,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    if (patch > 0) {
+      itemQuantities.patch_repair = {
+        quantity: patch,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    return {
+      ...repairedDraft,
+      projectType: 'drywall',
+      projectTitle: /drywall/i.test(title) ? title : 'Drywall',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'dedicated',
+      },
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'drywall',
+        title: 'Drywall — confirm project scope',
+        intro: 'Confirm drywall scope before pricing.',
+        items: dedicatedDrywallConfirmScopeItems(text),
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: {
+        ...measurements,
+        itemQuantities,
+      },
+      scopePackages: [],
+      rooms: [],
+      detectedTrades: ['drywall'],
+      scopeTradeLabels: ['Drywall'],
+      whatAiDid: ['Detected drywall job.'],
     };
   }
   return repairedDraft;

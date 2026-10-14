@@ -492,6 +492,45 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(r => r.id === 'glass_door')?.state).toBe('excluded');
   });
 
+  test('reuse shower door cards follow the reuse chip', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'glass_door_reuse_remove',
+        label: 'Remove existing shower door',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'glass_door_reuse_install',
+        label: 'Reinstall existing shower door',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    const hidden = syncWetAreaDemoScopeItems(items, {
+      demo: {},
+      reuseExistingShowerDoor: false,
+    });
+    expect(hidden.find(r => r.id === 'glass_door_reuse_remove')?.state).toBe(
+      'excluded'
+    );
+    expect(hidden.find(r => r.id === 'glass_door_reuse_install')?.state).toBe(
+      'excluded'
+    );
+    const shown = syncWetAreaDemoScopeItems(hidden, {
+      demo: {},
+      reuseExistingShowerDoor: true,
+    });
+    expect(shown.find(r => r.id === 'glass_door_reuse_remove')?.state).toBe(
+      'included'
+    );
+    expect(shown.find(r => r.id === 'glass_door_reuse_install')?.state).toBe(
+      'included'
+    );
+  });
+
   test('syncWetAreaDemoScopeItems clears floor_demo Yes when bath floor demo stepper off', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -603,6 +642,265 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(row => row.id === 'exterior_paint')?.state).toBe('unsure');
     expect(next.find(row => row.id === 'exterior_trim_paint')?.state).toBe(
       'unsure'
+    );
+  });
+
+  test('an interior paint scope leaves exterior cards off until the chip is selected', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_paint',
+        label: 'Exterior Paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_door_paint',
+        label: 'Exterior door paint',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'interior_paint',
+        label: 'Interior paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const notes =
+      'Paint 2,000 sqft of walls and ceilings, including prep. Paint six interior doors, 180 LF of baseboard, and the door casings.';
+    const off = syncInteriorPaintScopeItems(items, {
+      paintScope: ['walls', 'ceilings', 'trim', 'doors'],
+      paintAreaSqft: '2000',
+      baseboardLf: '180',
+      interiorDoorCount: '6',
+      notes,
+    });
+    expect(off.find(row => row.id === 'exterior_paint')?.state).toBe(
+      'excluded'
+    );
+    expect(off.find(row => row.id === 'exterior_prep')?.state).toBe(
+      'excluded'
+    );
+    expect(off.find(row => row.id === 'exterior_door_paint')?.state).toBe(
+      'excluded'
+    );
+    expect(off.find(row => row.id === 'interior_paint')?.state).toBe(
+      'included'
+    );
+
+    const on = syncInteriorPaintScopeItems(items, {
+      paintScope: ['walls', 'ceilings', 'trim', 'doors', 'exterior'],
+      paintAreaSqft: '2000',
+      notes,
+    });
+    expect(on.find(row => row.id === 'exterior_paint')?.state).toBe(
+      'included'
+    );
+    expect(on.find(row => row.id === 'exterior_prep')?.state).toBe('included');
+  });
+
+  test('a painting bid selects cleanup until the user turns it off', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'cleanup',
+        label: 'Cleanup & disposal',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const selected = syncInteriorPaintScopeItems(items, {
+      templateKey: 'painting',
+      paintScope: ['walls', 'ceilings', 'trim', 'doors'],
+    });
+    expect(selected.find(row => row.id === 'cleanup')?.state).toBe('included');
+
+    const declined = syncInteriorPaintScopeItems(
+      [{ ...items[0], state: 'excluded' }],
+      { templateKey: 'painting', paintScope: ['walls'] }
+    );
+    expect(declined.find(row => row.id === 'cleanup')?.state).toBe('excluded');
+  });
+
+  test('combined walls and ceilings keep a single paint card', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'interior_paint',
+        label: 'Interior paint — walls & ceilings',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'ceiling_paint',
+        label: 'Interior paint — ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      templateKey: 'painting',
+      paintScope: ['walls', 'ceilings'],
+      paintPricingMethod: 'combined',
+      paintAreaSqft: 1800,
+    });
+
+    expect(next.find(row => row.id === 'interior_paint')?.state).toBe(
+      'included'
+    );
+    expect(next.find(row => row.id === 'ceiling_paint')?.state).toBe(
+      'excluded'
+    );
+  });
+
+  test('walls-only paint hides ceilings, doors, trim, and window cards', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'interior_paint',
+        label: 'Interior paint — walls & ceilings',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'ceiling_paint',
+        label: 'Interior paint — ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'door_paint',
+        label: 'Interior door & frame painting',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'trim_paint',
+        label: 'Baseboards, trim & molding',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Window trim & finish',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'prep',
+        label: 'Interior masking',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_paint',
+        label: 'Exterior Paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const notes =
+      'Paint 1,200 sqft of interior walls and 900 sqft of exterior siding. Include prep. No ceilings, no doors, and no cabinets.';
+    const next = syncInteriorPaintScopeItems(items, {
+      templateKey: 'painting',
+      paintScope: ['walls', 'exterior'],
+      wallPaintSqft: 1200,
+      exteriorPaintSqft: 900,
+      notes,
+    });
+
+    expect(next.find(row => row.id === 'interior_paint')).toEqual(
+      expect.objectContaining({
+        state: 'included',
+        label: 'Interior paint — walls',
+      })
+    );
+    expect(next.find(row => row.id === 'prep')?.state).toBe('included');
+    expect(next.find(row => row.id === 'exterior_paint')?.state).toBe(
+      'included'
+    );
+    for (const id of [
+      'ceiling_paint',
+      'door_paint',
+      'trim_paint',
+      'exterior_trim_paint',
+    ]) {
+      expect(next.find(row => row.id === id)?.state).toBe('excluded');
+    }
+  });
+
+  test('cabinet paint stays off until the cabinets chip is selected', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'cabinet_paint',
+        label: 'Cabinets',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const off = syncInteriorPaintScopeItems(items, {
+      paintScope: ['walls', 'ceilings', 'trim', 'doors'],
+    });
+    expect(off.find(row => row.id === 'cabinet_paint')?.state).toBe(
+      'excluded'
+    );
+    const on = syncInteriorPaintScopeItems(items, {
+      paintScope: ['walls', 'cabinets'],
+    });
+    expect(on.find(row => row.id === 'cabinet_paint')?.state).toBe('included');
+  });
+
+  test('exterior-only paint hides the interior painting cards', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'prep',
+        label: 'Paint prep & masking',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'interior_paint',
+        label: 'Interior paint — walls & ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'ceiling_paint',
+        label: 'Interior paint — ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_paint',
+        label: 'Exterior Paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      templateKey: 'painting',
+      paintScope: ['exterior'],
+      exteriorPaintSqft: 900,
+      notes: 'Paint 900 sqft of exterior siding. Include prep.',
+    });
+
+    for (const id of ['prep', 'interior_paint', 'ceiling_paint']) {
+      expect(next.find(row => row.id === id)?.state).toBe('excluded');
+    }
+    expect(next.find(row => row.id === 'exterior_prep')?.state).toBe(
+      'included'
+    );
+    expect(next.find(row => row.id === 'exterior_paint')?.state).toBe(
+      'included'
     );
   });
 

@@ -786,4 +786,43 @@ describe('plan quantities survive the notes reparse', () => {
     expect(Number(input.windowCount)).toBe(31);
     expect(Number(input.threeWaySwitchCount)).toBe(4);
   });
+
+  test('a notes-only mud pan does not invent a planning estimate', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing mud pan. Build a new mud pan and waterproof it. Install shower floor tile on the pan. Leave the shower walls, the bathroom floor, the vanity, and the toilet. No paint.';
+    const rows = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      emptyQuickMeasurementInput(),
+      []
+    );
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        tilePanBathCount: 1,
+        bathCount: null,
+        planFacts: {},
+      } as never,
+      includedScopeKeys: [
+        'shower_floor_demo',
+        'shower_pan',
+        'waterproofing',
+        'shower_floor_tile',
+        'wet_area_install',
+      ],
+      templateKey: 'bathroom',
+      projectType: 'bathroom',
+      notes,
+    });
+    const summary = summarizeQuickMeasurementFieldStates(results);
+    expect(summary.estimateAvailable).toBe(0);
+    expect(summary.needsConfirmation).toBe(1);
+    expect(
+      results.find(result => result.key === 'showerFloorTileSqft')?.state
+    ).toBe('needs_confirmation');
+    expect(results.find(result => result.key === 'wallPaintSqft')?.state).toBe(
+      'not_relevant'
+    );
+  });
 });

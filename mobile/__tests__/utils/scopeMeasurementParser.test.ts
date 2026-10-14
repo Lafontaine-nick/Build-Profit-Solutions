@@ -136,6 +136,61 @@ describe('mobile scope measurement parser', () => {
     });
   });
 
+  it('does not paint cabinets because the word appears in the note', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint 1,800 sqft of the interior. Include prep. Doors, trim, cabinets, and exterior stay off.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+
+    expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
+  });
+
+  it('keeps separate wall and ceiling quantities on their own surfaces', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint 1,400 sqft of walls and 600 sqft of ceilings. Include prep. No exterior.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+
+    expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
+    expect(parsed.paintPricingMethod).toBe('separate');
+    expect(parsed.wallPaintSqft).toBe(1400);
+    expect(parsed.ceilingPaintSqft).toBe(600);
+  });
+
+  it('keeps walls and ceilings selected when interior paint names neither surface', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint the interior of the house. Include prep.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+
+    expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
+  });
+
+  it('keeps an exterior-only paint note off the interior surfaces', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint 900 sqft of exterior siding.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+
+    expect(parsed.paintScope).toEqual(['exterior']);
+    expect(parsed.exteriorPaintSqft).toBe(900);
+  });
+
+  it('keeps exterior siding sqft off the interior ceiling total', () => {
+    const notes =
+      'Paint 1,200 sqft of interior walls and 900 sqft of exterior siding. Include prep. No ceilings, no doors, and no cabinets.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+
+    expect(parsed.paintScope).toEqual(['walls', 'exterior']);
+    expect(parsed.wallPaintSqft).toBe(1200);
+    expect(parsed.exteriorPaintSqft).toBe(900);
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+    expect(parsed.combinedPaintableAreaSqft).toBeUndefined();
+  });
+
   it('keeps mixed painting notes in the correct scope and measurement owners', () => {
     const notes =
       'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
@@ -1054,6 +1109,28 @@ describe('mobile scope measurement parser', () => {
     });
   });
 
+  it('reads shorthand cabs, tops, splash, LVP, and can lights', () => {
+    const notes =
+      'Kitchen reno. Cabs 20 LF, tops 48 sqft, splash 35 sqft, LVP 160 sqft. Four can lights. Sink hookup. No prices yet.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(20);
+    expect(parsed.countertopSqft).toBe(48);
+    expect(parsed.kitchenIslandCounterSqft).toBeUndefined();
+    expect(parsed.backsplashSqft).toBe(35);
+    expect(parsed.kitchenFloorSqft).toBe(160);
+    expect(parsed.recessedLightCount).toBe(4);
+    expect(parsed.itemQuantities?.lighting).toMatchObject({
+      quantity: 4,
+      unit: 'each',
+      quantitySource: 'notes',
+    });
+    expect(parsed.itemQuantities?.demo).toBeUndefined();
+    expect(parsed.itemQuantities?.haul_off).toBeUndefined();
+  });
+
   it('Smith kitchen: backsplash sqft not stolen from earlier countertop sqft', () => {
     const notes =
       'Kitchen remodel at the Smith house. Tear out old cabinets and counters. New cabinets about 18 linear feet, quartz counters roughly 55 sqft, tile backsplash 28 sqft. Customer is handling flooring themselves.';
@@ -1219,6 +1296,14 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.flooringSqft).toBe(700);
     expect(parsed.wallPaintSqft).toBeUndefined();
     expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
+  it('keeps hang and finish sqft separate from included patch repair', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remove the damaged drywall. Hang and finish 2,400 sqft with tape, mud, sanding, and texture, including 300 sqft of patch repair.'
+    );
+    expect(parsed.drywallSqft).toBe(2400);
+    expect(parsed.patchRepairSqft).toBe(300);
   });
 
   it('parses drywall hang and finish rates from the same drywall quantity', () => {
@@ -1697,10 +1782,11 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.kitchenIslandCounterSqft).toBe(22);
     expect(parsed.backsplashSqft).toBe(30);
     expect(parsed.kitchenFloorSqft).toBe(140);
-    expect(parsed.itemQuantities?.cleanup).toMatchObject({
+    expect(parsed.itemQuantities?.haul_off).toMatchObject({
       quantity: 650,
       unit: 'lump_sum',
     });
+    expect(parsed.itemQuantities?.cleanup).toBeUndefined();
     expect(parsed.itemQuantities?.demo).toBeUndefined();
   });
 

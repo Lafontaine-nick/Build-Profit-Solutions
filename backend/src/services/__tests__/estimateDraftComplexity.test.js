@@ -301,6 +301,20 @@ describe("estimateDraftComplexity", () => {
     );
   });
 
+  test("routes an interior paint quantity through Confirm Scope", () => {
+    const notes = "Paint 1,800 sqft of the interior. Include prep.";
+    const draft = {
+      projectType: "painting",
+      originalNotes: notes,
+      rooms: [{ name: "Interior Painting", scope: notes }],
+    };
+
+    expect(classifyEstimateTier(draft, notes)).toBe("room_remodel");
+    expect(buildScopeChecklist(draft, "room_remodel", notes).templateKey).toBe(
+      "painting",
+    );
+  });
+
   test("routes multi-floor painting through Confirm Scope cards", () => {
     const notes =
       "Interior repaint — occupied 2-story home. Main floor: 1,400 sqft. Upper floor: 1,000 sqft. Paint walls and ceilings throughout both floors. Repaint 14 interior doors and all baseboards.";

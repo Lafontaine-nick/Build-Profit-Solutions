@@ -530,13 +530,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:paint(?:ing)?|refinish(?:ing)?)\s+(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
         text,
       ) ||
-      /\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included)\b/i.test(
+      /\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included|stay off)\b/i.test(
         text,
       );
     if (
       !excludesCabinetPaint &&
-      /\bcabinets?\b/i.test(text) &&
-      /\b(?:paint|painting|refinish(?:ing)?)\b/i.test(text)
+      paintSurfaceMentioned(/\b(?:kitchen\s+)?cabinets?\b/i)
     ) {
       paintScope.push("cabinets");
     }

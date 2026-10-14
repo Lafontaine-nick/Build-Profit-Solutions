@@ -277,6 +277,57 @@ describe('getQuickMeasurementEstimate', () => {
     expect(floor!.value).toBe(30);
   });
 
+  test('a notes-only bathroom does not invent shower sqft to clear', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the existing shower wall tile and the tile shower pan. Install new shower wall tile and a new tile shower pan. Keep the existing shower door. Leave the bathroom floor, vanity, and toilet. No paint.';
+    expect(
+      getQuickMeasurementEstimate(
+        'showerWallTileSqft',
+        { wetAreaFinish: 'tile', bathCount: 1, tilePanBathCount: 1 },
+        undefined,
+        'bathroom',
+        { notes, projectType: 'bathroom' }
+      )
+    ).toBeNull();
+    expect(
+      getQuickMeasurementEstimate(
+        'showerFloorTileSqft',
+        { wetAreaFinish: 'tile', bathCount: 1, tilePanBathCount: 1 },
+        undefined,
+        'bathroom',
+        { notes, projectType: 'bathroom' }
+      )
+    ).toBeNull();
+    expect(
+      getQuickMeasurementEstimate(
+        'showerWallTileSqft',
+        {
+          wetAreaFinish: 'tile',
+          bathCount: 1,
+          tilePanBathCount: 1,
+          planFacts: {},
+        },
+        undefined,
+        'bathroom',
+        { notes, projectType: 'bathroom' }
+      )
+    ).toBeNull();
+    expect(
+      getQuickMeasurementEstimate(
+        'showerFloorTileSqft',
+        {
+          wetAreaFinish: 'tile',
+          bathCount: 1,
+          tilePanBathCount: 1,
+          planFacts: { buildingAreas: { totalLivingSqft: 1800 } },
+        },
+        undefined,
+        'bathroom',
+        { notes, projectType: 'bathroom' }
+      )
+    ).toBeNull();
+  });
+
   test('prefab pan keeps shower wall estimate but not shower floor tile SF', () => {
     expect(
       getQuickMeasurementEstimate('showerFloorTileSqft', {
