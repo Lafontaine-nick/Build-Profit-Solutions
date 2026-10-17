@@ -9,6 +9,7 @@ import {
   groupScopeChecklistItems,
   normalizeScopeChecklistItems,
   filterRoomRemodelNoteScopeItems,
+  filterFramingOnlyAdditionScopeItems,
   ensureMixedExteriorScopeItems,
   filterUnmentionedMixedExteriorConcreteItems,
   syncInteriorPaintScopeItems,
@@ -351,6 +352,9 @@ export function buildConfirmScopeDisplayItems(
       }
     }
   }
+  if (noteMentionsWallDemolition) {
+    expanded = expanded.filter(row => row.id !== 'wall_demo');
+  }
   if (dedicatedWallAreaFraming) {
     const includedInStudWall = new Set([
       'framing',
@@ -476,7 +480,10 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpFlatworkScopeCard(expanded);
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
-  expanded = filterRoomRemodelNoteScopeItems(expanded, notes);
+  expanded = filterFramingOnlyAdditionScopeItems(
+    filterRoomRemodelNoteScopeItems(expanded, notes),
+    notes
+  );
   const noteMentionsHvacRemoval =
     /\b(?:remove|removing|removal|demo|demolish|tear[\s-]?out|replace|replacing)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:hvac(?:\s+system)?|ductwork)\b/i.test(
       noteText
@@ -512,6 +519,21 @@ export function buildConfirmScopeDisplayItems(
   }
   expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
+    const hasSpecificFlooringProduct = expanded.some(
+      row =>
+        [
+          'flooring_lvp',
+          'flooring_laminate',
+          'flooring_engineered_hardwood',
+          'flooring_solid_hardwood',
+          'tile_flooring',
+          'flooring_carpet',
+          'flooring_sheet_vinyl',
+        ].includes(row.id) && row.state !== 'excluded'
+    );
+    if (hasSpecificFlooringProduct) {
+      expanded = expanded.filter(row => row.id !== 'flooring');
+    }
     const existingTypes = Array.isArray(measurements.flooringExistingTypes)
       ? measurements.flooringExistingTypes
           .filter((type): type is string => typeof type === 'string' && type !== 'unknown')
@@ -675,7 +697,7 @@ export function isScopeCardHiddenInQmEmbed(
   // card beside it.
   if (
     String(qmCtx.templateKey || '').toLowerCase() === 'roofing' &&
-    (itemId === 'roofing' || itemId === 'roofing_system')
+    itemId === 'roofing'
   ) {
     return true;
   }

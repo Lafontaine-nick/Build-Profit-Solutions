@@ -97,6 +97,16 @@ describe('confirmScopeStep2Pricing tiers', () => {
     ).toBe(false);
   });
 
+  it('keeps wall framing quantity on Quick measurements', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('wall_framing', 'room_remodel', {
+        pricingReady: false,
+        unit: 'lf',
+        quantity: 0,
+      })
+    ).toBe(false);
+  });
+
   it('classifies ground-up framing as auto_planning without on-card SF box', () => {
     expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
     expect(
@@ -836,6 +846,134 @@ describe('bathroom shower tile demo suggested pricing', () => {
     expect(priced.fill?.material).toBe(50);
     expect(priced.fill?.labor).toBe(250);
     expect(priced.fill?.displayUnitRateLabel).toBe('200 sqft × $1.50/sqft');
+  });
+
+  it('prices a linear-foot stud wall once at the stud-wall rate', () => {
+    const notes = 'Frame 36 LF of stud wall and two rough openings.';
+    const resolved = resolveChecklistItemQuantity(
+      'wall_framing',
+      { wallFramingLf: 36, itemQuantities: {} } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      { wallFramingLf: '36', itemQuantities: {} },
+      'framing',
+      { quantity: 36, unit: 'lf', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+
+    expect(resolved.quantity).toBe(36);
+    expect(resolved.unit).toBe('lf');
+    expect(resolved.pricingReady).toBe(true);
+    expect(priced.fill?.total).toBe(432);
+    expect(priced.fill?.material).toBe(144);
+    expect(priced.fill?.labor).toBe(288);
+    expect(priced.fill?.displayUnitRateLabel).toBe('36 LF × $12/LF');
+  });
+
+  it('prices linear feet stated in the sentence after the wall', () => {
+    const notes = 'Frame the wall. 36 linear feet and two rough openings.';
+    const resolved = resolveChecklistItemQuantity(
+      'wall_framing',
+      { itemQuantities: {} } as never,
+      { templateKey: 'framing', notes }
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      { itemQuantities: {} },
+      'framing',
+      { quantity: 36, unit: 'lf', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+
+    expect(resolved.quantity).toBe(36);
+    expect(resolved.unit).toBe('lf');
+    expect(priced.fill?.total).toBe(432);
+    expect(priced.fill?.material).toBe(144);
+    expect(priced.fill?.labor).toBe(288);
+  });
+
+  it('prices feet of interior partition as stud wall', () => {
+    const notes = 'Build 24 feet of interior partition and one header.';
+    const resolved = resolveChecklistItemQuantity(
+      'wall_framing',
+      { itemQuantities: {} } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      { itemQuantities: {} },
+      'room_remodel',
+      { quantity: 24, unit: 'lf', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+
+    expect(resolved.quantity).toBe(24);
+    expect(resolved.unit).toBe('lf');
+    expect(priced.fill?.total).toBe(288);
+    expect(priced.fill?.material).toBe(96);
+    expect(priced.fill?.labor).toBe(192);
+    expect(priced.fill?.displayUnitRateLabel).toBe('24 LF × $12/LF');
+  });
+
+  it('prices a wall given as feet long', () => {
+    const notes =
+      'Frame a new interior wall. It is 18 feet long and needs one rough opening.';
+    const resolved = resolveChecklistItemQuantity(
+      'wall_framing',
+      { itemQuantities: {} } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'wall_framing',
+      { itemQuantities: {} },
+      'room_remodel',
+      { quantity: 18, unit: 'lf', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+
+    expect(resolved.quantity).toBe(18);
+    expect(resolved.unit).toBe('lf');
+    expect(priced.fill?.total).toBe(216);
+    expect(priced.fill?.material).toBe(72);
+    expect(priced.fill?.labor).toBe(144);
+    expect(priced.fill?.displayUnitRateLabel).toBe('18 LF × $12/LF');
+  });
+
+  it('prices a stated wall demolition quantity on one demolition card', () => {
+    const notes =
+      'Demolish 120 sqft of nonstructural walls. Frame 960 sqft of walls and 200 sqft of sheathing, including one rough opening.';
+    const resolved = resolveChecklistItemQuantity(
+      'demo',
+      { itemQuantities: {} } as never,
+      { templateKey: 'framing', notes }
+    );
+    expect(resolved.quantity).toBe(120);
+    expect(resolved.unit).toBe('sqft');
+    expect(resolved.pricingReady).toBe(true);
+
+    const priced = resolveScopeItemSuggestedPricing(
+      'demo',
+      { itemQuantities: {} },
+      'framing',
+      resolved,
+      {},
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBe(180);
+    expect(priced.fill?.material).toBe(30);
+    expect(priced.fill?.labor).toBe(150);
+    expect(priced.fill?.displayUnitRateLabel).toBe('120 sqft × $1.50/sqft');
   });
 
   it('prices noted wall sqft as stud wall linear feet, not the house shell rate', () => {

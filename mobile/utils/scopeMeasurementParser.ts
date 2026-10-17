@@ -2832,7 +2832,14 @@ export function parseScopeMeasurementsFromNotes(
       out.hvacReturnGrilleCount = Math.round(returnGrilleCount);
     }
     const thermostatCount = firstHvacCount(hvacText, 'thermostats?');
-    if (thermostatCount) out.hvacThermostatCount = Math.round(thermostatCount);
+    if (thermostatCount) {
+      out.hvacThermostatCount = Math.round(thermostatCount);
+    } else if (
+      /\b(?:a|an)\s+thermostat\b/i.test(hvacText) &&
+      !/\bthermostats\b/i.test(hvacText)
+    ) {
+      out.hvacThermostatCount = 1;
+    }
     const serviceCallCount = firstHvacCount(
       hvacText,
       '(?:hvac\\s+)?(?:service|diagnostic|maintenance)\\s+calls?'

@@ -118,6 +118,9 @@ import {
   notesFrameExplicitWallArea,
   notesMentionAffirmativeWallFraming,
   notesNameCoveredFramedFloor,
+  notesNameFramingOnlyAddition,
+  notesNameLinearFootStudWall,
+  notesNameWallAreaFramingWithFlooring,
   notesWithoutDeniedSentences,
   parseFramingMeasurementsFromNotes,
   shellPackageIncludesSheathing,
@@ -221,6 +224,7 @@ import {
   applyKitchenScopeInferences,
   applyAdditionConversionScopeDefaults,
   filterExistingShellConversionConfirmScopeItems,
+  filterFramingOnlyAdditionScopeItems,
   syncAdditionConversionScopeFromMeasurements,
   syncWindowInstallScopeFromNotes,
   hydrateScopeChecklistFromNotes,
@@ -257,7 +261,11 @@ import {
   drywallFinishCrewSelection,
   stripStandaloneDrywallTextureItem,
 } from '@/utils/estimateScopeChecklistUi';
-import { confirmScopeDrywallSqftLabel } from '@/utils/drywallNoteScope';
+import {
+  confirmScopeDrywallSqftLabel,
+  notesDescribeDedicatedDrywallPatchJob,
+  notesNameDrywallBesideFlooring,
+} from '@/utils/drywallNoteScope';
 import {
   bathroomAffirmativeNotes,
   bathroomChecklistItemNamedInNotes,
@@ -270,6 +278,7 @@ import {
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
 import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
+import { filterDedicatedFlooringConfirmItems } from '@/utils/flooringNoteScope';
 import { withPlanScopeRecordMeasurements } from '@/utils/planScopeRecords';
 import {
   existingShellConversionElectricalBreakdown,
@@ -438,6 +447,8 @@ import {
 } from '@/utils/scopeItemQuantities';
 import {
   collectRoofingInferenceNotes,
+  ensureNamedRoofingConfirmItems,
+  filterDedicatedRoofingConfirmItems,
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
@@ -6548,10 +6559,15 @@ function QuantitySection({
         ['shear_sheathing', 'wall_framing', 'openings', 'framing'].includes(
           itemId
         );
+      const flooringStandardSuggestedCard =
+        Boolean(suggestedBudgetSplit) &&
+        itemId === 'flooring' &&
+        String(templateKey || '').toLowerCase() === 'room_remodel';
       const hideNoteRateRows =
         (itemId === 'shower_tile' && Boolean(suggestedBudgetSplit)) ||
         kitchenStandardSuggestedCard ||
-        framingStandardSuggestedCard;
+        framingStandardSuggestedCard ||
+        flooringStandardSuggestedCard;
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -8587,6 +8603,7 @@ function QuantitySection({
         !showGrossFloorPlanning &&
         !cardOwnsMissingCopy &&
         rule.quantityHelper &&
+        !(itemId === 'wall_framing' && suggestedBudgetSplit) &&
         !(
           (itemId === 'plumbing_rough' || itemId === 'plumbing_trim') &&
           !['bathroom', 'kitchen'].includes(
@@ -15304,18 +15321,26 @@ function CollapsibleQuickMeasurements({
       parsed.patchRepairSqft != null &&
       parsed.drywallSqft != null &&
       Number(parsed.patchRepairSqft) === Number(parsed.drywallSqft);
-    put(
-      'drywallSqft',
-      notesSpecifyDrywallRepair && parsed.patchRepairSqft != null
-        ? parsed.patchRepairSqft
-        : patchRepairMatchesDrywall
+    const dedicatedPatchOnly = notesDescribeDedicatedDrywallPatchJob(notes);
+    if (!dedicatedPatchOnly) {
+      put(
+        'drywallSqft',
+        notesSpecifyDrywallRepair && parsed.patchRepairSqft != null
           ? parsed.patchRepairSqft
-          : parsed.drywallSqft
-    );
+          : patchRepairMatchesDrywall
+            ? parsed.patchRepairSqft
+            : parsed.drywallSqft
+      );
+    }
     // Bathroom drywall repair uses the dedicated patch/texture measurement.
     // Keep it note-backed so an explicit repair sqft is Confirmed rather than
-    // being treated as a manual quantity.
-    if (compactBathroomPlumbingFlow || !patchRepairMatchesDrywall) {
+    // being treated as a manual quantity. A patch-only drywall note keeps
+    // that one area and does not also store a hang / repair field.
+    if (
+      dedicatedPatchOnly ||
+      compactBathroomPlumbingFlow ||
+      !patchRepairMatchesDrywall
+    ) {
       put('patchRepairSqft', parsed.patchRepairSqft);
     }
     put('exteriorWallInsulationSqft', parsed.exteriorWallInsulationSqft);
@@ -15692,6 +15717,20 @@ function CollapsibleQuickMeasurements({
         ensureScopeField('wallFramingSqft');
         ensureScopeField('sheathingSqft');
         ensureScopeField('framingOpeningCount');
+      } else if (notesNameLinearFootStudWall(notesTextForScopeFields)) {
+        ensureScopeField('wallFramingLf');
+        if (
+          /\b(?:structural\s+)?sheathing\b/i.test(notesTextForScopeFields)
+        ) {
+          ensureScopeField('sheathingSqft');
+        }
+        if (
+          /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+            notesTextForScopeFields
+          )
+        ) {
+          ensureScopeField('framingOpeningCount');
+        }
       } else {
         ensureScopeField('framedAreaSqft', {
           label: 'Wall framing area',
@@ -15705,7 +15744,7 @@ function CollapsibleQuickMeasurements({
     }
     if (
       hasScopeOrNote(
-        ['wall_demo', 'framing', 'shear_sheathing', 'openings'],
+        ['wall_demo'],
         /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,55}\bwalls?\b|\bwalls?\b[^.;\n]{0,55}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i
       )
     ) {
@@ -15713,6 +15752,7 @@ function CollapsibleQuickMeasurements({
     }
     if (
       !compactBathroomPlumbingFlow &&
+      !notesDescribeDedicatedDrywallPatchJob(notesTextForScopeFields) &&
       hasScopeOrNote(['drywall'], /\b(?:drywall|sheetrock|gypsum)\b/i)
     ) {
       ensureScopeField('drywallSqft');
@@ -15783,6 +15823,47 @@ function CollapsibleQuickMeasurements({
         )
         .filter(row => row.length > 0);
     }
+    if (notesNameFramingOnlyAddition(notesTextForScopeFields)) {
+      const framed = quickMeasurementFieldDef('framedAreaSqft');
+      baseRows = framed ? [[{ ...framed, label: 'Framed floor area' }]] : [];
+    }
+    if (notesNameWallAreaFramingWithFlooring(notesTextForScopeFields)) {
+      const wall = quickMeasurementFieldDef('wallFramingSqft');
+      const floor = quickMeasurementFieldDef('flooringSqft');
+      const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(notesTextForScopeFields);
+      baseRows = [
+        ...(wall ? [[wall]] : []),
+        ...(floor
+          ? [[
+              {
+                ...floor,
+                label: lvp ? 'LVP flooring' : 'Flooring',
+                helperText: lvp
+                  ? 'LVP area from the job notes.'
+                  : 'Flooring area from the job notes.',
+              },
+            ]]
+          : []),
+      ];
+    }
+    if (notesNameLinearFootStudWall(notesTextForScopeFields)) {
+      const wall = quickMeasurementFieldDef('wallFramingLf');
+      const openings = quickMeasurementFieldDef('framingOpeningCount');
+      const sheathing = quickMeasurementFieldDef('sheathingSqft');
+      baseRows = [
+        ...(wall ? [[wall]] : []),
+        ...(sheathing &&
+        /\b(?:structural\s+)?sheathing\b/i.test(notesTextForScopeFields)
+          ? [[sheathing]]
+          : []),
+        ...(openings &&
+        /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+          notesTextForScopeFields
+        )
+          ? [[openings]]
+          : []),
+      ];
+    }
     // A dedicated bathroom note already owns shower-wall, pan, and bath-floor
     // quantities on the wet-area cards. Package scope keys must not add the
     // room-remodel confirmation rows for work the note never names.
@@ -15849,7 +15930,7 @@ function CollapsibleQuickMeasurements({
       !/\b(?:lvp|laminate|vinyl|carpet|hardwood|tile)\b/i.test(
         notesTextForScopeFields
       );
-    if (genericFlooringNote) {
+    if (genericFlooringNote && !notesNameDrywallBesideFlooring(notesTextForScopeFields)) {
       baseRows = baseRows.map(row =>
         row.map(field =>
           field.key === 'flooringSqft'
@@ -16154,6 +16235,7 @@ function CollapsibleQuickMeasurements({
             );
             const notesMentionFramingField =
               framingField &&
+              field.key !== 'wallDemoSqft' &&
               !dedicatedStuccoScope &&
               (notesMentionAffirmativeWallFraming(affirmativeFramingNotes) ||
                 (field.key === 'sheathingSqft' &&
@@ -19930,7 +20012,13 @@ function CollapsibleQuickMeasurements({
       (flooringQmJob &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
-      (flooringQmJob && result.key === 'flooringSqft') ||
+      (flooringQmJob &&
+        !compactMixedScope &&
+        result.key === 'floorPrepSqft') ||
+      (flooringQmJob &&
+        !compactMixedScope &&
+        result.key === 'flooringSqft' &&
+        !notesNameWallAreaFramingWithFlooring(String(notes || ''))) ||
       (flooringPlanOmitsExistingWork && result.key === 'floorAreaSqft') ||
       (flooringPlanOmitsExistingWork &&
         [
@@ -19959,6 +20047,7 @@ function CollapsibleQuickMeasurements({
         !mixedScopeLivingAreaMentioned) ||
       (compactMixedScope &&
         result.key === 'framedAreaSqft' &&
+        !notesNameFramingOnlyAddition(String(notes || '')) &&
         !notesSpecifyWallFraming &&
         !measurements.quickMeasurementUserOverrides?.framedAreaSqft) ||
       (bathroomPhotoWetArea &&
@@ -23570,9 +23659,12 @@ export default function AIEstimateScopeAssumptionsModal({
       projectType: draft?.projectType,
       notes: scopeNotes,
     };
-    const withConversionFilter = filterExistingShellConversionConfirmScopeItems(
-      withoutDuplicateShowerPanDemo,
-      conversionCtx
+    const withConversionFilter = filterFramingOnlyAdditionScopeItems(
+      filterExistingShellConversionConfirmScopeItems(
+        withoutDuplicateShowerPanDemo,
+        conversionCtx
+      ),
+      scopeNotes
     );
     const floorDemoHasUserQuantity =
       Number(String(measurements.floorDemoSqft ?? '').replace(/,/g, '')) > 0 &&
@@ -23908,8 +24000,27 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       return 3;
     };
-    return groupedOpeningItems
-      .filter(item => item.id !== 'plans_engineering')
+    const specificFlooringProduct = groupedOpeningItems.some(
+      item =>
+        [
+          'flooring_lvp',
+          'flooring_laminate',
+          'flooring_engineered_hardwood',
+          'flooring_solid_hardwood',
+          'tile_flooring',
+          'flooring_carpet',
+          'flooring_sheet_vinyl',
+        ].includes(item.id) && item.state !== 'excluded'
+    );
+    return filterDedicatedFlooringConfirmItems(
+      groupedOpeningItems.filter(
+        item =>
+          item.id !== 'plans_engineering' &&
+          item.state !== 'excluded' &&
+          !(specificFlooringProduct && item.id === 'flooring')
+      ),
+      scopeNotes
+    )
       .map((item, index) => ({
         item:
           item.id === 'floor_demo'
@@ -23995,9 +24106,23 @@ export default function AIEstimateScopeAssumptionsModal({
       ),
       wholeHome: isWholeHomeMixedRemodelNote,
     };
-    const filtered = filterDedicatedKitchenConfirmItems(
-      filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
-      noteScopeParams
+    const roofingNoteParams = {
+      ...noteScopeParams,
+      notes: collectRoofingInferenceNotes(draft, noteScopeParams.notes),
+      selectedIds: measurements.tradeScopeSelections?.roofing,
+    };
+    const filtered = filterDedicatedFlooringConfirmItems(
+      ensureNamedRoofingConfirmItems(
+        filterDedicatedRoofingConfirmItems(
+          filterDedicatedKitchenConfirmItems(
+            filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
+            noteScopeParams
+          ),
+          roofingNoteParams
+        ),
+        roofingNoteParams
+      ),
+      noteScopeParams.notes
     );
     if (!notesWaterproofPanNotWalls(noteScopeParams.notes)) return filtered;
     return filtered.map(item =>
@@ -24021,6 +24146,7 @@ export default function AIEstimateScopeAssumptionsModal({
       isWholeHomeMixedRemodelNote,
       measurements.planImportFingerprint,
       measurements.planImportMode,
+      measurements.tradeScopeSelections?.roofing,
       notesFallback,
       planImport,
       scopeNotes,
@@ -27305,7 +27431,9 @@ export default function AIEstimateScopeAssumptionsModal({
       // legacy zero-area replacement card, while keeping selected components
       // such as tear-off, decking, and drainage as independent pricing cards.
       if (String(checklist?.templateKey || '').toLowerCase() === 'roofing') {
-        if (itemId === 'roofing' || itemId === 'roofing_system') return true;
+        // The legacy zero-area "roofing" row stays off the card list.
+        // roofing_system is the architectural-shingle price card.
+        if (itemId === 'roofing') return true;
         return false;
       }
       if (!qmEmbeddedScopeIds.has(itemId)) return false;
@@ -27475,17 +27603,13 @@ export default function AIEstimateScopeAssumptionsModal({
     (itemId: string) => {
       if (
         !roofingQmJob ||
-        !['roofing', 'roofing_system', 'shingles_roofing'].includes(itemId)
+        !['roofing', 'shingles_roofing'].includes(itemId)
       ) {
         return false;
       }
-      if (itemId === 'roofing' || itemId === 'roofing_system') return true;
+      if (itemId === 'roofing') return true;
       return displayItems.some(
-        item =>
-          item.id === 'roofing_system' &&
-          item.state === 'included' &&
-          Boolean(item.choiceId) &&
-          !['not_in_scope', 'unsure'].includes(String(item.choiceId))
+        item => item.id === 'roofing_system' && checklistItemInScope(item)
       );
     },
     [displayItems, roofingQmJob]
@@ -27553,7 +27677,10 @@ export default function AIEstimateScopeAssumptionsModal({
             !(isBathroomFlow && item.state === 'excluded') &&
             !(isBathroomFlow && item.id === 'wet_area_install') &&
             !(isBathroomFlow && item.id === 'fixture_demo') &&
-            !hideDeselectedRoofingQmCard(item.id) &&
+            !(
+              hideDeselectedRoofingQmCard(item.id) &&
+              !(item.noteBacked === true && checklistItemInScope(item))
+            ) &&
             !hideDuplicateRoofingBaseCard(item.id) &&
             !(
               hideIncludedStuccoComponentCards &&
@@ -30710,7 +30837,10 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       return null;
     }
-    if (hideDeselectedRoofingQmCard(item.id)) {
+    if (
+      hideDeselectedRoofingQmCard(item.id) &&
+      !(item.noteBacked && checklistItemInScope(item))
+    ) {
       return null;
     }
     if (hideDuplicateRoofingBaseCard(item.id)) {

@@ -1167,7 +1167,7 @@ export function hvacFieldHasTakeoffEvidence(
       return coalesceHvacFieldValue(measurements, field) != null;
     }
   }
-  return coalesceHvacFieldValue(measurements, field) != null;
+  return false;
 }
 
 /** Map confirmed takeoff / manually entered HVAC quantities onto scope chips. */
@@ -1267,14 +1267,18 @@ export function hvacScopeOptionHasExplicitQuantityInNotes(
   const quantity = String.raw`(?:\d[\d,]*(?:\.\d+)?|one|two|three|four|five)`;
   const quantityBefore = (target: string) =>
     new RegExp(
-      `\\b${quantity}\\s+(?:(?:ea|each|lf|linear\\s+feet|sq\\.?\\s*ft|sqft)\\s+)?(?:(?:of|existing|new|replacement|current|old)\\s+)*(?:(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:-\\s*)?tons?\\s+)?${target}\\b`,
+      `\\b${quantity}\\s+(?:(?:ea|each|lf|linear\\s+feet|sq\\.?\\s*ft|sqft)\\s+)?(?:(?:of|existing|new|replacement|current|old)\\s+)*(?:(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:-\\s*)?tons?\\s+)?(?:${target})\\b`,
       'i'
     ).test(text);
   const quantityAfter = (target: string) =>
-    new RegExp(`\\b${target}\\b[^.;,\\n]{0,20}\\b${quantity}\\b`, 'i').test(
-      text
-    );
+    new RegExp(
+      `\\b(?:${target})\\b[^.;,\\n]{0,20}\\b${quantity}\\b`,
+      'i'
+    ).test(text);
 
+  if (optionId === 'thermostat' && /\b(?:a|an)\s+thermostat\b/i.test(text)) {
+    return true;
+  }
   if (optionId === HVAC_SYSTEMS_OPTION_ID) {
     return (
       quantityBefore(
@@ -1366,7 +1370,8 @@ export function mergeHvacScopeSelections(
 
 /** Resolve HVAC chip selections for UI — infer from takeoff when nothing saved yet. */
 export function resolveHvacTradeScopeSelections(
-  measurements: Record<string, unknown>
+  measurements: Record<string, unknown>,
+  notes?: string | null
 ): string[] {
   const saved = selectedScope(measurements, 'hvac');
   const inferred = inferHvacScopeSelectionsFromMeasurements(measurements);
@@ -1384,11 +1389,31 @@ export function resolveHvacTradeScopeSelections(
     hasEquipmentSelection &&
     resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
     !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
-    !measurements.quickMeasurementUserOverrides?.hvacSystemTons
+    !measurements.quickMeasurementUserOverrides?.hvacSystemTons &&
+    !hvacNotesOmitTonnage(notes)
   ) {
     resolved.push(HVAC_CAPACITY_OPTION_ID);
   }
+  if (
+    resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
+    hvacNotesOmitTonnage(notes) &&
+    coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
+  ) {
+    return resolved.filter(id => id !== HVAC_CAPACITY_OPTION_ID);
+  }
   return resolved;
+}
+
+/** Notes name the equipment and never give a tonnage. Size stays optional. */
+export function hvacNotesOmitTonnage(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!text.trim()) return false;
+  if (hvacScopeOptionHasExplicitQuantityInNotes(HVAC_CAPACITY_OPTION_ID, text)) {
+    return false;
+  }
+  return hvacScopeOptionMentionedInNotes(HVAC_SYSTEMS_OPTION_ID, text);
 }
 
 export const HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT =
@@ -1444,7 +1469,7 @@ export function summarizeHvacScopePanel(
   inBidCount: number;
   needsConfirmationCount: number;
 } {
-  const selections = resolveHvacTradeScopeSelections(measurements);
+  const selections = resolveHvacTradeScopeSelections(measurements, notes);
   const spec = SIMPLE_TRADE_SPECS.hvac;
   let needsConfirmationCount = 0;
   for (const id of selections) {
@@ -1453,9 +1478,12 @@ export function summarizeHvacScopePanel(
     const needsReview =
       hvacScopeChipReviewState(measurements, option, selections, notes) ===
       'needs_confirmation';
-    const needsQuantity =
-      Boolean(option.measurementKey) &&
-      formatHvacScopeChipQuantity(measurements, option, selections) == null;
+    const needsQuantity = hvacScopeChipNeedsQuantity(
+      measurements,
+      option,
+      selections,
+      notes
+    );
     if (needsReview || needsQuantity) {
       needsConfirmationCount += 1;
     }
@@ -1467,7 +1495,8 @@ function finalizeHvacScopeSelections(
   measurements: Record<string, unknown>,
   selections: string[],
   _spec: TradeSpec,
-  noteSelections: string[] = []
+  noteSelections: string[] = [],
+  notes?: string | null
 ): string[] {
   const inferred = inferHvacScopeSelectionsFromMeasurements(measurements);
   const resolved = mergeHvacScopeSelections(
@@ -1482,14 +1511,49 @@ function finalizeHvacScopeSelections(
     measurements,
     'hvacSystemTons'
   );
+  let next = resolved;
   if (
-    resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
-    !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
-    capacityWasNotDocumented
+    next.includes(HVAC_SYSTEMS_OPTION_ID) &&
+    !next.includes(HVAC_CAPACITY_OPTION_ID) &&
+    capacityWasNotDocumented &&
+    !hvacNotesOmitTonnage(notes)
   ) {
-    return [...resolved, HVAC_CAPACITY_OPTION_ID];
+    next = [...next, HVAC_CAPACITY_OPTION_ID];
   }
-  return resolved;
+  if (
+    next.includes(HVAC_CAPACITY_OPTION_ID) &&
+    hvacNotesOmitTonnage(notes) &&
+    coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
+  ) {
+    next = next.filter(id => id !== HVAC_CAPACITY_OPTION_ID);
+  }
+  return next;
+}
+
+/**
+ * A named HVAC line with no number in the notes is already in the bid.
+ * Do not ask the contractor to confirm a count, tonnage, or footage the note
+ * never gave. Plan reads and blank manual selections still need a quantity.
+ */
+export function hvacScopeChipNeedsQuantity(
+  measurements: Record<string, unknown>,
+  option: TradeOption,
+  selections: string[] = selectedScope(measurements, 'hvac'),
+  notes?: string | null
+): boolean {
+  if (!option.measurementKey || !selections.includes(option.id)) return false;
+  if (formatHvacScopeChipQuantity(measurements, option, selections) != null) {
+    return false;
+  }
+  if (
+    notes &&
+    hvacScopeOptionMentionedInNotes(option.id, notes) &&
+    !hvacScopeOptionHasExplicitQuantityInNotes(option.id, notes) &&
+    !hvacOptionIsPendingTakeoffRead(measurements, option)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function formatHvacScopeChipQuantity(
@@ -1675,6 +1739,11 @@ export function hvacScopePanelMeasurementHelper(
   ) {
     return 'Low-confidence plan read — confirm before pricing.';
   }
+  if (
+    !hvacScopeChipNeedsQuantity(measurements, option, selections, notes)
+  ) {
+    return null;
+  }
   return option.measurementHelper ?? null;
 }
 
@@ -1796,7 +1865,8 @@ function hydrateSimpleTrade(
                 ? inferredFromMeasurements
                 : inferredFromChecklist,
           spec,
-          inferredFromNotes
+          inferredFromNotes,
+          ctx.notes
         )
       : spec.scopeKey === 'roofing'
         ? finalizeRoofingScopeSelections(
@@ -1824,6 +1894,7 @@ function hydrateSimpleTrade(
       current,
       ctx.notes || ''
     );
+    const noteText = ctx.notes || '';
     const appliedHvacMeasurements = applyHvacScopeMeasurements(
       noteSafeHydrated,
       {
@@ -1841,8 +1912,14 @@ function hydrateSimpleTrade(
           ),
       }
     );
+    const withNoteCounts =
+      /\b(?:a|an)\s+thermostat\b/i.test(noteText) &&
+      !/\bthermostats\b/i.test(noteText) &&
+      positiveMeasurement(appliedHvacMeasurements.hvacThermostatCount) == null
+        ? { ...appliedHvacMeasurements, hvacThermostatCount: 1 }
+        : appliedHvacMeasurements;
     return clearUnquantifiedNoteEquipmentDefaults(
-      appliedHvacMeasurements,
+      withNoteCounts,
       current,
       ctx.notes || ''
     );
@@ -1859,9 +1936,12 @@ function syncSimpleTrade(
     spec,
     selectedScope(measurements, spec.scopeKey)
   );
-  const miniSplitSelected =
-    spec.scopeKey === 'hvac' &&
-    selectedScope(measurements, 'hvac').includes('mini_split');
+  const hvacSelections =
+    spec.scopeKey === 'hvac' ? selectedScope(measurements, 'hvac') : [];
+  const miniSplitSelected = hvacSelections.includes('mini_split');
+  const namedEquipmentSelected = hvacSelections.some(id =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+  );
   let next = items.map(item => {
     if (spec.scopeKey === 'hvac' && isHvacQmGatedScopeItem(item.id)) {
       const active = isHvacQmScopeItemActive(item.id, measurements);
@@ -1874,7 +1954,11 @@ function syncSimpleTrade(
         ? item
         : { ...item, state: 'excluded' as const, noteBacked: false };
     }
-    if (spec.scopeKey === 'hvac' && item.id === 'hvac' && miniSplitSelected) {
+    if (
+      spec.scopeKey === 'hvac' &&
+      item.id === 'hvac' &&
+      (miniSplitSelected || namedEquipmentSelected)
+    ) {
       return item.state === 'excluded'
         ? item
         : { ...item, state: 'excluded' as const, noteBacked: false };

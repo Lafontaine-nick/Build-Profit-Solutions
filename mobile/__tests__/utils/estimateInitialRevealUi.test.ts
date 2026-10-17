@@ -20,7 +20,10 @@ import {
   shouldShowInitialRevealWhatWeFound,
   splitInitialRevealConfirmItems,
 } from '@/utils/estimateInitialRevealUi';
-import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import {
+  repairDraftRatePricingFromNotes,
+  type EstimateAiDraft,
+} from '@/utils/estimateAiDraft';
 
 const classificationFixtures =
   require('../../../test-fixtures/scopeClassificationFixtures.json') as {
@@ -385,6 +388,283 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual([
       'Framing (lumber + labor) · 3,998 SF',
     ]);
+  });
+
+  it('keeps Scope found to wall framing, sheathing, and openings', () => {
+    const notes =
+      'Frame 840 sqft of walls with structural sheathing, including three rough openings.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'framing',
+      projectTitle: 'Wall Framing and Structural Sheathing',
+      scopeMode: 'dedicated',
+      missingInfo: [
+        'Wall dimensions, heights, layout, and framing details',
+        'Permit, engineering, and inspection requirements',
+      ],
+      stillNeededReview: [
+        'Wall framing labor',
+        'Framing lumber and structural sheathing material',
+      ],
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          {
+            id: 'review-dimensions',
+            label: 'Wall dimensions, heights, layout, and framing details',
+            state: 'included',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '840 sqft' },
+      { name: 'Structural sheathing' },
+      { name: 'Door / window openings', quantity: '3 each' },
+    ]);
+  });
+
+  it('keeps Scope found to a linear-foot stud wall and its openings', () => {
+    const notes = 'Frame 36 LF of stud wall and two rough openings.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      projectTitle: 'Stud Wall Framing and Rough Openings',
+      whatAiDid: ['Detected existing home interior remodel'],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'framing',
+            label: 'Framing or layout changes',
+            state: 'included',
+          },
+          { id: 'drywall', label: 'Drywall hang / finish', state: 'unsure' },
+          { id: 'flooring', label: 'Flooring installation', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '36 LF' },
+      { name: 'Door / window openings', quantity: '2 each' },
+    ]);
+  });
+
+  it('repairs a linear-foot stud wall draft onto the framing checklist', () => {
+    const notes = 'Frame 36 LF of stud wall and two rough openings.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'other',
+        customerName: null,
+        projectTitle: 'Stud Wall Framing and Rough Openings',
+        whatAiDid: ['Detected existing home interior remodel'],
+        scopeChecklist: {
+          templateKey: 'room_remodel',
+          items: [
+            {
+              id: 'framing',
+              label: 'Framing or layout changes',
+              state: 'included',
+            },
+            { id: 'drywall', label: 'Drywall', state: 'unsure' },
+          ],
+        },
+        scopeMeasurements: { framedAreaSqft: 300 },
+      } as EstimateAiDraft,
+      notes
+    );
+
+    expect(repaired.scopeChecklist?.templateKey).toBe('framing');
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'wall_framing',
+      'openings',
+    ]);
+    expect(repaired.whatAiDid).toEqual(['Detected framing.']);
+    expect(repaired.scopeMeasurements?.framedAreaSqft).toBeUndefined();
+    expect(getInitialRevealTagline(repaired)).toBe('Detected framing.');
+  });
+
+  it('keeps a split wall sentence on the linear-foot cards', () => {
+    const notes = 'Frame the wall. 36 linear feet and two rough openings.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'framing',
+      projectTitle: 'Wall Framing',
+      missingInfo: ['Permit responsibility', 'Wall height and framing specifications'],
+      stillNeededReview: ['Whether materials are included'],
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          { id: 'framing', label: 'Wall Framing', state: 'included' },
+          { id: 'permits', label: 'Permit responsibility', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '36 LF' },
+      { name: 'Door / window openings', quantity: '2 each' },
+    ]);
+  });
+
+  it('keeps a partition-and-header note on the framing cards', () => {
+    const notes = 'Build 24 feet of interior partition and one header.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      projectTitle: 'Interior Partition and Header',
+      whatAiDid: ['Detected existing home interior remodel'],
+      missingInfo: ['Permit responsibility'],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'framing',
+            label: 'Interior Partition Framing',
+            state: 'included',
+          },
+          { id: 'drywall', label: 'Drywall', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '24 LF' },
+      { name: 'Door / window openings', quantity: '1 each' },
+    ]);
+  });
+
+  it('keeps a feet-long wall note on the framing cards', () => {
+    const notes =
+      'Frame a new interior wall. It is 18 feet long and needs one rough opening.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      projectTitle: 'New Interior Wall Framing',
+      whatAiDid: ['Detected existing home interior remodel'],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'framing',
+            label: 'Framing or layout changes',
+            state: 'included',
+          },
+          { id: 'drywall', label: 'Drywall', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '18 LF' },
+      { name: 'Door / window openings', quantity: '1 each' },
+    ]);
+  });
+
+  it('shows the stated wall demolition quantity on Scope found', () => {
+    const notes =
+      'Demolish 120 sqft of nonstructural walls. Frame 960 sqft of walls and 200 sqft of sheathing, including one rough opening.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'framing',
+      projectTitle: 'Framing',
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          { id: 'wall_demo', label: 'Wall Demo', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall demolition', quantity: '120 sqft' },
+      { name: 'Wall framing', quantity: '960 sqft' },
+      { name: 'Structural sheathing', quantity: '200 sqft' },
+      { name: 'Door / window openings', quantity: '1 each' },
+    ]);
+  });
+
+  it('keeps Scope found to wall framing and LVP for a mixed note', () => {
+    const notes = 'Frame 400 sqft of walls and install 180 sqft of LVP.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'flooring',
+      projectTitle: 'Flooring',
+      scopeMode: 'dedicated',
+      scopeChecklist: {
+        templateKey: 'flooring',
+        items: [
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          { id: 'permits', label: 'Permit responsibility', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '400 sqft' },
+      { name: 'LVP flooring', quantity: '180 sqft' },
+    ]);
+  });
+
+  it('keeps Scope found to the framing shell for a framing-only addition', () => {
+    const notes = 'Frame a 600 sqft addition';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'room_addition',
+      scopeChecklist: {
+        templateKey: 'addition',
+        items: [
+          { id: 'foundation', label: 'Footings / slab / foundation', state: 'included' },
+          { id: 'concrete', label: 'Concrete', state: 'included' },
+          { id: 'framing', label: 'Framing / shell', state: 'included' },
+          { id: 'drywall', label: 'Drywall', state: 'included' },
+          { id: 'paint', label: 'Interior paint', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['Framing / shell']);
   });
 
   it('keeps Scope found to rough openings when new walls are denied', () => {
@@ -1905,6 +2185,54 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(3);
   });
 
+  it('adds ice and water and pipe boots to a named re-roof scope', () => {
+    const draft = {
+      projectType: 'roofing',
+      originalNotes:
+        'Tear off one layer of asphalt shingles and install architectural shingles on 28 squares. Include synthetic underlayment, ice and water shield, drip edge, ridge cap, valley flashing, and pipe boots.',
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          {
+            id: 'tear_off',
+            label: 'Existing roof / tear-off',
+            state: 'included',
+            choiceId: 'one_layer',
+          },
+          { id: 'underlayment', label: 'Underlayment', state: 'included' },
+          { id: 'drip_edge', label: 'Drip edge', state: 'included' },
+          { id: 'ridge_cap', label: 'Ridge cap', state: 'included' },
+          { id: 'valley_flashing', label: 'Valley flashing', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview.map(row => row.name)).toEqual(
+      expect.arrayContaining([
+        'Ice & water shield',
+        'Pipe boots',
+      ])
+    );
+    expect(preview.find(row => row.name === 'Underlayment')?.quantity).toBe(
+      '2800 sqft'
+    );
+    expect(preview.find(row => row.name === 'Ice & water shield')?.quantity).toBe(
+      '318 sqft'
+    );
+    expect(preview.find(row => row.name === 'Pipe boots')?.quantity).toBe(
+      '1 each'
+    );
+    expect(
+      preview.find(row => row.name === 'Valley flashing')?.quantity
+    ).toBeUndefined();
+  });
+
   it('filters roofing pricing noise before Confirm Scope', () => {
     const draft = {
       projectType: 'roofing',
@@ -2713,6 +3041,37 @@ describe('estimateInitialRevealUi', () => {
         /900 sqft flatwork/i.test(line)
       )
     ).toBe(true);
+  });
+
+  it('hides decorative finish when a driveway note only names a broom finish', () => {
+    const notes =
+      'Pour a new driveway, 900 sqft and 4 inches thick, with 80 feet of thickened edge. Dig out the pad, place a gravel base, set forms, install rebar, and broom finish. A pump truck may be needed depending on access.';
+    const draft = {
+      projectType: 'concrete',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'concrete',
+        items: [
+          {
+            id: 'pour_flatwork',
+            label: 'Pour flatwork',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'decorative_finish',
+            label: 'Decorative finish',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+      },
+      scopeMeasurements: { concreteSqft: 900 },
+    } as EstimateAiDraft;
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).not.toContain('Decorative finish');
   });
 
   it('filters roofing admin noise for typical re-roof notes before Confirm Scope', () => {

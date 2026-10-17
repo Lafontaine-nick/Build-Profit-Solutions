@@ -158,7 +158,7 @@ const RATE_PRICING_MATCHERS: Array<{ id: string; match: RegExp; exclude?: RegExp
   {
     id: 'flooring',
     match: /\b(flooring|laminate|lvp|vinyl\s+floor|carpet)\b/i,
-    exclude: /\b(demo|demolition)\b/i,
+    exclude: /\b(?<!no\s)(?:demo|demolition)\b/i,
   },
   {
     id: 'floor_tile',

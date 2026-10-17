@@ -44,7 +44,10 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
+  notesNameFramingOnlyAddition,
+  notesNameLinearFootStudWall,
   notesNameRoughOpeningsOnly,
+  notesNameWallAreaFramingWithFlooring,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { hvacCardForItemId } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
@@ -55,8 +58,22 @@ import {
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   dedicatedDrywallConfirmScopeItems,
-  notesDescribeDedicatedDrywallJob,
+  noteRatedDrywallConfirmScopeItems,
+  notesDescribeNoteRatedDrywallJob,
+  notesDescribeSheetrockFinishJob,
+  notesUseDedicatedDrywallScope,
 } from '@/utils/drywallNoteScope';
+import {
+  dedicatedFlooringConfirmScopeItems,
+  dedicatedFlooringNoteText,
+  dedicatedFlooringRemovedTypes,
+  notesDescribeDedicatedFlooringJob,
+  notesRequestFloorPrep,
+} from '@/utils/flooringNoteScope';
+import {
+  explicitCrossTradeScopeItems,
+  notesDescribeDrywallAndFlooringJob,
+} from '@/utils/noteScopeLines';
 import {
   OPENING_TRIM_FINISH_SCOPE_HELPER,
   TRIM_FINISH_CHOICE_OPTIONS,
@@ -73,7 +90,10 @@ import {
   scopeItemNoteBadge,
   BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS,
 } from '@/utils/scopeItemVisualTier';
-import { notesAreImportedPlanSummary } from '@/utils/concretePlanningMeasurements';
+import {
+  notesAreImportedPlanSummary,
+  notesNameConcreteDecorativeFinish,
+} from '@/utils/concretePlanningMeasurements';
 import { planScopeRecordsHaveGroundUpAllowances } from '@/utils/planScopeRecords';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
@@ -805,6 +825,28 @@ function hasExplicitNewStructureScopeNote(
   return explicit[itemId]?.test(String(notes)) ?? false;
 }
 
+/** A framing-only addition keeps the shell card. Named phases stay on other notes. */
+export function filterFramingOnlyAdditionScopeItems(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  if (!notesNameFramingOnlyAddition(String(notes || ''))) return items;
+  const framing = items.find(item => item.id === 'framing');
+  return [
+    {
+      id: 'framing',
+      inputType: 'yes_no',
+      label: framing?.label || 'Framing / shell',
+      helperText:
+        framing?.helperText ||
+        'Frame the addition shell on the framed floor area in the job notes.',
+      category: framing?.category || 'shell',
+      state: 'included',
+      noteBacked: true,
+    },
+  ];
+}
+
 /** Default shell + interior phases for garage conversions and room additions. */
 export function applyAdditionConversionScopeDefaults(
   items: ScopeChecklistItem[],
@@ -816,6 +858,9 @@ export function applyAdditionConversionScopeDefaults(
 ): ScopeChecklistItem[] {
   const { templateKey, projectType, notes } = options;
   if (!isAdditionConversionJob(templateKey, projectType, notes)) return items;
+  if (notesNameFramingOnlyAddition(String(notes || ''))) {
+    return filterFramingOnlyAdditionScopeItems(items, notes);
+  }
 
   const n = String(notes || '');
   const garage = isGarageConversionJob(projectType, notes);
@@ -1633,9 +1678,15 @@ export function applyDrywallScopeCardLayout(
     );
   }
 
+  if (notesDescribeNoteRatedDrywallJob(inferenceCtx?.notes)) {
+    return noteRatedDrywallConfirmScopeItems(inferenceCtx?.notes);
+  }
+
   if (String(templateKey || '').toLowerCase() !== 'drywall') return items;
 
-  const dedicatedNote = notesDescribeDedicatedDrywallJob(inferenceCtx?.notes);
+  const dedicatedNote =
+    notesUseDedicatedDrywallScope(inferenceCtx?.notes) ||
+    notesDescribeSheetrockFinishJob(inferenceCtx?.notes);
   const alreadyNoteShaped =
     items.some(item => item.id === 'drywall') &&
     items.some(item => item.id === 'patch_repair') &&
@@ -2274,6 +2325,13 @@ export function applyScopeInferencesFromNotes(
             };
           }
           return item;
+        }
+        if (
+          item.id === 'decorative_finish' &&
+          item.state === 'included' &&
+          !notesNameConcreteDecorativeFinish(notes)
+        ) {
+          return { ...item, state: 'unsure' as const, noteBacked: false };
         }
         const inferredState = inferItemStateFromNotes(item.id, notes);
         // Explicit exclusions in notes override a stale included state from
@@ -3528,7 +3586,7 @@ const MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS: Record<string, RegExp> = {
   complex_forming: /\b(?:complex|curved|radius|custom)\s+form(?:ing)?\b/i,
   concrete_sealer: /\bconcrete\s+sealer?\b|\bseal(?:er|ing)\s+concrete\b/i,
   decorative_finish:
-    /\b(?:stamped|exposed\s+aggregate|decorative|stain(?:ed)?|broom)\s+finish\b/i,
+    /\b(?:stamped|exposed\s+aggregate|decorative|stain(?:ed)?)\s+finish\b|\b(?:stamped|colored|specialty|stained)\s+concrete\b|\bexposed\s+aggregate\b/i,
   additional_haul_off:
     /\b(?:additional|extra|multiple|large)\b[^.;\n]{0,35}\b(?:haul[\s-]?off|disposal|dumpster)\b/i,
   concrete_pumping: /\bconcrete\s+pump(?:\s+truck)?\b|\bpump\s+truck\b/i,
@@ -3679,6 +3737,24 @@ function injectNoteBackedPricedItems(
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
     if (isOwnedByAdditionPhase(itemId)) continue;
     if (
+      itemId === 'flooring' &&
+      items.some(
+        row =>
+          [
+            'flooring_lvp',
+            'flooring_laminate',
+            'flooring_engineered_hardwood',
+            'flooring_solid_hardwood',
+            'tile_flooring',
+            'flooring_carpet',
+            'flooring_sheet_vinyl',
+          ].includes(row.id) &&
+          row.state !== 'excluded'
+      )
+    ) {
+      continue;
+    }
+    if (
       ELECTRICAL_ITEM_IDS.includes(itemId) &&
       (!shouldMaterializeElectricalScopeItems(templateKey, notes) ||
         existingShellConversionUsesPackageElectrical(
@@ -3743,6 +3819,24 @@ function injectNoteBackedPricedItems(
   for (const itemId of NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY) {
     if (existingIds.has(itemId) || addedIds.has(itemId)) continue;
     if (isOwnedByAdditionPhase(itemId)) continue;
+    if (
+      itemId === 'flooring' &&
+      items.some(
+        row =>
+          [
+            'flooring_lvp',
+            'flooring_laminate',
+            'flooring_engineered_hardwood',
+            'flooring_solid_hardwood',
+            'tile_flooring',
+            'flooring_carpet',
+            'flooring_sheet_vinyl',
+          ].includes(row.id) &&
+          row.state !== 'excluded'
+      )
+    ) {
+      continue;
+    }
     const identified =
       inferItemStateFromNotes(itemId, notes) === 'included' ||
       (itemId === 'flooring' &&
@@ -4441,6 +4535,77 @@ export function filterRoomRemodelNoteScopeItems(
           : item
       );
   }
+  if (notesNameWallAreaFramingWithFlooring(notes || text)) {
+    const flooring = items.find(item => item.id === 'flooring');
+    const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(String(notes || text));
+    return [
+      {
+        id: 'wall_framing',
+        inputType: 'yes_no',
+        label: 'Wall framing',
+        helperText: 'Frame the walls identified in the job notes.',
+        category: 'structural',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'flooring',
+        inputType: 'yes_no',
+        label: lvp ? 'LVP flooring' : flooring?.label || 'Flooring',
+        helperText:
+          flooring?.helperText ||
+          'Install the flooring identified in the job notes.',
+        category: flooring?.category || 'flooring',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+  }
+  if (notesNameLinearFootStudWall(notes || text)) {
+    const source = String(notes || text);
+    const rows: ScopeChecklistItem[] = [
+      {
+        id: 'wall_framing',
+        inputType: 'yes_no',
+        label: 'Wall framing',
+        helperText: 'Frame the stud walls identified in the job notes.',
+        category: 'structural',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    if (
+      /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+        source
+      )
+    ) {
+      const existing = items.find(item => item.id === 'openings');
+      rows.push({
+        id: 'openings',
+        inputType: 'yes_no',
+        label: existing?.label || 'Door / window openings',
+        helperText:
+          existing?.helperText ||
+          'Frame the rough openings identified in the job notes; confirm the opening count.',
+        category: existing?.category || 'structure',
+        state: 'included',
+        noteBacked: true,
+      });
+    }
+    if (/\b(?:structural\s+)?sheathing\b/i.test(source)) {
+      rows.push({
+        id: 'shear_sheathing',
+        inputType: 'yes_no',
+        label: 'Structural sheathing',
+        helperText:
+          'Install the structural wall sheathing identified in the job notes.',
+        category: 'structure',
+        state: 'included',
+        noteBacked: true,
+      });
+    }
+    return rows;
+  }
   if (notesNameRoughOpeningsOnly(text)) {
     const existing = items.find(item => item.id === 'openings');
     return [
@@ -4787,6 +4952,10 @@ export function hydrateScopeChecklistFromNotes(
     wholeHomeMixedRemodelNote ||
     crossTradeRemodelNote
   ) {
+    if (notesDescribeDrywallAndFlooringJob(notes)) {
+      const named = explicitCrossTradeScopeItems(notes);
+      if (named?.length) return named as ScopeChecklistItem[];
+    }
     const noteText = String(notes || '').replace(
       /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
       ' '
@@ -6549,6 +6718,16 @@ export function checklistDisplayHelper(
   if (tk === 'drywall' && item.noteBacked && item.helperText) {
     return item.helperText;
   }
+  if (
+    item.noteBacked &&
+    item.helperText &&
+    (item.id === 'drywall' ||
+      item.id === 'flooring' ||
+      item.id === 'patch_repair' ||
+      item.id === 'demo_removal')
+  ) {
+    return item.helperText;
+  }
   if (item.id === 'demo' && /wall demolition/i.test(String(item.label || ''))) {
     return (
       item.helperText ||
@@ -6988,7 +7167,14 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Scope', itemIds: ['demo', 'cleanup'] },
     {
       title: 'Trades',
-      itemIds: ['framing', 'plumbing', 'electrical', 'hvac_demo', 'hvac'],
+      itemIds: [
+        'framing',
+        'wall_framing',
+        'plumbing',
+        'electrical',
+        'hvac_demo',
+        'hvac',
+      ],
     },
     { title: 'Finishes', itemIds: ['drywall', 'flooring', 'paint', 'trim'] },
     {
@@ -7409,6 +7595,51 @@ export function groupScopeChecklistItems(
   templateKey?: string,
   context: ScopeChecklistGroupingContext = {}
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  if (notesDescribeDrywallAndFlooringJob(context.notes)) {
+    const named = items.filter(item => item.state !== 'excluded');
+    if (named.length) {
+      return [
+        {
+          title: named
+            .map(item => String(item.label || '').trim())
+            .filter(Boolean)
+            .join(' · '),
+          items: named,
+        },
+      ];
+    }
+  }
+  const flooringNote = dedicatedFlooringNoteText(context.notes);
+  if (notesDescribeDedicatedFlooringJob(flooringNote)) {
+    const allowed = new Set(
+      dedicatedFlooringConfirmScopeItems(flooringNote).map(item => item.id)
+    );
+    const named: ScopeChecklistItem[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (item.state === 'excluded' || !allowed.has(item.id) || seen.has(item.id)) {
+        continue;
+      }
+      seen.add(item.id);
+      named.push(item);
+    }
+    if (named.length) {
+      return [{ title: '', items: named }];
+    }
+  }
+  const removedFlooring = dedicatedFlooringRemovedTypes(context.notes);
+  if (
+    String(templateKey || '').toLowerCase() === 'flooring' &&
+    removedFlooring?.length &&
+    !notesRequestFloorPrep(flooringNote)
+  ) {
+    const hidden = new Set<string>(['floor_prep']);
+    if (removedFlooring.includes('carpet')) hidden.add('flooring_carpet');
+    const named = items.filter(
+      item => item.state !== 'excluded' && !hidden.has(item.id)
+    );
+    if (named.length) return [{ title: '', items: named }];
+  }
   const groups = resolveScopeChecklistGroups(templateKey, context);
   if (!groups) {
     return [{ title: '', items }];

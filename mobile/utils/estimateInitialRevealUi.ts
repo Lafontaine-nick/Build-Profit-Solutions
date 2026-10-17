@@ -11,12 +11,30 @@ import {
 } from '@/utils/kitchenNoteScope';
 import {
   dedicatedDrywallRevealQuantity,
-  notesDescribeDedicatedDrywallJob,
+  notesDescribeNoteRatedDrywallJob,
+  notesDescribeSheetrockFinishJob,
+  notesUseDedicatedDrywallScope,
 } from '@/utils/drywallNoteScope';
-import { notesNameRoughOpeningsOnly } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
+import { estimatedIceWaterShieldSqft } from '@/utils/roofingPlanningMeasurements';
+import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
+import {
+  dedicatedFlooringRevealQuantity,
+  filterDedicatedFlooringConfirmItems,
+  notesDescribeDedicatedFlooringJob,
+} from '@/utils/flooringNoteScope';
+import {
+  notesNameDedicatedWallAreaFraming,
+  notesNameFramingOnlyAddition,
+  notesNameLinearFootStudWall,
+  notesNameRoughOpeningsOnly,
+  notesNameWallAreaFramingWithFlooring,
+  parseFramingMeasurementsFromNotes,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   filterConcreteRevealAttentionItems,
   notesAreImportedPlanSummary,
+  notesNameConcreteDecorativeFinish,
   summarizeConcreteNoteBullets,
   concreteRevealHasPlanningInputs,
 } from '@/utils/concretePlanningMeasurements';
@@ -53,7 +71,10 @@ import {
   hasAcceptedScopePricing,
   type ScopePricingAcceptanceMetadata,
 } from '@/utils/acceptedPricingSummaryUi';
-import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
+import {
+  getScopePackagesForReview,
+  noteMentionsGeneralWallDemolition,
+} from '@/utils/scopePackagesForReview';
 import { planScopeRecordSummaryLines } from '@/utils/planScopeRecords';
 import { notesRequireInteriorPaintMeasurements } from '@/utils/scopeQuickMeasurements';
 import {
@@ -303,6 +324,31 @@ export function splitInitialRevealConfirmItems(
 
 /** All confirm items on Initial estimate — scope/pricing only (bid admin lives on estimate step 1). */
 export function getInitialRevealConfirmItems(
+  draft: EstimateAiDraft
+): InitialRevealConfirmBuckets {
+  const buckets = collectInitialRevealConfirmItems(draft);
+  if (!namedScopeReaderOwnsPricing(draft.originalNotes)) return buckets;
+  return {
+    ...buckets,
+    pricingScope: buckets.pricingScope.filter(
+      item => !/\b(?:pric(?:e|ing)|price needed)\b/i.test(item)
+    ),
+  };
+}
+
+function namedScopeReaderOwnsPricing(
+  notes: string | null | undefined
+): boolean {
+  return (
+    notesUseDedicatedDrywallScope(notes) ||
+    notesDescribeSheetrockFinishJob(notes) ||
+    notesDescribeNoteRatedDrywallJob(notes) ||
+    notesDescribeDrywallAndFlooringJob(notes) ||
+    notesDescribeDedicatedFlooringJob(notes)
+  );
+}
+
+function collectInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   if (roofingPlanOnlyExport(draft)) {
@@ -1040,6 +1086,24 @@ function revealChecklistItemVisible(
   }
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  if (
+    item.id === 'decorative_finish' &&
+    !notesNameConcreteDecorativeFinish(draft.originalNotes)
+  ) {
+    return false;
+  }
+  if (
+    item.id === 'hvac' &&
+    String(
+      (draft.scopeMeasurements as { planImportTradeKey?: string } | null)
+        ?.planImportTradeKey || ''
+    ) !== 'hvac' &&
+    /\b(?:heat[\s-]*pumps?|furnaces?|condensers?|air\s*handlers?|mini[\s-]?splits?)\b/i.test(
+      String(draft.originalNotes || '')
+    )
+  ) {
+    return false;
+  }
   const revealTemplate = String(
     draft.scopeChecklist?.templateKey || draft.projectType || ''
   ).toLowerCase();
@@ -1498,6 +1562,77 @@ function shouldHideDuplicateElectricalPreviewPackage(
   return false;
 }
 
+function appendNamedRoofingRevealRows(
+  draft: EstimateAiDraft,
+  rows: InitialRevealScopeRow[]
+): InitialRevealScopeRow[] {
+  const template = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  if (template !== 'roofing') return rows;
+  const notes = String(draft.originalNotes || '');
+  if (!notes.trim()) return rows;
+  const next = rows.map(row => ({ ...row }));
+  const squaresMatch = notes.match(
+    /\b(\d[\d,]*(?:\.\d+)?)[\s-]*(?:roofing\s+)?squares?\b/i
+  );
+  const squares = squaresMatch
+    ? Number(String(squaresMatch[1]).replace(/,/g, ''))
+    : 0;
+  const hasRow = (id: string, nameRe: RegExp) =>
+    next.some(row => row.id === id || nameRe.test(row.name));
+
+  if (infersRoofingUnderlaymentUpgradeFromNotes(notes) && squares > 0) {
+    const idx = next.findIndex(
+      row => row.id === 'underlayment' || /\bunderlayment\b/i.test(row.name)
+    );
+    if (idx >= 0 && !next[idx].quantityOverride) {
+      next[idx] = {
+        ...next[idx],
+        quantityOverride: `${Math.round(squares * 100)} sqft`,
+      };
+    }
+  }
+
+  const namesIce =
+    /\b(?:ice\s*[&/-]\s*water|ice\s+and\s+water|ice\s*barrier|eaves?\s+protection|ice[\s-]?water\s+shield)\b/i.test(
+      notes
+    );
+  if (namesIce && !hasRow('ice_water_shield', /\bice\b/i)) {
+    const iceSqft = squares > 0 ? estimatedIceWaterShieldSqft(squares) : 0;
+    next.push({
+      id: 'ice_water_shield',
+      name: 'Ice & water shield',
+      ...(iceSqft > 0 ? { quantityOverride: `${iceSqft} sqft` } : {}),
+    });
+  } else if (namesIce && squares > 0) {
+    const idx = next.findIndex(
+      row => row.id === 'ice_water_shield' || /\bice\b/i.test(row.name)
+    );
+    if (idx >= 0 && !next[idx].quantityOverride) {
+      next[idx] = {
+        ...next[idx],
+        quantityOverride: `${estimatedIceWaterShieldSqft(squares)} sqft`,
+      };
+    }
+  }
+
+  if (
+    /\bpipe\s+boots?\b/i.test(notes) &&
+    !hasRow('pipe_boots', /\bpipe\s+boots?\b/i)
+  ) {
+    const countMatch = notes.match(/\b(\d+)\s+pipe\s+boots?\b/i);
+    const count = countMatch ? Number(countMatch[1]) : 1;
+    next.push({
+      id: 'pipe_boots',
+      name: 'Pipe boots',
+      quantityOverride: `${count} each`,
+    });
+  }
+
+  return next;
+}
+
 function getInitialRevealScopeRows(
   draft: EstimateAiDraft
 ): InitialRevealScopeRow[] {
@@ -1527,7 +1662,11 @@ function getInitialRevealScopeRows(
     String(draft.scopeChecklist?.templateKey || draft.projectType || '').toLowerCase() ===
       'room_remodel' ||
     wholeHomeMixedRemodelNote;
-  const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(notes);
+  const dedicatedDrywallNote =
+    notesUseDedicatedDrywallScope(notes) ||
+    notesDescribeSheetrockFinishJob(notes);
+  const noteRatedDrywallNote = notesDescribeNoteRatedDrywallJob(notes);
+  const dedicatedFlooringNote = notesDescribeDedicatedFlooringJob(notes);
   const parsedDedicatedDrywallMeasurements = dedicatedDrywallNote
     ? initialScopeMeasurementInputExtended(draft, notes)
     : null;
@@ -1898,9 +2037,29 @@ function getInitialRevealScopeRows(
                 parsedDedicatedDrywallMeasurements
               ),
             }
+          : noteRatedDrywallNote &&
+              ['hang', 'finish_tape'].includes(String(item.id || '').trim())
+            ? {
+                quantityOverride: positiveRevealNumber(
+                  initialScopeMeasurementInputExtended(draft, notes).drywallSqft
+                )
+                  ? `${positiveRevealNumber(
+                      initialScopeMeasurementInputExtended(draft, notes).drywallSqft
+                    )} sqft`
+                  : null,
+              }
+            : {}),
+        ...(dedicatedFlooringNote
+          ? {
+              quantityOverride: dedicatedFlooringRevealQuantity(
+                String(item.id || '').trim(),
+                draft.scopeMeasurements
+              ),
+            }
           : {}),
       }))
       .filter(row => row.id && row.name) || [];
+  rows = appendNamedRoofingRevealRows(draft, rows);
   const prefabEnclosureNamed =
     /\bprefab(?:\s+shower)?\s+(?:enclosure|surround)\b|\b(?:one[\s-]?piece)\s+(?:shower\s+)?enclosure\b/i.test(
       notes
@@ -2491,6 +2650,20 @@ function getInitialRevealScopeRows(
     const keep = new Set(['demo', 'demo_removal', 'drywall', 'patch_repair']);
     rows = rows.filter(row => keep.has(row.id));
   }
+  if (noteRatedDrywallNote) {
+    const keep = new Set(['hang', 'finish_tape']);
+    rows = rows.filter(row => keep.has(row.id));
+  }
+  if (notesDescribeDrywallAndFlooringJob(notes)) {
+    const keep = new Set([
+      'demo',
+      'demo_removal',
+      'drywall',
+      'patch_repair',
+      'flooring',
+    ]);
+    rows = rows.filter(row => keep.has(row.id));
+  }
   if (drywallRepairSqft && !dedicatedDrywallNote) {
     const drywallRowIndex = rows.findIndex(
       row =>
@@ -2750,33 +2923,163 @@ function getInitialRevealScopeRows(
     ),
     wholeHome: wholeHomeRemodelContext,
   };
-  const revealRows = filterDedicatedKitchenConfirmItems(
-    alignDedicatedBathroomScopeRows(
-      filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
-      bathroomScopeParams
+  const revealRows = filterDedicatedFlooringConfirmItems(
+    filterDedicatedKitchenConfirmItems(
+      alignDedicatedBathroomScopeRows(
+        filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
+        bathroomScopeParams
+      ),
+      {
+        notes,
+        templateKey: draft.scopeChecklist?.templateKey,
+        projectType: draft.projectType,
+        planBacked: bathroomScopeParams.planBacked,
+        wholeHome: wholeHomeRemodelContext,
+      }
     ),
-    {
-      notes,
-      templateKey: draft.scopeChecklist?.templateKey,
-      projectType: draft.projectType,
-      planBacked: bathroomScopeParams.planBacked,
-      wholeHome: wholeHomeRemodelContext,
-    }
+    notes
   );
-  const scopedRevealRows = notesNameRoughOpeningsOnly(notes)
+  const framingOnlyAdditionRows = notesNameFramingOnlyAddition(notes)
     ? revealRows.filter(
+        row => row.id === 'framing' || /framing\s*\/\s*shell/i.test(row.name)
+      )
+    : revealRows;
+  const framingRevealRows = framingOnlyAdditionRows.length
+    ? framingOnlyAdditionRows
+    : notesNameFramingOnlyAddition(notes)
+      ? [{ id: 'framing', name: 'Framing / shell' }]
+      : framingOnlyAdditionRows;
+  const scopedRevealRows = notesNameRoughOpeningsOnly(notes)
+    ? framingRevealRows.filter(
         row =>
           row.id === 'openings' ||
           /door\s*\/\s*window openings|rough openings/i.test(row.name)
       )
-    : revealRows;
+    : framingRevealRows;
   const visibleRevealRows = scopedRevealRows.length
     ? scopedRevealRows
     : notesNameRoughOpeningsOnly(notes)
       ? [{ id: 'openings', name: 'Door / window openings' }]
       : scopedRevealRows;
-  if (/\btile\b/i.test(notes)) return visibleRevealRows;
-  return visibleRevealRows.filter(row => !/\btile\s*demo\b/i.test(row.name));
+  const wallFloorRevealRows = notesNameWallAreaFramingWithFlooring(notes)
+    ? (() => {
+        const framingQty =
+          parseFramingMeasurementsFromNotes(notes).wallFramingSqft;
+        const flooringMatch =
+          /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:lvp|luxury\s+vinyl|laminate|vinyl|carpet|hardwood|flooring)\b/i.exec(
+            notes
+          );
+        const flooringQty = flooringMatch
+          ? Number(String(flooringMatch[1]).replace(/,/g, ''))
+          : null;
+        const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(notes);
+        return [
+          {
+            id: 'wall_framing',
+            name: 'Wall framing',
+            ...(framingQty ? { quantityOverride: `${framingQty} sqft` } : {}),
+          },
+          {
+            id: 'flooring',
+            name: lvp ? 'LVP flooring' : 'Flooring',
+            ...(flooringQty && flooringQty > 0
+              ? { quantityOverride: `${flooringQty} sqft` }
+              : {}),
+          },
+        ];
+      })()
+    : visibleRevealRows;
+  const dedicatedWallAreaRows = notesNameDedicatedWallAreaFraming(notes)
+    ? (() => {
+        const parsed = parseFramingMeasurementsFromNotes(notes);
+        const rows: InitialRevealScopeRow[] = [];
+        if (noteMentionsGeneralWallDemolition(notes)) {
+          const demoMatch =
+            /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:nonstructural\s+)?walls?\b/i.exec(
+              notes
+            );
+          const demoQty = demoMatch
+            ? Number(String(demoMatch[1]).replace(/,/g, ''))
+            : null;
+          rows.push({
+            id: 'demo',
+            name: 'Wall demolition',
+            ...(demoQty && demoQty > 0
+              ? { quantityOverride: `${demoQty} sqft` }
+              : {}),
+          });
+        }
+        rows.push({
+          id: 'wall_framing',
+          name: 'Wall framing',
+          ...(parsed.wallFramingSqft
+            ? { quantityOverride: `${parsed.wallFramingSqft} sqft` }
+            : {}),
+        });
+        if (/\b(?:structural\s+)?sheathing\b/i.test(notes)) {
+          rows.push({
+            id: 'shear_sheathing',
+            name: 'Structural sheathing',
+            ...(parsed.sheathingSqft
+              ? { quantityOverride: `${parsed.sheathingSqft} sqft` }
+              : {}),
+          });
+        }
+        if (
+          /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+            notes
+          )
+        ) {
+          rows.push({
+            id: 'openings',
+            name: 'Door / window openings',
+            ...(parsed.framingOpeningCount
+              ? { quantityOverride: `${parsed.framingOpeningCount} each` }
+              : {}),
+          });
+        }
+        return rows;
+      })()
+    : wallFloorRevealRows;
+  const linearFootRows = notesNameLinearFootStudWall(notes)
+    ? (() => {
+        const parsed = parseFramingMeasurementsFromNotes(notes);
+        const rows: InitialRevealScopeRow[] = [
+          {
+            id: 'wall_framing',
+            name: 'Wall framing',
+            ...(parsed.wallFramingLf
+              ? { quantityOverride: `${parsed.wallFramingLf} LF` }
+              : {}),
+          },
+        ];
+        if (/\b(?:structural\s+)?sheathing\b/i.test(notes)) {
+          rows.push({
+            id: 'shear_sheathing',
+            name: 'Structural sheathing',
+            ...(parsed.sheathingSqft
+              ? { quantityOverride: `${parsed.sheathingSqft} sqft` }
+              : {}),
+          });
+        }
+        if (
+          /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+            notes
+          )
+        ) {
+          rows.push({
+            id: 'openings',
+            name: 'Door / window openings',
+            ...(parsed.framingOpeningCount
+              ? { quantityOverride: `${parsed.framingOpeningCount} each` }
+              : {}),
+          });
+        }
+        return rows;
+      })()
+    : dedicatedWallAreaRows;
+  if (/\btile\b/i.test(notes)) return linearFootRows;
+  return linearFootRows.filter(row => !/\btile\s*demo\b/i.test(row.name));
 }
 
 /** Checklist rows for Scope found when priced packages are not built yet. */
@@ -3302,7 +3605,11 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
-  if (notesDescribeDedicatedDrywallJob(draft.originalNotes)) {
+  if (
+    notesUseDedicatedDrywallScope(draft.originalNotes) ||
+    notesDescribeSheetrockFinishJob(draft.originalNotes) ||
+    notesDescribeNoteRatedDrywallJob(draft.originalNotes)
+  ) {
     return 'Detected drywall job.';
   }
   const planMeasurements = draft.scopeMeasurements as

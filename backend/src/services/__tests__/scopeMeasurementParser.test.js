@@ -190,6 +190,21 @@ describe('scopeMeasurementParser', () => {
     ).toBe('drywall');
   });
 
+  test('routes a note-rated drywall hang and finish to the drywall checklist', () => {
+    const notes =
+      'Hang drywall 1,200 sqft material $1.50 per sqft labor $3 per sqft. Tape and finish 1,200 sqft labor $2.25 per sqft.';
+    expect(
+      checklistTemplateKey({ projectType: 'other', originalNotes: notes }, 'room_remodel')
+    ).toBe('drywall');
+  });
+
+  test('routes a patch-only drywall note to the drywall checklist', () => {
+    const notes = 'Patch and texture 300 sqft of drywall. No new hang.';
+    expect(
+      checklistTemplateKey({ projectType: 'other', originalNotes: notes }, 'room_remodel')
+    ).toBe('drywall');
+  });
+
   test('parses kitchen floor and backsplash from notes', () => {
     const notes = 'Kitchen remodel, 220 sqft kitchen floor, 45 sqft backsplash tile';
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });

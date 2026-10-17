@@ -1,4 +1,5 @@
 import type { ParsedScopeMeasurements } from '@/utils/scopeMeasurementParser';
+import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
 
 export type RoofingPlanningMeasurementKey =
   | 'roofDripEdgeLf'
@@ -229,6 +230,14 @@ export function applyRoofingPlanningMeasurements(
   if (RIDGE_CAP_RE.test(text) && !out.roofRidgeCapLf) {
     out.roofRidgeCapLf = estimatedRidgeCapLf(squares);
     planningKeys.push('roofRidgeCapLf');
+  }
+  // A roofing square is 100 sqft. Synthetic underlayment prices from that
+  // surface, and the note does not have to repeat the area in sqft.
+  if (
+    infersRoofingUnderlaymentUpgradeFromNotes(text) &&
+    !parseMeasurementNumber(out.roofAreaSqft)
+  ) {
+    out.roofAreaSqft = Math.round(squares * 100);
   }
 
   if (planningKeys.length) out.roofingPlanningKeys = planningKeys;

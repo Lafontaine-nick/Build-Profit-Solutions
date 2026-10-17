@@ -289,6 +289,41 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('prices the Roofing system card from the row choice when the context choice is still unsure', () => {
+    const input = inputWith({
+      roofSquares: '20',
+      tradeScopeSelections: { roofing: ['shingles', 'tear_off'] },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity(
+      'roofing_system',
+      measurements,
+      {
+        templateKey: 'roofing',
+        choiceId: 'architectural_shingles',
+      }
+    );
+    const suggested = resolveScopeItemSuggestedPricing(
+      'roofing_system',
+      input,
+      'roofing',
+      resolved,
+      {
+        checklistItems: [
+          { id: 'roofing_system', state: 'included', choiceId: 'unsure' },
+        ],
+      },
+      'architectural_shingles'
+    );
+
+    expect(suggested.fill).toMatchObject({
+      material: 5000,
+      labor: 6500,
+      total: 11500,
+      basis: { quantity: 20, unit: 'squares' },
+    });
+  });
+
   it('hides the Roofing system card when its Quick Measurement scope is deselected', () => {
     const input = inputWith({
       roofSquares: '30',

@@ -1732,6 +1732,23 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.hvacCleanupCount).toBe(1);
   });
 
+  it('reads a singular thermostat and the stated register counts from a replacement note', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace the furnace and air conditioner. Install new ductwork, 8 supply registers, 2 return grilles, and a thermostat.',
+      { templateKey: 'hvac', projectType: 'hvac' }
+    );
+    expect(parsed.hvacThermostatCount).toBe(1);
+    expect(parsed.hvacSupplyRegisterCount).toBe(8);
+    expect(parsed.hvacReturnGrilleCount).toBe(2);
+    expect(parsed.hvacSystemCount).toBeUndefined();
+    expect(parsed.hvacSystemTons).toBeUndefined();
+    expect(parsed.hvacDuctworkLf).toBeUndefined();
+    expect(parsed.hvacServiceCallCount).toBeUndefined();
+    expect(parsed.hvacRefrigerantCount).toBeUndefined();
+    expect(parsed.hvacPermitCount).toBeUndefined();
+    expect(parsed.hvacCleanupCount).toBeUndefined();
+  });
+
   it('does not invent an HVAC replacement count when replacement work is unquantified', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Replace the existing heat-pump HVAC system and ductwork.',

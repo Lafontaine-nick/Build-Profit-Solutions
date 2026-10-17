@@ -522,6 +522,12 @@ export function resolveQuickMeasurementFields(params: {
           )
         : null;
 
+    const filledHvacOptional =
+      filled &&
+      (field.key === 'hvacServiceCallCount' ||
+        field.key === 'hvacRefrigerantCount' ||
+        field.key === 'hvacPermitCount' ||
+        field.key === 'hvacCleanupCount');
     const state = resolveFieldState({
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
@@ -539,7 +545,9 @@ export function resolveQuickMeasurementFields(params: {
         optionalStuccoDeduction ||
         emptyStuccoNet
           ? false
-          : stuccoPlanFact || (manuallyEntered && filled)
+          : stuccoPlanFact ||
+              (manuallyEntered && filled) ||
+              filledHvacOptional
             ? true
             : relevance.relevant,
       hasEstimate: Boolean(estimate),
@@ -579,7 +587,7 @@ export function resolveQuickMeasurementFields(params: {
         optionalStuccoDeduction ||
         emptyStuccoNet
           ? false
-          : stuccoPlanFact
+          : stuccoPlanFact || filledHvacOptional
             ? true
             : relevance.relevant,
       blockingPrice:

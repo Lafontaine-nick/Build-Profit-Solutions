@@ -204,6 +204,146 @@ describe('scopePackagesForReview', () => {
     expect(rows.filter(row => row.label === 'Wall framing')).toHaveLength(1);
   });
 
+  it('keeps a linear-foot stud wall note to the wall and openings', () => {
+    const notes = 'Frame 36 LF of stud wall and two rough openings.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'framing',
+          label: 'Framing or layout changes',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        { id: 'drywall', label: 'Drywall', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'flooring',
+          label: 'Flooring',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'plumbing',
+          label: 'Plumbing work',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual(['wall_framing', 'openings']);
+  });
+
+  it('keeps a split wall sentence to the wall and openings', () => {
+    const notes = 'Frame the wall. 36 linear feet and two rough openings.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'framing',
+          label: 'Wall Framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'permits',
+          label: 'Permit responsibility',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'cleanup',
+          label: 'Cleanup',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'framing',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual(['wall_framing', 'openings']);
+  });
+
+  it('keeps a partition-and-header note off the remodel list', () => {
+    const notes = 'Build 24 feet of interior partition and one header.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'framing',
+          label: 'Interior Partition Framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        { id: 'drywall', label: 'Drywall', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'flooring',
+          label: 'Flooring',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual(['wall_framing', 'openings']);
+  });
+
+  it('keeps a feet-long wall note off the remodel list', () => {
+    const notes =
+      'Frame a new interior wall. It is 18 feet long and needs one rough opening.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'framing',
+          label: 'Framing or layout changes',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        { id: 'drywall', label: 'Drywall', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'flooring',
+          label: 'Flooring',
+          state: 'unsure',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).toEqual(['wall_framing', 'openings']);
+  });
+
+  it('drops the extra wall demo card when demolition is already in scope', () => {
+    const notes =
+      'Demolish 120 sqft of nonstructural walls. Frame 960 sqft of walls and 200 sqft of sheathing, including one rough opening.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'wall_demo',
+          label: 'Wall Demo',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'framing',
+      notes
+    );
+
+    expect(rows.map(row => row.id)).not.toContain('wall_demo');
+    expect(rows.filter(row => row.id === 'demo')).toHaveLength(1);
+    expect(rows.find(row => row.id === 'demo')?.label).toBe(
+      'Wall demolition / removal'
+    );
+  });
+
   it('keeps a denied wall-framing note to rough openings only', () => {
     const notes = 'Do not frame any new walls. Frame four rough openings.';
     const rows = buildConfirmScopeDisplayItems(

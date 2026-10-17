@@ -516,7 +516,7 @@ const NOTE_TRADE_PROJECT_TYPES = {
 
 const NOTE_TRADE_PATTERNS = {
   framing:
-    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in|interior\s+walls?)|frame\s+(?:the\s+)?(?:walls?|house|addition)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i,
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in|interior\s+walls?)|frame\s+(?:the\s+)?(?:walls?|house|addition)|frame(?:d|ing)?\s+\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i,
   flooring:
     /\b(?:flooring|floor\s+(?:install|installation|replacement|demo|removal)|lvp|laminate|vinyl flooring|carpet|hardwood|floor\s+tile|tile\s+floor)\b/i,
   drywall: /\b(?:drywall|sheetrock|gypsum|hang\s+and\s+finish|patch(?:ing)?\s+and\s+texture)\b/i,

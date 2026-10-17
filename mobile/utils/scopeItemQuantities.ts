@@ -66,6 +66,7 @@ import {
   copyFramingQuantityFields,
   framingCardForItemId,
   isShellFramingPackageBid,
+  notesNameLinearFootStudWall,
   resolveCoveredFramedAreaSqft,
   resolveFramingSheathingSqft,
   shellPackageIncludesSheathing,
@@ -170,6 +171,7 @@ import {
   HVAC_NATIONAL_MULTI_SYSTEM_PACKAGE_RANGE,
   isSouthernUtahPricingLocation,
   hvacUsesInstalledPackagePricing,
+  hvacNamedEquipmentReplacesPackage,
   isHvacComponentScopeItemId,
   resolveHvacInstalledPackageSuggestedTotal,
   resolveHvacPackageComparable,
@@ -260,8 +262,18 @@ import {
 import {
   dedicatedDrywallIncludedPatchSqft,
   notesDescribeDedicatedDrywallJob,
+  notesDescribeDedicatedDrywallPatchJob,
+  notesDescribeNoteRatedDrywallJob,
+  notesDescribeSheetrockFinishJob,
+  notesNameDrywallFlooringPatchOnly,
   statedDedicatedDrywallDemoSqft,
 } from '@/utils/drywallNoteScope';
+import { notesDescribeDrywallAndFlooringJob, notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
+import {
+  dedicatedFlooringAreaSqft,
+  dedicatedFlooringProducts,
+  notesDescribeDedicatedFlooringJob,
+} from '@/utils/flooringNoteScope';
 import {
   copyDrywallQuantityFields,
   drywallPackageSurfacePlanningQuantity,
@@ -8131,6 +8143,16 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter the documented wall framing area in square feet.',
     missingMessage: 'Enter wall framing area sqft or pricing.',
   },
+  wall_framing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'wallFramingLf',
+    measurementKeys: ['wallFramingSqft', 'wallFramingLf'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Square feet of walls being framed. An 8 ft wall is priced as stud wall by the linear foot.',
+    missingMessage: 'Enter wall framing area sqft or pricing.',
+  },
   shear_sheathing: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -13391,7 +13413,11 @@ function flooringInstallNationalAverage(
       sourceLabel: 'Suggested budget split · National Average · glue-down LVP',
     };
   }
-    return null;
+    return {
+      material: 3.5,
+      labor: 3.5,
+      sourceLabel: 'Suggested budget split · National Average · LVP',
+    };
   }
   const split = NATIONAL_AVERAGE_BUDGET_SPLITS[itemId];
   if (
@@ -15738,9 +15764,150 @@ export function resolveScopeItemSuggestedPricing(
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const notesText = String(originalNotes || '');
-  const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(
-    notesText || String(measurementsInput.scopeNotes || '')
-  );
+  const dedicatedDrywallNotes = notesText || String(measurementsInput.scopeNotes || '');
+  const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(dedicatedDrywallNotes);
+  const dedicatedDrywallPatchNote =
+    notesDescribeDedicatedDrywallPatchJob(dedicatedDrywallNotes);
+  const noteRatedDrywallNote = notesDescribeNoteRatedDrywallJob(dedicatedDrywallNotes);
+  const nationalDrywallHang = notesPriceNationalDrywallHang(dedicatedDrywallNotes);
+  const crossTradeDrywallPatch = notesNameDrywallFlooringPatchOnly(dedicatedDrywallNotes);
+  if (
+    noteRatedDrywallNote &&
+    (itemId === 'hang' || itemId === 'finish_tape')
+  ) {
+    const sqft = Number(String(measurementsInput.drywallSqft ?? '').replace(/,/g, ''));
+    const breakdown = resolveItemRatePricingFromNotes(
+      itemId,
+      measurementsPayloadForRatePricing(measurementsInput),
+      dedicatedDrywallNotes,
+      { templateKey: templateKey ?? undefined }
+    );
+    if (breakdown?.total && Number.isFinite(sqft) && sqft > 0) {
+      const material = round2(Number(breakdown.material || 0));
+      const labor = round2(Number(breakdown.labor || 0));
+      const materialRate = material > 0 ? round2(material / sqft) : null;
+      const laborRate = labor > 0 ? round2(labor / sqft) : null;
+      const combined =
+        (materialRate || 0) + (laborRate || 0);
+      const combinedLabel = Number.isInteger(combined)
+        ? `$${combined}`
+        : `$${combined.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(breakdown.total),
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper:
+            itemId === 'hang'
+              ? 'Hang at the material and labor rates in the notes.'
+              : 'Tape and finish labor from the notes.',
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayQuantityLine: `${sqft.toLocaleString()} sqft × ${combinedLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          costBuckets: [
+            ...(material > 0
+              ? [
+                  {
+                    key: 'material' as const,
+                    label: 'Material',
+                    amount: material,
+                    rate: materialRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+            ...(labor > 0
+              ? [
+                  {
+                    key: 'labor' as const,
+                    label: 'Labor',
+                    amount: labor,
+                    rate: laborRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+          ],
+        },
+        comparison: null,
+      };
+    }
+  }
+  const dedicatedFlooringNotes =
+    notesText || String(measurementsInput.scopeNotes || '');
+  const dedicatedFlooringProduct = notesDescribeDedicatedFlooringJob(
+    dedicatedFlooringNotes
+  )
+    ? dedicatedFlooringProducts(dedicatedFlooringNotes)
+    : [];
+  if (
+    dedicatedFlooringProduct.length === 1 &&
+    itemId === dedicatedFlooringProduct[0].id
+  ) {
+    const sqft = dedicatedFlooringAreaSqft(dedicatedFlooringNotes);
+    const breakdown = resolveItemRatePricingFromNotes(
+      'flooring',
+      measurementsPayloadForRatePricing(measurementsInput),
+      dedicatedFlooringNotes,
+      { templateKey: 'flooring' }
+    );
+    if (breakdown?.total && sqft && sqft > 0) {
+      const material = round2(Number(breakdown.material || 0));
+      const labor = round2(Number(breakdown.labor || 0));
+      const materialRate = material > 0 ? round2(material / sqft) : null;
+      const laborRate = labor > 0 ? round2(labor / sqft) : null;
+      const combined = (materialRate || 0) + (laborRate || 0);
+      const combinedLabel = Number.isInteger(combined)
+        ? `$${combined}`
+        : `$${combined.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(breakdown.total),
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper: `${dedicatedFlooringProduct[0].label} at the material and labor rates in the notes.`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayQuantityLine: `${sqft.toLocaleString()} sqft × ${combinedLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          costBuckets: [
+            ...(material > 0
+              ? [
+                  {
+                    key: 'material' as const,
+                    label: 'Material',
+                    amount: material,
+                    rate: materialRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+            ...(labor > 0
+              ? [
+                  {
+                    key: 'labor' as const,
+                    label: 'Labor',
+                    amount: labor,
+                    rate: laborRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+          ],
+        },
+        comparison: null,
+      };
+    }
+  }
   if (
     dedicatedDrywallNote &&
     (itemId === 'demo' || itemId === 'demo_removal') &&
@@ -15894,9 +16061,19 @@ export function resolveScopeItemSuggestedPricing(
     ) &&
     !/\btile\b/i.test(notesText)
   ) {
-    const wallDemoSqft = parseScopeMeasurementInput(
-      measurementsInput.wallDemoSqft
+    const notedWallDemo = notesText.match(
+      /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:nonstructural\s+)?walls?\b/i
     );
+    const resolvedWallDemo =
+      String(resolved.unit || '').toLowerCase() === 'sqft'
+        ? Number(resolved.quantity)
+        : null;
+    const wallDemoSqft =
+      parseScopeMeasurementInput(measurementsInput.wallDemoSqft) ||
+      (resolvedWallDemo && resolvedWallDemo > 0 ? resolvedWallDemo : null) ||
+      (notedWallDemo
+        ? parseScopeMeasurementInput(notedWallDemo[1])
+        : null);
     const average = getNationalAverageBudgetSplit('drywall_demo', 'sqft');
     if (wallDemoSqft && wallDemoSqft > 0 && average) {
       const material = round2(wallDemoSqft * average.material);
@@ -15924,6 +16101,69 @@ export function resolveScopeItemSuggestedPricing(
         },
         comparison: null,
       };
+    }
+  }
+  if (itemId === 'wall_framing' && notesNameLinearFootStudWall(notesText)) {
+    const notedLf =
+      notesText.match(
+        /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i
+      ) ||
+      notesText.match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i
+      ) ||
+      notesText.match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+of\s+(?:interior\s+)?partitions?\b/i
+      ) ||
+      notesText.match(/\b(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+long\b/i);
+    const linearFeet =
+      parseScopeMeasurementInput(
+        (measurementsInput as { wallFramingLf?: unknown }).wallFramingLf
+      ) ||
+      (String(resolved.unit || '').toLowerCase() === 'lf' &&
+      Number(resolved.quantity) > 0
+        ? Number(resolved.quantity)
+        : null) ||
+      (notedLf ? parseScopeMeasurementInput(notedLf[1]) : null);
+    if (linearFeet && linearFeet > 0) {
+      const studWall = regionalAdjustedNationalAverage(
+        'wall_framing',
+        'lf',
+        pricingContext
+      ).average;
+      const materialRate = Number(studWall?.material ?? 4);
+      const laborRate = Number(studWall?.labor ?? 8);
+      if (materialRate > 0 && laborRate > 0) {
+        const material = round2(linearFeet * materialRate);
+        const labor = round2(linearFeet * laborRate);
+        const perLf = round2(materialRate + laborRate);
+        const lfLabel = Number.isInteger(linearFeet)
+          ? String(linearFeet)
+          : linearFeet.toFixed(1);
+        const perLfLabel = Number.isInteger(perLf)
+          ? `$${perLf}`
+          : `$${perLf.toFixed(2)}`;
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel:
+              studWall?.sourceLabel ||
+              'Suggested budget split · National Average · stud wall framing',
+            helper: `${lfLabel} LF of stud wall from the job notes.`,
+            mode: 'suggested_price',
+            basis: { quantity: linearFeet, unit: 'lf' },
+            displayUnitRateLabel: `${lfLabel} LF × ${perLfLabel}/LF`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'wall_framing',
+          },
+          comparison: null,
+        };
+      }
     }
   }
   if (itemId === 'wall_framing') {
@@ -15983,6 +16223,68 @@ export function resolveScopeItemSuggestedPricing(
           productionStatus: 'review_required',
           benchmarkLevel: 'component',
           benchmarkScopeKey: 'wall_framing',
+        },
+        comparison: null,
+      };
+    }
+  }
+  if (
+    itemId === 'flooring' &&
+    notesDescribeDrywallAndFlooringJob(
+      notesText || String(measurementsInput.scopeNotes || '')
+    )
+  ) {
+    const sqft = parseScopeMeasurementInput(measurementsInput.flooringSqft);
+    const breakdown = resolveItemRatePricingFromNotes(
+      itemId,
+      measurementsPayloadForRatePricing(measurementsInput),
+      notesText,
+      { templateKey: templateKey ?? undefined }
+    );
+    if (breakdown?.total && sqft && sqft > 0) {
+      const material = round2(Number(breakdown.material || 0));
+      const labor = round2(Number(breakdown.labor || 0));
+      const combined = round2((material + labor) / sqft);
+      const combinedLabel = Number.isInteger(combined)
+        ? `$${combined}`
+        : `$${combined.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper: 'Flooring at the material and labor rates in the notes.',
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayQuantityLine: `${sqft.toLocaleString()} sqft × ${combinedLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          costBuckets: [
+            ...(material > 0
+              ? [
+                  {
+                    key: 'material' as const,
+                    label: 'Material',
+                    amount: material,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+            ...(labor > 0
+              ? [
+                  {
+                    key: 'labor' as const,
+                    label: 'Labor',
+                    amount: labor,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+          ],
         },
         comparison: null,
       };
@@ -16396,19 +16698,25 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  if (
-    isHvacComponentScopeItemId(itemId) &&
-    hvacUsesInstalledPackagePricing(
-      measurementsInput as Record<string, unknown>,
-      pricingContext
-    )
-  ) {
-    return empty;
-  }
   const equipmentNotes = [
     String(originalNotes || ''),
     String(measurementsInput.scopeNotes || ''),
   ].join('\n');
+  const namedHvacEquipmentReplacesPackage = hvacNamedEquipmentReplacesPackage(
+    measurementsInput as Record<string, unknown>,
+    equipmentNotes
+  );
+  if (
+    isHvacComponentScopeItemId(itemId) &&
+    !namedHvacEquipmentReplacesPackage &&
+    hvacUsesInstalledPackagePricing(
+      measurementsInput as Record<string, unknown>,
+      pricingContext,
+      equipmentNotes
+    )
+  ) {
+    return empty;
+  }
   const selectedHvacScopes = measurementsInput.tradeScopeSelections?.hvac;
   const hasMiniSplitSelection =
     Array.isArray(selectedHvacScopes) &&
@@ -16424,6 +16732,9 @@ export function resolveScopeItemSuggestedPricing(
     // component-priced system, even when the AI/checklist supplied only the
     // generic HVAC row or the conversion template was not selected yet.
     return buildExistingShellMiniSplitSuggestedPricing();
+  }
+  if (itemId === 'hvac' && namedHvacEquipmentReplacesPackage) {
+    return empty;
   }
   if (itemId === 'hvac') {
     const packagePricing = buildHvacInstalledPackageSuggestedPricing(
@@ -16886,12 +17197,16 @@ export function resolveScopeItemSuggestedPricing(
   const selectedRoofingSystem = pricingContext?.checklistItems?.find(
     row => row.id === 'roofing_system'
   );
-  if (
-    isRoofingTemplate &&
-    itemId === 'roofing_system' &&
-    selectedRoofingSystem?.choiceId &&
-    !['not_in_scope', 'unsure'].includes(selectedRoofingSystem.choiceId)
-  ) {
+  const contextSystemChoice = String(selectedRoofingSystem?.choiceId || '');
+  const passedSystemChoice = String(choiceId || '');
+  const usableRoofingSystemChoice = (value: string) =>
+    Boolean(value) && value !== 'unsure' && value !== 'not_in_scope';
+  const systemChoice = usableRoofingSystemChoice(contextSystemChoice)
+    ? contextSystemChoice
+    : usableRoofingSystemChoice(passedSystemChoice)
+      ? passedSystemChoice
+      : null;
+  if (isRoofingTemplate && itemId === 'roofing_system' && systemChoice) {
     const roofingSelections = measurementsInput.tradeScopeSelections?.roofing;
     const hasExplicitRoofingSelectionState =
       measurementsInput.tradeScopeSelections &&
@@ -16914,7 +17229,7 @@ export function resolveScopeItemSuggestedPricing(
       templateKey,
       resolved,
       pricingContext,
-      selectedRoofingSystem.choiceId,
+      systemChoice,
       originalNotes
     );
   }
@@ -19020,8 +19335,16 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext
   );
   let average = averageInitial;
-  if (dedicatedDrywallNote && itemId === 'drywall') {
-    const national = getNationalAverageBudgetSplit(itemId, preferredUnit);
+  if (
+    (nationalDrywallHang && itemId === 'drywall') ||
+    (crossTradeDrywallPatch && itemId === 'patch_repair') ||
+    (dedicatedDrywallNote && (itemId === 'drywall' || itemId === 'patch_repair')) ||
+    (dedicatedDrywallPatchNote && itemId === 'patch_repair')
+  ) {
+    const national = getNationalAverageBudgetSplit(
+      itemId === 'patch_repair' ? 'drywall' : itemId,
+      preferredUnit
+    );
     if (national) average = { ...national };
   }
   const fixtureSupplyNotes = String(
@@ -19507,9 +19830,18 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (itemId === 'shingles_roofing') {
-    const roofingSystem = pricingContext?.checklistItems?.find(
-      row => row.id === 'roofing_system'
-    )?.choiceId;
+    const contextSystemChoice = String(
+      pricingContext?.checklistItems?.find(row => row.id === 'roofing_system')
+        ?.choiceId || ''
+    );
+    const passedSystemChoice = String(choiceId || '');
+    const usableSystemChoice = (value: string) =>
+      Boolean(value) && !['unsure', 'not_in_scope'].includes(value);
+    const roofingSystem = usableSystemChoice(contextSystemChoice)
+      ? contextSystemChoice
+      : usableSystemChoice(passedSystemChoice)
+        ? passedSystemChoice
+        : contextSystemChoice;
     const systemRates: Record<
       string,
       { material: number; labor: number; label: string }
@@ -20558,7 +20890,7 @@ export function resolveScopeItemSuggestedPricing(
     !wholeProjectPlanOmitsFormulaTakeoff(
       measurementsInput as unknown as Record<string, unknown>
     ) &&
-    !dedicatedDrywallNote
+    !nationalDrywallHang
   ) {
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
@@ -21098,7 +21430,7 @@ export function resolveScopeItemSuggestedPricing(
     : dynamicFloorPrep || dynamicFlooringInstall
       ? (average?.labor ?? null)
       : (template?.laborRate ?? average?.labor ?? null);
-  if (itemId === 'drywall' && count > 0 && !dedicatedDrywallNote) {
+  if (itemId === 'drywall' && count > 0 && !nationalDrywallHang) {
     const measurementRecord = measurementsInput as Record<string, unknown>;
     const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
       measurementRecord,
@@ -21767,7 +22099,10 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext?.checklistItems
   );
   const drywallLaborBucketLabel =
-    dedicatedDrywallNote && itemId === 'drywall'
+    (nationalDrywallHang && itemId === 'drywall') ||
+    (crossTradeDrywallPatch && itemId === 'patch_repair') ||
+    (dedicatedDrywallNote && (itemId === 'drywall' || itemId === 'patch_repair')) ||
+    (dedicatedDrywallPatchNote && itemId === 'patch_repair')
       ? 'Labor'
       : itemId === 'drywall'
       ? drywallFinishLaborBucketLabel(drywallFinishChoice, {
@@ -21828,7 +22163,13 @@ export function resolveScopeItemSuggestedPricing(
       materialRate: drywallBarometerLabel ? null : effectiveMaterialRateForBuckets,
       laborRate: drywallBarometerLabel ? null : effectiveLaborRate,
       materialBucketLabel:
-        dedicatedDrywallNote && itemId === 'drywall' ? 'Material' : undefined,
+        (nationalDrywallHang && itemId === 'drywall') ||
+        (crossTradeDrywallPatch && itemId === 'patch_repair') ||
+        (dedicatedDrywallNote &&
+          (itemId === 'drywall' || itemId === 'patch_repair')) ||
+        (dedicatedDrywallPatchNote && itemId === 'patch_repair')
+          ? 'Material'
+          : undefined,
       laborBucketLabel: drywallLaborBucketLabel,
     }),
     pricingRecordId: `bps_national:${itemId}:${unit}`,
@@ -24171,10 +24512,109 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
-  if (itemId === 'wall_framing') {
-    const wallSqft = Number(
-      String(measurements.wallFramingSqft ?? '').replace(/,/g, '')
+  if (
+    (itemId === 'hang' || itemId === 'finish_tape') &&
+    notesDescribeNoteRatedDrywallJob(ctx.notes)
+  ) {
+    const allowance = measurements.itemQuantities?.[itemId];
+    const total = Number(allowance?.quantity);
+    if (
+      allowance &&
+      String(allowance.unit || '').toLowerCase() === 'allowance' &&
+      Number.isFinite(total) &&
+      total > 0
+    ) {
+      return {
+        quantity: total,
+        unit: 'allowance',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          itemId === 'hang'
+            ? 'Hang material and labor from the notes.'
+            : 'Tape and finish labor from the notes.',
+        missingMessage: 'Enter drywall sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (
+    (itemId === 'demo' || itemId === 'demo_removal') &&
+    !notesDescribeDedicatedDrywallJob(ctx.notes) &&
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,55}\bwalls?\b/i.test(
+      String(ctx.notes || '')
+    ) &&
+    !/\btile\b/i.test(String(ctx.notes || ''))
+  ) {
+    const measuredDemo = Number(
+      String(measurements.wallDemoSqft ?? '').replace(/,/g, '')
     );
+    const storedDemo = Number(
+      measurements.itemQuantities?.wall_demo?.quantity ??
+        measurements.itemQuantities?.demo?.quantity
+    );
+    const notedDemo = String(ctx.notes || '').match(
+      /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:nonstructural\s+)?walls?\b/i
+    );
+    const demoSqft =
+      (Number.isFinite(measuredDemo) && measuredDemo > 0 ? measuredDemo : 0) ||
+      (Number.isFinite(storedDemo) && storedDemo > 0 ? storedDemo : 0) ||
+      Number(String(notedDemo?.[1] || '').replace(/,/g, ''));
+    if (Number.isFinite(demoSqft) && demoSqft > 0) {
+      return {
+        quantity: demoSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Square feet of nonstructural walls identified for demolition.',
+        missingMessage: 'Enter wall demolition area sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'wall_framing' && notesNameLinearFootStudWall(ctx.notes)) {
+    const notedLf =
+      String(ctx.notes || '').match(
+        /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i
+      ) ||
+      String(ctx.notes || '').match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i
+      ) ||
+      String(ctx.notes || '').match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+of\s+(?:interior\s+)?partitions?\b/i
+      ) ||
+      String(ctx.notes || '').match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+long\b/i
+      );
+    const measuredLf = Number(
+      String(measurements.wallFramingLf ?? '').replace(/,/g, '')
+    );
+    const linearFeet =
+      (Number.isFinite(measuredLf) && measuredLf > 0 ? measuredLf : 0) ||
+      Number(String(notedLf?.[1] || '').replace(/,/g, ''));
+    if (Number.isFinite(linearFeet) && linearFeet > 0) {
+      return {
+        quantity: linearFeet,
+        unit: 'lf',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Linear feet of stud wall identified in the job notes.',
+        missingMessage: 'Enter wall framing linear feet.',
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'wall_framing') {
+    const notedWallSqft = String(ctx.notes || '').match(
+      /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i
+    );
+    const wallSqft =
+      Number(String(measurements.wallFramingSqft ?? '').replace(/,/g, '')) ||
+      Number(String(notedWallSqft?.[1] || '').replace(/,/g, ''));
     if (Number.isFinite(wallSqft) && wallSqft > 0) {
       return {
         quantity: wallSqft,
@@ -24229,7 +24669,9 @@ export function resolveChecklistItemQuantity(
   }
   if (
     itemId === 'drywall' &&
-    notesDescribeDedicatedDrywallJob(ctx.notes)
+    (notesDescribeDedicatedDrywallJob(ctx.notes) ||
+      notesDescribeSheetrockFinishJob(ctx.notes) ||
+      notesDescribeDrywallAndFlooringJob(ctx.notes))
   ) {
     const hangSqft = Number(
       String(measurements.drywallSqft ?? '').replace(/,/g, '')
@@ -27895,6 +28337,26 @@ export function scopeMeasurementsInputFromPayload(
     flooringExistingTypes: Array.isArray(payload.flooringExistingTypes)
       ? payload.flooringExistingTypes
       : null,
+    flooringProductScope: Array.isArray(payload.flooringProductScope)
+      ? payload.flooringProductScope
+      : null,
+    flooringLvpSqft: measurementFieldString(payload.flooringLvpSqft),
+    flooringLaminateSqft: measurementFieldString(payload.flooringLaminateSqft),
+    flooringEngineeredHardwoodSqft: measurementFieldString(
+      payload.flooringEngineeredHardwoodSqft
+    ),
+    flooringSolidHardwoodSqft: measurementFieldString(
+      payload.flooringSolidHardwoodSqft
+    ),
+    flooringTileSqft: measurementFieldString(payload.flooringTileSqft),
+    flooringCarpetSqft: measurementFieldString(payload.flooringCarpetSqft),
+    flooringSheetVinylSqft: measurementFieldString(
+      payload.flooringSheetVinylSqft
+    ),
+    floorDemoSqft: measurementFieldString(payload.floorDemoSqft),
+    floorPrepSqft: measurementFieldString(payload.floorPrepSqft),
+    floorPrepByProduct: payload.floorPrepByProduct ?? null,
+    flooringNewLvpInstallMethod: payload.flooringNewLvpInstallMethod ?? null,
     flooringInstallScopeCount:
       payload.flooringInstallScopeCount != null &&
       Number(payload.flooringInstallScopeCount) > 0

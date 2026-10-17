@@ -120,6 +120,19 @@ describe('addition / conversion scope defaults', () => {
     );
   });
 
+  it('keeps a framing-only addition on the shell card', () => {
+    const notes = 'Frame a 600 sqft addition';
+    const next = hydrateScopeChecklistFromNotes(
+      additionChecklistItems(),
+      'addition',
+      notes,
+      undefined,
+      'room_addition'
+    );
+    expect(next.map(item => item.id)).toEqual(['framing']);
+    expect(next[0]?.state).toBe('included');
+  });
+
   it('defaults room addition shell phases closer to ground-up construction', () => {
     const notes = '400 sqft room addition off the back of the house.';
     const next = hydrateScopeChecklistFromNotes(

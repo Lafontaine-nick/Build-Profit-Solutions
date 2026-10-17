@@ -1,6 +1,34 @@
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 
 describe('getMeasurementRelevance', () => {
+  test('HVAC service, refrigerant, permit, and cleanup rows stay off a replacement note', () => {
+    const notes =
+      'Replace the furnace and air conditioner. Install new ductwork, 8 supply registers, 2 return grilles, and a thermostat.';
+    for (const measurementKey of [
+      'hvacServiceCallCount',
+      'hvacRefrigerantCount',
+      'hvacPermitCount',
+      'hvacCleanupCount',
+    ] as const) {
+      expect(
+        getMeasurementRelevance({
+          measurementKey,
+          includedScopeKeys: [],
+          notes,
+          templateKey: 'hvac',
+        }).relevant
+      ).toBe(false);
+    }
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'hvacPermitCount',
+        includedScopeKeys: [],
+        notes: 'Include the HVAC permit and inspection.',
+        templateKey: 'hvac',
+      }).relevant
+    ).toBe(true);
+  });
+
   test('core structural measurements are always relevant, regardless of included scopes', () => {
     for (const key of [
       'floorAreaSqft',

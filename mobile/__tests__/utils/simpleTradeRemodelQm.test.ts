@@ -117,6 +117,41 @@ describe('simple trade QM panels', () => {
         'heat_pump',
       ])
     );
+    const synced = simpleTradePanelFor('hvac').syncScopeItems(
+      [
+        {
+          id: 'hvac',
+          label: 'HVAC',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        },
+        {
+          id: 'ductwork',
+          label: 'Ductwork',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        },
+        {
+          id: 'thermostat',
+          label: 'Thermostat',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        },
+      ],
+      {
+        ...measurements,
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'heat_pump', 'ductwork', 'thermostat'],
+        },
+      }
+    );
+    expect(synced.find(item => item.id === 'hvac')?.state).toBe('excluded');
+    expect(synced.find(item => item.id === 'heat_pump')?.state).toBe('included');
+    expect(synced.find(item => item.id === 'ductwork')?.state).toBe('included');
+    expect(synced.find(item => item.id === 'thermostat')?.state).toBe('included');
   });
 
   it('defines the three remaining simple-trade templates', () => {
@@ -1097,8 +1132,11 @@ describe('simple trade QM panels', () => {
       )
     ).toBe('confirmed');
     expect(summarizeHvacScopePanel(measurements, notes)).toMatchObject({
-      needsConfirmationCount: 1,
+      needsConfirmationCount: 0,
     });
+    expect(resolveHvacTradeScopeSelections(measurements, notes)).not.toContain(
+      'hvac_capacity'
+    );
   });
 
   it('recognizes qualified HVAC note quantities as explicit', () => {
@@ -1143,6 +1181,36 @@ describe('simple trade QM panels', () => {
         tradeScopeSelections: { hvac: [HVAC_SYSTEMS_OPTION_ID] },
       })
     ).toEqual({ inBidCount: 1, needsConfirmationCount: 1 });
+  });
+
+  it('keeps a furnace and air conditioner note in the bid without extra confirmation measurements', () => {
+    const notes =
+      'Replace the furnace and air conditioner. Install new ductwork, 8 supply registers, 2 return grilles, and a thermostat.';
+    const measurements = {
+      tradeScopeSelections: {
+        hvac: [
+          HVAC_SYSTEMS_OPTION_ID,
+          HVAC_CAPACITY_OPTION_ID,
+          'ductwork',
+          'thermostat',
+          'registers',
+          'returns',
+        ],
+      },
+      hvacSupplyRegisterCount: 8,
+      hvacReturnGrilleCount: 2,
+      hvacThermostatCount: 1,
+    };
+    expect(hvacScopeOptionHasExplicitQuantityInNotes('thermostat', notes)).toBe(
+      true
+    );
+    expect(resolveHvacTradeScopeSelections(measurements, notes)).not.toContain(
+      HVAC_CAPACITY_OPTION_ID
+    );
+    expect(summarizeHvacScopePanel(measurements, notes)).toEqual({
+      inBidCount: 5,
+      needsConfirmationCount: 0,
+    });
   });
 
   it('keeps cleared HVAC panel qty editable instead of reverting to plan provenance', () => {

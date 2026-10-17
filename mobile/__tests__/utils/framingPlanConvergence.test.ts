@@ -88,7 +88,7 @@ describe('framing canonical architecture', () => {
   it('groups plan export scopes by shell, sheathing, and closeout', () => {
     expect(
       FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => group.title)
-    ).toEqual(['Shell framing', 'Sheathing', 'Closeout']);
+    ).toEqual(['Demolition', 'Shell framing', 'Sheathing', 'Closeout']);
 
     const items = ['framing', 'wall_framing', 'shear_sheathing', 'cleanup'].map(
       id => ({
@@ -120,6 +120,30 @@ describe('framing canonical architecture', () => {
     expect(
       parseFramingMeasurementsFromNotes('Frame 24 LF stud wall in garage')
     ).toEqual({ wallFramingLf: 24 });
+  });
+
+  it('parses linear feet stated after the wall sentence', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Frame the wall. 36 linear feet and two rough openings.'
+      )
+    ).toEqual({ wallFramingLf: 36, framingOpeningCount: 2 });
+  });
+
+  it('parses feet of interior partition and a header', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Build 24 feet of interior partition and one header.'
+      )
+    ).toEqual({ wallFramingLf: 24, framingOpeningCount: 1 });
+  });
+
+  it('parses a wall length given as feet long', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Frame a new interior wall. It is 18 feet long and needs one rough opening.'
+      )
+    ).toEqual({ wallFramingLf: 18, framingOpeningCount: 1 });
   });
 
   it('parses mixed remodel framing area and opening counts', () => {

@@ -216,6 +216,17 @@ const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
   'stuccoNetWallSqft',
 ]);
 
+/** HVAC closeout rows. They belong on the bid only when the notes name them. */
+const HVAC_OPTIONAL_NOTE_MEASUREMENTS: Partial<
+  Record<QuickMeasurementFieldKey, RegExp>
+> = {
+  hvacServiceCallCount:
+    /\b(?:hvac\s+)?(?:service|diagnostic|maintenance)\s+calls?\b/i,
+  hvacRefrigerantCount: /\brefrigerant\b/i,
+  hvacPermitCount: /\b(?:hvac\s+)?(?:permits?|inspections?)\b/i,
+  hvacCleanupCount: /\bhvac\s+(?:cleanup|disposal|haul[\s-]?off)\b/i,
+};
+
 const FRAMING_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
   'framedAreaSqft',
   'wallDemoSqft',
@@ -739,6 +750,22 @@ export function getMeasurementRelevance(params: {
       relatedScopeKeys,
       reason:
         'Painting plan — exterior wall paint and exterior doors are part of this bid.',
+    };
+  }
+
+  const hvacOptionalNotePattern =
+    HVAC_OPTIONAL_NOTE_MEASUREMENTS[measurementKey];
+  if (hvacOptionalNotePattern && !wholeHomeShowAll) {
+    const noteSet = new Set(params.noteBackedKeys || []);
+    const relevant =
+      hvacOptionalNotePattern.test(notesText) || noteSet.has(measurementKey);
+    return {
+      relevant,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: relevant
+        ? undefined
+        : 'Not in the notes for this HVAC bid.',
     };
   }
 

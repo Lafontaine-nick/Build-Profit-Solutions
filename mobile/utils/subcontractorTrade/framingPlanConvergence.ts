@@ -169,10 +169,107 @@ export function notesFrameExplicitWallArea(notes: string): boolean {
   );
 }
 
+/**
+ * "Frame 400 sqft of walls and install 180 sqft of LVP" names those two trades.
+ * Drywall, paint, openings, and the rest of a remodel stay on their own notes.
+ */
+export function notesNameWallAreaFramingWithFlooring(notes: string): boolean {
+  const text = notesWithoutDeniedSentences(notes);
+  if (!notesFrameExplicitWallArea(text)) return false;
+  if (
+    !/\b(?:lvp|luxury\s+vinyl|flooring|laminate|vinyl|carpet|hardwood)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return !/\b(?:drywall|sheetrock|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|sheathing|addition|concrete|cabinets?|tile|trim|baseboard|demolish|demolition|permits?|kitchen|bath(?:room)?)\b/i.test(
+    text
+  );
+}
+
+/**
+ * "Frame 840 sqft of walls with structural sheathing, including three rough openings."
+ * Wall area plus the sheathing, openings, or demolition that sentence names.
+ * Drywall, paint, flooring, windows, and the rest of a remodel stay mixed.
+ */
+export function notesNameDedicatedWallAreaFraming(notes: string): boolean {
+  const text = notesWithoutDeniedSentences(notes);
+  if (!notesFrameExplicitWallArea(text)) return false;
+  if (notesNameCoveredFramedFloor(text)) return false;
+  if (notesNameWallAreaFramingWithFlooring(text)) return false;
+  return !/\b(?:drywall|sheetrock|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|addition|concrete|cabinets?|tile|trim|baseboard|permits?|kitchen|bath(?:room)?|flooring|lvp|laminate|vinyl|carpet|hardwood)\b/i.test(
+    text
+  );
+}
+
+/**
+ * "Frame 36 LF of stud wall and two rough openings."
+ * "Build 24 feet of interior partition and one header."
+ * Linear feet of stud wall or partition, plus openings, sheathing, or demolition when named.
+ * Drywall, flooring, plumbing, and the rest of a remodel stay off.
+ */
+export function notesNameLinearFootStudWall(notes: string): boolean {
+  const text = notesWithoutDeniedSentences(notes);
+  if (notesFrameExplicitWallArea(text)) return false;
+  if (notesNameCoveredFramedFloor(text)) return false;
+  const linearFeetInNote =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i.test(text);
+  const frameVerbBesideFeet =
+    /\b(?:frame|framing|framed)\b[^.;\n]{0,80}?\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:ft|feet|foot))\b/i.test(
+      text
+    );
+  // "Frame the wall. 36 linear feet and two rough openings."
+  const framedWallWithLaterFeet =
+    linearFeetInNote && notesMentionAffirmativeWallFraming(text);
+  // "Build 24 feet of interior partition and one header."
+  const buildsPartitionFeet =
+    /\b(?:build|frame|framing|framed)\b[^.;\n]{0,60}?\d[\d,]*(?:\.\d+)?\s*(?:feet|foot)\s+of\s+(?:interior\s+)?partitions?\b/i.test(
+      text
+    );
+  // "Frame a new interior wall. It is 18 feet long and needs one rough opening."
+  const wallLengthFeet =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:feet|foot)\s+long\b/i.test(text) &&
+    notesMentionAffirmativeWallFraming(text);
+  if (
+    !frameVerbBesideFeet &&
+    !framedWallWithLaterFeet &&
+    !buildsPartitionFeet &&
+    !wallLengthFeet
+  ) {
+    return false;
+  }
+  if (!/\b(?:stud\s+)?walls?\b|\bpartitions?\b/i.test(text)) return false;
+  return !/\b(?:drywall|sheetrock|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|addition|concrete|cabinets?|tile|trim|baseboard|permits?|kitchen|bath(?:room)?|flooring|lvp|laminate|vinyl|carpet|hardwood)\b/i.test(
+    text
+  );
+}
+
 /** Living, garage, or addition language is a covered floor shell. */
 export function notesNameCoveredFramedFloor(notes: string): boolean {
   return /\b(?:living\s+area|garage|addition|framed\s+floor|floor\s+area)\b/i.test(
     notes
+  );
+}
+
+/**
+ * "Frame a 600 sqft addition" names the shell only. Foundation, roof, drywall,
+ * and the other addition phases stay off until the note names them.
+ */
+export function notesNameFramingOnlyAddition(notes: string): boolean {
+  const text = notesWithoutDeniedSentences(notes);
+  if (!/\b(?:frame|framing|framed)\b/i.test(text)) return false;
+  if (!notesNameCoveredFramedFloor(text)) return false;
+  if (
+    !/\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  if (notesFrameExplicitWallArea(text)) return false;
+  return !/\b(?:foundation|footings?|stem\s+wall|slab|concrete|roof(?:ing)?|windows?|doors?|electrical|insulation|drywall|sheetrock|paint(?:ing)?|flooring|lvp|plumbing|hvac|cabinets?|tile|trim|inspection|cleanup|demolish|demolition|sheathing|siding|stucco|excavation|permits?)\b/i.test(
+    text
   );
 }
 
@@ -324,6 +421,10 @@ export const FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS: Array<{
   itemIds: string[];
 }> = [
   {
+    title: 'Demolition',
+    itemIds: ['demo'],
+  },
+  {
     title: 'Shell framing',
     itemIds: ['framing', 'wall_framing', 'openings'],
   },
@@ -437,7 +538,18 @@ export function parseFramingMeasurementsFromNotes(
       ) ??
       count(
         /(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:stud\s*)?wall/i
-      )
+      ) ??
+      count(
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+of\s+(?:interior\s+)?partitions?\b/i
+      ) ??
+      (notesMentionAffirmativeWallFraming(text)
+        ? count(/(\d[\d,]*(?:\.\d+)?)\s*(?:feet|foot)\s+long\b/i)
+        : null) ??
+      (notesNameLinearFootStudWall(text)
+        ? count(
+            /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet|foot))\b/i
+          )
+        : null)
   );
   assign(
     'sheathingSqft',

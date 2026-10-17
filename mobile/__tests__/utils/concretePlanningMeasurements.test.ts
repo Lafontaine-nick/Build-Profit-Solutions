@@ -4,6 +4,7 @@ import {
   filterConcreteRevealAttentionItems,
   inferConcreteScopeIds,
   notesMentionConcretePump,
+  notesNameConcreteDecorativeFinish,
   parseThickenedEdgeLf,
   resolveFlatworkExcavationDepthInches,
   resolveMixedConcreteChecklistQuantity,
@@ -215,6 +216,18 @@ describe('concretePlanningMeasurements', () => {
     const parsed = applyConcretePlanningMeasurements({}, note);
     expect(parsed.concreteSqft).toBe(900);
     expect(parsed.concreteFlatworkSubgradePrepSqft).toBe(900);
+  });
+
+  it('keeps a broom finish inside the pour', () => {
+    const note =
+      'Pour a new driveway, 900 sqft and 4 inches thick, with 80 feet of thickened edge. Dig out the pad, place a gravel base, set forms, install rebar, and broom finish. A pump truck may be needed depending on access.';
+    expect(notesNameConcreteDecorativeFinish(note)).toBe(false);
+    expect(notesNameConcreteDecorativeFinish('Pour stamped concrete on the patio.')).toBe(
+      true
+    );
+    expect(inferConcreteScopeIds(note, { concreteSqft: 900 })).not.toContain(
+      'decorative_finish'
+    );
   });
 
   it('does not treat a plan-takeoff summary as a patio pour', () => {

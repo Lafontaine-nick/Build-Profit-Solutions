@@ -1,5 +1,8 @@
 import { sumConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
-import { filterUnmentionedMixedExteriorConcreteItems } from '@/utils/estimateScopeChecklistUi';
+import {
+  filterUnmentionedMixedExteriorConcreteItems,
+  hydrateScopeChecklistFromNotes,
+} from '@/utils/estimateScopeChecklistUi';
 import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -451,5 +454,47 @@ describe('concrete QM remodel', () => {
         row => row.id
       )
     ).not.toContain('pour_foundation');
+  });
+
+  it('leaves decorative finish off when the note only says broom finish', () => {
+    const notes =
+      'Pour a new driveway, 900 sqft and 4 inches thick, with 80 feet of thickened edge. Dig out the pad, place a gravel base, set forms, install rebar, and broom finish. A pump truck may be needed depending on access.';
+    const checklist = [
+      {
+        ...item('decorative_finish'),
+        state: 'included' as const,
+        noteBacked: true,
+      },
+      {
+        ...item('pour_flatwork'),
+        state: 'included' as const,
+        noteBacked: true,
+      },
+      {
+        ...item('concrete_pumping'),
+        state: 'included' as const,
+        noteBacked: true,
+      },
+    ];
+    const hydrated = hydrateScopeChecklistFromNotes(
+      checklist,
+      'concrete',
+      notes
+    );
+    expect(
+      hydrated.find(row => row.id === 'decorative_finish')?.state
+    ).toBe('unsure');
+    const measurements = concreteQmPanel.hydrateMeasurements({
+      templateKey: 'concrete',
+      notes,
+      measurements: {
+        concreteScope: ['driveways', 'decorative_finish', 'pour_flatwork'],
+      },
+      checklistItems: checklist,
+    });
+    expect(readConcreteScope(measurements)).not.toContain('decorative_finish');
+    expect(readConcreteScope(measurements)).toEqual(
+      expect.arrayContaining(['driveways', 'pour_flatwork', 'concrete_pumping'])
+    );
   });
 });

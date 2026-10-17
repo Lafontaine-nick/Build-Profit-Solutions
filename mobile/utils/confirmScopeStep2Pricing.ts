@@ -398,6 +398,10 @@ export function step2TierNeedsInlineTakeoffEntry(
     // Covered framed SF (living + garage) is a planning assumption on the Suggest card.
     return false;
   }
+  if (itemId === 'wall_framing') {
+    // Wall area is entered in Quick measurements. The card prices that sqft as stud-wall LF.
+    return false;
+  }
   if (
     itemId === 'shower_floor_tile' &&
     template === 'bathroom'

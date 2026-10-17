@@ -125,6 +125,42 @@ describe("estimateDraftComplexity", () => {
     ).toBe("flooring");
   });
 
+  test("keeps wall framing plus LVP on confirm scope", () => {
+    const notes = "Frame 400 sqft of walls and install 180 sqft of LVP.";
+    const draft = {
+      projectType: "flooring",
+      projectTitle: "Flooring",
+      rooms: [
+        { name: "Wall Framing", scope: "400 sqft wall framing" },
+        { name: "LVP Flooring", scope: "180 sqft LVP" },
+      ],
+    };
+    const { classifyScopeFromNotes } = require("../estimateDraftQuantityPrice");
+    const classification = classifyScopeFromNotes(notes, "flooring");
+
+    expect(classification.scopeMode).toBe("mixed");
+    expect(classification.projectType).toBe("other");
+    expect(classification.detectedTrades).toEqual(
+      expect.arrayContaining(["framing", "flooring"])
+    );
+    expect(isSimpleUnitBid(draft, notes)).toBe(false);
+    expect(classifyEstimateTier({ ...draft, projectType: "other", scopeMode: "mixed" }, notes)).toBe(
+      "room_remodel"
+    );
+    const checklist = buildScopeChecklist(
+      { ...draft, projectType: "other", scopeMode: "mixed" },
+      "room_remodel",
+      notes
+    );
+    expect(checklist.items.map((item) => item.id)).toEqual([
+      "wall_framing",
+      "flooring",
+    ]);
+    expect(checklist.items.every((item) => item.state === "included")).toBe(
+      true
+    );
+  });
+
   test("keeps active drywall and flooring as mixed scope", () => {
     const notes =
       "Install 600 sqft flooring and hang and finish drywall in the affected rooms.";

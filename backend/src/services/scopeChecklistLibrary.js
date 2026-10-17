@@ -2712,7 +2712,7 @@ const CHECKLIST_YES_HINTS = {
   concrete_pumping:
     /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/,
   decorative_finish:
-    /\b(broom\s+finish|stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
+    /\b(stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
   grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
@@ -2969,7 +2969,7 @@ function notesImplyMultiTradeInteriorRemodel(notes) {
 function notesImplyStructuralMixedScope(notes) {
   const n = String(notes || "");
   const hasStructural =
-    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|frame(?:d|ing)?\s+\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
       n,
     ) &&
     !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;,\n]{0,45}\b(?:framing|frame|sheathing|trusses?|lumber)\b/i.test(
@@ -3002,6 +3002,47 @@ function notesDescribeDedicatedDrywallJob(notes) {
   const namesDrywall = /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
   const namesFinishWork = /\b(?:tape|mud|texture)\b/i.test(text);
   if (!namesDrywall && !namesFinishWork) return false;
+  return !/\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i.test(
+    text,
+  );
+}
+
+function notesDescribeNoteRatedDrywallJob(notes) {
+  const text = String(notes || "");
+  if (notesDescribeDedicatedDrywallJob(text)) return false;
+  if (notesDescribeDedicatedDrywallPatchJob(text)) return false;
+  if (
+    /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  const sentences = text.split(/(?<!\d)\.\s+/);
+  const priced = (sentence) => /\$\s*\d/.test(sentence);
+  const hangRated = sentences.some(
+    (sentence) =>
+      /\bhang\s+drywall\b/i.test(sentence) &&
+      /\bmaterials?\b/i.test(sentence) &&
+      /\blabor\b/i.test(sentence) &&
+      priced(sentence),
+  );
+  const finishRated = sentences.some(
+    (sentence) =>
+      /\b(?:tape(?:\s+and\s+finish)?|finish\s+drywall|tape\s+and\s+mud)\b/i.test(
+        sentence,
+      ) &&
+      /\blabor\b/i.test(sentence) &&
+      priced(sentence),
+  );
+  return hangRated && finishRated;
+}
+
+function notesDescribeDedicatedDrywallPatchJob(notes) {
+  const text = String(notes || "");
+  if (notesDescribeDedicatedDrywallJob(text)) return false;
+  if (!/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) return false;
+  if (!/\b(?:patch(?:ing|es)?|repair)\b/i.test(text)) return false;
   return !/\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i.test(
     text,
   );
@@ -3218,6 +3259,8 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   if (
     projectType === "drywall" ||
     notesDescribeDedicatedDrywallJob(notes) ||
+    notesDescribeDedicatedDrywallPatchJob(notes) ||
+    notesDescribeNoteRatedDrywallJob(notes) ||
     /\b(drywall\s+(?:hang|finish|patch)|sheetrock)\b/i.test(notes)
   ) {
     return "drywall";
@@ -3765,10 +3808,110 @@ function hasExplicitNewStructureScopeNote(itemId, notes) {
   return explicit[itemId]?.test(String(notes)) ?? false;
 }
 
+function notesNameWallAreaFramingWithFlooring(notes) {
+  const text = String(notes || "").replace(
+    /\b(?:do not|don't|dont|never)\b[^.]*/gi,
+    " ",
+  );
+  if (
+    !/(?:frame|framing|framed)\b[^.;\n]{0,48}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !/\b(?:lvp|luxury\s+vinyl|flooring|laminate|vinyl|carpet|hardwood)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return !/\b(?:drywall|sheetrock|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|sheathing|addition|concrete|cabinets?|tile|trim|baseboard|demolish|demolition|permits?|kitchen|bath(?:room)?)\b/i.test(
+    text,
+  );
+}
+
+function filterWallAreaFramingWithFlooringScopeItems(items, notes) {
+  if (!notesNameWallAreaFramingWithFlooring(notes)) return items;
+  const flooring = (items || []).find((item) => item.id === "flooring");
+  const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(String(notes || ""));
+  return [
+    {
+      id: "wall_framing",
+      inputType: "yes_no",
+      label: "Wall framing",
+      helperText: "Frame the walls identified in the job notes.",
+      category: "structural",
+      state: "included",
+      noteBacked: true,
+    },
+    {
+      id: "flooring",
+      inputType: "yes_no",
+      label: lvp ? "LVP flooring" : flooring?.label || "Flooring",
+      helperText:
+        flooring?.helperText ||
+        "Install the flooring identified in the job notes.",
+      category: flooring?.category || "flooring",
+      state: "included",
+      noteBacked: true,
+    },
+  ];
+}
+
+function notesNameFramingOnlyAddition(notes) {
+  const text = String(notes || "").replace(
+    /\b(?:do not|don't|dont|never)\b[^.]*/gi,
+    " ",
+  );
+  if (!/\b(?:frame|framing|framed)\b/i.test(text)) return false;
+  if (
+    !/\b(?:living\s+area|garage|addition|framed\s+floor|floor\s+area)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !/\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /(?:frame|framing|framed)\b[^.;\n]{0,48}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return !/\b(?:foundation|footings?|stem\s+wall|slab|concrete|roof(?:ing)?|windows?|doors?|electrical|insulation|drywall|sheetrock|paint(?:ing)?|flooring|lvp|plumbing|hvac|cabinets?|tile|trim|inspection|cleanup|demolish|demolition|sheathing|siding|stucco|excavation|permits?)\b/i.test(
+    text,
+  );
+}
+
 /** Default shell + interior phases for garage conversions and room additions. */
 function applyAdditionConversionScopeDefaults(items, options = {}) {
   const { templateKey, projectType, notes } = options;
   if (!isAdditionConversionJob(templateKey, projectType, notes)) return items;
+  if (notesNameFramingOnlyAddition(notes)) {
+    const framing = items.find((item) => item.id === "framing");
+    return [
+      {
+        id: "framing",
+        inputType: "yes_no",
+        label: framing?.label || "Framing / shell",
+        helperText:
+          framing?.helperText ||
+          "Frame the addition shell on the framed floor area in the job notes.",
+        category: framing?.category || "shell",
+        state: "included",
+        noteBacked: true,
+      },
+    ];
+  }
 
   const n = String(notes || "");
   const garage = isGarageConversionJob(projectType, notes);
@@ -3891,4 +4034,5 @@ module.exports = {
   choiceToState,
   choiceIdsToState,
   applyAdditionConversionScopeDefaults,
+  filterWallAreaFramingWithFlooringScopeItems,
 };

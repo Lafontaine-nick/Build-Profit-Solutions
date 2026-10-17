@@ -590,20 +590,15 @@ ${upcomingCalendarEvents.map((e, i) => {
   // Team management domain
   const teamBlock = (teamMembers && teamMembers.length > 0) ? `
 TEAM MANAGEMENT RULES:
-→ When user asks about "team management" or clicks the Team quick action, respond with: "What specific aspects of team management do you need assistance with? Are you looking to add tasks, send direct messages with team members, or send a team announcement?"
+→ When user asks about "team management" or clicks the Team quick action, respond with: "What specific aspects of team management do you need assistance with? Are you looking to add a team member, assign a project manager, or check who is on duty?"
 
 CURRENT TEAM MEMBERS:
 ${teamMembers.map((m, i) => `${i + 1}. ${m.name || 'Unknown'} (${m.role || 'N/A'}, Status: ${m.status || 'N/A'}, Phone: ${m.phone || 'N/A'}, Email: ${m.email || 'N/A'}, Open Tasks: ${m.tasksOpen || 0})`).join('\n')}
 Team Stats: Total: ${teamStats.total || 0}, Active: ${teamStats.active || 0}, Off Duty: ${teamStats.offDuty || 0}
 
 → When user mentions a team member name, search for them in the list above using case-insensitive matching (e.g., "nicholas" matches "Nicholas Lafontaine", "nicholas lafontaine" matches "Nicholas Lafontaine")
-→ For messaging: "message [name]" / "text [name]" / "call [name]" / "email [name]" → find the team member by name (case-insensitive) and use their contact info
-→ CRITICAL: Messaging team members is just sending a text/email/call - NO dollar amounts, NO task assignments, NO expenses. Just provide the team member's contact info and confirm the message content.
-→ When user provides a message like "Manage inspection" or "Check on the site", that's just the message content to send - NOT a task that needs a dollar amount. Simply acknowledge you'll send that message.
-→ CRITICAL: When message_team_member or notify_team tool succeeds, you MUST confirm the message was sent. DO NOT show budget overview, project details, or other information unless the user specifically asked for it. Just confirm: "Message sent to [name]: [message]" or similar.
-→ For group notifications: "notify team" / "send announcement" / "message everyone" → offer to send to all active team members
+→ Texting and team announcements are not part of the app. If the user asks to text, message, or notify the team, say that texting is no longer available and offer to add a team member, assign a project manager, or show who is on duty.
 → If a team member name is not found, list the available team members and ask the user to choose one
-→ NEVER ask for dollar amounts when messaging team members - messaging is free communication, not a financial transaction
 → Assign PM: "assign PM", "assign project manager", "name a project manager", "pick a PM", "choose a project manager for me" → use assign_pm tool with pmName. If name not provided, ask: "Which team member do you want to appoint as project manager, or do you want to add a team member as PM?"
 → Add team member: "add team member", "add [name] to the team" → use add_team_member tool. First ask for name, then ask "What is the phone number for [name]?" before confirming. Always get phone before adding.
 → Update team member status: "turn [name] off duty", "make [name] active", "can you turn [name] team member to off duty", "change [name] to active" → use update_team_member_status tool. You CAN change team member statuses directly — do NOT say you cannot. Extract memberName and status (active or off_duty) from the user message.
@@ -736,7 +731,7 @@ Return ONLY a valid JSON object (no markdown, no extra text) with this exact str
 {
   "domain": "expenses|purchase_orders|timeline|estimates|budget|daily_log|change_order|team|portfolio|general",
   "action": "create|update|mark_complete|mark_collected|lookup|query|advise|compare|analyze|none",
-  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|message_team_member|notify_team|assign_pm|add_team_member|update_team_member_status|compare_projects|get_project_health|forecast_profit|analyze_expenses|null",
+  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|assign_pm|add_team_member|update_team_member_status|compare_projects|get_project_health|forecast_profit|analyze_expenses|null",
   "tool_args_draft": {},
   "required_fields_missing": [],
   "clarification_question": null,
@@ -764,13 +759,12 @@ Intent rules:
   * assign_pm: when user says "assign PM", "assign project manager", "name a project manager", "pick a PM", "choose a project manager for me", "can you name a project manager" → proposed_tool = "assign_pm", extract pmName. If no name, ask which team member.
   * add_team_member: when user says "add team member", "add [name] to the team" → proposed_tool = "add_team_member", extract name
   * update_team_member_status: when user says "update status", "make [name] active", "set [name] to off duty" → extract memberName and status. If user says "update a team member's status" without name/status, ask: "Which team member's status would you like to update, and what is the new status? (e.g. 'john active' or 'john off duty')"
-  * If assistant asked "What is the name of the team member you'd like to add?" and user responds with a name → proposed_tool = "add_team_member", tool_args_draft.name = user's message. Do NOT use message_team_member.
-  * If assistant asked for team member name to MESSAGE (e.g. "which team member", "what would you like to say to") and user responds with a name → proposed_tool = "message_team_member"
+  * If assistant asked "What is the name of the team member you'd like to add?" and user responds with a name → proposed_tool = "add_team_member", tool_args_draft.name = user's message.
 - "portfolio": portfolio-level analysis, comparisons, profitability, health checks, risk scans, margin analysis, focus today, which project is best/worst, how are my projects. Keywords: "compare", "projects", "portfolio", "profitability", "margin", "most profitable", "over budget", "behind schedule", "how are things", "what needs attention", "focus today", "am I making money", "where am I losing", "lowest margin", "highest risk", "which job", "project health", "give me the rundown", "any risks", "forecast", "expenses", "spending", "cash flow", "when am I getting paid", "payments coming in", "unpaid milestones", "cost breakdown", "material vs labor", "recommendations", "what should I do next", "summarize", "project status", "total profit", "profit from my jobs", "completed projects", "my completed projects", "profit from completed"
   * If user asks a comparison or ranking question → proposed_tool = "compare_projects", sortBy = inferred from intent (margin, overBudget, progress, risk)
   * If user asks about a specific project health/status → proposed_tool = "get_project_health"
-  * If user asks "how is [project] doing?" / "update on [name]" / "review of [name]" / "review [name] job" / "review [name]" / "give me a review of [name]" → proposed_tool = "get_project_health", tool_args_draft.projectName = the name (e.g. Chris, Nick, Bob). That name is the PROJECT name. Do NOT use message_team_member.
-  * CRITICAL: "Review Chris", "update on Chris", "how is Chris doing" = project health for project named Chris. Only use message_team_member when user explicitly says "message [name]", "text [name]", "send a message to [name]", "contact [name]".
+  * If user asks "how is [project] doing?" / "update on [name]" / "review of [name]" / "review [name] job" / "review [name]" / "give me a review of [name]" → proposed_tool = "get_project_health", tool_args_draft.projectName = the name (e.g. Chris, Nick, Bob). That name is the PROJECT name.
+  * CRITICAL: "Review Chris", "update on Chris", "how is Chris doing" = project health for project named Chris. Texting a person is not available.
   * If user asks "how are things" / "what needs attention" / "focus today" / "top priorities" → proposed_tool = "compare_projects", tool_args_draft = { activeOnly: true }
   * If user asks about profit forecast / projected profit → proposed_tool = "forecast_profit"
   * If user asks about expenses / spending breakdown / where am I spending / cost breakdown / material vs labor / biggest expenses / who am I paying → proposed_tool = "analyze_expenses", groupBy = category|vendor|month as appropriate
@@ -812,14 +806,6 @@ Required-field rules:
   * NEVER add "expectedDelivery", "delivery date", "received date", or "pickup date" to required_fields_missing for change orders.
 - generate_estimate: projectType, description (sqft is highly recommended)
 - mark_timeline_item_complete: itemName (if user gives a %, set progressPct in tool_args_draft)
-- message_team_member: teamMemberName (required), messageContent (required if assistant asked for it)
-  * Use message_team_member ONLY when user explicitly wants to send a message/text to a person (e.g. "message Chris", "text Nick", "send a message to Bob", "what would you like to say to [name]").
-  * If user says "review [name]", "update on [name]", "review of [name] job", "how is [name] doing", "status of [name]" → that is a PROJECT request. Use get_project_health(projectName: name). Do NOT use message_team_member.
-  * CRITICAL: If assistant just asked "Please provide the name of the team member" and user responds with just a name (e.g., "Nicholas"), set domain = "team", proposed_tool = "message_team_member", teamMemberName = the name provided, required_fields_missing = ["messageContent"], clarification_question = "What would you like to say to [name]?"
-  * If assistant asked for both name and message, and user provides just a name, ask for the message content
-  * CRITICAL: Messaging team members does NOT require dollar amounts, task assignments, or expenses. The messageContent can be any text (e.g., "Manage inspection", "Check on the site", "Call me when done"). NEVER ask for dollar amounts when the user provides message content.
-- notify_team: messageContent (required)
-  * CRITICAL: Team notifications do NOT require dollar amounts. The messageContent is just the announcement text to send to all team members.
 - assign_pm: projectId, pmName (required). If user says "assign PM" without a name, set required_fields_missing = ["pmName"], clarification_question = "Which team member do you want to appoint as project manager, or do you want to add a team member as PM?"
 - add_team_member: projectId, name (required), phone (required before confirming). First ask for name, then ask for phone. If user says "add team member" without a name, set required_fields_missing = ["name"], clarification_question = "What is the name of the team member you'd like to add?" If you have name but not phone, set required_fields_missing = ["phone"], clarification_question = "What is the phone number for [name]?"
 - update_team_member_status: projectId, memberName (required), status (required: "active" or "off_duty"). When user says "turn [name] off duty", "make [name] active", "can you turn [name] team member to off duty", etc., extract memberName and status. Use proposed_tool = "update_team_member_status". You CAN change statuses — never say you cannot.

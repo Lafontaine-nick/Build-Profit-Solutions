@@ -491,7 +491,6 @@ function sendEmail(config: Record<string, any>, lead: Lead): void {
 
 function sendSMS(config: Record<string, any>, lead: Lead): void {
   console.log(`📱 Sending SMS to ${lead.contact.phone}`);
-  // Integration with SMS service (Twilio, etc.)
 }
 
 function assignContractor(config: Record<string, any>, lead: Lead): void {

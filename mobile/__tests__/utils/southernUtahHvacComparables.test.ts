@@ -110,6 +110,40 @@ describe('HVAC suggested pricing comparisons', () => {
     expect(pricing.comparison).toBeNull();
   });
 
+  it('prices a named heat pump once and prices the named duct and thermostat lines', () => {
+    const notes =
+      'Replace one heat pump, 3 tons. Include 80 linear feet of ductwork and two thermostats.';
+    const input = {
+      hvacSystemCount: '1',
+      hvacSystemTons: '3',
+      hvacDuctworkLf: '80',
+      hvacThermostatCount: '2',
+      scopeNotes: notes,
+      tradeScopeSelections: {
+        hvac: ['hvac_systems', 'hvac_capacity', 'heat_pump', 'ductwork', 'thermostat'],
+      },
+    };
+    const price = (itemId: string) => {
+      const resolved = resolveChecklistItemQuantity(itemId, input, {
+        templateKey: 'hvac',
+        notes,
+      });
+      return resolveScopeItemSuggestedPricing(
+        itemId,
+        input,
+        'hvac',
+        resolved,
+        undefined,
+        undefined,
+        notes
+      );
+    };
+    expect(price('hvac').fill).toBeNull();
+    expect(price('heat_pump').fill?.total).toBe(8500);
+    expect(price('ductwork').fill?.total).toBe(1040);
+    expect(price('thermostat').fill?.total).toBe(800);
+  });
+
   it('uses the selected tonnage when the contractor picks a size', () => {
     const priceFor = (input: Record<string, unknown>, state?: string) => {
       const resolved = resolveChecklistItemQuantity('hvac', input, {

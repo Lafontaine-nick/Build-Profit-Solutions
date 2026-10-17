@@ -25,6 +25,7 @@ const {
   choiceToState,
   choiceIdsToState,
   applyAdditionConversionScopeDefaults,
+  filterWallAreaFramingWithFlooringScopeItems,
 } = require("./scopeChecklistLibrary");
 const {
   getCatalogMatchesForParsedMeasurements,
@@ -130,7 +131,7 @@ function hasMultipleFlooringScopeParts(draft, notes) {
 function notesImplyStructuralMixedScope(notes) {
   const n = String(notes || "");
   const hasStructural =
-    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|frame(?:d|ing)?\s+\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
       n,
     ) &&
     !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;,\n]{0,45}\b(?:framing|frame|sheathing|trusses?|lumber)\b/i.test(
@@ -1579,6 +1580,8 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       }
     }
   }
+
+  items = filterWallAreaFramingWithFlooringScopeItems(items, notes);
 
   const inScopeCount = items.filter((i) => i.state === "included").length;
   const unsureCount = items.filter((i) => i.state === "unsure").length;

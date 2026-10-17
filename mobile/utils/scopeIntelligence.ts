@@ -1,4 +1,7 @@
-import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import {
+  notesDescribeDrywallAndFlooringJob,
+  notesPriceNationalDrywallHang,
+} from '@/utils/noteScopeLines';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   parsePlumbingMeasurementsFromNotes,
@@ -1321,12 +1324,17 @@ export function resolveScopeItemIntelligence(params: {
     resolved: params.resolved,
   });
   const statedDrywallHang =
-    notesDescribeDedicatedDrywallJob(params.notes) &&
+    notesPriceNationalDrywallHang(params.notes) &&
     (params.scopeKey === 'drywall' ||
       params.scopeKey === 'hang' ||
       params.scopeKey === 'finish_tape') &&
     Number(params.resolved.quantity) > 0;
-  const formula = statedDrywallHang
+  const statedFlooringArea =
+    params.scopeKey === 'flooring' &&
+    notesDescribeDrywallAndFlooringJob(params.notes) &&
+    Number(params.resolved.quantity) > 0 &&
+    !/\bwaste\b/i.test(String(params.notes || ''));
+  const formula = statedDrywallHang || statedFlooringArea
     ? null
     : calculateFormulaForScope({
         scopeKey: params.scopeKey,

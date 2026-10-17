@@ -3,7 +3,7 @@ import { notesKeepExistingWetArea } from '@/utils/bathroomNoteScope';
 /** Client mirror of backend scopeChecklistLibrary note inference (keep in sync). */
 
 const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
-  demo: /\b(demo|demolition|tear\s*out|gut|remove)\b(?![^.]{0,80}\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b)/,
+  demo: /\b(?<!no\s)(?<!without\s)(demo|demolition|tear\s*out|gut|remove)\b(?![^.]{0,80}\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b)/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
   // Same-clause proximity — "demo the existing tile and tub ... install tile shower pan"
@@ -497,7 +497,10 @@ export function suppressRoofRepairMeasurementsWhenTearOffInstall<
   return next;
 }
 
-/** Union every notes field so roofing chip inference cannot miss ice & water in originalNotes. */
+/**
+ * Contractor note only. A generated description can add drip edge, ridge cap,
+ * or cleanup the sentence never named, and those were becoming pricing cards.
+ */
 export function collectRoofingInferenceNotes(
   draft:
     | {
@@ -512,19 +515,16 @@ export function collectRoofingInferenceNotes(
 ): string {
   const seen = new Set<string>();
   const parts: string[] = [];
-  for (const raw of [
-    notesFallback,
-    draft?.originalNotes,
-    draft?.projectDescription,
-    draft?.contractScope,
-    draft?.scopeChecklist?.intro,
-  ]) {
+  for (const raw of [notesFallback, draft?.originalNotes]) {
     const text = String(raw || '').trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     parts.push(text);
   }
-  return parts.join('\n\n');
+  if (parts.length) return parts.join('\n\n');
+  return String(
+    draft?.projectDescription || draft?.contractScope || ''
+  ).trim();
 }
 
 /** Premium/synthetic upgrade only — standard felt is included in base roofing. */
@@ -607,6 +607,8 @@ export function inferRoofingTradeScopeSelectionsFromNotes(
     ids.add('underlayment');
   }
   if (/\b(ridge\s+vent)\b/.test(n)) ids.add('ridge_vent');
+  if (/\bridge\s+cap\b/.test(n)) ids.add('ridge_cap');
+  if (/\bvalley\s+flashing\b/.test(n)) ids.add('valley_flashing');
   if (/\b(drip\s+edge)\b/.test(n)) ids.add('drip_edge');
   if (/\b(pipe\s+boots?)\b/.test(n)) ids.add('pipe_boots');
   if (/\bgutters?\b/.test(n)) ids.add('gutters');
@@ -622,6 +624,189 @@ export function inferRoofingTradeScopeSelectionsFromNotes(
   }
 
   return [...ids];
+}
+
+const ROOFING_CHECKLIST_ID_FOR_SELECTION: Record<string, string> = {
+  shingles: 'shingles_roofing',
+};
+
+/** Dedicated re-roof notes that name the install and at least one accessory. */
+export function shouldLimitRoofingChecklistToNotes(params: {
+  notes?: string | null;
+  templateKey?: string | null;
+  projectType?: string | null;
+  scopeMode?: string | null;
+  planBacked?: boolean;
+  wholeHome?: boolean;
+}): boolean {
+  if (params.planBacked || params.wholeHome) return false;
+  const template = String(params.templateKey || params.projectType || '')
+    .toLowerCase();
+  if (template !== 'roofing') return false;
+  const notes = String(params.notes || '').trim();
+  if (!notes) return false;
+  const ids = inferRoofingTradeScopeSelectionsFromNotes(notes);
+  const hasInstall = ids.includes('tear_off') || ids.includes('shingles');
+  const namedAccessories = ids.filter(
+    id => id !== 'tear_off' && id !== 'shingles' && id !== 'cleanup'
+  );
+  return hasInstall && namedAccessories.length > 0;
+}
+
+/** Hide roofing template rows the note never names. */
+export function filterDedicatedRoofingConfirmItems<
+  T extends { id?: string | null; choiceId?: string | null },
+>(
+  items: T[],
+  params: {
+    notes?: string | null;
+    templateKey?: string | null;
+    projectType?: string | null;
+    scopeMode?: string | null;
+    planBacked?: boolean;
+    wholeHome?: boolean;
+    selectedIds?: readonly string[] | null;
+  }
+): T[] {
+  if (!shouldLimitRoofingChecklistToNotes(params)) return items;
+  const selected = new Set(
+    inferRoofingTradeScopeSelectionsFromNotes(params.notes)
+  );
+  const keep = new Set<string>();
+  for (const id of selected) {
+    if (id === 'shingles') {
+      keep.add('roofing_system');
+      continue;
+    }
+    keep.add(id);
+    const checklistId = ROOFING_CHECKLIST_ID_FOR_SELECTION[id];
+    if (checklistId && checklistId !== 'shingles_roofing') keep.add(checklistId);
+  }
+  return items.filter(item => {
+    const id = String(item.id || '');
+    if (id.startsWith('custom_')) return true;
+    if (id === 'shingles_roofing' && keep.has('roofing_system')) return false;
+    return keep.has(id);
+  });
+}
+
+const ROOFING_CONFIRM_CARD_LABELS: Record<string, string> = {
+  roofing_system: 'Roofing system',
+  tear_off: 'Existing roof / tear-off',
+  shingles_roofing: 'Shingles / roofing install',
+  underlayment: 'Premium / synthetic underlayment upgrade',
+  ice_water_shield: 'Ice & water shield',
+  drip_edge: 'Drip edge',
+  ridge_cap: 'Ridge cap',
+  valley_flashing: 'Valley flashing',
+  pipe_boots: 'Pipe boots',
+  gutters: 'Gutters',
+  downspouts: 'Downspouts',
+};
+
+/**
+ * Selected roofing chips still need a checklist row to become a pricing card.
+ * A short draft can leave only gutters on the list while the other chips are on.
+ */
+export function ensureNamedRoofingConfirmItems<
+  T extends {
+    id?: string | null;
+    label?: string | null;
+    choiceId?: string | null;
+    state?: string | null;
+    inputType?: string | null;
+    noteBacked?: boolean | null;
+  },
+>(
+  items: T[],
+  params: {
+    notes?: string | null;
+    templateKey?: string | null;
+    projectType?: string | null;
+    scopeMode?: string | null;
+    planBacked?: boolean;
+    wholeHome?: boolean;
+    selectedIds?: readonly string[] | null;
+  }
+): T[] {
+  if (params.planBacked || params.wholeHome) return items;
+  const template = String(params.templateKey || params.projectType || '')
+    .toLowerCase();
+  if (template !== 'roofing') return items;
+  const selected = new Set(
+    inferRoofingTradeScopeSelectionsFromNotes(params.notes)
+  );
+  const hasInstall =
+    selected.has('tear_off') ||
+    selected.has('shingles') ||
+    selected.has('shingles_roofing');
+  if (!hasInstall) return items;
+  const wanted = new Set<string>();
+  for (const id of selected) {
+    if (id === 'shingles') wanted.add('roofing_system');
+    else if (id === 'cleanup') continue;
+    else wanted.add(ROOFING_CHECKLIST_ID_FOR_SELECTION[id] || id);
+  }
+  const choiceFor = (id: string): string | null => {
+    if (id === 'roofing_system') {
+      return inferRoofingSystemFromNotes(params.notes);
+    }
+    if (id === 'tear_off') {
+      const tearOff = inferRoofingTearOffFromNotes(params.notes);
+      return tearOff && tearOff !== 'new_construction' ? tearOff : null;
+    }
+    return null;
+  };
+  let next = items.map(item => {
+    const id = String(item.id || '');
+    if (!wanted.has(id)) return item;
+    const choice = choiceFor(id);
+    if (choice) {
+      const staleChoice =
+        !item.choiceId ||
+        item.choiceId === 'unsure' ||
+        item.choiceId === 'not_in_scope' ||
+        (id === 'tear_off' &&
+          choice === 'two_layers' &&
+          item.choiceId === 'one_layer');
+      if (staleChoice) {
+        return {
+          ...item,
+          inputType: item.inputType || 'choice',
+          choiceId: choice,
+          state: 'included',
+          noteBacked: true,
+        };
+      }
+      return item;
+    }
+    if (item.state !== 'included') {
+      return {
+        ...item,
+        inputType: item.inputType || 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      };
+    }
+    return item;
+  });
+  for (const id of wanted) {
+    if (id === 'shingles_roofing' && wanted.has('roofing_system')) continue;
+    if (next.some(item => item.id === id)) continue;
+    const choice = choiceFor(id);
+    next = [
+      ...next,
+      {
+        id,
+        label: ROOFING_CONFIRM_CARD_LABELS[id] || id,
+        inputType: choice ? 'choice' : 'yes_no',
+        state: 'included',
+        noteBacked: true,
+        ...(choice ? { choiceId: choice } : {}),
+      } as T,
+    ];
+  }
+  return next;
 }
 
 export function inferChoiceFromNotes(itemId: string, notes: string | null | undefined): string | null {

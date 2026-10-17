@@ -4,6 +4,8 @@ import {
   inferItemStateFromNotes,
   inferRoofingSystemFromNotes,
   inferRoofingTearOffFromNotes,
+  ensureNamedRoofingConfirmItems,
+  filterDedicatedRoofingConfirmItems,
   inferRoofingTradeScopeSelectionsFromNotes,
   infersRoofingUnderlaymentUpgradeFromNotes,
   notesExcludeElectricalServiceUpgrade,
@@ -369,6 +371,151 @@ describe('scopeItemNoteHints roofing inference', () => {
     expect(
       inferChoiceFromNotes('tear_off', 'Full roof replacement with tear-off.')
     ).toBe('one_layer');
+  });
+
+  test('selects the named pieces on an architectural re-roof', () => {
+    const notes =
+      'Tear off one layer of asphalt shingles and install architectural shingles on 28 squares. Include synthetic underlayment, ice and water shield, drip edge, ridge cap, valley flashing, and pipe boots.';
+    expect(inferRoofingTradeScopeSelectionsFromNotes(notes)).toEqual(
+      expect.arrayContaining([
+        'tear_off',
+        'shingles',
+        'underlayment',
+        'ice_water_shield',
+        'drip_edge',
+        'ridge_cap',
+        'valley_flashing',
+        'pipe_boots',
+      ])
+    );
+    const items = [
+      { id: 'roofing_system', choiceId: 'architectural_shingles' },
+      { id: 'shingles_roofing' },
+      { id: 'tear_off' },
+      { id: 'underlayment' },
+      { id: 'ice_water_shield' },
+      { id: 'drip_edge' },
+      { id: 'ridge_cap' },
+      { id: 'valley_flashing' },
+      { id: 'pipe_boots' },
+      { id: 'decking_repair' },
+      { id: 'ridge_vent' },
+      { id: 'gutters' },
+      { id: 'roof_pitch_complexity_access' },
+      { id: 'permits' },
+      { id: 'cleanup' },
+    ];
+    expect(
+      filterDedicatedRoofingConfirmItems(items, {
+        notes,
+        templateKey: 'roofing',
+        scopeMode: 'dedicated',
+      }).map(item => item.id)
+    ).toEqual([
+      'roofing_system',
+      'tear_off',
+      'underlayment',
+      'ice_water_shield',
+      'drip_edge',
+      'ridge_cap',
+      'valley_flashing',
+      'pipe_boots',
+    ]);
+  });
+
+  test('adds pricing rows for selected roofing chips missing from the checklist', () => {
+    const notes =
+      'Tear off two layers of asphalt shingles and install architectural shingles on 22 squares. Include drip edge at 180 linear feet, ridge cap, and gutters.';
+    const params = {
+      notes,
+      templateKey: 'roofing',
+      scopeMode: 'dedicated',
+      selectedIds: ['tear_off', 'shingles', 'drip_edge', 'ridge_cap', 'gutters'],
+    };
+    const next = ensureNamedRoofingConfirmItems(
+      [{ id: 'gutters', label: 'Gutters', state: 'included' as const }],
+      params
+    );
+    expect(next.map(item => item.id)).toEqual(
+      expect.arrayContaining([
+        'gutters',
+        'roofing_system',
+        'tear_off',
+        'drip_edge',
+        'ridge_cap',
+      ])
+    );
+    expect(next.find(item => item.id === 'tear_off')).toMatchObject({
+      choiceId: 'two_layers',
+      state: 'included',
+    });
+    expect(next.find(item => item.id === 'roofing_system')).toMatchObject({
+      choiceId: 'architectural_shingles',
+      state: 'included',
+    });
+    const fromOneLayer = ensureNamedRoofingConfirmItems(
+      [
+        {
+          id: 'tear_off',
+          label: 'Existing roof / tear-off',
+          inputType: 'choice' as const,
+          choiceId: 'one_layer',
+          state: 'included' as const,
+        },
+      ],
+      { ...params, scopeMode: 'mixed' }
+    );
+    expect(fromOneLayer.find(item => item.id === 'tear_off')).toMatchObject({
+      choiceId: 'two_layers',
+    });
+  });
+
+  test('a three-tab re-roof prices only the named rows', () => {
+    const notes =
+      'Tear off one layer of three-tab shingles and install three-tab shingles on 15 squares. Include 6 pipe boots.';
+    const params = {
+      notes,
+      templateKey: 'roofing',
+      scopeMode: 'mixed',
+      selectedIds: [
+        'tear_off',
+        'shingles',
+        'pipe_boots',
+        'drip_edge',
+        'ridge_cap',
+        'cleanup',
+      ],
+    };
+    const template = [
+      { id: 'roofing_system', choiceId: 'unsure' },
+      { id: 'shingles_roofing', state: 'included' },
+      { id: 'tear_off', choiceId: 'unsure' },
+      { id: 'drip_edge', state: 'included' },
+      { id: 'ridge_cap', state: 'included' },
+      { id: 'pipe_boots', state: 'unsure' },
+      { id: 'cleanup', state: 'included' },
+      { id: 'gutters', state: 'unsure' },
+    ];
+    const next = ensureNamedRoofingConfirmItems(
+      filterDedicatedRoofingConfirmItems(template, params),
+      params
+    );
+    expect(next.map(item => item.id).sort()).toEqual([
+      'pipe_boots',
+      'roofing_system',
+      'tear_off',
+    ]);
+    expect(next.find(item => item.id === 'roofing_system')).toMatchObject({
+      choiceId: 'three_tab_shingles',
+      state: 'included',
+    });
+    expect(next.find(item => item.id === 'tear_off')).toMatchObject({
+      choiceId: 'one_layer',
+      state: 'included',
+    });
+    expect(next.find(item => item.id === 'pipe_boots')).toMatchObject({
+      state: 'included',
+    });
   });
 
   test('pre-selects QM roofing chips from notes when tear-off and shingles are mentioned', () => {

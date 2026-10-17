@@ -842,6 +842,115 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('floorAreaSqft');
   });
 
+  it('asks for wall area, sheathing, and openings without demolition', () => {
+    const notes =
+      'Frame 840 sqft of walls with structural sheathing, including three rough openings.';
+    const keys = quickMeasurementRowsForInput('framing', 'framing', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'wallFramingSqft',
+        'sheathingSqft',
+        'framingOpeningCount',
+      ])
+    );
+    expect(keys).not.toContain('wallDemoSqft');
+    expect(keys).not.toContain('framedAreaSqft');
+    expect(keys).not.toContain('wallFramingLf');
+  });
+
+  it('asks for linear feet and openings on a stud wall note', () => {
+    const notes = 'Frame 36 LF of stud wall and two rough openings.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['wallFramingLf', 'framingOpeningCount']);
+  });
+
+  it('asks for linear feet when the footage is in the next sentence', () => {
+    const notes = 'Frame the wall. 36 linear feet and two rough openings.';
+    const keys = quickMeasurementRowsForInput(
+      'framing',
+      'framing',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['wallFramingLf', 'framingOpeningCount']);
+  });
+
+  it('asks for partition feet and the header', () => {
+    const notes = 'Build 24 feet of interior partition and one header.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['wallFramingLf', 'framingOpeningCount']);
+  });
+
+  it('asks for wall length when the note says feet long', () => {
+    const notes =
+      'Frame a new interior wall. It is 18 feet long and needs one rough opening.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['wallFramingLf', 'framingOpeningCount']);
+  });
+
+  it('asks for wall area and LVP on a mixed framing and flooring note', () => {
+    const notes = 'Frame 400 sqft of walls and install 180 sqft of LVP.';
+    const fields = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+      scopeNotes: notes,
+    }).flat();
+
+    expect(fields.map(field => field.key)).toEqual([
+      'wallFramingSqft',
+      'flooringSqft',
+    ]);
+    expect(fields.map(field => field.label)).toEqual([
+      'Wall framing area',
+      'LVP flooring',
+    ]);
+  });
+
+  it('asks only for framed floor area on a framing-only addition', () => {
+    const notes = 'Frame a 600 sqft addition';
+    const keys = quickMeasurementRowsForInput('addition', 'room_addition', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['framedAreaSqft']);
+  });
+
   it('does not ask for wall area when the note only frames rough openings', () => {
     const notes = 'Do not frame any new walls. Frame four rough openings.';
     const keys = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {

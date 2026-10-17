@@ -1102,15 +1102,8 @@ async function runRouter(message, history, ctxSummary) {
     // Check if assistant just asked for team member name — distinguish ADD vs MESSAGE flow
     const lastAssistantMessage = recentHistory.filter(m => m.role === 'assistant').pop()?.content || '';
     const askedForTeamMemberToAdd = /(?:name of the team member you'?d like to add|team member you'?d like to add|add.*team member.*name|team member.*like to add)/i.test(lastAssistantMessage);
-    const askedForTeamMemberToMessage = /(?:Please provide the name of the team member|which team member.*message|name of the team member you would like|team member you would like to (?:message|text|contact)|what would you like to say to)/i.test(lastAssistantMessage);
-    if (message.trim().length > 0 && message.trim().length < 50) {
-      if (askedForTeamMemberToAdd) {
-        // User provided name for ADD team member flow
-        contextMessage += '\n\nCRITICAL: The assistant just asked for the name of the team member to ADD. The user\'s message is the new team member\'s name. Set domain = "team", proposed_tool = "add_team_member", and extract the name from the user message into tool_args_draft.name. Do NOT use message_team_member.';
-      } else if (askedForTeamMemberToMessage) {
-        // User provided name for MESSAGE flow
-        contextMessage += '\n\nCRITICAL: The assistant just asked for a team member name to message. The user\'s message is likely a team member name. Set domain = "team", proposed_tool = "message_team_member", and extract the name from the user message.';
-      }
+    if (message.trim().length > 0 && message.trim().length < 50 && askedForTeamMemberToAdd) {
+      contextMessage += '\n\nCRITICAL: The assistant just asked for the name of the team member to ADD. The user\'s message is the new team member\'s name. Set domain = "team", proposed_tool = "add_team_member", and extract the name from the user message into tool_args_draft.name.';
     }
     // CRITICAL: For LABOR expenses, "general labor", "it's general labor", trade names ARE the vendor/sub/trade - do NOT ask again
     const askedForLaborVendor = /(?:who is the vendor|vendor for the (?:additional )?labor|vendor for.*labor costs?)/i.test(lastAssistantMessage);
@@ -10928,45 +10921,6 @@ router.post('/', async (req, res) => {
           },
         },
       },
-      // ── TEAM MESSAGING TOOLS (always available) ────────────────────────────
-      {
-        type: 'function',
-        function: {
-          name: 'message_team_member',
-          description: 'Send an SMS text message to a specific team member. Use when user wants to message, text, or contact a team member by name. Find the team member in context.teamMembers by matching their name (case-insensitive).',
-          parameters: {
-            type: 'object',
-            properties: {
-              teamMemberName: {
-                type: 'string',
-                description: 'The name of the team member to message. Match this against context.teamMembers list (case-insensitive). REQUIRED.',
-              },
-              messageContent: {
-                type: 'string',
-                description: 'The message content to send to the team member. REQUIRED.',
-              },
-            },
-            required: ['teamMemberName', 'messageContent'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'notify_team',
-          description: 'Send an SMS text message to all active team members (bulk notification). Use when user wants to notify the team, send an announcement, or message everyone.',
-          parameters: {
-            type: 'object',
-            properties: {
-              messageContent: {
-                type: 'string',
-                description: 'The message content to send to all active team members. REQUIRED.',
-              },
-            },
-            required: ['messageContent'],
-          },
-        },
-      },
       {
         type: 'function',
         function: {
@@ -12318,156 +12272,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Helper function to execute message_team_member
-    async function executeMessageTeamMember(args) {
-      try {
-        if (!isTeamWorkspaceReleased()) {
-          return {
-            success: false,
-            error: 'Team messaging is not available on this plan. I can still help with project costs, budgets, schedules, and forecasts.',
-          };
-        }
-        const { teamMemberName, messageContent } = args;
-        
-        if (!teamMemberName || !messageContent) {
-          return { 
-            success: false, 
-            error: 'Team member name and message content are required' 
-          };
-        }
-
-        // Find team member in context
-        const teamMembers = parsedContext?.teamMembers || [];
-        const teamMember = teamMembers.find(m => {
-          const memberName = (m.name || '').toLowerCase();
-          const searchName = teamMemberName.toLowerCase();
-          return memberName === searchName || 
-                 memberName.includes(searchName) || 
-                 searchName.includes(memberName);
-        });
-
-        if (!teamMember) {
-          return {
-            success: false,
-            error: `Could not find team member "${teamMemberName}". Available team members: ${teamMembers.map(m => m.name).join(', ')}`
-          };
-        }
-
-        if (!teamMember.phone) {
-          return {
-            success: false,
-            error: `Team member "${teamMemberName}" does not have a phone number on file.`
-          };
-        }
-
-        // Call backend API to send SMS
-        const baseUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-        const response = await axios.post(`${baseUrl}/api/team/message`, {
-          phoneNumber: teamMember.phone,
-          message: messageContent,
-          teamMemberName: teamMember.name
-        }, {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-          timeout: TOOL_EXEC_TIMEOUT_MS,
-        });
-
-        if (response.data.success) {
-          return {
-            success: true,
-            message: `✅ Message sent to ${teamMember.name} (${teamMember.phone})`,
-            messageSid: response.data.messageSid
-          };
-        } else {
-          return {
-            success: false,
-            error: response.data.error || 'Failed to send message'
-          };
-        }
-      } catch (error) {
-        console.error('Error sending team message:', error);
-        return {
-          success: false,
-          error: error.response?.data?.error || error.message || 'Failed to send message'
-        };
-      }
-    }
-
-    // Helper function to execute notify_team
-    async function executeNotifyTeam(args) {
-      try {
-        if (!isTeamWorkspaceReleased()) {
-          return {
-            success: false,
-            error: 'Team messaging is not available on this plan. I can still help with project costs, budgets, schedules, and forecasts.',
-          };
-        }
-        const { messageContent } = args;
-        
-        if (!messageContent) {
-          return { 
-            success: false, 
-            error: 'Message content is required' 
-          };
-        }
-
-        // Get active team members from context
-        const teamMembers = parsedContext?.teamMembers || [];
-        const activeTeamMembers = teamMembers.filter(m => 
-          m.status === 'active' && m.phone
-        );
-
-        if (activeTeamMembers.length === 0) {
-          return {
-            success: false,
-            error: 'No active team members with phone numbers found.'
-          };
-        }
-
-        // Call backend API to send bulk SMS
-        const baseUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-        const phoneNumbers = activeTeamMembers.map(m => m.phone);
-        const response = await axios.post(`${baseUrl}/api/team/notify`, {
-          phoneNumbers,
-          message: messageContent
-        }, {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-          timeout: TOOL_EXEC_TIMEOUT_MS,
-        });
-
-        if (response.data.success) {
-          return {
-            success: true,
-            message: `✅ Notification sent to ${response.data.totalSent} team member(s)`,
-            totalSent: response.data.totalSent,
-            totalFailed: response.data.totalFailed
-          };
-        } else {
-          return {
-            success: false,
-            error: response.data.error || 'Failed to send notifications',
-            totalSent: response.data.totalSent || 0,
-            totalFailed: response.data.totalFailed || activeTeamMembers.length
-          };
-        }
-      } catch (error) {
-        console.error('Error sending team notification:', error);
-        return {
-          success: false,
-          error: error.response?.data?.error || error.message || 'Failed to send notifications'
-        };
-      }
-    }
-
     // Track actions from function calls (for purchase orders, etc.) - declare BEFORE use
     let actions = [];
     const allUserMessages = messages.filter(m => m.role === 'user');
     const lastUserMessage = allUserMessages[allUserMessages.length - 1];
     const lastUserContent = (lastUserMessage?.content || '').toLowerCase();
     const allMessagesText = messages.map(m => m.content || '').join(' ').toLowerCase();
+
 
     // ── PRE-ROUTER: DAILY LOG DETECTION ────────────────────────────────────
     // Check if user is in a daily log flow - if so, don't trigger expense detection
@@ -16367,33 +16178,6 @@ RULES:
             action,
           };
 
-        // ── TEAM MESSAGING TOOL EXECUTORS ────────────────────────────────────────
-        } else if (functionName === 'message_team_member') {
-          logPhase('tool_start', { functionName });
-          functionResult = await withTimeout(
-            executeMessageTeamMember(functionArgs),
-            TOOL_EXEC_TIMEOUT_MS,
-            `${functionName}`
-          ).catch((e) => ({
-            success: false,
-            error: e.message,
-            status: 'timeout_error',
-          }));
-          logPhase('tool_done', { functionName, success: !!functionResult?.success });
-
-        } else if (functionName === 'notify_team') {
-          logPhase('tool_start', { functionName });
-          functionResult = await withTimeout(
-            executeNotifyTeam(functionArgs),
-            TOOL_EXEC_TIMEOUT_MS,
-            `${functionName}`
-          ).catch((e) => ({
-            success: false,
-            error: e.message,
-            status: 'timeout_error',
-          }));
-          logPhase('tool_done', { functionName, success: !!functionResult?.success });
-
         } else {
           functionResult = { success: false, error: `Unknown function: ${functionName}` };
         }
@@ -16652,12 +16436,6 @@ RULES:
             ? ' CRITICAL: If mark_purchase_order_received succeeded, you MUST say "I\'ve marked purchase order [PO-XXXXX] as received" or "Purchase order [PO-XXXXX] has been marked as received" - be explicit and clear about the PO number.'
             : '';
           
-          // Special instruction for team messaging
-          const hasTeamMessage = functionResultsSummary.some(r => r.functionName === 'message_team_member' || r.functionName === 'notify_team');
-          const teamMessageInstruction = hasTeamMessage
-            ? ' CRITICAL: If message_team_member or notify_team succeeded, you MUST confirm the message was sent. Use the message from the function result. DO NOT show budget overview or other project info - just confirm the message was sent successfully.'
-            : '';
-          
           const hasCompareProjects = functionResultsSummary.some(r => r.functionName === 'compare_projects');
           const compareResult = functionResultsSummary.find(r => r.functionName === 'compare_projects');
           const compareCount = compareResult?.comparedCount ?? 0;
@@ -16694,7 +16472,7 @@ RULES:
             : '';
           messages.push({
             role: 'system',
-            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}${losingMoneyInstruction}${completedProjectsInstruction}${overBudgetInstruction}${focusTodayInstruction}${paymentQuestionInstruction}${calendarEventsInstruction}${createChangeOrderInstruction}`
+            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${losingMoneyInstruction}${completedProjectsInstruction}${overBudgetInstruction}${focusTodayInstruction}${paymentQuestionInstruction}${calendarEventsInstruction}${createChangeOrderInstruction}`
           });
         } else if (allFailed) {
           const errors = functionResultsSummary.map(r => r.error || r.message).filter(Boolean);

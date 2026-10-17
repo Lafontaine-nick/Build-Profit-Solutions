@@ -73,6 +73,15 @@ import {
   type FloorPrepSeverity,
 } from '@/utils/flooringDemoPrepBoundary';
 import {
+  dedicatedFlooringAreaSqft,
+  dedicatedFlooringNoteText,
+  dedicatedFlooringProductRoles,
+  dedicatedFlooringRemovedTypes,
+  notesDescribeDedicatedFlooringJob,
+  notesRequestFlooringDemo,
+  notesRequestFloorPrep,
+} from '@/utils/flooringNoteScope';
+import {
   CONCRETE_BUILDING_SLAB_OPTIONS,
   CONCRETE_FLATWORK_OPTIONS,
   CONCRETE_DECORATIVE_FINISH_OPTIONS,
@@ -102,6 +111,7 @@ import {
   HVAC_VENTILATION_QUANTITY_HELPER,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipActive,
+  hvacScopeChipNeedsQuantity,
   hvacScopeChipReviewState,
   resolveHvacTradeScopeSelections,
   summarizeHvacScopePanel,
@@ -1804,16 +1814,35 @@ export function QmFlooringScopePanels({
   darkMode: boolean;
   Colors: Colors;
 }) {
+  const flooringNotes = dedicatedFlooringNoteText(notes);
+  const noteRemovedTypes = dedicatedFlooringRemovedTypes(notes);
+  const noteRemovedKey = (noteRemovedTypes || []).join(',');
   const [existing, setExisting] = useState(() =>
-    readFlooringExisting(measurements)
+    noteRemovedTypes?.length
+      ? {
+          flooringExistingCount: 1,
+          flooringExistingTypes: noteRemovedTypes,
+        }
+      : readFlooringExisting(measurements)
   );
   const [install, setInstall] = useState(() =>
     readFlooringInstall(measurements)
   );
   const [demo, setDemo] = useState(() => readFlooringDemo(measurements));
-  const [existingExpanded, setExistingExpanded] = useState(false);
+  const prepNamedInNotes = notesRequestFloorPrep(flooringNotes);
+  const existingNamedInNotes = notesRequestFlooringDemo(flooringNotes);
+  const prepAreaReady = Object.values(measurements.floorPrepByProduct || {}).some(
+    entry => Number(entry?.sqft || 0) > 0
+  );
+  const [existingExpanded, setExistingExpanded] = useState(
+    () => existingNamedInNotes
+  );
+  const existingAutoOpenedRef = useRef(existingNamedInNotes);
   const [newExpanded, setNewExpanded] = useState(true);
-  const [prepExpanded, setPrepExpanded] = useState(false);
+  const [prepExpanded, setPrepExpanded] = useState(
+    () => prepNamedInNotes || prepAreaReady
+  );
+  const prepAutoOpenedRef = useRef(prepNamedInNotes || prepAreaReady);
   const [showMoreNewFlooring, setShowMoreNewFlooring] = useState(false);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
   const [sqftEditingKey, setSqftEditingKey] = useState<string | null>(null);
@@ -1831,6 +1860,7 @@ export function QmFlooringScopePanels({
   const genRef = useRef(0);
   const appliedRef = useRef(0);
   const demoManualRef = useRef(false);
+  const seededFlooringNoteRef = useRef<string | null>(null);
   const measurementsRef = useRef(measurements);
   const existingCardRef = useRef<View>(null);
   const newCardRef = useRef<View>(null);
@@ -1858,9 +1888,12 @@ export function QmFlooringScopePanels({
 
   const syncScopeFromSnapshot = useCallback(
     (snapshot: ScopeMeasurementsInputExtended) => {
-      onFlooringScopeSync?.(snapshot as Record<string, unknown>);
+      onFlooringScopeSync?.({
+        ...(snapshot as Record<string, unknown>),
+        scopeNotes: flooringNotes,
+      });
     },
-    [onFlooringScopeSync]
+    [flooringNotes, onFlooringScopeSync]
   );
 
   const sqftDraftKey = (kind: 'new' | 'demo' | 'prep', id: string) =>
@@ -1914,11 +1947,128 @@ export function QmFlooringScopePanels({
   };
 
   useEffect(() => {
+    if (existingAutoOpenedRef.current) return;
+    if (!existingNamedInNotes) return;
+    existingAutoOpenedRef.current = true;
+    setExistingExpanded(true);
+  }, [existingNamedInNotes]);
+
+  useEffect(() => {
+    if (seededFlooringNoteRef.current === flooringNotes) return;
+    if (
+      !noteRemovedTypes?.length &&
+      !notesDescribeDedicatedFlooringJob(flooringNotes)
+    ) {
+      return;
+    }
+    seededFlooringNoteRef.current = flooringNotes;
+    const roles = dedicatedFlooringProductRoles(flooringNotes);
+    const installed = new Set(roles.installed.map(product => product.product));
+    const removed = roles.removed
+      .map(product => product.product)
+      .filter(product => !installed.has(product));
+    const current = measurementsRef.current.flooringExistingTypes || [];
+    const nextTypes = removed.length
+      ? removed
+      : current.filter(type => type === 'unknown' || !installed.has(type));
+    const area =
+      Number(
+        String(measurementsRef.current.floorDemoSqft ?? '').replace(/,/g, '')
+      ) ||
+      dedicatedFlooringAreaSqft(flooringNotes) ||
+      0;
+    const removalKey = removed.length === 1 ? `floor_demo__${removed[0]}` : '';
+    const clearPrep = !notesRequestFloorPrep(flooringNotes);
+    const existingTypes = nextTypes.length
+      ? (nextTypes as NonNullable<
+          FlooringExistingCounts['flooringExistingTypes']
+        >)
+      : null;
+    if (existingTypes?.length) {
+      setExisting({
+        flooringExistingCount: 1,
+        flooringExistingTypes: existingTypes,
+      });
+    }
+    setMeasurements(prev => {
+      const quantities = { ...(prev.itemQuantities || {}) };
+      if (removed.length) {
+        for (const key of Object.keys(quantities)) {
+          if (!key.startsWith('floor_demo__')) continue;
+          const product = key.slice('floor_demo__'.length);
+          if (!removed.includes(product)) delete quantities[key];
+        }
+      }
+      if (removalKey && area > 0) {
+        quantities[removalKey] = {
+          quantity: area,
+          unit: 'sqft',
+          quantitySource: 'notes',
+        };
+        quantities.floor_demo = {
+          quantity: area,
+          unit: 'sqft',
+          quantitySource: 'notes',
+        };
+      }
+      if (clearPrep) delete quantities.floor_prep;
+      return {
+        ...prev,
+        flooringExistingCount: existingTypes ? 1 : prev.flooringExistingCount,
+        flooringExistingTypes: existingTypes ?? prev.flooringExistingTypes,
+        ...(area > 0 && removed.length ? { floorDemoSqft: area } : {}),
+        itemQuantities: quantities,
+        ...(clearPrep
+          ? { floorPrepByProduct: null, floorPrepSqft: null }
+          : {}),
+      };
+    });
+  }, [flooringNotes, noteRemovedKey, setMeasurements]);
+
+  useEffect(() => {
+    if (prepAutoOpenedRef.current) return;
+    if (!prepNamedInNotes && !prepAreaReady) return;
+    prepAutoOpenedRef.current = true;
+    setPrepExpanded(true);
+  }, [prepNamedInNotes, prepAreaReady]);
+
+  useEffect(() => {
     if (genRef.current !== appliedRef.current) return;
-    setExisting(readFlooringExisting(measurements));
+    if (noteRemovedTypes?.length) {
+      setExisting(prev => {
+        const current = prev.flooringExistingTypes || [];
+        const same =
+          prev.flooringExistingCount === 1 &&
+          current.length === noteRemovedTypes.length &&
+          noteRemovedTypes.every(type => current.includes(type));
+        return same
+          ? prev
+          : {
+              flooringExistingCount: 1,
+              flooringExistingTypes: noteRemovedTypes,
+            };
+      });
+      setInstall(readFlooringInstall(measurements));
+      setDemo(readFlooringDemo(measurements));
+      return;
+    }
+    const installedProducts = new Set(
+      dedicatedFlooringProductRoles(flooringNotes).installed.map(
+        product => product.product
+      )
+    );
+    const fromMeasurements = readFlooringExisting(measurements);
+    const measuredTypes = (fromMeasurements.flooringExistingTypes || []).filter(
+      type => !installedProducts.has(type)
+    );
+    setExisting({
+      flooringExistingCount: measuredTypes.length ? 1 : null,
+      flooringExistingTypes: measuredTypes.length ? measuredTypes : null,
+    });
     setInstall(readFlooringInstall(measurements));
     setDemo(readFlooringDemo(measurements));
   }, [
+    noteRemovedKey,
     measurements.flooringExistingCount,
     measurements.flooringExistingTypes,
     measurements.flooringInstallScopeCount,
@@ -1939,7 +2089,7 @@ export function QmFlooringScopePanels({
           : demoManualRef.current
             ? readFlooringDemo(measurements)
             : resolveFlooringDemoFromIntent({
-                notes,
+                notes: flooringNotes,
                 existing: nextExisting,
                 install: nextInstall,
               });
@@ -1965,8 +2115,8 @@ export function QmFlooringScopePanels({
       });
     },
     [
+      flooringNotes,
       measurements,
-      notes,
       onFlooringQmChange,
       setMeasurements,
       syncScopeFromSnapshot,
@@ -2105,7 +2255,7 @@ export function QmFlooringScopePanels({
         });
       }
       const mergedDemo = resolveFlooringDemoFromIntent({
-        notes,
+        notes: flooringNotes,
         existing,
         install: nextInstall,
       });
@@ -2157,8 +2307,8 @@ export function QmFlooringScopePanels({
     },
     [
       existing,
+      flooringNotes,
       measurements.flooringProductScope,
-      notes,
       setMeasurements,
       syncScopeFromSnapshot,
     ]
@@ -2238,6 +2388,15 @@ export function QmFlooringScopePanels({
   ): string => {
     const value =
       measurements.itemQuantities?.[existingDemoAreaKey(type)]?.quantity;
+    if (value != null && Number(value) > 0) return String(value);
+    if (noteRemovedTypes?.length === 1 && noteRemovedTypes[0] === type) {
+      const fromField = Number(
+        String(measurements.floorDemoSqft ?? '').replace(/,/g, '')
+      );
+      if (fromField > 0) return String(fromField);
+      const fromNote = dedicatedFlooringAreaSqft(flooringNotes);
+      if (fromNote) return String(fromNote);
+    }
     return value == null ? '' : String(value);
   };
   const commitExistingDemoArea = (
@@ -2374,7 +2533,16 @@ export function QmFlooringScopePanels({
           ['unknown', 'Not sure'],
         ]
       : [];
-  const selectedExistingTypes = existing.flooringExistingTypes || [];
+  const installedFloorProducts = new Set(
+    dedicatedFlooringProductRoles(flooringNotes).installed.map(
+      product => product.product
+    )
+  );
+  const selectedExistingTypes = noteRemovedTypes?.length
+    ? noteRemovedTypes
+    : (existing.flooringExistingTypes || []).filter(
+        type => !installedFloorProducts.has(type)
+      );
   const selectedNewProducts = Array.isArray(measurements.flooringProductScope)
     ? measurements.flooringProductScope
     : [];
@@ -2449,13 +2617,14 @@ export function QmFlooringScopePanels({
               </Text>
               <View style={styles.qmOptionWrap}>
                 {existingFlooringOptions.map(option => {
-                  const selected =
-                    existing.flooringExistingTypes?.includes(option.id) ??
-                    false;
+                  const selected = selectedExistingTypes.includes(option.id);
                   return (
                     <React.Fragment key={option.id}>
                       <TouchableOpacity
-                        onPress={() => chooseExistingTypes(option.id)}
+                        onPress={() => {
+                          if (installedFloorProducts.has(option.id)) return;
+                          chooseExistingTypes(option.id);
+                        }}
                         disabled={applying}
                         activeOpacity={1}
                         style={[
@@ -3120,7 +3289,17 @@ export function QmFlooringScopePanels({
           </TouchableOpacity>
         ) : null}
       </View>
-      {selectedNewFlooringOptions.length > 0 ? (
+      {selectedNewFlooringOptions.length > 0 &&
+      notesRequestFloorPrep(
+        flooringNotes
+          .split('\n')
+          .map(line => line.trim())
+          .find(
+            line =>
+              /\b(?:tear[\s-]?out|remove|install)\b/i.test(line) &&
+              /\b(?:carpet|laminate|lvp|flooring|hardwood)\b/i.test(line)
+          ) || flooringNotes
+      ) ? (
         <View
           ref={prepCardRef}
           style={[
@@ -6618,7 +6797,7 @@ export function QmRoofingScopePanels({
   const noteBackedRoofingOption = (id: string): boolean => {
     const patterns: Record<string, RegExp> = {
       tear_off:
-        /\b(?:tear[\s-]?off|remove|removal|existing)\b[^.;\n]{0,45}\broof/i,
+        /\b(?:tear[\s-]?off|remove|removal)\b[^.;\n]{0,70}\b(?:roof|shingles?|asphalt)\b|\b(?:roof|shingles?)\b[^.;\n]{0,70}\b(?:tear[\s-]?off|remove|removal)\b/i,
       shingles:
         /\b(?:replace|replacement|install|reroof|re[\s-]?roof)\b[^.;\n]{0,45}\b(?:roof(?:ing)?|shingles?|squares?)\b|\b\d[\d,]*(?:\.\d+)?\s+roofing\s+squares?\b/i,
       decking_repair:
@@ -6626,10 +6805,12 @@ export function QmRoofingScopePanels({
       gutters: /\bgutters?\b/i,
       downspouts: /\bdownspouts?\b/i,
       underlayment: /\bunderlayment\b/i,
-      ice_water_shield: /\bice[\s-]?water\s+shield\b/i,
+      ice_water_shield:
+        /\b(?:ice\s*[&/-]\s*water|ice\s+and\s+water|ice\s*barrier|eaves?\s+protection|ice[\s-]?water\s+shield)\b/i,
       drip_edge: /\bdrip\s+edge\b/i,
       ridge_cap: /\bridge\s+cap\b/i,
       valley_flashing: /\bvalley\s+flashing\b/i,
+      pipe_boots: /\bpipe\s+boots?\b/i,
       step_flashing: /\bstep\s+flashing\b/i,
       wall_flashing: /\bwall\s+flashing\b/i,
     };
@@ -7023,62 +7204,64 @@ export function QmRoofingScopePanels({
             </View>
           ) : null}
 
-          <View style={[styles.qmPanel, panelStyle]}>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                {
-                  color: darkMode ? '#cbd5e1' : Colors.text,
-                  fontWeight: '700',
-                },
-              ]}
-            >
-              Other / drainage
-            </Text>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
-              ]}
-            >
-              Gutters and downspouts priced independently by LF and each.
-            </Text>
-            <QmTradeScopeOptionList
-              options={visibleDrainageOptions}
-              selections={selections}
-              scopeKey={scopeKey}
-              onToggle={toggle}
-              measurements={measurements}
-              setMeasurements={setMeasurements}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            <TouchableOpacity
-              onPress={() => setInstallExpanded(false)}
-              activeOpacity={0.75}
-              style={{
-                marginTop: 12,
-                paddingTop: 10,
-                borderTopWidth: 1,
-                borderTopColor: darkMode
-                  ? 'rgba(255,255,255,0.12)'
-                  : Colors.line,
-              }}
-            >
+          {visibleDrainageOptions.length > 0 ? (
+            <View style={[styles.qmPanel, panelStyle]}>
               <Text
                 style={[
                   styles.qmPanelCaption,
                   {
-                    color: darkMode ? '#d7e1f0' : '#64748b',
-                    textAlign: 'center',
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontWeight: '700',
                   },
                 ]}
               >
-                Collapse card ⌃
+                Other / drainage
               </Text>
-            </TouchableOpacity>
-          </View>
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
+                ]}
+              >
+                Gutters and downspouts priced independently by LF and each.
+              </Text>
+              <QmTradeScopeOptionList
+                options={visibleDrainageOptions}
+                selections={selections}
+                scopeKey={scopeKey}
+                onToggle={toggle}
+                measurements={measurements}
+                setMeasurements={setMeasurements}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            </View>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => setInstallExpanded(false)}
+            activeOpacity={0.75}
+            style={{
+              marginTop: 12,
+              paddingTop: 10,
+              borderTopWidth: 1,
+              borderTopColor: darkMode
+                ? 'rgba(255,255,255,0.12)'
+                : Colors.line,
+            }}
+          >
+            <Text
+              style={[
+                styles.qmPanelCaption,
+                {
+                  color: darkMode ? '#d7e1f0' : '#64748b',
+                  textAlign: 'center',
+                },
+              ]}
+            >
+              Collapse card ⌃
+            </Text>
+          </TouchableOpacity>
         </>
       ) : null}
     </View>
@@ -7720,7 +7903,8 @@ export function QmSimpleTradeScopePanels({
           return Array.from(
             new Set([
               ...resolveHvacTradeScopeSelections(
-                measurements as Record<string, unknown>
+                measurements as Record<string, unknown>,
+                hvacNotes
               ),
               ...measurementBackedSelections,
             ])
@@ -7733,7 +7917,8 @@ export function QmSimpleTradeScopePanels({
   useEffect(() => {
     if (scopeKey !== 'hvac' || !localHvacSelections) return;
     const parentSelections = resolveHvacTradeScopeSelections(
-      measurements as Record<string, unknown>
+      measurements as Record<string, unknown>,
+      hvacNotes
     );
     if (
       parentSelections.length === localHvacSelections.length &&
@@ -7743,7 +7928,7 @@ export function QmSimpleTradeScopePanels({
     ) {
       setLocalHvacSelections(null);
     }
-  }, [scopeKey, measurements, localHvacSelections]);
+  }, [scopeKey, measurements, localHvacSelections, hvacNotes]);
   const selections =
     scopeKey === 'hvac'
       ? localHvacSelections || resolvedHvacSelections
@@ -7875,8 +8060,12 @@ export function QmSimpleTradeScopePanels({
     const { active, reviewState, quantityCaption, measurementHelper } =
       getHvacOptionState(option);
     const needsReview = reviewState === 'needs_confirmation';
-    const needsQuantity =
-      Boolean(option.measurementKey) && quantityCaption == null;
+    const needsQuantity = hvacScopeChipNeedsQuantity(
+      measurements,
+      option,
+      selections,
+      notes
+    );
     const needsCapacityQuantity =
       option.id === HVAC_CAPACITY_OPTION_ID && needsQuantity;
     const cardBorder = hvacPanelColors.borderColor;
@@ -7953,7 +8142,13 @@ export function QmSimpleTradeScopePanels({
             {measurementHelper}
           </Text>
         ) : null}
-        {active && option.id === HVAC_CAPACITY_OPTION_ID ? (
+        {active &&
+        option.measurementKey &&
+        option.id !== HVAC_CAPACITY_OPTION_ID &&
+        !needsQuantity &&
+        !needsReview &&
+        quantityCaption == null ? null : active &&
+          option.id === HVAC_CAPACITY_OPTION_ID ? (
           <View style={[styles.choiceWrap, { marginTop: 10 }]}>
             {HVAC_SYSTEM_TONNAGE_TIERS.map(tons => {
               const selected =
@@ -8522,7 +8717,13 @@ export function QmSimpleTradeScopePanels({
       <>
         {renderHvacScopeSubPanel({
           title: 'HVAC scope',
-          caption: 'System count and tonnage documented on the plans.',
+          caption:
+            String(
+              (measurements as { planImportTradeKey?: string })
+                .planImportTradeKey || ''
+            ) === 'hvac'
+              ? 'System count and tonnage documented on the plans.'
+              : 'Named in the notes.',
           selectedOptions: hvacSelectedForIds([
             HVAC_SYSTEMS_OPTION_ID,
             HVAC_CAPACITY_OPTION_ID,

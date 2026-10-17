@@ -22,6 +22,11 @@ import {
 } from '@/utils/measurementSemantics/scopePriceUi';
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
 import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
+import {
+  dedicatedFlooringNoteText,
+  notesDescribeDedicatedFlooringJob,
+  scrubDedicatedFlooringMeasurements,
+} from '@/utils/flooringNoteScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { concreteFoundationPackageDollars } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { drywallGypsumBarometerPackageDollars } from '@/utils/subcontractorTrade/drywallPlanConvergence';
@@ -159,14 +164,27 @@ function restoreBaseMeasurementsWhenSavedEmpty(
 }
 
 /** Saved Confirm Scope M/L/allowance must win over note-parsed measurements on restore. */
+function applyDedicatedFlooringMeasurementScrub(
+  measurements: ScopeMeasurementsInputExtended,
+  notes?: string | null
+): ScopeMeasurementsInputExtended {
+  if (!notesDescribeDedicatedFlooringJob(dedicatedFlooringNoteText(notes))) {
+    return measurements;
+  }
+  return scrubDedicatedFlooringMeasurements(notes, measurements);
+}
+
 export function mergeConfirmScopeSavedMeasurements(
   base: ScopeMeasurementsInputExtended,
   saved?: ScopeMeasurements | null,
   notes?: string | null
 ): ScopeMeasurementsInputExtended {
   if (!saved) {
-    return reconcileBathroomQuickMeasurements(
-      reconcileRoofingQuickMeasurements(base, notes),
+    return applyDedicatedFlooringMeasurementScrub(
+      reconcileBathroomQuickMeasurements(
+        reconcileRoofingQuickMeasurements(base, notes),
+        notes
+      ),
       notes
     );
   }
@@ -205,8 +223,11 @@ export function mergeConfirmScopeSavedMeasurements(
   const reconciled = reconcilePlumbingEquipmentScopeMeasurements(
     reconcileFramingScopeMeasurements(merged) as typeof merged
   );
-  return reconcileBathroomQuickMeasurements(
-    reconcileRoofingQuickMeasurements(reconciled, notes),
+  return applyDedicatedFlooringMeasurementScrub(
+    reconcileBathroomQuickMeasurements(
+      reconcileRoofingQuickMeasurements(reconciled, notes),
+      notes
+    ),
     notes
   );
 }

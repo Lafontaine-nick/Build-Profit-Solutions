@@ -223,10 +223,46 @@ export function resolveHvacPricingEvidenceTier(
   return 'unpriced';
 }
 
+const HVAC_NAMED_EQUIPMENT_SELECTION_IDS = [
+  'furnace',
+  'condenser',
+  'heat_pump',
+  'mini_split',
+  'air_handler',
+] as const;
+
+/** A named furnace, heat pump, or condenser is the price. The complete system package stays off. */
+export function hvacNamedEquipmentReplacesPackage(
+  input: Record<string, unknown>,
+  notes?: string | null
+): boolean {
+  if (String(input.planImportTradeKey || '') === 'hvac') return false;
+  const selections = input.tradeScopeSelections;
+  const selected =
+    selections && typeof selections === 'object' && !Array.isArray(selections)
+      ? (selections as Record<string, unknown>).hvac
+      : null;
+  if (
+    Array.isArray(selected) &&
+    selected.some(id =>
+      (HVAC_NAMED_EQUIPMENT_SELECTION_IDS as readonly string[]).includes(
+        String(id)
+      )
+    )
+  ) {
+    return true;
+  }
+  return /\b(?:heat[\s-]*pumps?|furnaces?|condensers?|air\s*handlers?|mini[\s-]?splits?)\b/i.test(
+    String(notes || input.scopeNotes || input.originalNotes || '')
+  );
+}
+
 export function hvacUsesInstalledPackagePricing(
   input: Record<string, unknown>,
-  location?: HvacPricingLocation | null
+  location?: HvacPricingLocation | null,
+  notes?: string | null
 ): boolean {
+  if (hvacNamedEquipmentReplacesPackage(input, notes)) return false;
   return resolveHvacInstalledPackageSuggestedTotal(input, location) !== null;
 }
 

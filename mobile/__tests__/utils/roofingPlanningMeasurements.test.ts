@@ -28,6 +28,20 @@ describe('roofingPlanningMeasurements', () => {
   const RE_ROOF_NOTES =
     '22-square architectural shingle re-roof with tear-off. Ice & water at eaves, drip edge included.';
 
+  test('fills synthetic underlayment sqft from squares and keeps valley length blank', () => {
+    const notes =
+      'Tear off one layer of asphalt shingles and install architectural shingles on 28 squares. Include synthetic underlayment, ice and water shield, drip edge, ridge cap, valley flashing, and pipe boots.';
+    const planned = parseScopeMeasurementsFromNotes(notes);
+    expect(planned.roofSquares).toBe(28);
+    expect(planned.roofAreaSqft).toBe(2800);
+    expect(planned.roofDripEdgeLf).toBe(estimatedRoofPerimeterLf(28));
+    expect(planned.roofRidgeCapLf).toBe(53);
+    expect(planned.roofIceWaterShieldSqft).toBe(estimatedIceWaterShieldSqft(28));
+    expect(planned.roofPipeBootCount).toBe(1);
+    expect(planned.roofValleyFlashingLf).toBeUndefined();
+    expect(planned.roofPitch).toBeUndefined();
+  });
+
   test('estimates drip edge LF from roof squares when notes mention drip edge', () => {
     const planned = applyRoofingPlanningMeasurements(
       { roofSquares: 22 },

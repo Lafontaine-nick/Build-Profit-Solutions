@@ -400,6 +400,9 @@ function notesMentionExistingFloor(n: string): boolean {
     ) ||
     /\b(?:carpet|lvp|vinyl|laminate|tile|flooring)\b[^.;\n]{0,45}\b(?:tear[\s-]?out|remove|removal|demo|demolition)\b/.test(
       n
+    ) ||
+    /\b(?:tear[\s-]?out|remove|removal|demo|demolition)\b[^.;\n]{0,48}\b(?:carpet|lvp|vinyl|laminate|tile|flooring|floor)\b/.test(
+      n
     )
   );
 }
@@ -544,7 +547,44 @@ export function syncFlooringQmScopeItems(
   const selectedProducts = new Set(readFlooringProductScope(m));
   const hasSpecificProduct = selectedProducts.size > 0;
   let changed = false;
+  const noteText = String(m.scopeNotes || '');
+  const flooringSentence =
+    noteText
+      .split('\n')
+      .map(line => line.trim())
+      .find(
+        line =>
+          /\b(?:tear[\s-]?out|remove|removal|install)\b/i.test(line) &&
+          /\b(?:carpet|laminate|lvp|luxury\s+vinyl|hardwood|flooring)\b/i.test(
+            line
+          )
+      ) || noteText;
+  const flooringWorkNamed =
+    /\b(?:flooring|lvp|luxury\s+vinyl|vinyl\s+plank|laminate|carpet|hardwood|sheet\s+vinyl|vct)\b/i.test(
+      flooringSentence
+    );
+  const crossJobFlooring =
+    /\b(?:kitchen|bath(?:room)?)\s+(?:remodel|renovation|refresh|reno)\b/i.test(
+      noteText
+    ) || /\b(?:drywall|sheetrock|gypsum)\b/i.test(noteText);
+  const noteNamesFloorPrep =
+    /\b(?:include|including|with|plus|needs?|need)\s+floor\s+prep\b|\bfloor\s+prep\s+(?:included|required|needed)\b|\bsubfloor\s+(?:prep|repair|level(?:ing)?|work)\b/i.test(
+      flooringSentence
+        .replace(/\b(?:separate|priced)\s+under\s+floor\s+prep\b/gi, ' ')
+        .replace(/\bsubfloor\s*\/\s*floor\s+prep\b/gi, ' ')
+    );
   let next = items.map(row => {
+    if (
+      row.id === 'floor_prep' &&
+      noteText &&
+      flooringWorkNamed &&
+      !crossJobFlooring &&
+      !noteNamesFloorPrep &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
     const measurementKey = FLOORING_MEASUREMENT_SCOPE_MAP.find(
       ([id]) => id === row.id
     )?.[1];
@@ -909,9 +949,32 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
         checklistItems: ctx.checklistItems,
       });
 
+  const statedAreaMatch = String(ctx.notes || '').match(
+    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:feet|foot))\b/i
+  );
+  const statedArea = Number(String(statedAreaMatch?.[1] || '').replace(/,/g, ''));
+  const lvpNamed = /\b(?:lvp|luxury\s+vinyl|vinyl\s+plank)\b/i.test(
+    String(ctx.notes || '')
+  );
+  const prepNamed = /\bfloor\s+prep\b/i.test(String(ctx.notes || ''));
+  const lvpSqft =
+    positiveCount(saved.flooringLvpSqft) ||
+    (lvpNamed && statedArea > 0 ? statedArea : null);
   return {
     ...saved,
-    flooringSqft: flooringInstallSqftFromProducts(saved),
+    ...(lvpSqft ? { flooringLvpSqft: lvpSqft } : {}),
+    ...(prepNamed && lvpSqft && !saved.floorPrepByProduct
+      ? {
+          floorPrepSqft: positiveCount(saved.floorPrepSqft) || lvpSqft,
+          floorPrepByProduct: {
+            lvp: { sqft: lvpSqft, severity: 'medium' as const },
+          },
+        }
+      : {}),
+    flooringSqft: flooringInstallSqftFromProducts({
+      ...saved,
+      ...(lvpSqft ? { flooringLvpSqft: lvpSqft } : {}),
+    }),
     ...existing,
     ...install,
     ...demo,

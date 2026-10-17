@@ -433,6 +433,15 @@ export function notesMentionGravelBase(notes: string | null | undefined): boolea
   );
 }
 
+/** Broom is the basic flatwork finish. Color, stamp, stain, and exposed aggregate are the upgrade. */
+export function notesNameConcreteDecorativeFinish(
+  notes: string | null | undefined
+): boolean {
+  return /\b(?:stamped|colored|specialty)\s+concrete\b|\bexposed\s+aggregate(?:\s+concrete)?\b|\bstain(?:ed)?\s+concrete\b|\bdecorative\s+(?:finish|concrete)\b/i.test(
+    String(notes || '')
+  );
+}
+
 export function notesMentionConcretePump(notes: string | null | undefined): boolean {
   const blob = String(notes || '');
   return (

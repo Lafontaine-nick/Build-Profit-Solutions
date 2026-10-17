@@ -2,6 +2,7 @@ import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   applyConcretePlanningMeasurements,
   inferConcreteScopeIds,
+  notesNameConcreteDecorativeFinish,
 } from '@/utils/concretePlanningMeasurements';
 import {
   notesImplyExteriorFlatwork,
@@ -469,7 +470,7 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const withoutLegacyBaseItems = mergedScope.filter(
     id => !legacyIncludedByBaseFlatwork.has(id)
   );
-  const cleanedScope =
+  const cleanedScope = (
     hasExcavationQuantity ||
     manuallyIncludedSitePrep ||
     hasSitePrepQuantity ||
@@ -477,7 +478,12 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
       ? withoutLegacyBaseItems
       : withoutLegacyBaseItems.filter(
           id => concreteScopeCanonicalId(id) !== 'site_prep'
-        );
+        )
+  ).filter(
+    id =>
+      concreteScopeCanonicalId(id) !== 'decorative_finish' ||
+      notesNameConcreteDecorativeFinish(notes)
+  );
   const selectedFlatworkIds = cleanedScope.filter(id =>
     CONCRETE_FLATWORK_OPTION_IDS.has(id as ConcreteFlatworkOptionId)
   );
