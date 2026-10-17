@@ -1,4 +1,8 @@
 import {
+  dedicatedDeckRailingLf,
+  notesDescribeDedicatedDeckJob,
+} from '@/utils/deckNoteScope';
+import {
   notesDescribeDrywallAndFlooringJob,
   notesPriceNationalDrywallHang,
 } from '@/utils/noteScopeLines';
@@ -1334,7 +1338,12 @@ export function resolveScopeItemIntelligence(params: {
     notesDescribeDrywallAndFlooringJob(params.notes) &&
     Number(params.resolved.quantity) > 0 &&
     !/\bwaste\b/i.test(String(params.notes || ''));
-  const formula = statedDrywallHang || statedFlooringArea
+  const statedDeckRailingLength =
+    params.scopeKey === 'railing' &&
+    notesDescribeDedicatedDeckJob(params.notes) &&
+    (Number(String(params.measurements.railingLf ?? '').replace(/,/g, '')) > 0 ||
+      dedicatedDeckRailingLf(params.notes) != null);
+  const formula = statedDrywallHang || statedFlooringArea || statedDeckRailingLength
     ? null
     : calculateFormulaForScope({
         scopeKey: params.scopeKey,

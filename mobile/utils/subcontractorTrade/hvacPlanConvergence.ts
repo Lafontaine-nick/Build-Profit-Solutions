@@ -150,6 +150,57 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
   ),
 ];
 
+/** An HVAC diagnostic visit. "Service call" alone is not plumbing. */
+export function notesNameDedicatedHvacServiceVisit(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (
+    !/\b(?:hvac|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  if (!/\bservice\s+calls?\b|\bdiagnose\b/i.test(text)) return false;
+  if (
+    /\b(?:faucet|toilet|sink|drain\s+clean|p[\s-]?trap|water\s+heater)\b/i.test(
+      text
+    ) &&
+    !/\bhvac\b/i.test(text)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * A single HVAC equipment sentence. A furnace, air handler, or condenser
+ * replacement stays on the HVAC bid. A note that also names another trade
+ * stays mixed.
+ */
+export function notesNameDedicatedHvacEquipmentJob(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!text.trim() || notesNameDedicatedHvacServiceVisit(text)) return false;
+  if (
+    !/\b(?:air\s*handlers?|furnaces?|condensers?|heat[\s-]*pumps?|mini[\s-]?splits?|duct(?:work)?|thermostats?|(?:supply\s+)?registers?|return\s+grilles?)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:bathroom|bath|kitchen|paint(?:ing)?|drywall|sheetrock|flooring|lvp|tile|fram(?:e|ing)|roof(?:ing)?|shingles?|concrete|plumb(?:ing)?|electrical|cabinets?|vanity|toilet|shower|addition)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export const HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS = [
   'furnace',
   'condenser',

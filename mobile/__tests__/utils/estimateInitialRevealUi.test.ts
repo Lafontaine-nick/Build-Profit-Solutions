@@ -37,6 +37,153 @@ const classificationFixtures =
   }[];
 
 describe('estimateInitialRevealUi', () => {
+  it('names counted return grilles on Scope found', () => {
+    const notes = 'Install 3 return grilles. Leave the heat pump in place.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'other',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      stillNeededReview: ['Pricing for Return grilles'],
+      scopeChecklist: {
+        templateKey: 'hvac',
+        items: [
+          {
+            id: 'return_grilles',
+            label: 'Return grilles',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealDisplayTitle(draft)).toBe('3 return grilles');
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      '3 return grilles',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      expect.objectContaining({ name: '3 return grilles' }),
+    ]);
+  });
+
+  it('names counted supply registers on Scope found', () => {
+    const notes = 'Install 4 supply registers. Leave the furnace in place.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'other',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      stillNeededReview: ['Pricing for Supply registers'],
+      scopeChecklist: {
+        templateKey: 'hvac',
+        items: [
+          {
+            id: 'supply_registers',
+            label: 'Supply registers',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealDisplayTitle(draft)).toBe('4 supply registers');
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      '4 supply registers',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      expect.objectContaining({ name: '4 supply registers' }),
+    ]);
+  });
+
+  it('does not ask for a ductwork price the card already has', () => {
+    const notes =
+      'Install 60 linear feet of ductwork. Leave the furnace in place.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'other',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      stillNeededReview: ['Pricing for HVAC Ductwork'],
+      scopeChecklist: {
+        templateKey: 'hvac',
+        items: [
+          {
+            id: 'ductwork',
+            label: 'Ductwork (new / modify / seal)',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealDisplayTitle(draft)).toBe('60 LF ductwork');
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual(['60 LF ductwork']);
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      expect.objectContaining({ name: '60 LF ductwork' }),
+    ]);
+  });
+
+  it('does not ask for a thermostat price the card already has', () => {
+    const notes =
+      'Install two thermostats. Leave the furnace and the ductwork in place.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'hvac',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      stillNeededReview: ['Pricing for HVAC Controls'],
+      scopeChecklist: {
+        templateKey: 'hvac',
+        items: [
+          {
+            id: 'thermostat',
+            label: 'Thermostat / controls',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual(['2 thermostats']);
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      expect.objectContaining({ name: '2 thermostats' }),
+    ]);
+  });
+
+  it('names a condenser replacement on Scope found', () => {
+    const notes = 'Replace one condenser. Leave the air handler in place.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'hvac',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'hvac',
+        items: [
+          {
+            id: 'equipment_replace',
+            label: 'Equipment replacement (furnace / AC / heat pump)',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual(['Condenser']);
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      expect.objectContaining({ name: 'Condenser' }),
+    ]);
+  });
+
   it('separates mixed stucco, openings, roofing, and gutters from stale defaults', () => {
     const notes =
       'Repair and install stucco. Gross exterior wall area is 1,800 sqft. Deduct 240 sqft for window and door openings, 120 sqft for garage openings, and 90 sqft for brick and stone, for a net stucco area of 1,350 sqft. Include 80 sqft soffits, 40 sqft parapets, 35 LF foam trim, and 30 LF control joints. Building is 2 stories with 9 ft wall height per story. Allow 400 sqft access-affected area and 150 sqft localized repair. Replace 6 windows and 1 exterior door. Replace 28 roofing squares and 120 LF gutters. Excludes exterior painting and structural framing.';
@@ -972,6 +1119,26 @@ describe('estimateInitialRevealUi', () => {
     );
     expect(getInitialRevealTagline(draft)).toContain(
       'Mixed exterior hardscape · Concrete · Landscaping · Exterior doors'
+    );
+  });
+
+  it('does not call a paver walkway mixed exterior hardscape', () => {
+    const notes =
+      'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.';
+    const draft = {
+      projectTitle: 'Landscaping',
+      projectType: 'landscaping',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'dedicated',
+        detectedTrades: ['landscaping'],
+        scopeSummary: null,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Landscaping');
+    expect(getInitialRevealTagline(draft) || '').not.toContain(
+      'Mixed exterior hardscape'
     );
   });
 

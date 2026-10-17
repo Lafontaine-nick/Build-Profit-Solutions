@@ -7,9 +7,14 @@ import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import {
   collectRoofingInferenceNotes,
   filterRoofingScopeSelectionsForTearOffInstall,
+  hvacNotesDropSystemPackage,
+  hvacNotesLeaveOptionAlone,
   inferRoofingTradeScopeSelectionsFromNotes,
 } from '@/utils/scopeItemNoteHints';
-import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  hvacCardForMeasurementKey,
+  notesNameDedicatedHvacServiceVisit,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type SimpleTradeScopeKey = 'deck_patio' | 'hvac' | 'roofing';
 
@@ -61,6 +66,27 @@ type TradeSpec = {
 
 const DECK_OPTIONS: TradeOption[] = [
   {
+    id: 'deck_demo',
+    label: 'Deck demo',
+    canonicalId: 'demo_removal',
+    measurementKey: 'deckDemoSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'footings',
+    label: 'Footings',
+    canonicalId: 'footings_piers',
+    measurementKey: 'deckFootingCount',
+    unit: 'each',
+  },
+  {
+    id: 'deck_framing',
+    label: 'Deck framing',
+    canonicalId: 'framing_structure',
+    measurementKey: 'deckSqft',
+    unit: 'sqft',
+  },
+  {
     id: 'wood_fence',
     label: 'Wood fence',
     canonicalId: 'landscaping',
@@ -105,10 +131,11 @@ const DECK_OPTIONS: TradeOption[] = [
   { id: 'gates', label: 'Gates', canonicalId: 'landscaping' },
   {
     id: 'stairs',
-    label: 'Stairs',
+    label: 'Stair runs',
     canonicalId: 'stairs',
-    measurementKey: 'deckSqft',
-    unit: 'sqft',
+    measurementKey: 'deckStairCount',
+    measurementHelper: 'Enter the number of stair runs in this bid.',
+    unit: 'runs',
   },
 ];
 
@@ -188,7 +215,16 @@ function syncHvacEquipmentScopeMeasurements(
       measurements.hvacEquipmentReplacementCount
     );
     if (!itemQuantities[key] && seedUnquantified) {
-      itemQuantities[key] = { quantity: 1, quantitySource: 'user_entered' };
+      const useParsedCount = equipmentIds.length === 1 && sharedCount != null;
+      itemQuantities[key] = {
+        quantity: useParsedCount ? sharedCount : 1,
+        quantitySource: useParsedCount
+          ? (
+              (measurements.quickMeasurementSources as Record<string, string>) ||
+              {}
+            ).hvacEquipmentReplacementCount || 'notes'
+          : 'user_entered',
+      };
     } else if (
       !itemQuantities[key] &&
       !seedUnquantified &&
@@ -936,7 +972,15 @@ export const ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS = [
 export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   deck_patio: {
     scopeKey: 'deck_patio',
-    embeddedIds: ['decking', 'railing', 'stairs', 'landscaping'],
+    embeddedIds: [
+      'demo_removal',
+      'footings_piers',
+      'framing_structure',
+      'decking',
+      'railing',
+      'stairs',
+      'landscaping',
+    ],
     options: DECK_OPTIONS,
   },
   hvac: {
@@ -1207,12 +1251,13 @@ export function inferHvacScopeSelectionsFromNotes(
     !miniSplitMentioned &&
     /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i.test(
       text
-    )
+    ) &&
+    !hvacNotesDropSystemPackage(text)
   ) {
     inferred.push(HVAC_SYSTEMS_OPTION_ID);
   }
   if (/\bheat[\s-]*pump\b/i.test(text)) inferred.push('heat_pump');
-  if (/\bfurnace\b/i.test(text)) inferred.push('furnace');
+  if (/\bfurnaces?\b/i.test(text)) inferred.push('furnace');
   if (/\bcondenser\b|\bair\s*condition(?:er|ing)\b/i.test(text)) {
     inferred.push('condenser');
   }
@@ -1225,10 +1270,13 @@ export function inferHvacScopeSelectionsFromNotes(
     inferred.push('returns');
   }
   if (/\bthermostats?\b/i.test(text)) inferred.push('thermostat');
+  if (notesNameDedicatedHvacServiceVisit(text) || /\bhvac\s+service\s+calls?\b/i.test(text)) {
+    inferred.push('service_call');
+  }
   if (/\bwhole[-\s]?house\s+ventilation\b/i.test(text)) {
     inferred.push('ventilation');
   }
-  return inferred;
+  return inferred.filter(id => !hvacNotesLeaveOptionAlone(text, id));
 }
 
 /** Compact mixed-scope HVAC panels show only components explicitly in the notes. */
@@ -1236,6 +1284,7 @@ export function hvacScopeOptionMentionedInNotes(
   optionId: string,
   notes: string | null | undefined
 ): boolean {
+  if (hvacNotesLeaveOptionAlone(notes, optionId)) return false;
   const text = String(notes || '');
   const patterns: Record<string, RegExp> = {
     [HVAC_SYSTEMS_OPTION_ID]:
@@ -1375,14 +1424,26 @@ export function resolveHvacTradeScopeSelections(
 ): string[] {
   const saved = selectedScope(measurements, 'hvac');
   const inferred = inferHvacScopeSelectionsFromMeasurements(measurements);
-  const resolved = mergeHvacScopeSelections(
-    pruneLegacyBulkEquipmentSelections(measurements, saved),
-    inferred
+  const noteEquipment = inferHvacScopeSelectionsFromNotes(notes).filter(id =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
   );
+  const resolved = mergeHvacScopeSelections(
+    pruneLegacyBulkEquipmentSelections(
+      measurements,
+      mergeHvacScopeSelections(saved, noteEquipment),
+      noteEquipment
+    ),
+    inferred
+  ).filter(id => !hvacNotesLeaveOptionAlone(notes, id));
   const hasEquipmentSelection = resolved.some(id =>
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
   );
-  if (hasEquipmentSelection && !resolved.includes(HVAC_SYSTEMS_OPTION_ID)) {
+  const noteNamesSystem = !hvacNotesDropSystemPackage(notes);
+  if (
+    hasEquipmentSelection &&
+    noteNamesSystem &&
+    !resolved.includes(HVAC_SYSTEMS_OPTION_ID)
+  ) {
     resolved.push(HVAC_SYSTEMS_OPTION_ID);
   }
   if (
@@ -1394,14 +1455,20 @@ export function resolveHvacTradeScopeSelections(
   ) {
     resolved.push(HVAC_CAPACITY_OPTION_ID);
   }
+  let next = resolved;
   if (
-    resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
+    next.includes(HVAC_CAPACITY_OPTION_ID) &&
     hvacNotesOmitTonnage(notes) &&
     coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
   ) {
-    return resolved.filter(id => id !== HVAC_CAPACITY_OPTION_ID);
+    next = next.filter(id => id !== HVAC_CAPACITY_OPTION_ID);
   }
-  return resolved;
+  if (hvacNotesDropSystemPackage(notes)) {
+    next = next.filter(
+      id => id !== HVAC_SYSTEMS_OPTION_ID && id !== HVAC_CAPACITY_OPTION_ID
+    );
+  }
+  return next;
 }
 
 /** Notes name the equipment and never give a tonnage. Size stays optional. */
@@ -1526,6 +1593,12 @@ function finalizeHvacScopeSelections(
     coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
   ) {
     next = next.filter(id => id !== HVAC_CAPACITY_OPTION_ID);
+  }
+  next = next.filter(id => !hvacNotesLeaveOptionAlone(notes, id));
+  if (hvacNotesDropSystemPackage(notes)) {
+    next = next.filter(
+      id => id !== HVAC_SYSTEMS_OPTION_ID && id !== HVAC_CAPACITY_OPTION_ID
+    );
   }
   return next;
 }
@@ -1895,21 +1968,28 @@ function hydrateSimpleTrade(
       ctx.notes || ''
     );
     const noteText = ctx.notes || '';
+    const noteQuantifiedEquipment = inferredFromNotes.some(
+      id =>
+        (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id) &&
+        hvacScopeOptionHasExplicitQuantityInNotes(id, noteText)
+    );
     const appliedHvacMeasurements = applyHvacScopeMeasurements(
       noteSafeHydrated,
       {
         // Note-backed selections are scope evidence, not a contractor-entered
         // quantity. Keep missing note quantities blank until confirmed.
+        // A stated count, such as "one mini-split", is the quantity.
         seedUnquantified:
-          inferredFromNotes.length === 0 &&
-          !(
-            current.some(id =>
-              (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
-            ) &&
-            /\b(?:hvac|heat[\s-]*pump|furnace|condenser|air\s*handler|mini[\s-]*split)\b/i.test(
-              ctx.notes || ''
-            )
-          ),
+          noteQuantifiedEquipment ||
+          (inferredFromNotes.length === 0 &&
+            !(
+              current.some(id =>
+                (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+              ) &&
+              /\b(?:hvac|heat[\s-]*pump|furnace|condenser|air\s*handler|mini[\s-]*split)\b/i.test(
+                noteText
+              )
+            )),
       }
     );
     const withNoteCounts =
@@ -2006,7 +2086,39 @@ const HVAC_EQUIPMENT_SCOPE_LABELS: Record<string, string> = {
   heat_pump: 'Heat pump',
   mini_split: 'Mini split',
   air_handler: 'Air handler',
+  thermostat: 'Thermostat',
+  ductwork: 'Ductwork',
+  registers: 'Supply registers',
+  returns: 'Return grilles',
 };
+
+/** Checklist rows for a dedicated equipment note that was saved on another template. */
+export function dedicatedHvacEquipmentChecklistItems(
+  notes: string | null | undefined
+) {
+  const checklistId: Record<string, string> = {
+    registers: 'supply_registers',
+    returns: 'return_grilles',
+  };
+  return inferHvacScopeSelectionsFromNotes(notes)
+    .filter(id => HVAC_EQUIPMENT_SCOPE_LABELS[id])
+    .map(id => ({
+      id: checklistId[id] || id,
+      inputType: 'yes_no' as const,
+      label: HVAC_EQUIPMENT_SCOPE_LABELS[id],
+      helperText:
+        'Additional / replacement equipment. Not part of the complete HVAC system package.',
+      category:
+        id === 'thermostat' ||
+        id === 'ductwork' ||
+        id === 'registers' ||
+        id === 'returns'
+          ? 'distribution'
+          : 'System & Equipment',
+      state: 'included' as const,
+      noteBacked: true,
+    }));
+}
 
 /** Confirm Scope priced cards for selected HVAC equipment types. */
 export function expandHvacEquipmentScopeDisplayItems(

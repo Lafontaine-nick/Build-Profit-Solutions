@@ -101,6 +101,11 @@ import {
   plumbingQuickMeasurementKeysForIncludedScope,
   parsePlumbingProjectContextFromNotes,
   parsePlumbingMeasurementsFromNotes,
+  notesDescribeDedicatedPlumbingFixtureRelocate,
+  plumbingJobTypePickerVisible,
+  stripUnstatedPlumbingNoteMeasurements,
+  filterPlumbingNoteAuthorityConfirmItems,
+  filterDedicatedPlumbingConfirmItems,
   type PlumbingQuantityKey,
   type NotesScopeMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
@@ -279,6 +284,26 @@ import {
 } from '@/utils/bathroomNoteScope';
 import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
 import { filterDedicatedFlooringConfirmItems } from '@/utils/flooringNoteScope';
+import {
+  dedicatedDeckMissingQuantityPrompt,
+  notesDescribeDedicatedDeckJob,
+} from '@/utils/deckNoteScope';
+import {
+  dedicatedElectricalNamedCards,
+  filterDedicatedElectricalConfirmItems,
+  notesDescribeDedicatedElectricalDeviceJob,
+  notesNameElectricalJobCondition,
+  notesNameElectricalServiceAmperage,
+} from '@/utils/electricalNoteScope';
+import { filterDedicatedWindowsDoorsConfirmItems } from '@/utils/windowsDoorsNoteScope';
+import {
+  filterDedicatedInsulationConfirmItems,
+  insulationAssembliesMatchingNote,
+  insulationNoteNamesAtticArea,
+  insulationNoteNamesWallArea,
+} from '@/utils/insulationNoteScope';
+import { filterDedicatedStuccoConfirmItems } from '@/utils/stuccoNoteScope';
+import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import { withPlanScopeRecordMeasurements } from '@/utils/planScopeRecords';
 import {
   existingShellConversionElectricalBreakdown,
@@ -554,6 +579,7 @@ import {
   syncKitchenQmScopeItems,
   syncBathroomFixtureQmScopeItems,
   syncLandscapingQmScopeItems,
+  landscapingConfirmItemVisible,
   isLandscapingQmScopeItemActive,
   shouldUseLandscapingConfirmScopeLineCard,
   syncConcreteQmScopeItems,
@@ -571,11 +597,17 @@ import {
   inferHvacScopeSelectionsFromNotes,
   isHvacQmGatedScopeItem,
   isHvacQmScopeItemActive,
+  dedicatedHvacEquipmentChecklistItems,
   simpleTradePanelFor,
   ensureGroundUpRoofingPlanChecklistItems,
   isGroundUpRoofingPlanImport,
   NEW_ROOF_SHINGLE_PRICE_INCLUDES,
 } from '@/utils/qmScopePanels';
+import { hvacNamedEquipmentReplacesPackage } from '@/utils/southernUtahHvacComparables';
+import {
+  notesNameDedicatedHvacEquipmentJob,
+  notesNameDedicatedHvacServiceVisit,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   QmBathroomFixturesPanels,
   type QmBathroomFixturesPanelsHandle,
@@ -1109,7 +1141,7 @@ function SourcePill({
   const text = displayPriceSourceLabel(label || defaultText);
   const color =
     kind === 'notes'
-      ? '#22c55e'
+      ? '#2dcc9a'
       : kind === 'template'
         ? '#a78bfa'
         : kind === 'benchmark'
@@ -3850,39 +3882,35 @@ const NotesScopeSelector = React.memo(function NotesScopeSelector({
   return (
     <View
       style={{
-        borderRadius: 12,
+        borderRadius: 14,
         borderWidth: 1,
         borderColor: panelStyle.borderColor,
         backgroundColor: panelStyle.backgroundColor,
         padding: 14,
         marginBottom: 12,
-        gap: 12,
       }}
     >
       <Text
         style={{
-          color: panelStyle.titleColor,
-          fontSize: 11,
-          fontWeight: '800',
-          letterSpacing: 0.6,
-          textTransform: 'uppercase',
-          marginBottom: 2,
+          color: darkMode ? '#cbd5e1' : '#475569',
+          fontSize: 16,
+          fontWeight: '700',
+          marginBottom: 4,
         }}
       >
         Plumbing job type
       </Text>
       <Text
         style={{
-          color: darkMode ? 'rgba(245,247,250,0.72)' : Colors.text,
-          fontSize: 11,
-          lineHeight: 15,
-          marginBottom: 4,
+          color: darkMode ? '#d7e1f0' : '#64748b',
+          fontSize: 12,
+          lineHeight: 17,
+          marginBottom: 12,
         }}
       >
-        Your notes look like a plumbing bid. Choose the closest match — scope
-        cards and measurements update below.
+        Pick the closest match. Scope cards and measurements update below.
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      <View style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
         {(
           [
             ['plumbing', 'Room remodel'],
@@ -3892,39 +3920,54 @@ const NotesScopeSelector = React.memo(function NotesScopeSelector({
             ['plumbing_kitchen', 'Kitchen'],
             ['whole_project', 'Whole project / GC'],
           ] as Array<[NotesScopeMode, string]>
-        ).map(([nextMode, label]) => (
-          <TouchableOpacity
-            key={nextMode}
-            disabled={disabled}
-            activeOpacity={1}
-            onPress={() => {
-              setOptimisticMode(nextMode);
-              onChange?.(nextMode);
-            }}
-            style={{
-              borderRadius: 15,
-              borderWidth: 1,
-              borderColor:
-                optimisticMode === nextMode ? '#22c55e' : Colors.line,
-              backgroundColor:
-                optimisticMode === nextMode
-                  ? 'rgba(34,197,94,0.12)'
-                  : 'transparent',
-              paddingHorizontal: 9,
-              paddingVertical: 7,
-            }}
-          >
-            <Text
+        ).map(([nextMode, label]) => {
+          const selected = optimisticMode === nextMode;
+          return (
+            <TouchableOpacity
+              key={nextMode}
+              disabled={disabled}
+              activeOpacity={1}
+              onPress={() => {
+                setOptimisticMode(nextMode);
+                onChange?.(nextMode);
+              }}
               style={{
-                color: darkMode ? '#F5F7FA' : Colors.text,
-                fontSize: 11,
-                fontWeight: '700',
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: selected
+                  ? '#34d399'
+                  : darkMode
+                    ? '#52525b'
+                    : '#cbd5e1',
+                backgroundColor: selected
+                  ? 'rgba(52, 211, 153, 0.12)'
+                  : darkMode
+                    ? '#3a3a3c'
+                    : '#f1f5f9',
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              {label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                style={{
+                  color: selected
+                    ? '#34d399'
+                    : darkMode
+                      ? '#e4e4e7'
+                      : Colors.text,
+                  fontSize: 13,
+                  fontWeight: '600',
+                }}
+              >
+                {selected ? '✓ ' : ''}
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -7614,10 +7657,6 @@ function QuantitySection({
           templateKey: templateKey ?? undefined,
         })
       : null;
-  const parsedInsulationAssemblyRows =
-    itemId === 'insulation'
-      ? parseInsulationAssembliesFromNotes(originalNotes || '')
-      : [];
   const sumInsulationSqft = (
     values: Array<number | string | null | undefined>
   ): number =>
@@ -7655,16 +7694,17 @@ function QuantitySection({
     (Number.isFinite(storedInsulationSqft) && storedInsulationSqft > 0
       ? storedInsulationSqft
       : parsedNoteInsulationSqft);
-  const hasInsulationAssemblyRows =
-    Array.isArray(measurementsInput.insulationAssemblies) &&
-    measurementsInput.insulationAssemblies.length > 0;
-  const assemblyMeasurementsInput =
-    hasInsulationAssemblyRows || !parsedInsulationAssemblyRows.length
-      ? measurementsInput
-      : {
-          ...measurementsInput,
-          insulationAssemblies: parsedInsulationAssemblyRows,
-        };
+  const noteInsulationAssemblies = insulationAssembliesMatchingNote(
+    measurementsInput.insulationAssemblies,
+    originalNotes || ''
+  );
+  const hasInsulationAssemblyRows = noteInsulationAssemblies.length > 0;
+  const assemblyMeasurementsInput = hasInsulationAssemblyRows
+    ? {
+        ...measurementsInput,
+        insulationAssemblies: noteInsulationAssemblies,
+      }
+    : measurementsInput;
   // The aggregate Insulation scope card must match the visible assembly-card
   // total. Air sealing is its own scope component and is not part of that
   // assembly-card sum.
@@ -7674,7 +7714,7 @@ function QuantitySection({
   };
   const assemblyInsulationPricing =
     itemId === 'insulation' &&
-    (hasInsulationAssemblyRows || parsedInsulationAssemblyRows.length > 0)
+    hasInsulationAssemblyRows
       ? resolveInsulationAssemblyScopeSuggestedPricing(
           assemblyPricingInput,
           pricingContext,
@@ -7934,7 +7974,7 @@ function QuantitySection({
               darkMode ? styles.includedPillDark : styles.includedPillLight,
             ]}
           >
-            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+            <Text style={{ color: '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
               Included in cabinet allowance
             </Text>
           </View>
@@ -9394,11 +9434,16 @@ function WetAreaInstallLineCard({
 }) {
   let helper = checklistDisplayHelper(item, templateKey);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
+    const namedHelper =
+      item.id === 'floor_demo' || item.id === 'floor_prep'
+        ? item.helperText
+        : '';
     helper =
       flooringScopeCardHelper(
         item.id,
         measurementsInput as Record<string, unknown>
       ) ||
+      namedHelper ||
       (item.id === 'floor_demo'
         ? 'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.'
         : item.id === 'floor_prep'
@@ -9448,7 +9493,7 @@ function WetAreaInstallLineCard({
               darkMode ? styles.includedPillDark : styles.includedPillLight,
             ]}
           >
-            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+            <Text style={{ color: '#2dcc9a', fontSize: 11, fontWeight: '700' }}>
               {item.id === 'demo_clearing'
                 ? 'Included · labor + equipment + disposal'
                 : 'Included · labor + materials'}
@@ -14862,6 +14907,7 @@ function CollapsibleQuickMeasurements({
     useState<QuickMeasurementFieldKey | null>(null);
   const [editingFieldKey, setEditingFieldKey] =
     useState<QuickMeasurementFieldKey | null>(null);
+  const [plumbingScopeExpanded, setPlumbingScopeExpanded] = useState(true);
   const [editingHomeGroup, setEditingHomeGroup] =
     useState<QuickMeasurementGroupId | null>(null);
   const [editingHomeIndex, setEditingHomeIndex] = useState<number | null>(null);
@@ -15619,6 +15665,11 @@ function CollapsibleQuickMeasurements({
     baseRows = baseRows
       .map(row => row.filter(field => field.key !== 'insulationRValue'))
       .filter(row => row.length > 0);
+    // A short room addition already lists its package measurements.
+    // Stored shell keys must not add garage, kitchen, or a second drywall row.
+    if (notesDescribeAreaOnlyAddition(notes)) {
+      return baseRows;
+    }
     const noteTextForSurfaceScope = String(notes || '');
     const hasCeilingPaintOnly =
       /\b(?:paint|painting|repaint)\b[^.;\n]{0,45}\bceilings?\b|\bceilings?\b[^.;\n]{0,45}\b(?:paint|painting|repaint)\b/i.test(
@@ -16432,6 +16483,20 @@ function CollapsibleQuickMeasurements({
       String(notes || '')
     );
 
+  const dedicatedElectricalMeasurementKeys = useMemo(() => {
+    if (measurements.planImportMode || measurements.planImportFingerprint) {
+      return null;
+    }
+    if (!notesDescribeDedicatedElectricalDeviceJob(notes)) return null;
+    return new Set(
+      dedicatedElectricalNamedCards(notes).map(card => card.measurementKey)
+    );
+  }, [
+    measurements.planImportFingerprint,
+    measurements.planImportMode,
+    notes,
+  ]);
+
   const fieldResults = useMemo(() => {
     const resolved = resolveQuickMeasurementFields({
       rows,
@@ -16504,6 +16569,12 @@ function CollapsibleQuickMeasurements({
         if (result.filled && manuallyEntered) {
           return { ...result, state: 'confirmed' as const };
         }
+        if (
+          dedicatedElectricalMeasurementKeys?.has(result.key) &&
+          result.filled
+        ) {
+          return { ...result, state: 'confirmed' as const };
+        }
         return result.key === 'floorPrepSqft' &&
           editingFieldKey === 'floorPrepSqft'
           ? { ...result, state: 'needs_confirmation' as const }
@@ -16524,6 +16595,7 @@ function CollapsibleQuickMeasurements({
     editingFieldKey,
     mixedAdditionDrywallNeedsMeasurement,
     stuccoNoteFlow,
+    dedicatedElectricalMeasurementKeys,
   ]);
   const mixedTradeSet = new Set(
     qmScopeTrades.map(trade => String(trade || '').toLowerCase())
@@ -16537,7 +16609,7 @@ function CollapsibleQuickMeasurements({
     isMixedExteriorScopeNotes(notes) &&
     !concretePlanExport;
   const explicitHvacScopeInNotes =
-    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+    /\b(?:hvac|heating|cooling|furnace|air\s*handlers?|condensers?|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       String(notes || '')
     );
   const explicitDeckScopeMentioned =
@@ -16741,6 +16813,15 @@ function CollapsibleQuickMeasurements({
           return false;
         }
         if (
+          dedicatedElectricalMeasurementKeys &&
+          (tradeKey === 'electrical' ||
+            String(effectiveTemplateKey || '').toLowerCase() ===
+              'electrical') &&
+          !dedicatedElectricalMeasurementKeys.has(result.key)
+        ) {
+          return false;
+        }
+        if (
           (tradeKey === 'electrical' ||
             String(effectiveTemplateKey || '').toLowerCase() ===
               'electrical') &&
@@ -16765,6 +16846,7 @@ function CollapsibleQuickMeasurements({
       effectiveTemplateKey,
       measurements.measurementProvenance,
       measurements.quickMeasurementUserOverrides,
+      dedicatedElectricalMeasurementKeys,
     ]
   );
   const physicalSections = useMemo(() => {
@@ -17191,8 +17273,15 @@ function CollapsibleQuickMeasurements({
         'exteriorWallInsulationSqft',
         'atticInsulationSqft',
       ]);
-      const insulationSurfaceResults = positioned.more.filter(result =>
-        insulationSurfaceKeys.has(result.key)
+      const insulationNoteText = String(notes || '');
+      const insulationSurfaceNamed = (key: QuickMeasurementFieldKey) =>
+        key === 'exteriorWallInsulationSqft'
+          ? insulationNoteNamesWallArea(insulationNoteText)
+          : insulationNoteNamesAtticArea(insulationNoteText);
+      const insulationSurfaceResults = positioned.more.filter(
+        result =>
+          insulationSurfaceKeys.has(result.key) &&
+          (result.filled || insulationSurfaceNamed(result.key))
       );
       if (insulationSurfaceResults.length) {
         positioned.more = positioned.more.filter(
@@ -17220,6 +17309,7 @@ function CollapsibleQuickMeasurements({
     measurements.quickMeasurementSources,
     measurements.quickMeasurementUserOverrides,
     effectiveTemplateKey,
+    notes,
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
@@ -18241,7 +18331,9 @@ function CollapsibleQuickMeasurements({
 
   // Use effective whole-home template — checklist may still say room_remodel after plan import.
   const showGarageDoorSteppers =
-    wholeHomeLayout && !isGarageConversionJob(projectType, notes);
+    wholeHomeLayout &&
+    !isGarageConversionJob(projectType, notes) &&
+    !notesDescribeAreaOnlyAddition(notes);
 
   const garageDoorPackage = useMemo(
     () =>
@@ -19544,6 +19636,11 @@ function CollapsibleQuickMeasurements({
 
   const showDone = expanded && headerSummary.relevantTotal > 0;
   const electricalPlanCountsFilled =
+    !(
+      notesDescribeDedicatedElectricalDeviceJob(notes) &&
+      !measurements.planImportMode &&
+      !measurements.planImportFingerprint
+    ) &&
     (tradeKey === 'electrical' ||
       String(effectiveTemplateKey || '').toLowerCase() === 'electrical') &&
     [
@@ -19554,9 +19651,13 @@ function CollapsibleQuickMeasurements({
     ].some(
       key => Number(String(measurements[key] ?? '').replace(/,/g, '')) > 0
     );
-  const concreteStructurePrompt = concreteStructureQuantityPrompt(
+  const deckMissingPrompt = dedicatedDeckMissingQuantityPrompt(
+    notes,
     measurements as Record<string, unknown>
   );
+  const concreteStructurePrompt = notesDescribeDedicatedDeckJob(notes)
+    ? null
+    : concreteStructureQuantityPrompt(measurements as Record<string, unknown>);
   const paintingConfirmationFilled =
     (String(measurements.planImportTradeKey || '') === 'painting' ||
       (singleTradeImport && tradeKey === 'painting')) &&
@@ -19574,9 +19675,12 @@ function CollapsibleQuickMeasurements({
             : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
           ? 'Review planning estimates before they are priced.'
-          : concreteStructurePrompt ||
+          : deckMissingPrompt ||
+            concreteStructurePrompt ||
             'All set — measurements look complete.'
-      : concreteStructurePrompt || 'Optional — autofill repeated quantities';
+      : deckMissingPrompt ||
+        concreteStructurePrompt ||
+        'Optional — autofill repeated quantities';
 
   const beginEditingField = useCallback(
     (
@@ -19703,7 +19807,9 @@ function CollapsibleQuickMeasurements({
         : '';
     })();
     const planSourcedPaintQuantity = Boolean(paintingPlanSurfaceValue);
+    const areaOnlyAddition = notesDescribeAreaOnlyAddition(notes);
     const isUnquantifiedPaintField =
+      !areaOnlyAddition &&
       [
         'paintAreaSqft',
         'wallPaintSqft',
@@ -19714,6 +19820,7 @@ function CollapsibleQuickMeasurements({
       !planSourcedPaintQuantity &&
       !measurements.quickMeasurementUserOverrides?.[field.key];
     const clearStaleDrywallDisplay =
+      !areaOnlyAddition &&
       field.key === 'drywallSqft' &&
       !result.filled &&
       !noteQuickMeasurements.values.drywallSqft &&
@@ -19808,6 +19915,16 @@ function CollapsibleQuickMeasurements({
       installNamed: notesSpecifyDrywallInstall,
       repairNamed: notesSpecifyDrywallRepair,
     });
+    const groundUpNewHome =
+      String(quickMeasurementTemplateKey || '').toLowerCase() ===
+        'ground_up' ||
+      String(projectType || '').toLowerCase() === 'new_build' ||
+      /\b(?:new\s+build|new\s+construction|ground[\s-]?up|custom\s+home|spec\s+home)\b/i.test(
+        String(notes || '')
+      ) ||
+      /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+        String(notes || '')
+      );
     const explicitFramingOpeningCount = parseFramingMeasurementsFromNotes(
       String(notes || '')
     ).framingOpeningCount;
@@ -19839,7 +19956,9 @@ function CollapsibleQuickMeasurements({
       ...(field.key === 'wallPaintSqft' && notesSpecifyWallsAndCeilingsPaint
         ? { label: 'Walls & ceilings paint' }
         : {}),
-      ...(field.key === 'drywallSqft' && drywallSqftLabel
+      ...(field.key === 'drywallSqft' &&
+      drywallSqftLabel &&
+      !notesDescribeAreaOnlyAddition(notes)
         ? { label: drywallSqftLabel }
         : {}),
       ...(floorPrepExceedsTotal
@@ -19847,11 +19966,35 @@ function CollapsibleQuickMeasurements({
             helperText: `${field.helperText || 'Enter only the area requiring floor prep.'} Warning: this exceeds Total Flooring Area; verify the measurement.`,
           }
         : {}),
+      ...(field.key === 'waterLineLf' &&
+      notesDescribeDedicatedPlumbingFixtureRelocate(notes)
+        ? {
+            label: 'Supply relocate',
+            helperText:
+              'Supply piping moved with the fixture. The drain is priced on its own line.',
+          }
+        : {}),
+      ...(field.key === 'sewerLineLf' &&
+      notesDescribeDedicatedPlumbingFixtureRelocate(notes)
+        ? {
+            label: 'Drain relocate',
+            helperText:
+              'Drain piping moved with the fixture. The supply is priced on its own line.',
+          }
+        : {}),
       ...(field.key === 'windowCount'
-        ? { label: 'Window replacement' }
-        : field.key === 'drywallSqft' && drywallSqftLabel
+        ? {
+            label: notesDescribeAreaOnlyAddition(notes)
+              ? 'Windows'
+              : 'Window replacement',
+          }
+        : field.key === 'drywallSqft' &&
+            drywallSqftLabel &&
+            !notesDescribeAreaOnlyAddition(notes)
           ? { label: drywallSqftLabel }
-          : field.key === 'paintAreaSqft' &&
+          : field.key === 'roofSquares' && notesDescribeAreaOnlyAddition(notes)
+            ? { label: 'Roof tie-in' }
+            : field.key === 'paintAreaSqft' &&
               notesSpecifyPaintCeilings &&
               !notesSpecifyPaintWalls
             ? { label: 'Paint ceilings' }
@@ -19861,7 +20004,11 @@ function CollapsibleQuickMeasurements({
               : field.key === 'roofDeckingReplacementSqft'
                 ? { label: 'Roof decking repair' }
                 : field.key === 'roofSquares'
-                  ? { label: 'Roofing replacement' }
+                  ? {
+                      label: groundUpNewHome
+                        ? 'Roofing'
+                        : 'Roofing replacement',
+                    }
                   : {}),
     };
     const displayEstimate = estimateForRender
@@ -20152,7 +20299,9 @@ function CollapsibleQuickMeasurements({
     compactBathroomPlumbingResults.push(compactBathroomPlumbingFallback);
   }
   const showPlumbingProjectComplexity =
-    plumbingMeasurementFlow && measurements.plumbingWorkflowMode !== 'service';
+    plumbingMeasurementFlow &&
+    measurements.plumbingWorkflowMode !== 'service' &&
+    !notesDescribeDedicatedPlumbingFixtureRelocate(notes);
   const showElectricalProjectComplexity = false;
   const electricalNoteMeasurementKeys = useMemo(() => {
     const noteKeys = new Set(noteQuickMeasurements.keys);
@@ -20182,7 +20331,6 @@ function CollapsibleQuickMeasurements({
 
     return new Set(
       ELECTRICAL_CARDS.filter(card => {
-        if (card.measurementKey === 'bathExhaustFanCount') return true;
         if (userOwned(card.measurementKey)) return true;
         if (ELECTRICAL_UNPRINTED_PLAN_KEYS.has(card.measurementKey)) {
           if (
@@ -20410,7 +20558,7 @@ function CollapsibleQuickMeasurements({
     const settings = inferProjectComplexitySettings(plumbingComplexityContext);
     const breakdown = calculateProjectComplexityMultiplier(settings);
     if (breakdown.totalMultiplier === 1) {
-      return 'Single-story base labor — increase stories to adjust pricing.';
+      return 'Single story — base labor.';
     }
     if (settings.squareFootage == null) {
       return `Labor ${formatComplexityPercent(breakdown.totalMultiplier)} · ${settings.stories === 3 ? '3+ story' : settings.stories === 2 ? '2 story' : '1 story'}`;
@@ -20576,12 +20724,13 @@ function CollapsibleQuickMeasurements({
       plumbingWorkflowUsesLivingAreaComplexity(
         measurements.plumbingWorkflowMode
       );
+    const plumbingCard = trade === 'plumbing';
     const helperCopy =
       trade === 'electrical'
         ? 'Multi-story and larger homes add labor on rough-in, trim, homeruns, and panel work. Material stays at base rates.'
         : bathRemodelPlumbing
-          ? 'Multi-story homes add labor on rough-in, trim, and vertical runs. Material stays at base rates.'
-          : 'Multi-story and larger homes add labor on rough-in, trim, and vertical runs. Material stays at base rates.';
+          ? 'Extra stories add labor to rough-in, trim, and vertical runs.'
+          : 'Extra stories and larger homes add labor to rough-in, trim, and vertical runs.';
     return (
       <View
         style={[
@@ -20591,16 +20740,37 @@ function CollapsibleQuickMeasurements({
             borderColor: panelStyle.borderColor,
             backgroundColor: panelStyle.backgroundColor,
           },
+          plumbingCard ? { borderRadius: 14 } : null,
         ]}
       >
-        {sectionTitle('Project complexity', panelStyle.titleColor)}
+        {plumbingCard ? (
+          <Text
+            style={{
+              color: darkMode ? '#cbd5e1' : '#475569',
+              fontSize: 16,
+              fontWeight: '700',
+            }}
+          >
+            Project complexity
+          </Text>
+        ) : (
+          sectionTitle('Project complexity', panelStyle.titleColor)
+        )}
         <Text
-          style={{
-            color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            lineHeight: 15,
-            marginBottom: 10,
-          }}
+          style={
+            plumbingCard
+              ? {
+                  color: darkMode ? '#d7e1f0' : '#64748b',
+                  fontSize: 12,
+                  lineHeight: 17,
+                }
+              : {
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 11,
+                  lineHeight: 15,
+                  marginBottom: 10,
+                }
+          }
         >
           {helperCopy}
         </Text>
@@ -20682,18 +20852,20 @@ function CollapsibleQuickMeasurements({
           adjustPlumbingStoryCount,
           3
         )}
-        <Text
-          style={{
-            color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            lineHeight: 15,
-            marginTop: 2,
-          }}
-        >
-          {hasPlanProjectComplexityContext(measurements)
-            ? 'Auto-filled from plan when readable — adjust if the takeoff missed it.'
-            : 'Defaults to 1 story unless job notes specify otherwise.'}
-        </Text>
+        {!plumbingCard || hasPlanProjectComplexityContext(measurements) ? (
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 11,
+              lineHeight: 15,
+              marginTop: 2,
+            }}
+          >
+            {hasPlanProjectComplexityContext(measurements)
+              ? 'Auto-filled from plan when readable — adjust if the takeoff missed it.'
+              : 'Defaults to 1 story unless job notes specify otherwise.'}
+          </Text>
+        ) : null}
         <Text
           style={{
             color: mepLaborComplexityMultiplier > 1 ? '#86efac' : Colors.sub,
@@ -20707,8 +20879,18 @@ function CollapsibleQuickMeasurements({
       </View>
     );
   };
+  const plumbingFieldLabel = (key: QuickMeasurementFieldKey) => {
+    if (notesDescribeDedicatedPlumbingFixtureRelocate(notes)) {
+      if (key === 'waterLineLf') return 'Supply relocate';
+      if (key === 'sewerLineLf') return 'Drain relocate';
+    }
+    return (fieldByKey.get(key) || quickMeasurementFieldDef(key))?.label || '';
+  };
   const renderPlumbingMeasurementsPanel = () => {
     const panelStyle = qmNeutralScopePanelStyle(darkMode);
+    const lineCount = plumbingOrderedResults.length;
+    const titleColor = darkMode ? '#cbd5e1' : '#475569';
+    const captionTone = darkMode ? '#d7e1f0' : '#64748b';
     return (
       <View
         style={[
@@ -20717,18 +20899,102 @@ function CollapsibleQuickMeasurements({
           {
             borderColor: panelStyle.borderColor,
             backgroundColor: panelStyle.backgroundColor,
+            borderRadius: 14,
           },
         ]}
       >
-        {sectionTitle('Plumbing measurements', panelStyle.titleColor)}
-        {plumbingOrderedResults.map((result, index) =>
-          renderDisplayedResultField(
-            result,
-            fieldVariantForResult(result),
-            homeGroupForResult(result),
-            index
-          )
-        )}
+        <TouchableOpacity
+          onPress={() => setPlumbingScopeExpanded(open => !open)}
+          activeOpacity={0.75}
+        >
+          <Text style={{ color: titleColor, fontSize: 16, fontWeight: '700' }}>
+            Plumbing scope {plumbingScopeExpanded ? '⌃' : '⌄'}
+          </Text>
+          <Text
+            style={{
+              color: captionTone,
+              fontSize: 12,
+              lineHeight: 17,
+              marginTop: 2,
+            }}
+          >
+            {plumbingScopeExpanded
+              ? 'Tap to collapse card'
+              : `${lineCount} selected plumbing line${lineCount === 1 ? '' : 's'} · tap to expand card`}
+          </Text>
+        </TouchableOpacity>
+        {plumbingScopeExpanded ? (
+          <>
+            {plumbingOrderedResults.map((result, index) => {
+              const field = renderDisplayedResultField(
+                result,
+                fieldVariantForResult(result),
+                homeGroupForResult(result),
+                index
+              );
+              if (!field) return null;
+              return (
+                <View key={result.key} style={{ gap: 8 }}>
+                  <View
+                    style={{
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: '#34d399',
+                      backgroundColor: 'rgba(52, 211, 153, 0.12)',
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      width: '100%',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: '#34d399',
+                        fontSize: 13,
+                        fontWeight: '600',
+                      }}
+                    >
+                      ✓ {plumbingFieldLabel(result.key)}
+                    </Text>
+                  </View>
+                  {field}
+                  <View
+                    style={{
+                      height: 8,
+                      marginTop: 4,
+                      borderTopWidth: 1,
+                      borderTopColor: darkMode
+                        ? 'rgba(255,255,255,0.10)'
+                        : Colors.line,
+                    }}
+                  />
+                </View>
+              );
+            })}
+            <TouchableOpacity
+              onPress={() => setPlumbingScopeExpanded(false)}
+              activeOpacity={0.75}
+              style={{
+                paddingTop: 10,
+                borderTopWidth: 1,
+                borderTopColor: darkMode
+                  ? 'rgba(255,255,255,0.12)'
+                  : Colors.line,
+              }}
+            >
+              <Text
+                style={{
+                  color: captionTone,
+                  fontSize: 12,
+                  textAlign: 'center',
+                }}
+              >
+                Collapse card ⌃
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
       </View>
     );
   };
@@ -21105,7 +21371,7 @@ function CollapsibleQuickMeasurements({
               Quick measurements
             </Text>
           </View>
-          {headerSummary.relevantTotal > 0 ? (
+          {headerSummary.relevantTotal > 0 && !plumbingMeasurementFlow ? (
             <Text
               style={{
                 color: captionColor(darkMode, Colors),
@@ -21419,14 +21685,24 @@ function CollapsibleQuickMeasurements({
                     }
                     showConduitOption={electricalConduitMentioned}
                     showTrenchingOption={electricalTrenchingMentioned}
-                    hideServiceAmperageCard={electricalVisibleMeasurementKeys.has(
-                      'mainPanelCount'
-                    )}
+                    hideServiceAmperageCard={
+                      electricalVisibleMeasurementKeys.has('mainPanelCount') ||
+                      (notesDescribeDedicatedElectricalDeviceJob(notes) &&
+                        !measurements.planImportMode &&
+                        !measurements.planImportFingerprint &&
+                        !notesNameElectricalServiceAmperage(notes) &&
+                        !(Number(measurements.serviceAmperage) > 0))
+                    }
                     hideJobCondition={
-                      String(measurements.planImportMode || '') ===
+                      (String(measurements.planImportMode || '') ===
                         'selected_trade' &&
-                      String(measurements.planImportTradeKey || '') ===
-                        'electrical'
+                        String(measurements.planImportTradeKey || '') ===
+                          'electrical') ||
+                      (notesDescribeDedicatedElectricalDeviceJob(notes) &&
+                        !measurements.planImportMode &&
+                        !measurements.planImportFingerprint &&
+                        !notesNameElectricalJobCondition(notes) &&
+                        !measurements.electricalProjectCondition)
                     }
                   />
             </>
@@ -22437,7 +22713,7 @@ function CollapsibleQuickMeasurements({
               />
             </View>
           ) : null}
-          {showDone ? (
+          {showDone && !plumbingMeasurementFlow ? (
             <TouchableOpacity
               onPress={onDone || onToggle}
               activeOpacity={0.75}
@@ -23176,17 +23452,19 @@ export default function AIEstimateScopeAssumptionsModal({
             draft?.scopeMeasurements?.planImportFingerprint ||
             planImport?.planImportFingerprint
         )));
+  const dedicatedPlumbingFixtureRelocate =
+    notesDescribeDedicatedPlumbingFixtureRelocate(scopeNotes);
   const notesScopeSelectorVisible =
-    !planImport &&
-    !singleTradePlanImport &&
-    !explicitBathroomRemodelNotes &&
-    !hasWholeProjectScopeContext &&
-    (notesSuggestPlumbingBid(scopeNotes) ||
-      ['plumbing', 'plumbing_service'].includes(
-        String(checklist?.templateKey || '').toLowerCase()
-      ));
+    plumbingJobTypePickerVisible({
+      notes: scopeNotes,
+      planImport: Boolean(planImport),
+      singleTradePlanImport,
+      wholeProject: hasWholeProjectScopeContext,
+      templateKey: checklist?.templateKey,
+    }) && !notesNameDedicatedHvacServiceVisit(scopeNotes);
   const notesPlumbingFlow =
-    notesScopeSelectorVisible && notesTradeMode !== 'whole_project';
+    (notesScopeSelectorVisible || dedicatedPlumbingFixtureRelocate) &&
+    notesTradeMode !== 'whole_project';
   const effectiveNotesTradeMode =
     notesTradeMode !== 'whole_project'
       ? notesTradeMode
@@ -23279,7 +23557,10 @@ export default function AIEstimateScopeAssumptionsModal({
     Number(planImport?.buildingAreas?.garageSqft) ||
     Number(planImport?.planFacts?.buildingAreas?.garageSqft) ||
     0;
-  const seedWholeProjectShell = shouldSeedWholeProjectShellChecklist({
+  const areaOnlyAdditionNote = notesDescribeAreaOnlyAddition(scopeNotes);
+  const seedWholeProjectShell =
+    !areaOnlyAdditionNote &&
+    (shouldSeedWholeProjectShellChecklist({
     planImportMode:
       measurements.planImportMode ||
       draft?.scopeMeasurements?.planImportMode ||
@@ -23327,7 +23608,7 @@ export default function AIEstimateScopeAssumptionsModal({
     (!singleTradePlanImport &&
       checklistHasWholeHouseOpeningPackage(items)) ||
     (!singleTradePlanImport &&
-      isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
+      isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey)));
   const concretePlanExport =
     (singleTradePlanImport && singleTradeKey === 'concrete') ||
     ((measurements.planImportMode || planImport?.estimatingMode) ===
@@ -23381,6 +23662,7 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeNotes
     );
   const collapsedScopeGroupSummary =
+    !areaOnlyAdditionNote &&
     !concretePlanExport &&
     !plumbingPlanExport &&
     (wholeProjectPlanChecklist ||
@@ -23423,6 +23705,7 @@ export default function AIEstimateScopeAssumptionsModal({
   // summary. Fill framing, drywall, HVAC, insulation, and paint there unless
   // this is a selected trade or a room remodel without a whole-house plan.
   const showGroundUpPlanShell =
+    !areaOnlyAdditionNote &&
     !singleTradePlanImport &&
     !concretePlanExport &&
     !plumbingPlanExport &&
@@ -23480,9 +23763,29 @@ export default function AIEstimateScopeAssumptionsModal({
     let expanded = buildConfirmScopeDisplayItems(
       items,
       measurements as Record<string, unknown>,
-      checklist?.templateKey,
+      notesNameDedicatedHvacServiceVisit(scopeNotes)
+        ? 'hvac'
+        : checklist?.templateKey,
       scopeNotes
     );
+    if (notesNameDedicatedHvacServiceVisit(scopeNotes)) {
+      expanded = expanded.map(item =>
+        item.id === 'service_call'
+          ? {
+              ...item,
+              label: 'HVAC service call',
+              helperText:
+                'Explicit service or diagnostic visits only. Do not infer a service call from a plan symbol.',
+              state: 'included' as const,
+              noteBacked: true,
+            }
+          : item.id === 'furnace' ||
+              item.id === 'equipment_replace' ||
+              item.id === 'hvac'
+            ? { ...item, state: 'excluded' as const, noteBacked: false }
+            : item
+      );
+    }
     // The rendered list is the final authority for Step 2. If an older saved
     // checklist omitted a note-backed cross-trade row, restore it here rather
     // than relying on a prior persistence/hydration pass.
@@ -23849,20 +24152,34 @@ export default function AIEstimateScopeAssumptionsModal({
           : roofingReady;
       return withDrywallLayout(
         singleTradeKey === 'plumbing'
-          ? plumbingReady.filter(
-              item => item.state !== 'excluded' && item.id !== 'plumbing'
+          ? filterDedicatedPlumbingConfirmItems(
+              filterPlumbingNoteAuthorityConfirmItems(
+                plumbingReady.filter(
+                  item => item.state !== 'excluded' && item.id !== 'plumbing'
+                ),
+                currentUserNote,
+                measurements as Record<string, unknown>
+              ),
+              currentUserNote
             )
           : framingReady
       );
     }
     if (notesPlumbingFlow) {
       return withDrywallLayout(
-        withNoteScopeFilter.filter(
-          item =>
-            (plumbingItemIds.has(item.id) ||
-              item.noteBacked ||
-              isCustomScopeChecklistItem(item)) &&
-            item.state !== 'excluded'
+        filterDedicatedPlumbingConfirmItems(
+          filterPlumbingNoteAuthorityConfirmItems(
+            withNoteScopeFilter.filter(
+              item =>
+                (plumbingItemIds.has(item.id) ||
+                  item.noteBacked ||
+                  isCustomScopeChecklistItem(item)) &&
+                item.state !== 'excluded'
+            ),
+            currentUserNote,
+            measurements as Record<string, unknown>
+          ),
+          currentUserNote
         )
       );
     }
@@ -24026,7 +24343,7 @@ export default function AIEstimateScopeAssumptionsModal({
           item.id === 'floor_demo'
             ? {
                 ...item,
-                label: 'Demo Existing Flooring',
+                label: 'Flooring demo / removal',
                 helperText: description,
               }
             : item,
@@ -24111,18 +24428,34 @@ export default function AIEstimateScopeAssumptionsModal({
       notes: collectRoofingInferenceNotes(draft, noteScopeParams.notes),
       selectedIds: measurements.tradeScopeSelections?.roofing,
     };
-    const filtered = filterDedicatedFlooringConfirmItems(
-      ensureNamedRoofingConfirmItems(
-        filterDedicatedRoofingConfirmItems(
-          filterDedicatedKitchenConfirmItems(
-            filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
-            noteScopeParams
+    const filtered = filterDedicatedStuccoConfirmItems(
+      filterDedicatedInsulationConfirmItems(
+      filterDedicatedWindowsDoorsConfirmItems(
+      filterDedicatedElectricalConfirmItems(
+      filterDedicatedFlooringConfirmItems(
+        ensureNamedRoofingConfirmItems(
+          filterDedicatedRoofingConfirmItems(
+            filterDedicatedKitchenConfirmItems(
+              filterDedicatedBathroomConfirmItems(displayItems, noteScopeParams),
+              noteScopeParams
+            ),
+            roofingNoteParams
           ),
           roofingNoteParams
         ),
-        roofingNoteParams
+        noteScopeParams.notes
       ),
-      noteScopeParams.notes
+      noteScopeParams.notes,
+      { planBacked: noteScopeParams.planBacked }
+      ),
+      noteScopeParams.notes,
+      { planBacked: noteScopeParams.planBacked }
+      ),
+      noteScopeParams.notes,
+      { planBacked: noteScopeParams.planBacked }
+    ),
+      noteScopeParams.notes,
+      { planBacked: noteScopeParams.planBacked }
     );
     if (!notesWaterproofPanNotWalls(noteScopeParams.notes)) return filtered;
     return filtered.map(item =>
@@ -25100,7 +25433,10 @@ export default function AIEstimateScopeAssumptionsModal({
     if (hydratedVisibleSessionRef.current) return;
     hydratedVisibleSessionRef.current = true;
     selectedPricingRef.current = {};
-    let sourceItems = scopeChecklistItemsForEditing(draft);
+    let sourceItems = notesNameDedicatedHvacEquipmentJob(scopeNotes) &&
+      String(checklist?.templateKey || '').toLowerCase() !== 'hvac'
+      ? dedicatedHvacEquipmentChecklistItems(scopeNotes)
+      : scopeChecklistItemsForEditing(draft);
     const catalogFactItems = (checklist?.scopeFacts || [])
       .filter(fact => fact.scopeId && fact.status !== 'excluded')
       .map(fact => ({
@@ -25197,6 +25533,15 @@ export default function AIEstimateScopeAssumptionsModal({
             ]
           : []),
       ];
+    }
+    if (notesNameDedicatedHvacEquipmentJob(scopeNotes)) {
+      const allowed = new Set(
+        dedicatedHvacEquipmentChecklistItems(scopeNotes).map(item => item.id)
+      );
+      sourceItems = sourceItems.filter(item => allowed.has(item.id));
+      if (!sourceItems.length) {
+        sourceItems = dedicatedHvacEquipmentChecklistItems(scopeNotes);
+      }
     }
     if (!sourceItems.length) return;
     const draftForScope =
@@ -25774,6 +26119,7 @@ export default function AIEstimateScopeAssumptionsModal({
       hydratedPlanTrade === 'hvac' ||
       hydrateTradeContext.tradeKey === 'hvac' ||
       String(checklist.templateKey || '').toLowerCase() === 'hvac' ||
+      notesNameDedicatedHvacEquipmentJob(scopeNotes) ||
       mixedHvacScope
     ) {
       nextMeasurements = applyHvacProvenanceGuardToScopeMeasurements(
@@ -26126,6 +26472,12 @@ export default function AIEstimateScopeAssumptionsModal({
         );
       } else {
         normalized = filterChecklistItemsToPlumbingScope(normalized);
+      }
+      if (!draft?.scopeAssumptionsConfirmed && !plumbingPlanHydrate) {
+        nextMeasurements = stripUnstatedPlumbingNoteMeasurements(
+          nextMeasurements as Record<string, unknown>,
+          scopeNotes
+        ) as typeof nextMeasurements;
       }
       normalized = finalizeStandalonePlumbingChecklist(normalized, {
         notes: scopeNotes,
@@ -27418,14 +27770,36 @@ export default function AIEstimateScopeAssumptionsModal({
       // selects them. An unselected ventilation, permit, or cleanup row is
       // not a pricing card.
       if (
-        (String(checklist?.templateKey || '').toLowerCase() === 'hvac' ||
-          singleTradeKey === 'hvac') &&
-        isHvacQmGatedScopeItem(itemId)
+        String(checklist?.templateKey || '').toLowerCase() === 'hvac' ||
+        singleTradeKey === 'hvac'
       ) {
-        return !isHvacQmScopeItemActive(
-          itemId,
-          measurements as Record<string, unknown>
-        );
+        if (isHvacQmGatedScopeItem(itemId)) {
+          return !isHvacQmScopeItemActive(
+            itemId,
+            measurements as Record<string, unknown>
+          );
+        }
+        if (
+          itemId === 'ductwork' ||
+          itemId === 'thermostat' ||
+          itemId === 'supply_registers' ||
+          itemId === 'return_grilles'
+        ) {
+          const selected = measurements.tradeScopeSelections?.hvac;
+          const optionId =
+            itemId === 'supply_registers'
+              ? 'registers'
+              : itemId === 'return_grilles'
+                ? 'returns'
+                : itemId;
+          const inBid =
+            (Array.isArray(selected) &&
+              (selected.includes(optionId) || selected.includes(itemId))) ||
+            items.some(
+              item => item.id === itemId && item.state === 'included'
+            );
+          return !inBid;
+        }
       }
       // Roofing Quick Measurements own the install/takeoff selection. Hide the
       // legacy zero-area replacement card, while keeping selected components
@@ -27434,6 +27808,17 @@ export default function AIEstimateScopeAssumptionsModal({
         // The legacy zero-area "roofing" row stays off the card list.
         // roofing_system is the architectural-shingle price card.
         if (itemId === 'roofing') return true;
+        return false;
+      }
+      if (
+        notesDescribeDedicatedDeckJob(scopeNotes) &&
+        (itemId === 'demo_removal' ||
+          itemId === 'footings_piers' ||
+          itemId === 'framing_structure' ||
+          itemId === 'decking' ||
+          itemId === 'railing' ||
+          itemId === 'stairs')
+      ) {
         return false;
       }
       if (!qmEmbeddedScopeIds.has(itemId)) return false;
@@ -27674,6 +28059,18 @@ export default function AIEstimateScopeAssumptionsModal({
         ...group,
         items: group.items.filter(
           item =>
+            !(
+              notesNameDedicatedHvacServiceVisit(scopeNotes) &&
+              (item.id === 'equipment_replace' ||
+                item.id === 'hvac' ||
+                item.id === 'heat_pump' ||
+                item.id === 'furnace')
+            ) &&
+            landscapingConfirmItemVisible({
+              templateKey: checklist?.templateKey,
+              notes: scopeNotes,
+              item,
+            }) &&
             !(isBathroomFlow && item.state === 'excluded') &&
             !(isBathroomFlow && item.id === 'wet_area_install') &&
             !(isBathroomFlow && item.id === 'fixture_demo') &&
@@ -27696,10 +28093,16 @@ export default function AIEstimateScopeAssumptionsModal({
             (showGroundUpPlanShell ||
               (String(checklist?.templateKey || '').toLowerCase() !== 'hvac' &&
                 singleTradeKey !== 'hvac') ||
-              isHvacQmScopeItemActive(
-                item.id,
-                measurements as Record<string, unknown>
-              )) &&
+              (item.id === 'hvac'
+                ? checklistItemInScope(item) &&
+                  !hvacNamedEquipmentReplacesPackage(
+                    measurements as Record<string, unknown>,
+                    scopeNotes
+                  )
+                : isHvacQmScopeItemActive(
+                    item.id,
+                    measurements as Record<string, unknown>
+                  ))) &&
             (showGroundUpPlanShell ||
               !embedQmScopeInQuickMeasurements ||
               !qmScopeEmbeddedInQuickMeasurements(item.id) ||
@@ -28295,6 +28698,27 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [checklist?.templateKey, measurements]);
 
   useEffect(() => {
+    if (!notesDescribeDedicatedPlumbingFixtureRelocate(scopeNotes)) return;
+    const parsed = parsePlumbingMeasurementsFromNotes(scopeNotes);
+    if (!(parsed.waterLineLf > 0) || !(parsed.sewerLineLf > 0)) return;
+    setMeasurements(prev => {
+      const water = String(prev.waterLineLf ?? '').trim();
+      const sewer = String(prev.sewerLineLf ?? '').trim();
+      if (water && sewer) return prev;
+      return {
+        ...prev,
+        waterLineLf: water || String(parsed.waterLineLf),
+        sewerLineLf: sewer || String(parsed.sewerLineLf),
+        quickMeasurementSources: {
+          ...(prev.quickMeasurementSources || {}),
+          ...(!water ? { waterLineLf: 'notes' as const } : {}),
+          ...(!sewer ? { sewerLineLf: 'notes' as const } : {}),
+        },
+      };
+    });
+  }, [scopeNotes, setMeasurements]);
+
+  useEffect(() => {
     if (
       !notesPlumbingFlow &&
       !['plumbing', 'plumbing_service'].includes(
@@ -28529,6 +28953,11 @@ export default function AIEstimateScopeAssumptionsModal({
         deferredMeasurements.wallDemoSqft ?? '',
         deferredMeasurements.drywallSqft ?? '',
         deferredMeasurements.patchRepairSqft ?? '',
+        deferredMeasurements.deckDemoSqft ?? '',
+        deferredMeasurements.deckSqft ?? '',
+        deferredMeasurements.deckFootingCount ?? '',
+        deferredMeasurements.deckStairCount ?? '',
+        deferredMeasurements.railingLf ?? '',
         JSON.stringify(deferredMeasurements.pricingAcceptance ?? {}),
       ].join('\u001f'),
     [
@@ -32660,6 +33089,15 @@ export default function AIEstimateScopeAssumptionsModal({
                   measurements.wallDemoSqft,
                   measurements.drywallSqft,
                   measurements.patchRepairSqft,
+                  measurements.demoClearingSqft,
+                  measurements.gradingSqft,
+                  measurements.sodSqft,
+                  measurements.rockMulchSqft,
+                  measurements.landscapeTons,
+                  measurements.plantCount,
+                  measurements.irrigationZoneCount,
+                  measurements.paverSqft,
+                  measurements.landscapeClearingLevel,
                 ].join(':')}`;
                 let cachedGroupPricing =
                   groupPricingCacheRef.current.get(groupPricingCacheKey);
@@ -33532,13 +33970,13 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.35)',
+    borderColor: 'rgba(45, 204, 154, 0.35)',
   },
   includedPillDark: {
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    backgroundColor: 'rgba(45, 204, 154, 0.14)',
   },
   includedPillLight: {
-    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    backgroundColor: 'rgba(45, 204, 154, 0.1)',
   },
   choiceRow: {
     flexDirection: 'row',
@@ -33915,8 +34353,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   sourcePillNotes: {
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderColor: 'rgba(45, 204, 154, 0.35)',
+    backgroundColor: 'rgba(45, 204, 154, 0.1)',
   },
   sourcePillNational: {
     borderColor: 'rgba(96, 165, 250, 0.35)',

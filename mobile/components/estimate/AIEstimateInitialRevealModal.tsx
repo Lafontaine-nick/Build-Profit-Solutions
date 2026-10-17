@@ -529,7 +529,12 @@ function AIEstimateInitialRevealModal({
                       accessibilityState={{ expanded: detailsExpanded }}
                     >
                       <Text style={[styles.blockTitle, { color: Colors.text }]}>
-                        Scope · {viewModel.totals.scopeItemCount || viewModel.scopePreview.length} items
+                        Scope · {(() => {
+                          const scopeCount =
+                            viewModel.totals.scopeItemCount ||
+                            viewModel.scopePreview.length;
+                          return `${scopeCount} ${scopeCount === 1 ? 'item' : 'items'}`;
+                        })()}
                       </Text>
                       <MaterialIcons
                         name={detailsExpanded ? 'expand-less' : 'expand-more'}

@@ -483,7 +483,7 @@ describe('concrete QM remodel', () => {
     );
     expect(
       hydrated.find(row => row.id === 'decorative_finish')?.state
-    ).toBe('unsure');
+    ).toBe('excluded');
     const measurements = concreteQmPanel.hydrateMeasurements({
       templateKey: 'concrete',
       notes,

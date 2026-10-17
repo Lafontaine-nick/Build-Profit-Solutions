@@ -1,4 +1,8 @@
 import { notesKeepExistingWetArea } from '@/utils/bathroomNoteScope';
+import {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
 
 /** Client mirror of backend scopeChecklistLibrary note inference (keep in sync). */
 
@@ -93,7 +97,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   pour_flatwork:
     /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|pour\b[^.]{0,40}\b(?:driveway|slab|patio|sidewalk|walkway))\b/,
   site_prep:
-    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/,
+    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/,
   gravel_base:
     /\b(gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/,
   reinforcement: /\b(rebar|re[\s-]?bar|wire\s+mesh|mesh\s+reinforcement|#4\s+bar)\b/,
@@ -123,7 +127,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation:
     /\b(excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?|cut\s+foundation)\b/,
-  grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  grading: /\b(grading|grade(?!\s+prep)|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
   foundation: /\b(foundation|footings?|stem\s+wall|crawlspace)\b|\b(?:pour|new)\b[^.]{0,30}\bslab\b/,
@@ -143,7 +147,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(?:replace|replacement|install|installation|new)\b[^.;\n]{0,40}\bwindows?\b|\bwindows?\b[^.;\n]{0,40}\b(?:replace|replacement|install|installation)\b/,
   exterior_finishes:
     /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
-  hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/,
+  hvac: /\b(hvac|furnace|air\s+handler|air\s+condition|condenser|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/,
   insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
   air_sealing:
     /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i,
@@ -209,6 +213,21 @@ export function notesOwnerHandlesScopeCategory(
     return true;
   }
   return false;
+}
+
+/** New-home notes such as "New 2,800 sqft two story home". */
+export function notesDescribeGroundUpHome(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:new\s+build|new\s+construction|ground[\s-]?up|custom\s+home|spec\s+home)\b/i.test(
+      text
+    ) ||
+    /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+      text
+    )
+  );
 }
 
 /** Explicitly excluded electrical service work must not become an HVAC add-on. */
@@ -303,10 +322,136 @@ function inferTrimStateFromNotes(n: string): 'included' | 'unsure' {
   return 'unsure';
 }
 
+const HVAC_LEFT_ALONE_SUBJECTS: Record<string, string> = {
+  heat_pump: 'heat[\\s-]*pumps?',
+  furnace: 'furnaces?',
+  condenser: 'condensers?|air\\s*condition(?:ers?|ing)?',
+  air_handler: 'air\\s*handlers?',
+  mini_split: 'mini[\\s-]?splits?',
+  ductwork: 'duct(?:work|s|ing)?',
+  thermostat: 'thermostats?',
+  registers: '(?:supply\\s+)?registers?|diffusers?',
+  returns: 'return\\s+grilles?',
+  hvac_systems:
+    'hvac(?:\\s+systems?)?|heating|cooling|furnaces?|heat[\\s-]*pumps?|air\\s*condition(?:ers?|ing)?',
+  hvac_capacity:
+    'hvac(?:\\s+systems?)?|heating|cooling|furnaces?|heat[\\s-]*pumps?|air\\s*condition(?:ers?|ing)?',
+  equipment_replace:
+    'furnaces?|heat[\\s-]*pumps?|\\bac\\b|air\\s*condition(?:ers?|ing)?|hvac\\s+replace(?:ment)?|equipment',
+  hvac: 'hvac|furnaces?|air\\s*condition(?:ers?|ing)?|heat[\\s-]*pumps?|duct(?:work)?|mini[\\s-]?splits?',
+};
+
+const HVAC_EQUIPMENT_LEFT_ALONE_IDS = new Set([
+  'heat_pump',
+  'furnace',
+  'condenser',
+  'air_handler',
+  'mini_split',
+  'hvac_systems',
+  'hvac_capacity',
+  'equipment_replace',
+  'hvac',
+]);
+
+function hvacNoteClauses(notes: string): string[] {
+  return notes
+    .split(/(?<=[.!?])/)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+}
+
+function hvacClauseMentions(clause: string, subject: string): boolean {
+  return new RegExp(subject, 'i').test(clause);
+}
+
+function hvacClauseLeavesSubject(clause: string, subject: string): boolean {
+  return new RegExp(
+    `\\b(?:leave|leaving|keep|keeping)\\b[^.]{0,80}(?:${subject})[^.]{0,40}\\bin\\s+place\\b|\\b(?:${subject})\\b[^.]{0,50}\\b(?:stay|stays|remain|remains)\\b|\\b(?:do\\s+not|don'?t|dont)\\s+(?:replace|install|change)\\b[^.]{0,60}(?:${subject})`,
+    'i'
+  ).test(clause);
+}
+
+function hvacClauseAffirmsSubject(clause: string, subject: string): boolean {
+  if (hvacClauseLeavesSubject(clause, subject)) return false;
+  return new RegExp(
+    `\\b(?:replace|replacing|replacement|install|installing|installation|new|add|adding)\\b[^.]{0,60}(?:${subject})|\\b(?:${subject})\\b[^.]{0,40}\\b(?:replacement|install(?:ation)?)\\b`,
+    'i'
+  ).test(clause);
+}
+
+/** A complete system or a stated tonnage. A furnace or heat pump by itself is equipment. */
+export function hvacNotesNameInstalledSystem(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:hvac|heating|cooling|heat[\s-]*pump|furnace|condenser|air\s*handler|mini[\s-]?split)\s+systems?\b/i.test(
+      text
+    ) || /\b\d[\d,]*(?:\.\d+)?\s*(?:-\s*)?tons?\b/i.test(text)
+  );
+}
+
+/**
+ * Named equipment is the price, and something else stays. The system package
+ * and its tonnage chip stay off. A stated system or tonnage still opens them.
+ */
+export function hvacNotesDropSystemPackage(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!text.trim() || hvacNotesNameInstalledSystem(text)) return false;
+  const leavesEquipment = (
+    ['furnace', 'condenser', 'heat_pump', 'mini_split', 'air_handler', 'ductwork'] as const
+  ).some(id => hvacNotesLeaveOptionAlone(text, id));
+  if (!leavesEquipment) return false;
+  return /\b(?:furnaces?|condensers?|heat[\s-]*pumps?|mini[\s-]?splits?|air\s*handlers?|thermostats?)\b/i.test(
+    text
+  );
+}
+
+/**
+ * A leave-in-place or do-not-replace clause names the equipment so it stays
+ * off the bid. An install or replace clause for the same item still counts.
+ */
+export function hvacNotesLeaveOptionAlone(
+  notes: string | null | undefined,
+  optionId: string
+): boolean {
+  const subject = HVAC_LEFT_ALONE_SUBJECTS[optionId];
+  const text = String(notes || '');
+  if (!subject || !text.trim()) return false;
+  const clauses = hvacNoteClauses(text);
+  const affirmed = clauses.some(clause =>
+    hvacClauseAffirmsSubject(clause, subject)
+  );
+  if (affirmed) return false;
+  if (
+    HVAC_EQUIPMENT_LEFT_ALONE_IDS.has(optionId) &&
+    /\b(?:do\s+not|don'?t|dont)\s+replace\b[^.]{0,48}\b(?:the\s+)?equipment\b|\bleave\b[^.]{0,48}\b(?:the\s+)?equipment\b[^.]{0,24}\bin\s+place\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  const leftAlone = clauses.some(
+    clause =>
+      hvacClauseMentions(clause, subject) &&
+      hvacClauseLeavesSubject(clause, subject)
+  );
+  if (!leftAlone) return false;
+  const namedAsWork = clauses.some(
+    clause =>
+      hvacClauseMentions(clause, subject) &&
+      !hvacClauseLeavesSubject(clause, subject)
+  );
+  return !namedAsWork;
+}
+
 export function inferItemStateFromNotes(
   itemId: string,
   notes: string | null | undefined
 ): 'included' | 'excluded' | 'unsure' {
+  if (hvacNotesLeaveOptionAlone(notes, itemId)) return 'excluded';
   const n = String(notes || '').toLowerCase();
   const ownerCategory = OWNER_HANDLED_SCOPE_ITEM_CATEGORIES[itemId];
   if (
@@ -334,7 +479,43 @@ export function inferItemStateFromNotes(
     return hasDoorMention && !hasTypedDoorMention ? 'included' : 'unsure';
   }
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return 'included';
+  if (concreteCatalogItemLeftUnnamed(itemId, notes)) return 'excluded';
   return 'unsure';
+}
+
+const CONCRETE_CATALOG_ITEM_IDS = new Set([
+  'demo_removal',
+  'site_prep',
+  'gravel_base',
+  'excavation',
+  'reinforcement',
+  'pour_flatwork',
+  'pour_foundation',
+  'complex_forming',
+  'concrete_sealer',
+  'decorative_finish',
+  'additional_haul_off',
+  'concrete_pumping',
+  'retaining_wall',
+  'pavers',
+  'landscaping',
+  'exterior_doors',
+  'siding_repairs',
+  'exterior_trim_paint',
+]);
+
+/** A driveway/flatwork note leaves unnamed concrete catalog rows out of the bid. */
+function concreteCatalogItemLeftUnnamed(
+  itemId: string,
+  notes: string | null | undefined
+): boolean {
+  if (!CONCRETE_CATALOG_ITEM_IDS.has(itemId)) return false;
+  const text = String(notes || '');
+  if (!text.trim()) return false;
+  if (!notesImplyExteriorFlatwork(text) || notesImplyStructuralFoundation(text)) {
+    return false;
+  }
+  return true;
 }
 
 /** Primary roofing system choice from job notes (Confirm Scope `roofing_system` card). */

@@ -2,10 +2,14 @@ import {
   LANDSCAPING_QM_EMBEDDED_IDS,
   LANDSCAPING_QM_SYNC_SCOPE_IDS,
   isLandscapingQmScopeItemActive,
+  landscapingConfirmItemVisible,
   landscapingDemoChipActive,
   landscapingQmPanel,
+  landscapingScopeChipNamedInNotes,
   syncLandscapingQmScopeItems,
 } from '@/utils/qmScopePanels/landscapingRemodel';
+import { wholeProjectGroupDisplayTotal } from '@/utils/benchmarkReasonablenessContext';
+import { resolveScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 
 function item(id: string): ScopeChecklistItem {
@@ -78,6 +82,29 @@ describe('landscaping QM', () => {
         notes: 'Clear vegetation and landscape debris from the lot.',
       })
     ).toBe(true);
+    expect(
+      landscapingDemoChipActive({
+        selected: true,
+        condensed: true,
+        notes:
+          'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.',
+      })
+    ).toBe(true);
+  });
+
+  it('selects demo clearing from a clear-and-grade note', () => {
+    const hydrated = landscapingQmPanel.hydrateMeasurements({
+      measurements: {
+        landscapeScope: ['sod', 'mulch', 'plants', 'irrigation', 'pavers'],
+      },
+      notes:
+        'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.',
+      checklistItems: [],
+      templateKey: 'landscaping',
+    });
+    expect(hydrated.landscapeScope).toEqual(
+      expect.arrayContaining(['demo_clearing'])
+    );
   });
 
   it('activates scope cards from QM selection or measurements', () => {
@@ -177,5 +204,129 @@ describe('landscaping QM', () => {
       'retaining_wall',
       'concrete',
     ]);
+  });
+
+  const YARD_NOTE =
+    'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.';
+
+  it('keeps a yard note on the named lines', () => {
+    const hydrated = landscapingQmPanel.hydrateMeasurements({
+      measurements: {},
+      notes: YARD_NOTE,
+      checklistItems: [
+        { ...item('soil_prep'), state: 'included' },
+        { ...item('artificial_turf'), state: 'included' },
+        { ...item('concrete'), state: 'included' },
+        { ...item('landscape_lighting'), state: 'included' },
+        { ...item('cleanup'), state: 'included' },
+      ],
+      templateKey: 'landscaping',
+    });
+    expect(hydrated.landscapeScope).toEqual([
+      'demo_clearing',
+      'grading',
+      'irrigation',
+      'sod_turf',
+      'mulch',
+      'plants',
+      'pavers',
+    ]);
+    expect(landscapingScopeChipNamedInNotes('grading', YARD_NOTE)).toBe(true);
+    expect(landscapingScopeChipNamedInNotes('soil_prep', YARD_NOTE)).toBe(false);
+    expect(landscapingScopeChipNamedInNotes('rock', YARD_NOTE)).toBe(false);
+    expect(landscapingScopeChipNamedInNotes('landscape_lighting', YARD_NOTE)).toBe(false);
+
+    const synced = syncLandscapingQmScopeItems(
+      [
+        item('demo_clearing'),
+        item('grading'),
+        item('soil_prep'),
+        item('drainage'),
+        item('irrigation'),
+        item('sod_turf'),
+        item('artificial_turf'),
+        item('rock'),
+        item('mulch'),
+        item('plants'),
+        item('trees'),
+        item('landscape_boulders'),
+        item('pavers'),
+        item('concrete_edging'),
+        item('retaining_wall'),
+        item('concrete'),
+        item('landscape_lighting'),
+        item('mobilization'),
+        item('cleanup'),
+      ],
+      { landscapeScope: hydrated.landscapeScope as string[] }
+    );
+    expect(synced.filter(row => row.state === 'included').map(row => row.id)).toEqual([
+      'demo_clearing',
+      'grading',
+      'irrigation',
+      'sod_turf',
+      'mulch',
+      'plants',
+      'pavers',
+    ]);
+    expect(
+      landscapingConfirmItemVisible({
+        templateKey: 'landscaping',
+        notes: YARD_NOTE,
+        item: synced.find(row => row.id === 'soil_prep')!,
+      })
+    ).toBe(false);
+    expect(
+      landscapingConfirmItemVisible({
+        templateKey: 'landscaping',
+        notes: YARD_NOTE,
+        item: synced.find(row => row.id === 'pavers')!,
+      })
+    ).toBe(true);
+  });
+
+  it('holds the irrigation price until a type is chosen, then adds it to the group', () => {
+    const resolved = {
+      quantity: 10,
+      unit: 'zone',
+      quantitySource: 'user_entered' as const,
+    };
+    const waiting = resolveScopeItemSuggestedPricing(
+      'irrigation',
+      { irrigationZoneCount: '10' },
+      'landscaping',
+      resolved,
+      {},
+      null,
+      YARD_NOTE
+    );
+    expect(waiting.fill).toBeNull();
+
+    const sprinkler = resolveScopeItemSuggestedPricing(
+      'irrigation',
+      { irrigationZoneCount: '10' },
+      'landscaping',
+      resolved,
+      {},
+      'sprinkler',
+      YARD_NOTE
+    );
+    expect(sprinkler.fill?.total).toBe(12500);
+
+    const group = wholeProjectGroupDisplayTotal({
+      items: [
+        {
+          id: 'irrigation',
+          label: 'Irrigation',
+          inputType: 'choice',
+          state: 'included',
+          choiceId: 'sprinkler',
+        },
+      ],
+      measurements: { irrigationZoneCount: '10', itemQuantities: {} },
+      templateKey: 'landscaping',
+      notes: YARD_NOTE,
+    });
+    expect(group).toBe(12500);
   });
 });

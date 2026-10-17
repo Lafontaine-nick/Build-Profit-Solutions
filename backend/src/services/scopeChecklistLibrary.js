@@ -4,6 +4,8 @@
  */
 
 const {
+  notesIgnoringPaverSurfaces,
+  notesImplyExteriorFlatwork,
   notesImplyStructuralFoundation,
 } = require("./foundationPlanningMeasurements");
 
@@ -1302,7 +1304,7 @@ const CHECKLIST_TEMPLATES = {
       {
         id: "stairs",
         inputType: "yes_no",
-        label: "Stairs / steps",
+        label: "Stair runs",
         category: "surface",
       },
       {
@@ -2702,7 +2704,7 @@ const CHECKLIST_YES_HINTS = {
   excavation:
     /\b(excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?|cut\s+foundation)\b/,
   site_prep:
-    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/,
+    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/,
   gravel_base:
     /\b(gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/,
   reinforcement:
@@ -2713,7 +2715,7 @@ const CHECKLIST_YES_HINTS = {
     /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/,
   decorative_finish:
     /\b(stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
-  grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  grading: /\b(grading|grade(?!\s+prep)|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
   foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
@@ -2733,7 +2735,7 @@ const CHECKLIST_YES_HINTS = {
     /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
   exterior_finishes:
     /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
-  hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini\s*split)\b/,
+  hvac: /\b(hvac|furnace|air\s+handler|air\s+condition|condenser|heat\s+pump|duct(?:work)?|mini\s*split)\b/,
   insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
   cabinets_counters:
@@ -2889,15 +2891,13 @@ function notesImplyConcreteFlatwork(notes) {
 }
 
 function notesImplyMixedExteriorHardscape(notes) {
-  const n = String(notes || "");
+  const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   const hasHardscape =
     notesImplyConcreteFlatwork(n) ||
-    /\b(?:patio|pavers?|retaining\s+walls?|excavat(?:e|ion)|gravel\s+base)\b/i.test(
-      n,
-    );
+    /\b(?:patio|retaining\s+walls?|excavat(?:e|ion)|gravel\s+base)\b/i.test(n);
   const hasExteriorCompanion =
-    /\b(?:landscap(?:e|ing)|pavers?|retaining\s+walls?|exterior\s+doors?|siding|exterior\s+trim)\b/i.test(
+    /\b(?:landscap(?:e|ing)|pavers?|sod|mulch|irrigation|retaining\s+walls?|exterior\s+doors?|siding|exterior\s+trim)\b/i.test(
       n,
     );
   return hasHardscape && hasExteriorCompanion;
@@ -3233,7 +3233,7 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   }
   if (
     projectType === "hvac" ||
-    /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?)\b/i.test(notes)
+    /\b(hvac|furnace|air\s+handler|air\s+condition|condenser|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/i.test(notes)
   ) {
     return "hvac";
   }
@@ -3381,7 +3381,39 @@ function inferItemStateFromNotes(itemId, notes) {
       : "unsure";
   }
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return "included";
+  if (concreteCatalogItemLeftUnnamed(itemId, notes)) return "excluded";
   return "unsure";
+}
+
+const CONCRETE_CATALOG_ITEM_IDS = new Set([
+  "demo_removal",
+  "site_prep",
+  "gravel_base",
+  "excavation",
+  "reinforcement",
+  "pour_flatwork",
+  "pour_foundation",
+  "complex_forming",
+  "concrete_sealer",
+  "decorative_finish",
+  "additional_haul_off",
+  "concrete_pumping",
+  "retaining_wall",
+  "pavers",
+  "landscaping",
+  "exterior_doors",
+  "siding_repairs",
+  "exterior_trim_paint",
+]);
+
+function concreteCatalogItemLeftUnnamed(itemId, notes) {
+  if (!CONCRETE_CATALOG_ITEM_IDS.has(itemId)) return false;
+  const text = String(notes || "");
+  if (!text.trim()) return false;
+  if (!notesImplyExteriorFlatwork(text) || notesImplyStructuralFoundation(text)) {
+    return false;
+  }
+  return true;
 }
 
 function inferRoofingSystemFromNotes(notes) {

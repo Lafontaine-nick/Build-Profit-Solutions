@@ -195,11 +195,53 @@ export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string 
   return 'needs price';
 }
 
+const NOTE_BOUND_LANDSCAPE_QUANTITY_KEYS = new Set([
+  'sod_turf',
+  'artificial_turf',
+  'pavers',
+  'rock',
+  'mulch',
+]);
+
 export function formatScopeQuantity(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
 ): string | null {
   const q = pkg.scopeQuantities?.[0];
+  const previewRuleKey = draft
+    ? pkg.checklistItemId ||
+      pkg.costCode ||
+      lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+      ''
+    : '';
+  // Sod, mulch, rock, and pavers only show a quantity the note attached to
+  // that material. A shared sentence must not copy sod sqft onto mulch.
+  if (
+    draft &&
+    NOTE_BOUND_LANDSCAPE_QUANTITY_KEYS.has(previewRuleKey)
+  ) {
+    const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+    const bound =
+      previewRuleKey === 'sod_turf'
+        ? measurements.sodSqft
+        : previewRuleKey === 'artificial_turf'
+          ? measurements.artificialTurfSqft
+          : previewRuleKey === 'pavers'
+            ? measurements.paverSqft
+            : measurements.landscapeTons ?? measurements.rockMulchSqft;
+    const boundValue = Number(String(bound ?? '').replace(/,/g, ''));
+    if (Number.isFinite(boundValue) && boundValue > 0) {
+      const unit =
+        previewRuleKey !== 'sod_turf' &&
+        previewRuleKey !== 'artificial_turf' &&
+        previewRuleKey !== 'pavers' &&
+        measurements.landscapeTons
+          ? 'ton'
+          : 'sqft';
+      return `${boundValue.toLocaleString()} ${formatDisplayUnit(unit)}`;
+    }
+    return null;
+  }
   if (!q && draft) {
     const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
     const itemQuantities =

@@ -1,11 +1,13 @@
 import {
   applyFoundationPlanningMeasurements,
+  notesIgnoringPaverSurfaces,
   notesImplyExteriorFlatwork,
   notesImplyMixedConcreteJob,
   notesImplyStructuralFoundation,
   splitConcreteNoteSections,
 } from '@/utils/foundationPlanningMeasurements';
 import { detectAdditionConversionIntent } from '@/utils/additionConversionPlanning';
+import { notesDescribeDedicatedDeckJob } from '@/utils/deckNoteScope';
 
 const FLATWORK_TYPE_PATTERNS = [
   { id: 'driveways' as const, re: /\bdriveway\b/i },
@@ -15,7 +17,7 @@ const FLATWORK_TYPE_PATTERNS = [
   { id: 'walkways' as const, re: /\bwalkway\b/i },
 ];
 
-const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inch(?:es)?|in\.?|["″])/i;
+const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:inch(?:es)?|in\.?|["″])/i;
 
 const PER_TYPE_SQFT_KEYS: Record<string, string> = {
   driveways: 'concreteDrivewaySqft',
@@ -212,9 +214,9 @@ export function parseExteriorFlatworkSqftFromNotes(
   typeId: keyof typeof FLATWORK_TYPE_KEYWORDS
 ): number | null {
   const mixed = notesImplyMixedConcreteJob(notes);
-  const section = mixed
-    ? splitConcreteNoteSections(notes).exterior
-    : String(notes || '');
+  const section = notesIgnoringPaverSurfaces(
+    mixed ? splitConcreteNoteSections(notes).exterior : String(notes || '')
+  );
   const keyword = FLATWORK_TYPE_KEYWORDS[typeId];
   if (!keyword) return null;
   const patterns = [
@@ -246,7 +248,8 @@ function resolveExteriorFlatworkSqft(
   out: Record<string, unknown>
 ): number | null {
   const existing = positiveNumber(out.concreteSqft);
-  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) => re.test(blob));
+  const typeBlob = notesIgnoringPaverSurfaces(blob);
+  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) => re.test(typeBlob));
   if (matchedTypes.length === 1) {
     const fromType = parseExteriorFlatworkSqftFromNotes(notes, matchedTypes[0].id);
     if (fromType) return fromType;
@@ -297,7 +300,9 @@ function applyExteriorFlatworkPlanningMeasurements<T extends Record<string, unkn
     next.concreteThicknessInches = thickness;
   }
 
-  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) => re.test(blob));
+  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) =>
+    re.test(notesIgnoringPaverSurfaces(blob))
+  );
   if (flatworkSqft && matchedTypes.length) {
     const areaByType = {
       ...((next.concreteAreaByType as Record<string, unknown>) || {}),
@@ -351,7 +356,9 @@ function applyExteriorFlatworkPlanningMeasurements<T extends Record<string, unkn
       }
     }
   } else if (
-    /\b(?:subgrade\s+prep|site\s+prep|compaction|grade\s+prep)\b/.test(blob) &&
+    /\b(?:subgrade\s+prep|site\s+prep|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/.test(
+      blob
+    ) &&
     flatworkSqft
   ) {
     if (mixed) {
@@ -452,7 +459,7 @@ export function notesMentionConcretePump(notes: string | null | undefined): bool
 }
 
 export function notesImplyConcreteFlatwork(notes: string | null | undefined): boolean {
-  const n = String(notes || '');
+  const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   if (detectAdditionConversionIntent(undefined, n)) return false;
   if (notesImplyStructuralFoundation(n) && !notesImplyExteriorFlatwork(n)) {
@@ -466,6 +473,62 @@ export function notesImplyConcreteFlatwork(notes: string | null | undefined): bo
         n
       ))
   );
+}
+
+const DEMO_THICKNESS_RE = /(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:inch(?:es)?|["″])/i;
+
+/** Existing-slab thickness and demo conditions, read only from removal sentences. */
+export function inferConcreteDemoConditions(notes: string | null | undefined): {
+  concreteDemoThicknessBand?:
+    | 'thin_2_3'
+    | 'standard_4'
+    | 'heavy_5_6'
+    | 'structural_7_plus';
+  concreteDemoReinforced?: boolean;
+  concreteDemoLimitedAccess?: boolean;
+} {
+  const out: {
+    concreteDemoThicknessBand?:
+      | 'thin_2_3'
+      | 'standard_4'
+      | 'heavy_5_6'
+      | 'structural_7_plus';
+    concreteDemoReinforced?: boolean;
+    concreteDemoLimitedAccess?: boolean;
+  } = {};
+  for (const clause of String(notes || '').split(/[.;\n]+/)) {
+    if (
+      !/\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i.test(
+        clause
+      ) ||
+      !/\b(?:concrete|slab|patio|driveway|sidewalk|walkway|flat[\s-]?work)\b/i.test(
+        clause
+      )
+    ) {
+      continue;
+    }
+    if (/\b(?:reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(clause)) {
+      out.concreteDemoReinforced = true;
+    }
+    if (
+      /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
+        clause
+      )
+    ) {
+      out.concreteDemoLimitedAccess = true;
+    }
+    const depth = Number(clause.match(DEMO_THICKNESS_RE)?.[1]);
+    if (!(depth > 0) || out.concreteDemoThicknessBand) continue;
+    out.concreteDemoThicknessBand =
+      depth >= 7
+        ? 'structural_7_plus'
+        : depth >= 5
+          ? 'heavy_5_6'
+          : depth >= 4
+            ? 'standard_4'
+            : 'thin_2_3';
+  }
+  return out;
 }
 
 export function parseFlatworkThicknessInches(text: string | null | undefined): number | null {
@@ -517,7 +580,7 @@ export function inferConcreteScopeIds(
   notes: string | null | undefined,
   measurements: Record<string, unknown> = {}
 ): string[] {
-  const blob = String(notes || '').toLowerCase();
+  const blob = notesIgnoringPaverSurfaces(notes).toLowerCase();
   const ids = new Set<string>();
   const areaByType =
     measurements.concreteAreaByType && typeof measurements.concreteAreaByType === 'object'
@@ -549,6 +612,18 @@ export function inferConcreteScopeIds(
   }
 
   if (
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b/.test(
+      blob
+    ) ||
+    /\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b[^.;\n]{0,60}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/.test(
+      blob
+    ) ||
+    positiveNumber(measurements.concreteDemoSqft)
+  ) {
+    ids.add('demo_removal');
+  }
+
+  if (
     /\b(?:excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?)\b/.test(blob) ||
     positiveNumber(measurements.excavationCy)
   ) {
@@ -563,7 +638,9 @@ export function inferConcreteScopeIds(
   }
 
   if (
-    /\b(?:site\s+prep|subgrade|compaction|grade\s+prep)\b/.test(blob) ||
+    /\b(?:site\s+prep|subgrade|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/.test(
+      blob
+    ) ||
     /\b(?:gravel\s+base|base\s+gravel)\b/.test(blob) ||
     positiveNumber(measurements.concreteSubgradePrepSqft)
   ) {
@@ -615,6 +692,7 @@ export function applyConcretePlanningMeasurements<T extends Record<string, unkno
   notes: string | null | undefined
 ): T {
   if (notesAreImportedPlanSummary(notes)) return out;
+  if (notesDescribeDedicatedDeckJob(notes)) return out;
   const mixed = notesImplyMixedConcreteJob(notes);
   const structuralFoundation =
     notesImplyStructuralFoundation(notes) && !notesImplyExteriorFlatwork(notes);

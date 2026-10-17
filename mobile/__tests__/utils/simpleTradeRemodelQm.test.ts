@@ -1,5 +1,6 @@
 import {
   applyHvacScopeMeasurements,
+  dedicatedHvacEquipmentChecklistItems,
   applyHvacScopePanelMeasurementEdit,
   applyHvacScopeSelectionForConfirmedField,
   expandHvacEquipmentScopeDisplayItems,
@@ -35,11 +36,13 @@ import {
   roofingOptionsForIds,
   simpleTradePanelFor,
 } from '@/utils/qmScopePanels/simpleTradeRemodel';
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   getChecklistItemQuantityRule,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
+import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import { filterChecklistItemsForTrade } from '@/utils/planImportTradeConfig';
 
 describe('simple trade QM panels', () => {
@@ -57,6 +60,232 @@ describe('simple trade QM panels', () => {
         'mini_split'
       ]?.quantity
     ).toBe(1);
+  });
+
+  it('prices one air handler and leaves the condenser in place', () => {
+    const notes = 'Replace one air handler. Leave the condenser in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['air_handler']);
+    const hydrated = simpleTradePanelFor('hvac').hydrateMeasurements({
+      measurements: {
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'hvac_capacity', 'condenser', 'air_handler'],
+        },
+      },
+      notes,
+      checklistItems: [],
+    });
+    expect(
+      (hydrated.tradeScopeSelections as { hvac?: string[] }).hvac
+    ).toEqual(['air_handler']);
+    const priced = resolveScopeItemSuggestedPricing(
+      'air_handler',
+      hydrated,
+      'hvac',
+      { quantity: 1, unit: 'each' },
+      undefined,
+      notes
+    );
+    expect(priced.fill?.total).toBe(5500);
+  });
+
+  it('prices a condenser and thermostats without the system package', () => {
+    const notes =
+      'Replace one condenser and two thermostats. Leave the furnace in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(
+      expect.arrayContaining(['condenser', 'thermostat'])
+    );
+    expect(inferHvacScopeSelectionsFromNotes(notes)).not.toContain('furnace');
+    const hydrated = simpleTradePanelFor('hvac').hydrateMeasurements({
+      measurements: {
+        tradeScopeSelections: {
+          hvac: [
+            'hvac_systems',
+            'hvac_capacity',
+            'furnace',
+            'condenser',
+            'thermostat',
+          ],
+        },
+      },
+      notes,
+      checklistItems: [],
+    });
+    const selections = (hydrated.tradeScopeSelections as { hvac?: string[] })
+      .hvac;
+    expect(selections).toEqual(expect.arrayContaining(['condenser', 'thermostat']));
+    expect(selections).toEqual(
+      expect.not.arrayContaining(['hvac_systems', 'hvac_capacity', 'furnace'])
+    );
+    expect(resolveHvacTradeScopeSelections(hydrated, notes)).toEqual(
+      expect.not.arrayContaining(['hvac_systems', 'hvac_capacity'])
+    );
+  });
+
+  it('prices one mini-split and leaves the ductwork in place', () => {
+    const notes = 'Install one mini-split. Leave the ductwork in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['mini_split']);
+    const hydrated = simpleTradePanelFor('hvac').hydrateMeasurements({
+      measurements: {
+        tradeScopeSelections: { hvac: ['hvac_systems', 'ductwork'] },
+      },
+      notes,
+      checklistItems: [],
+    });
+    expect(
+      (hydrated.tradeScopeSelections as { hvac?: string[] }).hvac
+    ).toEqual(['mini_split']);
+    expect(resolveHvacTradeScopeSelections(hydrated, notes)).toEqual([
+      'mini_split',
+    ]);
+    const cards = expandHvacEquipmentScopeDisplayItems(
+      [
+        {
+          id: 'hvac',
+          label: 'HVAC work',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      hydrated
+    );
+    expect(cards.some(card => card.id === 'mini_split' && card.state === 'included')).toBe(
+      true
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'mini_split',
+      hydrated,
+      'hvac',
+      { quantity: 1, unit: 'each' },
+      undefined,
+      notes
+    );
+    expect(priced.fill?.total).toBe(7500);
+  });
+
+  it('prices supply registers once and leaves the furnace off', () => {
+    const notes = 'Install 4 supply registers. Leave the furnace in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['registers']);
+    expect(
+      dedicatedHvacEquipmentChecklistItems(notes).map(item => item.id)
+    ).toEqual(['supply_registers']);
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'hvac',
+      projectType: 'hvac',
+    });
+    expect(parsed.hvacSupplyRegisterCount).toBe(4);
+    const priced = resolveScopeItemSuggestedPricing(
+      'supply_registers',
+      { ...parsed, scopeNotes: notes },
+      'hvac',
+      { quantity: 4, unit: 'each' },
+      undefined,
+      notes
+    );
+    expect(priced.fill?.total).toBe(600);
+  });
+
+  it('prices two furnaces and leaves the ductwork in place', () => {
+    const notes = 'Replace two furnaces. Leave the ductwork in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['furnace']);
+    expect(dedicatedHvacEquipmentChecklistItems(notes).map(item => item.id)).toEqual([
+      'furnace',
+    ]);
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'hvac',
+      projectType: 'hvac',
+    });
+    expect(parsed.hvacEquipmentReplacementCount).toBe(2);
+    const hydrated = simpleTradePanelFor('hvac').hydrateMeasurements({
+      measurements: {
+        ...parsed,
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'hvac_capacity', 'furnace', 'ductwork'],
+        },
+      },
+      notes,
+      checklistItems: [],
+    });
+    expect(
+      (hydrated.tradeScopeSelections as { hvac?: string[] }).hvac
+    ).toEqual(['furnace']);
+    expect(String(hydrated.hvacEquipmentReplacementCount)).toBe('2');
+    const priced = resolveScopeItemSuggestedPricing(
+      'furnace',
+      hydrated,
+      'hvac',
+      { quantity: 2, unit: 'each' },
+      undefined,
+      notes
+    );
+    expect(priced.fill?.total).toBe(12000);
+  });
+
+  it('prices a furnace once and leaves ductwork and the system package off', () => {
+    const notes = 'Replace one furnace. Leave the ductwork in place.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['furnace']);
+    const hydrated = simpleTradePanelFor('hvac').hydrateMeasurements({
+      measurements: {
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'hvac_capacity', 'furnace', 'ductwork'],
+        },
+      },
+      notes,
+      checklistItems: [],
+    });
+    expect(
+      (hydrated.tradeScopeSelections as { hvac?: string[] }).hvac
+    ).toEqual(['furnace']);
+  });
+
+  it('keeps an HVAC service call in the bid with a blank price', () => {
+    const notes =
+      'One HVAC service call to diagnose the furnace. Do not replace the equipment.';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['service_call']);
+    expect(inferItemStateFromNotes('furnace', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('equipment_replace', notes)).toBe(
+      'excluded'
+    );
+    const priced = resolveScopeItemSuggestedPricing(
+      'service_call',
+      { hvacServiceCallCount: 1, scopeNotes: notes },
+      'hvac',
+      { quantity: 1, unit: 'each' },
+      undefined,
+      notes
+    );
+    expect(priced.fill).toBeNull();
+  });
+
+  it('leaves a heat pump in place off a register and return bid', () => {
+    const notes =
+      'Install 8 supply registers and 2 return grilles. Leave the heat pump in place.';
+
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual([
+      'registers',
+      'returns',
+    ]);
+    expect(hvacScopeOptionMentionedInNotes('heat_pump', notes)).toBe(false);
+    expect(
+      hvacScopeOptionMentionedInNotes(HVAC_SYSTEMS_OPTION_ID, notes)
+    ).toBe(false);
+    expect(hvacScopeOptionMentionedInNotes('registers', notes)).toBe(true);
+    expect(hvacScopeOptionMentionedInNotes('returns', notes)).toBe(true);
+    expect(inferItemStateFromNotes('equipment_replace', notes)).toBe(
+      'excluded'
+    );
+
+    const resolved = resolveHvacTradeScopeSelections(
+      {
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'heat_pump', 'registers', 'returns'],
+        },
+      },
+      notes
+    );
+    expect(resolved).toEqual(expect.arrayContaining(['registers', 'returns']));
+    expect(resolved).not.toEqual(
+      expect.arrayContaining(['hvac_systems', 'heat_pump'])
+    );
   });
 
   it('routes heat-pump notes to heat-pump equipment pricing', () => {
@@ -1204,11 +1433,13 @@ describe('simple trade QM panels', () => {
     expect(hvacScopeOptionHasExplicitQuantityInNotes('thermostat', notes)).toBe(
       true
     );
-    expect(resolveHvacTradeScopeSelections(measurements, notes)).not.toContain(
-      HVAC_CAPACITY_OPTION_ID
+    const resolved = resolveHvacTradeScopeSelections(measurements, notes);
+    expect(resolved).not.toContain(HVAC_CAPACITY_OPTION_ID);
+    expect(resolved).toEqual(
+      expect.arrayContaining(['furnace', 'condenser'])
     );
     expect(summarizeHvacScopePanel(measurements, notes)).toEqual({
-      inBidCount: 5,
+      inBidCount: 7,
       needsConfirmationCount: 0,
     });
   });

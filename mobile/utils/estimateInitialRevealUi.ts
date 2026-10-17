@@ -1,4 +1,5 @@
 import { filterBathroomRevealAttentionItems } from '@/utils/bathroomPlanningMeasurements';
+import { notesIgnoringPaverSurfaces } from '@/utils/foundationPlanningMeasurements';
 import {
   alignDedicatedBathroomScopeRows,
   bathroomAffirmativeNotes,
@@ -18,6 +19,35 @@ import {
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import { estimatedIceWaterShieldSqft } from '@/utils/roofingPlanningMeasurements';
 import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
+import {
+  dedicatedDeckRevealQuantity,
+  filterDedicatedDeckConfirmItems,
+  notesDescribeDedicatedDeckJob,
+} from '@/utils/deckNoteScope';
+import {
+  dedicatedElectricalRevealLines,
+  dedicatedElectricalRevealRows,
+  notesDescribeDedicatedElectricalDeviceJob,
+} from '@/utils/electricalNoteScope';
+import {
+  dedicatedWindowsDoorsRevealLines,
+  dedicatedWindowsDoorsRevealRows,
+  notesDescribeDedicatedWindowsDoorsJob,
+} from '@/utils/windowsDoorsNoteScope';
+import {
+  dedicatedInsulationRevealLines,
+  dedicatedInsulationRevealRows,
+  notesDescribeDedicatedInsulationJob,
+} from '@/utils/insulationNoteScope';
+import {
+  dedicatedStuccoRevealLines,
+  dedicatedStuccoRevealRows,
+  notesDescribeDedicatedStuccoJob,
+} from '@/utils/stuccoNoteScope';
+import {
+  areaOnlyAdditionSqft,
+  notesDescribeAreaOnlyAddition,
+} from '@/utils/additionConversionPlanning';
 import {
   dedicatedFlooringRevealQuantity,
   filterDedicatedFlooringConfirmItems,
@@ -92,14 +122,27 @@ import {
 } from '@/utils/estimateDraftReviewUi';
 import {
   collectRoofingInferenceNotes,
+  hvacNotesDropSystemPackage,
+  hvacNotesLeaveOptionAlone,
   inferItemStateFromNotes,
+  notesDescribeGroundUpHome,
   notesExcludeElectricalServiceUpgrade,
+  notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
-import { filterRoomRemodelNoteScopeItems } from '@/utils/estimateScopeChecklistUi';
 import {
-  initialScopeMeasurementInputExtended,
+  notesNameDedicatedHvacEquipmentJob,
+  notesNameDedicatedHvacServiceVisit,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  areaOnlyAdditionScopeIds,
+  filterRoomRemodelNoteScopeItems,
+} from '@/utils/estimateScopeChecklistUi';
+import {
+  areaOnlyAdditionResolvedQuantity,
   checklistItemInScope,
+  getNationalAverageBudgetSplit,
+  initialScopeMeasurementInputExtended,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
 import {
@@ -327,13 +370,223 @@ export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const buckets = collectInitialRevealConfirmItems(draft);
-  if (!namedScopeReaderOwnsPricing(draft.originalNotes)) return buckets;
+  const notes = draft.originalNotes;
+  const pricingScope = buckets.pricingScope.filter(item => {
+    if (
+      hvacNotesLeaveOptionAlone(notes, 'ductwork') &&
+      /\bductwork\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      hvacNotesDropSystemPackage(notes) &&
+      /\bhvac\s+(?:install|work)\b|equipment replacement/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      hvacNamedCount(notes, 'thermostats?') != null &&
+      !hvacNotesLeaveOptionAlone(notes, 'thermostat') &&
+      /\bhvac\s+controls\b|\bthermostats?\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (hvacDuctworkFeet(notes) != null && /\bductwork\b/i.test(item)) {
+      return false;
+    }
+    if (
+      notesNameDedicatedHvacEquipmentJob(notes) &&
+      /\bpric(?:e|ing)\b/i.test(item) &&
+      hvacPricedEquipmentAttention(notes, item)
+    ) {
+      return false;
+    }
+    if (ownerHandledRevealItem(notes, item)) return false;
+    if (
+      notesDescribeGroundUpHome(notes) &&
+      /\bdrywall\s+finish\b/i.test(item)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const filtered = { ...buckets, pricingScope };
+  if (!namedScopeReaderOwnsPricing(notes)) return filtered;
   return {
-    ...buckets,
-    pricingScope: buckets.pricingScope.filter(
+    ...filtered,
+    pricingScope: filtered.pricingScope.filter(
       item => !/\b(?:pric(?:e|ing)|price needed)\b/i.test(item)
     ),
   };
+}
+
+function ownerHandledRevealItem(
+  notes: string | null | undefined,
+  idOrName: string
+): boolean {
+  const text = String(idOrName || '');
+  if (
+    notesOwnerHandlesScopeCategory(notes, 'sitework') &&
+    /\b(?:sitework|site\s*work|excavation|grading|site\s+prep)\b/i.test(text)
+  ) {
+    return true;
+  }
+  if (
+    notesOwnerHandlesScopeCategory(notes, 'landscaping') &&
+    /\blandscap/i.test(text)
+  ) {
+    return true;
+  }
+  if (
+    notesOwnerHandlesScopeCategory(notes, 'utilities') &&
+    /\butilit/i.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function groundUpLivingRevealLine(
+  notes: string | null | undefined
+): string | null {
+  if (!notesDescribeGroundUpHome(notes)) return null;
+  const text = String(notes || '');
+  const match = text.match(
+    /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,96}\b(?:two[\s-]?story\s+|single[\s-]?story\s+)?(?:home|house)\b/i
+  );
+  if (!match) return null;
+  const qty = Number(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(qty) || qty < 200) return null;
+  const stories = /\btwo[\s-]?story\b/i.test(text)
+    ? 'two-story '
+    : /\bsingle[\s-]?story\b/i.test(text)
+      ? 'single-story '
+      : '';
+  return `${qty.toLocaleString()} sqft ${stories}home`.trim();
+}
+
+function hvacDuctworkFeet(notes: string | null | undefined): number | null {
+  const text = String(notes || '');
+  if (!text.trim() || hvacNotesLeaveOptionAlone(text, 'ductwork')) return null;
+  const match = text.match(
+    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet))\s+of\s+(?:new\s+)?duct(?:work|s)?\b/i
+  );
+  if (!match) return null;
+  const count = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+function hvacPricedEquipmentAttention(
+  notes: string | null | undefined,
+  item: string
+): boolean {
+  const text = String(notes || '');
+  const priced = [
+    ['furnace', /\bfurnaces?\b/i],
+    ['condenser', /\bcondensers?\b/i],
+    ['heat_pump', /\bheat[\s-]*pumps?\b/i],
+    ['air_handler', /\bair\s*handlers?\b/i],
+    ['mini_split', /\bmini[\s-]?splits?\b/i],
+    ['registers', /\b(?:supply\s+)?registers?\b/i],
+    ['returns', /\breturn(?:\s+air)?\s+grilles?\b|\breturns?\b/i],
+  ] as const;
+  return priced.some(
+    ([id, pattern]) =>
+      pattern.test(text) &&
+      !hvacNotesLeaveOptionAlone(text, id) &&
+      pattern.test(item)
+  );
+}
+
+function hvacReturnGrilleLabel(
+  notes: string | null | undefined
+): string | null {
+  if (
+    !notesNameDedicatedHvacEquipmentJob(notes) ||
+    hvacNotesLeaveOptionAlone(notes, 'returns')
+  ) {
+    return null;
+  }
+  const count = hvacNamedCount(notes, 'return(?:\\s+air)?\\s+grilles?');
+  if (count == null) return null;
+  return `${count} return grille${count === 1 ? '' : 's'}`;
+}
+
+function hvacSupplyRegisterLabel(
+  notes: string | null | undefined
+): string | null {
+  if (
+    !notesNameDedicatedHvacEquipmentJob(notes) ||
+    hvacNotesLeaveOptionAlone(notes, 'registers')
+  ) {
+    return null;
+  }
+  const count = hvacNamedCount(notes, '(?:supply\\s+)?registers?');
+  if (count == null) return null;
+  return `${count} supply register${count === 1 ? '' : 's'}`;
+}
+
+function hvacNamedCount(
+  notes: string | null | undefined,
+  subject: string
+): number | null {
+  const match = String(notes || '').match(
+    new RegExp(
+      `\\b(\\d[\\d,]*(?:\\.\\d+)?|one|two|three|four|five)\\s+${subject}\\b`,
+      'i'
+    )
+  );
+  if (!match) return null;
+  const words: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+  };
+  const count =
+    words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+function dedicatedHvacEquipmentScopeLabel(
+  notes: string | null | undefined
+): string | null {
+  const text = String(notes || '');
+  if (!notesNameDedicatedHvacEquipmentJob(text)) return null;
+  const named = (
+    [
+      ['air_handler', 'Air handler', /\bair\s*handlers?\b/i],
+      ['condenser', 'Condenser', /\bcondensers?\b/i],
+      ['furnace', 'Furnace', /\bfurnaces?\b/i],
+      ['heat_pump', 'Heat pump', /\bheat[\s-]*pumps?\b/i],
+      ['mini_split', 'Mini-split', /\bmini[\s-]?splits?\b/i],
+    ] as const
+  ).filter(
+    ([id, , pattern]) =>
+      pattern.test(text) && !hvacNotesLeaveOptionAlone(text, id)
+  );
+  if (named.length !== 1) return null;
+  const [id, label] = named[0];
+  const countSubject: Record<string, string> = {
+    air_handler: 'air\\s*handlers?',
+    condenser: 'condensers?',
+    furnace: 'furnaces?',
+    heat_pump: 'heat[\\s-]*pumps?',
+    mini_split: 'mini[\\s-]?splits?',
+  };
+  const count = hvacNamedCount(text, countSubject[id] || id);
+  if (count != null && count > 1) {
+    const plural: Record<string, string> = {
+      air_handler: 'air handlers',
+      condenser: 'condensers',
+      furnace: 'furnaces',
+      heat_pump: 'heat pumps',
+      mini_split: 'mini-splits',
+    };
+    return `${count} ${plural[id] || label.toLowerCase()}`;
+  }
+  return label;
 }
 
 function namedScopeReaderOwnsPricing(
@@ -344,7 +597,11 @@ function namedScopeReaderOwnsPricing(
     notesDescribeSheetrockFinishJob(notes) ||
     notesDescribeNoteRatedDrywallJob(notes) ||
     notesDescribeDrywallAndFlooringJob(notes) ||
-    notesDescribeDedicatedFlooringJob(notes)
+    notesDescribeDedicatedFlooringJob(notes) ||
+    notesDescribeDedicatedDeckJob(notes) ||
+    notesDescribeDedicatedElectricalDeviceJob(notes) ||
+    notesDescribeDedicatedWindowsDoorsJob(notes) ||
+    notesDescribeDedicatedInsulationJob(notes)
   );
 }
 
@@ -523,9 +780,32 @@ function collectInitialRevealConfirmItems(
     ...prioritized,
     ...plumbingMissingQuantityAttentionItems(draft),
   ].filter((item, index, all) => all.indexOf(item) === index);
-  return splitInitialRevealConfirmItems(
-    dropPricedElectricalAttention(draft, withPlumbingAttention)
-  );
+  const attention = dropPricedElectricalAttention(
+    draft,
+    withPlumbingAttention
+  ).filter(item => {
+    const notes = draft.originalNotes;
+    if (
+      hvacNotesLeaveOptionAlone(notes, 'ductwork') &&
+      /\bductwork\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      hvacNotesDropSystemPackage(notes) &&
+      /\bhvac\s+(?:install|work)\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (!notesNameDedicatedHvacServiceVisit(notes)) return true;
+    return !/equipment replacement|\bhvac work\b|\bfurnace\b/i.test(item);
+  });
+  if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
+    return splitInitialRevealConfirmItems(
+      attention.filter(item => /window|exterior door|interior trim/i.test(item))
+    );
+  }
+  return splitInitialRevealConfirmItems(attention);
 }
 
 export function countInitialRevealAttentionItems(
@@ -627,6 +907,7 @@ function isPlumbingTemplateDraft(draft: EstimateAiDraft): boolean {
 }
 
 function isPlumbingRevealDraft(draft: EstimateAiDraft): boolean {
+  if (notesNameDedicatedHvacServiceVisit(draft.originalNotes)) return false;
   const classificationMode =
     draft.classification?.scopeMode || draft.scopeMode;
   if (String(classificationMode || '').toLowerCase() === 'mixed') {
@@ -1086,6 +1367,7 @@ function revealChecklistItemVisible(
   }
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  if (ownerHandledRevealItem(draft.originalNotes, item.id)) return false;
   if (
     item.id === 'decorative_finish' &&
     !notesNameConcreteDecorativeFinish(draft.originalNotes)
@@ -1101,6 +1383,33 @@ function revealChecklistItemVisible(
     /\b(?:heat[\s-]*pumps?|furnaces?|condensers?|air\s*handlers?|mini[\s-]?splits?)\b/i.test(
       String(draft.originalNotes || '')
     )
+  ) {
+    return false;
+  }
+  if (
+    item.id === 'ductwork' &&
+    hvacNotesLeaveOptionAlone(draft.originalNotes, 'ductwork')
+  ) {
+    return false;
+  }
+  if (item.id === 'hvac' && hvacNotesDropSystemPackage(draft.originalNotes)) {
+    return false;
+  }
+  if (
+    notesNameDedicatedHvacServiceVisit(draft.originalNotes) &&
+    (item.id === 'equipment_replace' ||
+      item.id === 'hvac' ||
+      item.id === 'heat_pump' ||
+      item.id === 'furnace')
+  ) {
+    return false;
+  }
+  if (
+    (item.id === 'equipment_replace' ||
+      item.id === 'hvac' ||
+      item.id === 'heat_pump' ||
+      item.id === 'furnace') &&
+    hvacNotesLeaveOptionAlone(draft.originalNotes, item.id)
   ) {
     return false;
   }
@@ -1403,7 +1712,46 @@ function dropPricedElectricalAttention(
   });
 }
 
+function noteOwnedRevealSkippedForPlan(draft: EstimateAiDraft): boolean {
+  return Boolean(
+    draft.scopeMeasurements?.planImportMode ||
+      draft.scopeMeasurements?.planImportFingerprint
+  );
+}
+
+function electricalDeviceNoteOwnsReveal(draft: EstimateAiDraft): boolean {
+  if (noteOwnedRevealSkippedForPlan(draft)) return false;
+  return notesDescribeDedicatedElectricalDeviceJob(draft.originalNotes);
+}
+
+function windowsDoorsNoteOwnsReveal(draft: EstimateAiDraft): boolean {
+  if (noteOwnedRevealSkippedForPlan(draft)) return false;
+  return notesDescribeDedicatedWindowsDoorsJob(draft.originalNotes);
+}
+
+function insulationNoteOwnsReveal(draft: EstimateAiDraft): boolean {
+  if (noteOwnedRevealSkippedForPlan(draft)) return false;
+  return notesDescribeDedicatedInsulationJob(draft.originalNotes);
+}
+
+function stuccoNoteOwnsReveal(draft: EstimateAiDraft): boolean {
+  if (noteOwnedRevealSkippedForPlan(draft)) return false;
+  return notesDescribeDedicatedStuccoJob(draft.originalNotes);
+}
+
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  if (electricalDeviceNoteOwnsReveal(draft)) {
+    return dedicatedElectricalRevealRows(draft.originalNotes).length;
+  }
+  if (windowsDoorsNoteOwnsReveal(draft)) {
+    return dedicatedWindowsDoorsRevealRows(draft.originalNotes).length;
+  }
+  if (insulationNoteOwnsReveal(draft)) {
+    return dedicatedInsulationRevealRows(draft.originalNotes).length;
+  }
+  if (stuccoNoteOwnsReveal(draft)) {
+    return dedicatedStuccoRevealRows(draft.originalNotes).length;
+  }
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft).length;
   }
@@ -1667,6 +2015,7 @@ function getInitialRevealScopeRows(
     notesDescribeSheetrockFinishJob(notes);
   const noteRatedDrywallNote = notesDescribeNoteRatedDrywallJob(notes);
   const dedicatedFlooringNote = notesDescribeDedicatedFlooringJob(notes);
+  const dedicatedDeckNote = notesDescribeDedicatedDeckJob(notes);
   const parsedDedicatedDrywallMeasurements = dedicatedDrywallNote
     ? initialScopeMeasurementInputExtended(draft, notes)
     : null;
@@ -1786,8 +2135,27 @@ function getInitialRevealScopeRows(
     /\b(?:paint|painting|repaint|repainting)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint|painting|repaint|repainting)\b/i.test(
       notes
     );
+  const namedEquipmentLabel = dedicatedHvacEquipmentScopeLabel(notes);
   const displayNameForScopeRow = (id: string, name: string) =>
-    additionReveal && id === 'windows_doors'
+    id === 'service_call' && notesNameDedicatedHvacServiceVisit(notes)
+      ? 'HVAC service call'
+      : (id === 'equipment_replace' || id === 'furnace') && namedEquipmentLabel
+        ? namedEquipmentLabel
+      : (id === 'returns' || id === 'return_grilles') &&
+          hvacReturnGrilleLabel(notes)
+        ? hvacReturnGrilleLabel(notes)
+      : (id === 'registers' || id === 'supply_registers') &&
+          hvacSupplyRegisterLabel(notes)
+        ? hvacSupplyRegisterLabel(notes)
+      : id === 'ductwork' && hvacDuctworkFeet(notes) != null
+        ? `${hvacDuctworkFeet(notes)} LF ductwork`
+      : id === 'thermostat' &&
+          hvacNamedCount(notes, 'thermostats?') != null &&
+          !hvacNotesLeaveOptionAlone(notes, 'thermostat')
+        ? `${hvacNamedCount(notes, 'thermostats?')} thermostat${
+            hvacNamedCount(notes, 'thermostats?') === 1 ? '' : 's'
+          }`
+      : additionReveal && id === 'windows_doors'
       ? noteWindowCount && noteExteriorDoorCount
         ? 'Windows & exterior doors'
         : noteWindowCount
@@ -2057,6 +2425,14 @@ function getInitialRevealScopeRows(
               ),
             }
           : {}),
+        ...(dedicatedDeckNote
+          ? {
+              quantityOverride: dedicatedDeckRevealQuantity(
+                String(item.id || '').trim(),
+                (draft.scopeMeasurements || {}) as Record<string, unknown>
+              ),
+            }
+          : {}),
       }))
       .filter(row => row.id && row.name) || [];
   rows = appendNamedRoofingRevealRows(draft, rows);
@@ -2155,10 +2531,19 @@ function getInitialRevealScopeRows(
         }
         return false;
       }
-      if (row.id === 'interior_trim' && !explicitInteriorTrim) {
+      const additionPackageNote = notesDescribeAreaOnlyAddition(notes);
+      if (
+        row.id === 'interior_trim' &&
+        !explicitInteriorTrim &&
+        !additionPackageNote
+      ) {
         return false;
       }
-      if (row.id === 'exterior_finishes' && !explicitExteriorFinish) {
+      if (
+        row.id === 'exterior_finishes' &&
+        !explicitExteriorFinish &&
+        !additionPackageNote
+      ) {
         return false;
       }
       return true;
@@ -2421,6 +2806,17 @@ function getInitialRevealScopeRows(
     const id = String(fact.scopeId || '').trim();
     if (hasConcreteFlatworkRow && id === 'concrete') continue;
     if (!id || fact.status === 'excluded' || ids.has(id)) continue;
+    if (
+      (notesNameDedicatedHvacServiceVisit(notes) &&
+        (id === 'equipment_replace' ||
+          id === 'hvac' ||
+          id === 'heat_pump' ||
+          id === 'furnace')) ||
+      (id === 'ductwork' && hvacNotesLeaveOptionAlone(notes, 'ductwork')) ||
+      (id === 'hvac' && hvacNotesDropSystemPackage(notes))
+    ) {
+      continue;
+    }
     rows.push({
       id,
       name: displayNameForScopeRow(
@@ -2903,6 +3299,7 @@ function getInitialRevealScopeRows(
         /^(?:kitchen remodel|plumbing|electrical|drywall and insulation|material\/labor pricing for flooring|windows and exterior door)$/i.test(
           plain
         ) ||
+        ownerHandledRevealItem(notes, plain) ||
         fallbackNames.has(plain.toLowerCase())
       ) {
         continue;
@@ -2923,7 +3320,8 @@ function getInitialRevealScopeRows(
     ),
     wholeHome: wholeHomeRemodelContext,
   };
-  const revealRows = filterDedicatedFlooringConfirmItems(
+  const revealRows = filterDedicatedDeckConfirmItems(
+    filterDedicatedFlooringConfirmItems(
     filterDedicatedKitchenConfirmItems(
       alignDedicatedBathroomScopeRows(
         filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
@@ -2936,6 +3334,8 @@ function getInitialRevealScopeRows(
         planBacked: bathroomScopeParams.planBacked,
         wholeHome: wholeHomeRemodelContext,
       }
+    ),
+    notes
     ),
     notes
   );
@@ -3113,9 +3513,63 @@ function hideUnnamedBathroomPaintScopeRow(
   return /\binterior\s+paint\b/i.test(String(row.name || ''));
 }
 
+function areaOnlyAdditionRevealRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (!notesDescribeAreaOnlyAddition(draft.originalNotes)) return null;
+  const measurements = initialScopeMeasurementInputExtended(draft);
+  const packageIds = new Set(areaOnlyAdditionScopeIds());
+  return getInitialRevealScopeRows(draft)
+    .filter(row => packageIds.has(row.id))
+    .map(row => {
+    const resolved = areaOnlyAdditionResolvedQuantity(
+      row.id,
+      measurements as Parameters<typeof areaOnlyAdditionResolvedQuantity>[1],
+      draft.originalNotes
+    );
+    const rateId = row.id === 'exterior_finishes' ? 'exterior_paint' : row.id;
+    const split =
+      resolved?.pricingReady && resolved.quantity
+        ? getNationalAverageBudgetSplit(rateId, resolved.unit)
+        : null;
+    const rate = Number(split?.material || 0) + Number(split?.labor || 0);
+    const amount =
+      resolved?.unit === 'allowance'
+        ? Number(resolved.quantity || 0)
+        : resolved?.pricingReady && rate > 0
+          ? roundedMoney(rate * Number(resolved.quantity))
+          : 0;
+    const quantity =
+      resolved?.pricingReady && resolved.quantity
+        ? resolved.unit === 'allowance'
+          ? 'Allowance'
+          : `${Number(resolved.quantity).toLocaleString('en-US')} ${resolved.unit}`
+        : null;
+    return {
+      name: row.name,
+      amount,
+      ...(quantity ? { quantity } : {}),
+    };
+  });
+}
+
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
+  if (electricalDeviceNoteOwnsReveal(draft)) {
+    return dedicatedElectricalRevealRows(draft.originalNotes);
+  }
+  if (windowsDoorsNoteOwnsReveal(draft)) {
+    return dedicatedWindowsDoorsRevealRows(draft.originalNotes);
+  }
+  if (insulationNoteOwnsReveal(draft)) {
+    return dedicatedInsulationRevealRows(draft.originalNotes);
+  }
+  if (stuccoNoteOwnsReveal(draft)) {
+    return dedicatedStuccoRevealRows(draft.originalNotes);
+  }
+  const areaOnlyPreview = areaOnlyAdditionRevealRows(draft);
+  if (areaOnlyPreview) return areaOnlyPreview;
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft);
   }
@@ -3138,6 +3592,21 @@ export function getInitialRevealChecklistScopePreview(
   const scopeRows = getInitialRevealScopeRows(draft).filter(
     row => !hideUnnamedBathroomPaintScopeRow(draft, row)
   );
+  const groundUpLine = groundUpLivingRevealLine(draft.originalNotes);
+  if (groundUpLine) {
+    const kept = scopeRows.filter(
+      row => !ownerHandledRevealItem(draft.originalNotes, `${row.id} ${row.name}`)
+    );
+    const onlySoftCosts =
+      kept.length === 0 ||
+      kept.every(row => /\b(?:plans?|permits?)\b/i.test(row.name));
+    if (onlySoftCosts) {
+      return [
+        { name: groundUpLine, amount: 0 },
+        ...kept.map(row => ({ name: row.name, amount: 0 })),
+      ];
+    }
+  }
   const visibleChecklistItems =
     draft.scopeChecklist?.items?.filter(item =>
       revealChecklistItemVisible(draft, item)
@@ -3344,6 +3813,9 @@ export function getInitialRevealStatusLabel(
 }
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
+  if (notesNameDedicatedHvacServiceVisit(draft.originalNotes)) {
+    return 'HVAC service call';
+  }
   const classification = getRevealClassification(draft);
   if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
     return 'Painting';
@@ -3361,9 +3833,12 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
     );
     if (roomTitle !== 'Plumbing bid') return roomTitle;
   }
-  if (draft.projectTitle?.trim()) {
-    return draft.projectTitle.trim();
+  const titled = draft.projectTitle?.trim();
+  if (titled && !/^your project$/i.test(titled)) {
+    return titled;
   }
+  const dedicatedHvacTitle = dedicatedHvacRevealTitle(draft.originalNotes);
+  if (dedicatedHvacTitle) return dedicatedHvacTitle;
   if (draft.projectType && draft.projectType !== 'other') {
     const label = draft.projectType.replace(/_/g, ' ');
     return label.charAt(0).toUpperCase() + label.slice(1);
@@ -3371,7 +3846,25 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   if (draft.customerName?.trim()) {
     return draft.customerName.trim();
   }
-  return 'Your project';
+  return dedicatedHvacRevealTitle(draft.originalNotes) || 'Your project';
+}
+
+function dedicatedHvacRevealTitle(
+  notes: string | null | undefined
+): string | null {
+  const equipment = dedicatedHvacEquipmentScopeLabel(notes);
+  if (equipment) return equipment;
+  if (!notesNameDedicatedHvacEquipmentJob(notes)) return null;
+  const ductFeet = hvacDuctworkFeet(notes);
+  if (ductFeet != null) return `${ductFeet} LF ductwork`;
+  const thermostatCount = hvacNamedCount(notes, 'thermostats?');
+  if (
+    thermostatCount != null &&
+    !hvacNotesLeaveOptionAlone(notes, 'thermostat')
+  ) {
+    return `${thermostatCount} thermostat${thermostatCount === 1 ? '' : 's'}`;
+  }
+  return hvacSupplyRegisterLabel(notes) || hvacReturnGrilleLabel(notes);
 }
 
 function revealItemPriority(text: string): number {
@@ -3414,13 +3907,12 @@ function getRevealClassification(draft: EstimateAiDraft) {
   }
   const importedPlanSummary = notesAreImportedPlanSummary(notes);
   const selectedTradePlan = planRecord?.planImportMode === 'selected_trade';
+  const hardscapeNotes = notesIgnoringPaverSurfaces(notes);
   const hasMixedExteriorHardscape =
     !importedPlanSummary &&
     !selectedTradePlan &&
-    /\b(?:concrete|flatwork|patio|pavers?|retaining\s+walls?)\b/i.test(
-      notes
-    ) &&
-    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|exterior\s+doors?)\b/i.test(
+    /\b(?:concrete|flatwork|patio|retaining\s+walls?)\b/i.test(hardscapeNotes) &&
+    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|pavers?|exterior\s+doors?)\b/i.test(
       notes
     );
   const mixedSignalText = notes
@@ -3606,6 +4098,12 @@ export function getInitialRevealPriorityItems(
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   if (
+    notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
+    notesNameDedicatedHvacEquipmentJob(draft.originalNotes)
+  ) {
+    return 'Detected HVAC.';
+  }
+  if (
     notesUseDedicatedDrywallScope(draft.originalNotes) ||
     notesDescribeSheetrockFinishJob(draft.originalNotes) ||
     notesDescribeNoteRatedDrywallJob(draft.originalNotes)
@@ -3731,6 +4229,72 @@ export function getInitialRevealUnderstoodBullets(
   draft: EstimateAiDraft,
   max = 3
 ): string[] {
+  if (electricalDeviceNoteOwnsReveal(draft)) {
+    return dedicatedElectricalRevealLines(draft.originalNotes);
+  }
+  if (windowsDoorsNoteOwnsReveal(draft)) {
+    return dedicatedWindowsDoorsRevealLines(draft.originalNotes);
+  }
+  if (insulationNoteOwnsReveal(draft)) {
+    return dedicatedInsulationRevealLines(draft.originalNotes);
+  }
+  if (stuccoNoteOwnsReveal(draft)) {
+    return dedicatedStuccoRevealLines(draft.originalNotes);
+  }
+  if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
+    const sqft = areaOnlyAdditionSqft(draft.originalNotes);
+    if (sqft) {
+      return [`Room addition · ${sqft.toLocaleString('en-US')} sqft`].slice(0, max);
+    }
+  }
+  const groundUpLine = groundUpLivingRevealLine(draft.originalNotes);
+  if (groundUpLine) return [groundUpLine];
+  if (notesNameDedicatedHvacServiceVisit(draft.originalNotes)) {
+    return ['1 HVAC service call'];
+  }
+  if (
+    /\bmini[\s-]?splits?\b/i.test(String(draft.originalNotes || '')) &&
+    hvacNotesDropSystemPackage(draft.originalNotes)
+  ) {
+    return ['1 mini-split'];
+  }
+  if (
+    notesNameDedicatedHvacEquipmentJob(draft.originalNotes) &&
+    /\bair\s*handlers?\b/i.test(String(draft.originalNotes || '')) &&
+    !hvacNotesLeaveOptionAlone(draft.originalNotes, 'air_handler')
+  ) {
+    return ['1 air handler'];
+  }
+  const ductFeet = hvacDuctworkFeet(draft.originalNotes);
+  if (
+    ductFeet != null &&
+    notesNameDedicatedHvacEquipmentJob(draft.originalNotes)
+  ) {
+    return [`${ductFeet} LF ductwork`];
+  }
+  const furnaceCount = hvacNamedCount(draft.originalNotes, 'furnaces?');
+  if (
+    furnaceCount != null &&
+    furnaceCount > 1 &&
+    notesNameDedicatedHvacEquipmentJob(draft.originalNotes) &&
+    !hvacNotesLeaveOptionAlone(draft.originalNotes, 'furnace')
+  ) {
+    return [`${furnaceCount} furnaces`];
+  }
+  const supplyRegisterLabel = hvacSupplyRegisterLabel(draft.originalNotes);
+  if (supplyRegisterLabel) return [supplyRegisterLabel];
+  const returnGrilleLabel = hvacReturnGrilleLabel(draft.originalNotes);
+  if (returnGrilleLabel) return [returnGrilleLabel];
+  const thermostatCount = hvacNamedCount(draft.originalNotes, 'thermostats?');
+  if (
+    thermostatCount != null &&
+    notesNameDedicatedHvacEquipmentJob(draft.originalNotes) &&
+    !hvacNotesLeaveOptionAlone(draft.originalNotes, 'thermostat')
+  ) {
+    return [
+      `${thermostatCount} thermostat${thermostatCount === 1 ? '' : 's'}`,
+    ];
+  }
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft)
       .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)

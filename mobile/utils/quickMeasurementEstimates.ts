@@ -100,6 +100,40 @@ type MeasurementLookup = Partial<
   >;
 };
 
+function resolvedStoryCount(
+  facts: PlanFacts | undefined,
+  measurements: MeasurementLookup,
+  notes?: string | null
+): number {
+  const recorded = n(facts?.storyCount) ?? n(measurements.storyCount);
+  if (recorded != null) return Math.max(1, Math.round(recorded));
+  const text = String(notes || '');
+  if (/\b(?:three|3)[\s-]?story\b/i.test(text)) return 3;
+  if (/\b(?:two|2)[\s-]?story\b/i.test(text)) return 2;
+  return 1;
+}
+
+/** Two-story living area is not the ground-floor slab or the roof footprint. */
+function planningFirstFloorSqft(
+  facts: PlanFacts | undefined,
+  measurements: MeasurementLookup,
+  totalLiving: number | null,
+  firstFloorLiving: number | null,
+  notes?: string | null
+): number | null {
+  const stories = resolvedStoryCount(facts, measurements, notes);
+  const labeledMain = n(facts?.buildingAreas?.mainFloorLivingSqft);
+  if (
+    stories > 1 &&
+    labeledMain == null &&
+    totalLiving != null &&
+    (firstFloorLiving == null || Math.abs(firstFloorLiving - totalLiving) < 1)
+  ) {
+    return totalLiving / stories;
+  }
+  return firstFloorLiving;
+}
+
 function n(value: unknown): number | null {
   const parsed = Number(
     String(value ?? '')
@@ -1040,7 +1074,14 @@ export function getQuickMeasurementEstimate(
       });
     }
     case 'exteriorPaintSqft': {
-      if (firstFloorLiving == null) return null;
+      const paintFirstFloor = planningFirstFloorSqft(
+        facts,
+        measurements,
+        totalLiving,
+        firstFloorLiving,
+        options?.notes
+      );
+      if (paintFirstFloor == null) return null;
       const measuredPerimeter =
         n(facts?.exteriorPerimeterLf) ??
         n(facts?.foundationPerimeterLf) ??
@@ -1049,10 +1090,10 @@ export function getQuickMeasurementEstimate(
           'garage_footprint',
           'foundation',
         ]);
-      const firstFloorFootprint = firstFloorLiving + garage;
+      const firstFloorFootprint = paintFirstFloor + garage;
       const perimeter =
         measuredPerimeter ?? estimatedPerimeterFt(firstFloorFootprint);
-      const stories = Math.max(1, Math.round(n(facts?.storyCount) ?? 1));
+      const stories = resolvedStoryCount(facts, measurements, options?.notes);
       const openings = Math.max(
         0,
         Math.min(
@@ -1150,11 +1191,11 @@ export function getQuickMeasurementEstimate(
     case 'flooringSqft': {
       const template = String(templateKey || '').toLowerCase();
       if (template !== 'addition' && template !== 'ground_up') return null;
+      const livingArea = totalLiving ?? firstFloorLiving ?? living;
       const primary =
-        conversionPrimaryFloorSqft(measurements) ??
-        totalLiving ??
-        firstFloorLiving ??
-        living;
+        template === 'ground_up'
+          ? livingArea
+          : (conversionPrimaryFloorSqft(measurements) ?? livingArea);
       if (primary == null || primary <= 0) return null;
       return baseEstimate({
         key,
@@ -1323,10 +1364,17 @@ export function getQuickMeasurementEstimate(
     }
     case 'concreteCy': {
       const geometryFootprint = geometryArea(facts, ['foundation']);
+      const foundationFirstFloor = planningFirstFloorSqft(
+        facts,
+        measurements,
+        totalLiving,
+        firstFloorLiving,
+        options?.notes
+      );
       const livingFootprint =
         geometryFootprint ??
         n(facts?.foundationFootprintSqft) ??
-        firstFloorLiving;
+        foundationFirstFloor;
       if (livingFootprint == null) return null;
       const patioIncluded =
         facts?.includeCoveredPatioSlab === true && patio > 0;

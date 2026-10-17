@@ -12,6 +12,18 @@ const INTERIOR_FOOTING_RATIO = 0.15;
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|sidewalk|walkway|patio\s+slab|rv\s+pad|porch\s+slab)\b/i;
 
+function notesIgnoringPaverSurfaces(notes) {
+  return String(notes || "")
+    .replace(
+      /\bpavers?\s+(?:walkways?|patios?|sidewalks?|paths?|driveways?)\b/gi,
+      "pavers",
+    )
+    .replace(
+      /\b(?:walkways?|patios?|sidewalks?|paths?)\s+(?:of|with|in)\s+pavers?\b/gi,
+      "pavers",
+    );
+}
+
 const STRUCTURAL_FOUNDATION_RE =
   /\b(?:house|garage|building|monolithic)\s+slab\b|\b(?:slab\s+on\s+grade|foundation\s+pour|footings?|stem\s+wall|continuous\s+footings?|piers?)\b/i;
 
@@ -96,7 +108,7 @@ function notesImplyStructuralFoundation(notes) {
 }
 
 function notesImplyExteriorFlatwork(notes) {
-  const n = String(notes || "");
+  const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   return (
     EXTERIOR_FLATWORK_RE.test(n) ||
@@ -401,6 +413,7 @@ module.exports = {
   computeExcavationCyFromFootingTrench,
   notesImplyStructuralFoundation,
   notesImplyExteriorFlatwork,
+  notesIgnoringPaverSurfaces,
   notesImplyMixedConcreteJob,
   splitConcreteNoteSections,
   parseFoundationFootprintSqftFromNotes,

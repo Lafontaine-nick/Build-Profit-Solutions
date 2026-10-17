@@ -382,6 +382,26 @@ describe('dedicated flooring note', () => {
     expect(String(hydrated.flooringLaminateSqft)).toBe('500');
     expect(String(hydrated.floorDemoSqft)).toBe('500');
     expect(hydrated.floorPrepByProduct ?? null).toBeNull();
+    const demoQuantity = resolveChecklistItemQuantity(
+      'floor_demo',
+      normalizeScopeMeasurements(repaired.scopeMeasurements || {}),
+      { templateKey: 'flooring', notes: note }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'floor_demo',
+        repaired.scopeMeasurements || {},
+        'flooring',
+        demoQuantity,
+        null,
+        null,
+        note
+      ).fill
+    ).toMatchObject({
+      material: 175,
+      labor: 700,
+      total: 875,
+    });
   });
 
   it('stays off kitchen and drywall notes', () => {

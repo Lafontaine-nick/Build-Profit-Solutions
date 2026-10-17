@@ -1,5 +1,6 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { ELECTRICAL_PRICING_OWNERSHIP } from '@/utils/subcontractorTrade/electricalPricingOwnership';
+import { notesNameFramingOnlyAddition } from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 export const ADDITION_CONVERSION_PROJECT_TYPES = new Set([
   'garage_conversion',
@@ -95,6 +96,71 @@ export function existingShellConversionUsesPackageElectrical(
   notes?: string | null
 ): boolean {
   return isExistingShellConversionJob(templateKey, projectType, notes);
+}
+
+const ADDITION_NAMED_PHASE =
+  /\b(?:foundation|footings?|stem\s+wall|slab|concrete|roof(?:ing)?|windows?|doors?|electrical|insulat(?:e|ion|ed)|drywall|sheetrock|paint(?:ing)?|flooring|lvp|plumb(?:ing)?|hvac|cabinets?|tile|trim|inspections?|cleanup|demolish|demolition|sheathing|siding|stucco|excavat(?:e|ion)|permits?)\b/i;
+
+/**
+ * A room addition that states area and no phases. Foundation, roof, windows,
+ * and finishes stay off until the note names them.
+ */
+export function notesDescribeAreaOnlyAddition(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  if (isGarageConversionJob(null, text)) return false;
+  if (EXISTING_SHELL_CONVERSION_NOTES.test(text)) return false;
+  if (notesNameFramingOnlyAddition(text)) return false;
+  const namesAddition =
+    NEW_STRUCTURE_ADDITION_NOTES.test(text) ||
+    /\b(?:room|home|bedroom)\s+addition\b/i.test(text);
+  if (!namesAddition) return false;
+  return !ADDITION_NAMED_PHASE.test(text);
+}
+
+export function areaOnlyAdditionSqft(
+  notes: string | null | undefined
+): number | null {
+  const match = String(notes || '').match(
+    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
+  );
+  if (!match) return null;
+  const sqft = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(sqft) && sqft > 0 ? sqft : null;
+}
+
+export function areaOnlyAdditionConfirmItem(
+  existing?: Partial<ScopeChecklistItem> | null
+): ScopeChecklistItem {
+  return {
+    ...(existing || {}),
+    id: 'room_addition',
+    inputType: 'yes_no',
+    label: 'Room addition',
+    helperText:
+      'Addition floor area from the notes. Phases stay off until the note names them.',
+    category: existing?.category || 'structure',
+    state: 'included',
+    noteBacked: true,
+  };
+}
+
+export function filterAreaOnlyAdditionConfirmItems<
+  T extends { id?: string | null },
+>(
+  items: T[],
+  notes?: string | null,
+  options?: { planBacked?: boolean }
+): T[] {
+  if (options?.planBacked) return items;
+  if (!notesDescribeAreaOnlyAddition(notes)) return items;
+  const custom = items.filter(item =>
+    String(item.id || '').startsWith('custom_')
+  );
+  const existing = items.find(item => item.id === 'room_addition');
+  return [areaOnlyAdditionConfirmItem(existing) as T, ...custom];
 }
 
 /** True when notes explicitly call for new/replaced window or exterior door openings. */

@@ -62,6 +62,30 @@ describe('concretePlanningMeasurements', () => {
     );
   });
 
+  it('reads a driveway replacement note without inventing demo thickness or structural pours', () => {
+    const notes =
+      'Remove 400 sqft of existing flatwork. Prep the base and pour 400 sqft of 4-inch driveway.';
+    const parsed = applyConcretePlanningMeasurements({}, notes);
+    expect(parsed.concreteSqft).toBe(400);
+    expect(parsed.concreteDrivewaySqft).toBe(400);
+    expect(parsed.concreteThicknessInches).toBe(4);
+    expect(parsed.concreteThicknessByType).toEqual({ driveways: 4 });
+    expect(parsed.concreteSubgradePrepSqft).toBe(400);
+    expect(parsed.gravelBaseCy).toBeUndefined();
+    expect(parsed.concreteDemoThicknessBand).toBeUndefined();
+    expect(parsed.concreteScope).toEqual(
+      expect.arrayContaining([
+        'demo_removal',
+        'site_prep',
+        'pour_flatwork',
+        'driveways',
+      ])
+    );
+    expect(parsed.concreteScope).not.toContain('pour_foundation');
+    expect(parsed.concreteScope).not.toContain('gravel_base');
+    expect(parsed.concreteScope).not.toContain('excavation');
+  });
+
   it('uses slab-only excavation depth when gravel base is not mentioned', () => {
     const parsed = applyConcretePlanningMeasurements(
       {},
@@ -240,5 +264,15 @@ Deck / patio: 322 sqft`;
     expect(parsed.concreteSqft).toBeUndefined();
     expect(parsed.concretePatioSqft).toBeUndefined();
     expect(parsed.concreteCy).toBeUndefined();
+  });
+
+  it('does not turn a paver walkway into a concrete walkway pour', () => {
+    const note =
+      'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.';
+    const parsed = applyConcretePlanningMeasurements({}, note);
+    expect(parsed.concreteSqft).toBeUndefined();
+    expect(parsed.concreteWalkwaySqft).toBeUndefined();
+    expect(inferConcreteScopeIds(note)).not.toContain('walkways');
+    expect(inferConcreteScopeIds(note)).not.toContain('pour_flatwork');
   });
 });

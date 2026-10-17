@@ -277,6 +277,26 @@ describe("estimateDraftComplexity", () => {
     expect(included.has("trim")).toBe(false);
   });
 
+  test("keeps a paver walkway on the landscaping checklist", () => {
+    const notes =
+      "Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.";
+    const checklist = buildScopeChecklist(
+      { projectType: "landscaping", originalNotes: notes, rooms: [] },
+      "standard",
+      notes,
+    );
+    const byId = new Map(checklist.items.map(item => [item.id, item]));
+
+    expect(checklist.templateKey).toBe("landscaping");
+    expect(byId.get("pour_flatwork")?.state).not.toBe("included");
+    expect(byId.get("grading")?.state).toBe("included");
+    expect(byId.get("sod_turf")?.state).toBe("included");
+    expect(byId.get("pavers")?.state).toBe("included");
+    expect(byId.get("mulch")?.state).toBe("included");
+    expect(byId.get("irrigation")?.state).toBe("included");
+    expect(byId.get("plants")?.state).toBe("included");
+  });
+
   test("keeps every explicit mixed landscape scope row, including unmeasured work", () => {
     const notes =
       "Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.";

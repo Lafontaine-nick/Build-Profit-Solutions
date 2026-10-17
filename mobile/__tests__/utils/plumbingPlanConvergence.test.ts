@@ -11,6 +11,12 @@ import {
   buildStandalonePlumbingChecklistItems,
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
+  notesDescribeDedicatedPlumbingFixtureRelocate,
+  notesDescribeRoomContextPlumbingRelocate,
+  filterDedicatedPlumbingConfirmItems,
+  filterPlumbingNoteAuthorityConfirmItems,
+  plumbingJobTypePickerVisible,
+  stripUnstatedPlumbingNoteMeasurements,
   notesSuggestPlumbingBid,
   notesDescribeMixedCrossTradeScope,
   notesDescribeGeneralContractorProject,
@@ -249,6 +255,55 @@ describe('plumbing canonical architecture', () => {
       plumbingRoughPointCount: 3,
       waterLineLf: 42,
     });
+  });
+
+  it('keeps a water-heater relocate on the heater plus 12 LF of supply and drain', () => {
+    const notes =
+      'Replace the water heater and relocate 12 LF of supply and drain for one fixture.';
+    expect(notesDescribeDedicatedPlumbingFixtureRelocate(notes)).toBe(true);
+    expect(parsePlumbingMeasurementsFromNotes(notes)).toEqual({
+      waterHeaterCount: 1,
+      waterLineLf: 12,
+      sewerLineLf: 12,
+    });
+    expect(summarizePlumbingNoteBullets(notes, 4)).toEqual([
+      '12 LF supply and drain',
+      '1 water heater',
+    ]);
+    const draft = createStandalonePlumbingDraft(notes);
+    expect(
+      (draft.scopeChecklist?.items || [])
+        .filter(item => item.state === 'included')
+        .map(item => item.id)
+        .sort()
+    ).toEqual(['sewer_line', 'water_heater', 'water_line']);
+    const visible = filterDedicatedPlumbingConfirmItems(
+      (draft.scopeChecklist?.items || []).filter(
+        item => item.state !== 'excluded'
+      ),
+      notes
+    );
+    const grouped = groupScopeChecklistItems(visible, 'plumbing');
+    expect(grouped.map(group => group.title)).toEqual([
+      'Underground',
+      'Finish plumbing',
+    ]);
+    expect(grouped[0]?.items.map(item => item.label)).toEqual([
+      'Supply relocate',
+      'Drain relocate',
+    ]);
+    expect(grouped[1]?.items.map(item => item.id)).toEqual(['water_heater']);
+    expect(
+      filterDedicatedPlumbingConfirmItems(
+        draft.scopeChecklist?.items || [],
+        'Bathroom remodel. Relocate 12 LF of supply and drain for the vanity.'
+      )
+    ).toHaveLength(draft.scopeChecklist?.items.length || 0);
+    expect(
+      notesDescribeDedicatedPlumbingFixtureRelocate(
+        'Bathroom remodel. Relocate 12 LF of supply and drain for the vanity.'
+      )
+    ).toBe(false);
   });
 
   it('parses explicit Notes quantities and ignores vague plumbing text', () => {
@@ -1178,6 +1233,138 @@ describe('plumbing notes routing', () => {
     expect(draft.scopeMeasurements?.plumbingRoughPointCount).toBe('6');
   });
 
+  it('keeps a bathroom mention that only relocates supply and drain on the plumbing bid', () => {
+    const notes =
+      'Remodel the bathroom. Relocate 12 LF of supply and drain for the vanity.';
+    expect(notesDescribeRoomContextPlumbingRelocate(notes)).toBe(true);
+    expect(notesDescribeDedicatedPlumbingFixtureRelocate(notes)).toBe(false);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'bathroom',
+        projectTitle: 'Bathroom Remodel',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        scopeMode: 'dedicated',
+        scopeChecklist: {
+          templateKey: 'bathroom',
+          items: [{ id: 'vanity', label: 'Vanity', state: 'unsure' }],
+        },
+      } as never,
+      notes
+    );
+    expect(repaired.scopeChecklist?.templateKey).toBe('plumbing');
+    expect(repaired.scopeMeasurements?.plumbingWorkflowMode).toBe(
+      'bathroom_remodel'
+    );
+    expect(repaired.scopeMeasurements?.plumbingRoomContext).toBe('bathroom');
+    expect(repaired.scopeMeasurements?.waterLineLf).toBe('12');
+    expect(repaired.scopeMeasurements?.sewerLineLf).toBe('12');
+    expect(
+      (repaired.scopeChecklist?.items || [])
+        .filter(item => item.state === 'included')
+        .map(item => item.id)
+        .sort()
+    ).toEqual(['sewer_line', 'water_line']);
+    expect(
+      notesDescribeRoomContextPlumbingRelocate(
+        'Remodel the bathroom. Install a new vanity. Relocate 12 LF of supply and drain for the vanity.'
+      )
+    ).toBe(false);
+    expect(
+      plumbingJobTypePickerVisible({
+        notes,
+        templateKey: 'plumbing',
+      })
+    ).toBe(true);
+    expect(
+      plumbingJobTypePickerVisible({
+        notes:
+          'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround.',
+        templateKey: 'bathroom',
+      })
+    ).toBe(false);
+  });
+
+  it('drops a model water heater from a water-line-only note', () => {
+    const notes = 'Replace 40 LF of water line.';
+    expect(parsePlumbingMeasurementsFromNotes(notes)).toEqual({
+      waterLineLf: 40,
+    });
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'plumbing',
+        projectTitle: 'Plumbing',
+        originalNotes: notes,
+        scopeChecklist: {
+          templateKey: 'plumbing',
+          title: 'Plumbing — confirm project scope',
+          intro: 'Confirm the plumbing scope before pricing.',
+          items: [
+            { id: 'water_line', label: 'Water line piping', state: 'included' },
+            { id: 'sewer_line', label: 'Sewer / drain piping', state: 'included' },
+            { id: 'water_heater', label: 'Water heater', state: 'included' },
+          ],
+        },
+        scopeMeasurements: {
+          waterLineLf: '40',
+          sewerLineLf: '12',
+          waterHeaterCount: 1,
+          plumbingScope: ['water_line', 'sewer_line', 'water_heater'],
+          itemQuantities: {
+            water_line: { quantity: 40, unit: 'lf' },
+            sewer_line: { quantity: 12, unit: 'lf' },
+            water_heater: { quantity: 1, unit: 'each' },
+          },
+        },
+      } as never,
+      notes
+    );
+    expect(repaired.scopeMeasurements?.waterHeaterCount).toBeFalsy();
+    expect(repaired.scopeMeasurements?.sewerLineLf).toBeFalsy();
+    expect(Number(repaired.scopeMeasurements?.waterLineLf)).toBe(40);
+    expect(
+      (repaired.scopeChecklist?.items || [])
+        .filter(item => item.state === 'included')
+        .map(item => item.id)
+    ).toEqual(['water_line']);
+    expect(
+      filterPlumbingNoteAuthorityConfirmItems(
+        [
+          ...(repaired.scopeChecklist?.items || []),
+          { id: 'cleanup', state: 'included', noteBacked: true },
+        ],
+        notes,
+        repaired.scopeMeasurements as Record<string, unknown>
+      ).map(item => item.id)
+    ).toEqual(['water_line']);
+
+    const typed = stripUnstatedPlumbingNoteMeasurements(
+      {
+        waterLineLf: 40,
+        waterHeaterCount: 1,
+        quickMeasurementSources: { waterHeaterCount: 'user_entered' },
+      },
+      notes
+    );
+    expect(typed.waterHeaterCount).toBe(1);
+
+    const planned = stripUnstatedPlumbingNoteMeasurements(
+      {
+        planImportFingerprint: 'plan-58',
+        waterLineLf: 40,
+        waterHeaterCount: 1,
+      },
+      notes
+    );
+    expect(planned.waterHeaterCount).toBe(1);
+    expect(
+      plumbingJobTypePickerVisible({
+        notes: 'Replace the water heater and relocate 12 LF of supply and drain for one fixture.',
+        templateKey: 'plumbing',
+      })
+    ).toBe(false);
+  });
+
   it('keeps a bathroom remodel note on Confirm scope instead of the simple review', () => {
     const notes =
       'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround, cap the drain, and leave the alcove ready. Install a new prefab shower pan, set it in mortar, and connect it to the existing drain. Install a new prefab shower surround on the walls.';
@@ -1623,6 +1810,19 @@ describe('plumbing notes routing', () => {
 1 fixture repair (kitchen faucet cartridge / supply line).
 1 drain cleaning (main bath tub).
 No rough-in or repipe.`;
+
+  it('keeps an HVAC service call off the plumbing template', () => {
+    const notes =
+      'One HVAC service call to diagnose the furnace. Do not replace the equipment.';
+    expect(notesSuggestPlumbingBid(notes)).toBe(false);
+    expect(notesSuggestStandalonePlumbingTrade(notes)).toBe(false);
+    expect(parsePlumbingMeasurementsFromNotes(notes).serviceCallCount).toBe(
+      undefined
+    );
+    expect(standalonePlumbingProjectTitle(notes)).not.toBe(
+      'Plumbing service call'
+    );
+  });
 
   it('parses service-call plumbing notes without rough-in or fixture allowance bleed', () => {
     expect(inferPlumbingWorkflowModeFromNotes(SERVICE_CALL_NOTES)).toBe(

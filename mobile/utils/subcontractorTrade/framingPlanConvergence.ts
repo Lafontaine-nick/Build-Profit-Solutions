@@ -745,10 +745,6 @@ export function copyFramingQuantityFields(
     const parsed = parse(source[key]);
     if (parsed != null) out[key] = parsed;
   }
-  const framed = resolveCoveredFramedAreaSqft(source);
-  if (framed != null && out.framedAreaSqft == null) {
-    out.framedAreaSqft = framed;
-  }
   const sheathing = resolveFramingSheathingSqft(source);
   if (sheathing != null && out.sheathingSqft == null) {
     out.sheathingSqft = sheathing;

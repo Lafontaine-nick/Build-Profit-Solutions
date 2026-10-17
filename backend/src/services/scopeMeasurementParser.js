@@ -16,7 +16,12 @@ const {
 } = require("./bathroomPlanningMeasurements");
 const {
   applyConcretePlanningMeasurements,
+  notesImplyConcreteFlatwork,
 } = require("./concretePlanningMeasurements");
+const {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} = require("./foundationPlanningMeasurements");
 
 const SQFT_RE =
   /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
@@ -32,7 +37,7 @@ const ROOF_PITCH_RE =
 const STORY_COUNT_RE =
   /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:-\s*)?tons?\b/gi;
-const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
+const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:inch(?:es)?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
@@ -1391,6 +1396,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const demoClearingSqft = pickSqftFromClauses([
     /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/,
     /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/,
+    /\bclear(?:ing)?\s+and\s+grade\b|\bgrade\s+and\s+clear(?:ing)?\b/,
   ]);
   if (demoClearingSqft) out.demoClearingSqft = demoClearingSqft;
 
@@ -1510,11 +1516,16 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
     if (templateKey === "bathroom" || projectType === "bathroom") return null;
+    const allowsHomeFloorInference =
+      templateKey === "ground_up" ||
+      projectType === "ground_up" ||
+      projectType === "new_build";
     if (
       /\b(?:sod|turf|pavers?|rock|mulch|shrubs?|landscap(?:e|ing))\b/i.test(
         text,
       ) &&
-      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text)
+      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text) &&
+      !allowsHomeFloorInference
     ) {
       return null;
     }
@@ -1553,6 +1564,15 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (additionFloorArea) return additionFloorArea;
     if (explicitHomeInterior) return explicitHomeInterior;
     if (livingAreaSqft) return livingAreaSqft;
+    if (allowsHomeFloorInference) {
+      const homeMatch = text.match(
+        /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,96}\b(?:two[\s-]?story\s+|single[\s-]?story\s+)?(?:home|house)\b/i,
+      );
+      const homeQty = homeMatch
+        ? Number(String(homeMatch[1]).replace(/,/g, ""))
+        : null;
+      if (homeQty && homeQty >= 200) return homeQty;
+    }
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
@@ -1742,11 +1762,21 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (
       !isDemoClause(clause) ||
       isDirtExcavationClause(clause) ||
-      !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b/i.test(
+      !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b|\bflat[\s-]?work\b/i.test(
         clause,
       )
     )
       continue;
+    if (
+      /\b(?:reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(clause)
+    )
+      out.concreteDemoReinforced = true;
+    if (
+      /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
+        clause,
+      )
+    )
+      out.concreteDemoLimitedAccess = true;
     const depthMatch = clause.match(DEPTH_INCHES_RE);
     const depth = depthMatch ? Number(depthMatch[1]) : null;
     if (!depth || !Number.isFinite(depth)) continue;
@@ -1758,34 +1788,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
           : depth >= 4
             ? "standard_4"
             : "thin_2_3";
-    if (
-      /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
-        clause,
-      )
-    )
-      out.concreteDemoReinforced = true;
-    if (
-      /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
-        clause,
-      )
-    )
-      out.concreteDemoLimitedAccess = true;
     break;
   }
-  if (
-    /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
-      text,
-    ) &&
-    out.concreteDemoSqft
-  )
-    out.concreteDemoReinforced = true;
-  if (
-    /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
-      text,
-    ) &&
-    out.concreteDemoSqft
-  )
-    out.concreteDemoLimitedAccess = true;
 
   // Concrete — do not let a paver/landscape patio sqft fill concrete sqft.
   const concreteSqft = (() => {
@@ -1888,7 +1892,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (out.baseboardLf && !out.lf) out.lf = out.baseboardLf;
 
   const hvacSignal =
-    /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat\s*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
+    /\bhvac\b|\bmechanical\b|\bfurnaces?\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat\s*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
   const hvacText = hvacSignal.test(text)
     ? text
     : clauses.filter((clause) => hvacSignal.test(clause)).join(" ");
@@ -1941,11 +1945,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       out.hvacEquipmentReplacementCount = Math.round(replacementCount);
     } else if (
       /\b(?:replace|replacement)\b/i.test(hvacText) &&
-      /\b(?:equipment|furnace|air\s*handler|condenser|heat[\s-]?pump)\b/i.test(
+      /\b(?:equipment|furnaces?|air\s*handler|condenser|heat[\s-]?pump)\b/i.test(
         hvacText,
       )
     ) {
-      out.hvacEquipmentReplacementCount = 1;
+      out.hvacEquipmentReplacementCount = systemCount
+        ? Math.round(systemCount)
+        : 1;
     }
     const refrigerantCount = firstHvacCount(
       hvacText,
@@ -1979,6 +1985,27 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (!(key in planned)) delete out[key];
   }
   Object.assign(out, planned);
+  if (
+    !notesImplyConcreteFlatwork(text) &&
+    !notesImplyExteriorFlatwork(text) &&
+    !notesImplyStructuralFoundation(text)
+  ) {
+    out.concreteSqft = null;
+    out.concreteWalkwaySqft = null;
+    out.concretePatioSqft = null;
+    out.concreteSidewalkSqft = null;
+    out.concreteDrivewaySqft = null;
+    out.concreteRvPadSqft = null;
+    out.concreteAreaByType = null;
+    out.concreteThicknessByType = null;
+    out.concreteThicknessInches = null;
+  }
+  if (/\b(?:mulch|rock)\b/i.test(text) && !out.rockMulchSqft && !out.landscapeTons) {
+    out.rockMulchSqft = null;
+  }
+  if (/\bpavers?\b/i.test(text) && !out.paverSqft) {
+    out.paverSqft = null;
+  }
 
   if (
     (templateKey === "concrete" || projectType === "concrete") &&

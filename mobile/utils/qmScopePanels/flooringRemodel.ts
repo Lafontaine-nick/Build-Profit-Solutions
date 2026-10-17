@@ -290,9 +290,9 @@ export function flooringScopeCardHelper(
       return 'Glue-down luxury vinyl plank material and standard installation.';
     }
     if (method === 'unknown') {
-      return 'Luxury vinyl plank material and standard installation. Confirm floating vs glue-down before bidding.';
+      return 'Luxury vinyl plank material and standard installation.';
     }
-    return 'Luxury vinyl plank material and standard installation. Select install method in measurements.';
+    return 'Luxury vinyl plank material and standard installation.';
   }
   if (itemId === 'flooring_sheet_vinyl') {
     const type = measurements.flooringNewSheetVinylType;

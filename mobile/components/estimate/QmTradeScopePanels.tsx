@@ -66,6 +66,7 @@ import {
 import {
   landscapingDemoChipActive,
   landscapingScopeCanonicalId,
+  landscapingScopeChipNamedInNotes,
   readLandscapingScope,
 } from '@/utils/qmScopePanels/landscapingRemodel';
 import {
@@ -92,10 +93,15 @@ import {
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
 import {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
+import {
   withConcreteGroundUpFlatworkPrompts,
   withConcreteGroundUpStructurePrompts,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { HVAC_SYSTEM_TONNAGE_TIERS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { hvacNotesDropSystemPackage } from '@/utils/scopeItemNoteHints';
 import {
   applyHvacScopePanelMeasurementEdit,
   applyHvacScopeMeasurements,
@@ -394,8 +400,15 @@ function hvacScopePanelColors(darkMode: boolean, Colors: Colors) {
   };
 }
 
-function simpleTradeScopePanelTitle(scopeKey: SimpleTradeScopeKey): string {
-  if (scopeKey === 'deck_patio') return 'Deck & fence scope';
+function simpleTradeScopePanelTitle(
+  scopeKey: SimpleTradeScopeKey,
+  notes?: string | null
+): string {
+  if (scopeKey === 'deck_patio') {
+    return /\bfence\b|\bgates?\b|\bchain[\s-]?link\b/i.test(String(notes || ''))
+      ? 'Deck & fence scope'
+      : 'Deck scope';
+  }
   if (scopeKey === 'hvac') return 'HVAC scope';
   if (scopeKey === 'roofing') return 'Roofing scope';
   return `${scopeKey} scope`;
@@ -3333,7 +3346,7 @@ export function QmFlooringScopePanels({
                   { color: darkMode ? '#CBD5E1' : '#64748b', marginTop: 2 },
                 ]}
               >
-                Only if the substrate needs more than a normal install
+                Substrate prep named in the notes
               </Text>
             ) : (
               <Text
@@ -3356,7 +3369,7 @@ export function QmFlooringScopePanels({
                   { color: darkMode ? '#E2E8F0' : '#64748b' },
                 ]}
               >
-                Enter prep only for the area that needs extra substrate work.
+                Enter the prep area. Use the install area when the whole floor needs prep.
               </Text>
               <View style={{ gap: 16, marginTop: 12 }}>
                 {selectedNewFlooringOptions.map(option => {
@@ -4678,27 +4691,13 @@ export function QmLandscapingScopePanels({
   const shrubsOnly =
     /\bshrubs?\b/i.test(String(notes || '')) &&
     !/\bplants?\b|\bplanting\b|\btrees?\b/i.test(String(notes || ''));
-  const noteBackedOption = (id: string): boolean => {
-    const patterns: Record<string, RegExp> = {
-      grading: /\bgrading?\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
-      soil_prep: /\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/i,
-      drainage: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b/i,
-      artificial_turf: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b/i,
-      sod: /\b(?:sod|natural\s+grass)\b/i,
-      rock: /\b(?:decorative\s+)?rock\b|\b(?:rock|mulch)\s+area\b/i,
-      mulch: /\bmulch\b/i,
-      plants: /\b(?:plants?|shrubs?|planting)\b/i,
-      trees: /\btrees?\b/i,
-      irrigation: /\birrigation|sprinkler|drip\s+system/i,
-      concrete_edging: /\bedging\b/i,
-      pavers: /\bpavers?\b/i,
-      decorative_boulders: /\b(?:landscape\s+)?boulders?\b/i,
-      landscape_lighting: /\b(?:landscape|path|outdoor)\s+lights?\b/i,
-      mobilization: /\bmobilization|skid[\s-]?steer|excavator|compactor/i,
-      cleanup: /\bcleanup|haul[\s-]?off|disposal|dumpster\b/i,
-    };
-    return Boolean(patterns[id]?.test(noteText));
-  };
+  const noteBackedOption = (id: string): boolean =>
+    landscapingScopeChipNamedInNotes(id, noteText);
+  const showRockMulchTonnage =
+    /\b(?:tons?|tonnage|by\s+weight)\b/i.test(noteText) ||
+    selected.some(id =>
+      ['rock', 'decorative_boulders', 'landscape_boulders'].includes(id)
+    );
   const visibleOptions = condensed
     ? LANDSCAPING_SCOPE_OPTIONS.filter(option => noteBackedOption(option.id))
     : LANDSCAPING_SCOPE_OPTIONS;
@@ -5050,8 +5049,24 @@ export function QmLandscapingScopePanels({
                     {active && option.measurementKey ? (
                       <>
                         <QmSqftMeasurementRow
-                          label={`${option.label} area`}
-                          helperText='Use only the area assigned to this landscape component.'
+                          label={
+                            option.unit === 'zone'
+                              ? `${option.label} zones`
+                              : option.unit === 'each'
+                                ? `${option.label} count`
+                                : option.unit === 'LF'
+                                  ? `${option.label} length`
+                                  : `${option.label} area`
+                          }
+                          helperText={
+                            option.unit === 'zone'
+                              ? 'One zone is one valve-controlled circuit of sprinklers or drip.'
+                              : option.unit === 'each'
+                                ? 'Count only the items assigned to this component.'
+                                : option.unit === 'LF'
+                                  ? 'Use only the length assigned to this component.'
+                                  : 'Use only the area assigned to this landscape component.'
+                          }
                           value={String(
                             (measurements as Record<string, unknown>)[
                               option.measurementKey
@@ -5178,9 +5193,7 @@ export function QmLandscapingScopePanels({
                 );
               })}
             </View>
-            {selected.some(id =>
-              ['rock', 'mulch', 'decorative_boulders'].includes(id)
-            ) ? (
+            {showRockMulchTonnage ? (
               <>
                 <QmSqftMeasurementRow
                   label='Rock / mulch tonnage'
@@ -5312,6 +5325,14 @@ export function QmConcreteScopePanels({
     : measurements.concreteDemoThicknessBand
       ? [measurements.concreteDemoThicknessBand]
       : [];
+  const showStructuralConcrete =
+    !String(notes || '').trim() ||
+    notesImplyStructuralFoundation(notes) ||
+    !notesImplyExteriorFlatwork(notes);
+  const demoAreaSqft = Number(
+    String(measurements.concreteDemoSqft ?? '').replace(/,/g, '')
+  );
+  const hasDemoArea = Number.isFinite(demoAreaSqft) && demoAreaSqft > 0;
   const demoAreaByThickness = measurements.concreteDemoAreaByThickness || {};
   const flatworkVolumeCrossCheckCy =
     selectedFlatworkOptions.reduce((sum, option) => {
@@ -5486,20 +5507,38 @@ export function QmConcreteScopePanels({
     'additional_haul_off',
     'retaining_wall',
   ]);
-  const visibleSitePrepOptionIds = mixedExteriorScope
-    ? new Set(Array.from(sitePrepOptionIds).filter(id => selected.includes(id)))
-    : sitePrepOptionIds;
-  const visibleOptionalOptionIds = mixedExteriorScope
-    ? new Set(Array.from(optionalOptionIds).filter(id => selected.includes(id)))
-    : optionalOptionIds;
-  const visibleFlatworkOptions = mixedExteriorScope
-    ? selectedFlatworkOptions
-    : CONCRETE_FLATWORK_OPTIONS;
+  const dedicatedFlatwork =
+    !showStructuralConcrete && String(notes || '').trim().length > 0;
+  const visibleSitePrepOptionIds =
+    mixedExteriorScope || dedicatedFlatwork
+      ? new Set(
+          Array.from(sitePrepOptionIds).filter(id => selected.includes(id))
+        )
+      : sitePrepOptionIds;
+  const visibleOptionalOptionIds =
+    mixedExteriorScope || dedicatedFlatwork
+      ? new Set(
+          Array.from(optionalOptionIds).filter(id => selected.includes(id))
+        )
+      : optionalOptionIds;
+  const visibleFlatworkOptions =
+    mixedExteriorScope ||
+    (dedicatedFlatwork && selectedFlatworkOptions.length > 0)
+      ? selectedFlatworkOptions
+      : CONCRETE_FLATWORK_OPTIONS;
+  const flatworkPanelTitle = showStructuralConcrete
+    ? 'Flatwork & footing/foundation pour'
+    : selectedFlatworkOptions.length === 1
+      ? `${selectedFlatworkOptions[0].label} pour`
+      : 'Flatwork pour';
   const showSitePrepPanel =
     !promptGroundUpStructure &&
-    (!mixedExteriorScope || visibleSitePrepOptionIds.size > 0);
-  const showOptionalPanel =
-    !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
+    (dedicatedFlatwork
+      ? visibleSitePrepOptionIds.size > 0
+      : !mixedExteriorScope || visibleSitePrepOptionIds.size > 0);
+  const showOptionalPanel = dedicatedFlatwork
+    ? visibleOptionalOptionIds.size > 0
+    : !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
   const panelStyle = qmPanelShellStyle(darkMode);
 
   return (
@@ -5599,19 +5638,58 @@ export function QmConcreteScopePanels({
                             ) : null}
                             {option.id === 'demo_removal' ? (
                               <>
-                                <Text
-                                  style={{
-                                    color: darkMode ? '#fbbf24' : '#a16207',
-                                    fontSize: 11,
-                                    lineHeight: 15,
-                                    marginTop: 8,
-                                    marginBottom: 4,
-                                  }}
-                                >
-                                  The notes identify patio removal but do not
-                                  specify the existing concrete area or
-                                  thickness. Leave these blank until confirmed.
-                                </Text>
+                                {hasDemoArea && selectedDemoBands.length === 0 ? (
+                                  <>
+                                    <Text
+                                      style={[
+                                        styles.qmPanelCaption,
+                                        {
+                                          color: darkMode
+                                            ? '#d7e1f0'
+                                            : '#64748b',
+                                          marginTop: 8,
+                                          marginBottom: 4,
+                                        },
+                                      ]}
+                                    >
+                                      {demoAreaSqft} sqft of existing flatwork
+                                      is in this bid. Existing thickness is not
+                                      in the notes.
+                                    </Text>
+                                    <QmSqftMeasurementRow
+                                      label='Existing flatwork removal'
+                                      helperText='Area from the notes. Thickness stays blank until you confirm it.'
+                                      value={String(
+                                        measurements.concreteDemoSqft || ''
+                                      )}
+                                      placeholder='Enter'
+                                      unitLabel='sqft'
+                                      onChangeText={value =>
+                                        updateMeasurement(
+                                          'concreteDemoSqft',
+                                          value
+                                        )
+                                      }
+                                      applying={applying}
+                                      darkMode={darkMode}
+                                      Colors={Colors}
+                                      highlighted
+                                    />
+                                  </>
+                                ) : !hasDemoArea ? (
+                                  <Text
+                                    style={{
+                                      color: darkMode ? '#fbbf24' : '#a16207',
+                                      fontSize: 11,
+                                      lineHeight: 15,
+                                      marginTop: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    The notes include removal but do not give
+                                    the existing area or thickness.
+                                  </Text>
+                                ) : null}
                                 {selectedDemoBands.map(band => {
                                   const bandLabel =
                                     CONCRETE_DEMO_THICKNESS_OPTIONS.find(
@@ -5937,7 +6015,7 @@ export function QmConcreteScopePanels({
               { color: darkMode ? '#cbd5e1' : '#475569' },
             ]}
           >
-            Flatwork & footing/foundation pour {expanded ? '⌃' : '⌄'}
+            {flatworkPanelTitle} {expanded ? '⌃' : '⌄'}
           </Text>
           <Text
             style={[
@@ -5954,25 +6032,39 @@ export function QmConcreteScopePanels({
         </TouchableOpacity>
         {expanded ? (
           <>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
-              ]}
-            >
-              Select the flatwork type and any additional work beyond the
-              standard installation.
-            </Text>
-            <Text
-              style={[
-                styles.qmPanelCaption,
-                { color: '#fbbf24', marginTop: 4, marginBottom: 0 },
-              ]}
-            >
-              Standard flatwork includes normal forming, placement, basic
-              finish, curing, and cleanup. Add only upgrades or work beyond the
-              standard scope.
-            </Text>
+            {visibleFlatworkOptions.length > 1 ? (
+              <>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
+                  ]}
+                >
+                  Select the flatwork type and any additional work beyond the
+                  standard installation.
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: '#fbbf24', marginTop: 4, marginBottom: 0 },
+                  ]}
+                >
+                  Standard flatwork includes normal forming, placement, basic
+                  finish, curing, and cleanup. Add only upgrades or work beyond
+                  the standard scope.
+                </Text>
+              </>
+            ) : (
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 10 },
+                ]}
+              >
+                Standard flatwork includes forming, placement, basic finish,
+                curing, and cleanup.
+              </Text>
+            )}
 
             <Text
               style={[
@@ -6028,9 +6120,10 @@ export function QmConcreteScopePanels({
                         },
                       ]}
                     >
-                      Enter each selected area separately. Pricing uses the
-                      combined total of these entries at $
-                      {nationalFlatworkRate.toFixed(2)}/sqft for a{' '}
+                      {visibleFlatworkOptions.length > 1
+                        ? 'Enter each selected area separately. Pricing uses the combined total of these entries'
+                        : 'Pricing uses this area'}{' '}
+                      at ${nationalFlatworkRate.toFixed(2)}/sqft for a{' '}
                       {selectedThickness}" slab.
                     </Text>
                     {selectedFlatworkOptions.map(option => (
@@ -6174,6 +6267,8 @@ export function QmConcreteScopePanels({
               </>
             ) : null}
 
+            {showStructuralConcrete ? (
+            <>
             <View style={{ marginTop: 14 }}>
               <Text
                 style={[
@@ -6359,6 +6454,8 @@ export function QmConcreteScopePanels({
                 );
               })}
             </View>
+            </>
+            ) : null}
           </>
         ) : null}
       </View>
@@ -7421,6 +7518,13 @@ export function QmStuccoScopePanels({
       (measurements as { planImportTradeKey?: string }).planImportTradeKey ||
         ''
     ) === 'stucco';
+  const showStoryFields =
+    newHousePlanExport ||
+    Boolean(
+      (measurements as { planImportFingerprint?: string }).planImportFingerprint
+    ) ||
+    hasMeasurement('stuccoStories') ||
+    hasMeasurement('stuccoWallHeightFt');
   const systemOptions = newHousePlanExport
     ? STUCCO_SYSTEM_OPTIONS.filter(option => option.id !== 'finish_only')
     : STUCCO_SYSTEM_OPTIONS;
@@ -7716,7 +7820,7 @@ export function QmStuccoScopePanels({
         </>
       ) : null}
 
-      {wallExpanded ? (
+      {wallExpanded && (showAccessExtras || showStoryFields) ? (
         <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
@@ -8297,10 +8401,20 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
-  const hvacOptionVisible = (option: (typeof spec.options)[number]) =>
-    !condensed ||
-    hvacScopeOptionMentionedInNotes(option.id, notes) ||
-    selections.includes(option.id);
+  const hvacOptionVisible = (option: (typeof spec.options)[number]) => {
+    if (
+      hvacNotesDropSystemPackage(notes) &&
+      (option.id === HVAC_SYSTEMS_OPTION_ID ||
+        option.id === HVAC_CAPACITY_OPTION_ID)
+    ) {
+      return false;
+    }
+    return (
+      !condensed ||
+      hvacScopeOptionMentionedInNotes(option.id, notes) ||
+      selections.includes(option.id)
+    );
+  };
 
   const hvacOptionsForIds = (optionIds: readonly string[]) =>
     optionIds
@@ -8639,7 +8753,7 @@ export function QmSimpleTradeScopePanels({
       scopeKey === 'hvac'
         ? (formatHvacScopeChipQuantity(measurements, option, selections) ??
           formatHvacOptionalAddOnChipCaption(measurements, option))
-        : option.measurementKey
+        : option.measurementKey && active
           ? (() => {
               const value = Number(
                 String(
@@ -8649,10 +8763,15 @@ export function QmSimpleTradeScopePanels({
                 ).replace(/,/g, '')
               );
               if (!(Number.isFinite(value) && value > 0)) return null;
-              const unit = String(option.unit || 'each').toUpperCase();
-              if (unit === 'LF') return `${value.toLocaleString()} LF`;
-              if (unit === 'SQFT') return `${value.toLocaleString()} sqft`;
-              return `${Math.round(value).toLocaleString()} each`;
+              const unit = String(option.unit || 'each');
+              const unitKey = unit.toUpperCase();
+              if (unitKey === 'LF') return `${value.toLocaleString()} LF`;
+              if (unitKey === 'SQFT') return `${value.toLocaleString()} sqft`;
+              if (unitKey === 'EACH' || unitKey === 'EA') {
+                return `${Math.round(value).toLocaleString()} each`;
+              }
+              const shown = Number.isInteger(value) ? Math.round(value) : value;
+              return `${shown.toLocaleString()} ${unit}`;
             })()
           : null;
     return (
@@ -8680,7 +8799,7 @@ export function QmSimpleTradeScopePanels({
     const noteText = String(notes || '');
     const genericDeck =
       /\bdeck(?:ing)?\b/i.test(noteText) &&
-      !/\bcomposite\b|\bwood\s+deck\b/i.test(noteText);
+      !/\bcomposite\b|\bwood\s+deck(?:ing)?\b/i.test(noteText);
     if (
       (optionId === 'composite_deck' || optionId === 'wood_deck') &&
       genericDeck
@@ -8688,11 +8807,15 @@ export function QmSimpleTradeScopePanels({
       return true;
     }
     const patterns: Record<string, RegExp> = {
+      deck_demo:
+        /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.]{0,48}\b(?:existing\s+)?deck\b/i,
+      footings: /\bfootings?\b/i,
+      deck_framing: /\b(?:frame|framing)\b/i,
       wood_fence: /\bwood\s+fence\b/i,
       vinyl_fence: /\bvinyl\s+fence\b/i,
       chain_link: /\bchain[\s-]?link\b/i,
       composite_deck: /\bcomposite\b/i,
-      wood_deck: /\bwood\s+deck\b/i,
+      wood_deck: /\bwood\s+deck(?:ing)?\b/i,
       railings: /\brailings?\b/i,
       gates: /\bgates?\b/i,
       stairs: /\bstairs?\b/i,
@@ -8782,7 +8905,7 @@ export function QmSimpleTradeScopePanels({
           { color: darkMode ? '#F5F7FA' : Colors.text },
         ]}
       >
-        {simpleTradeScopePanelTitle(scopeKey)}
+        {simpleTradeScopePanelTitle(scopeKey, notes)}
       </Text>
       <Text
         style={[
@@ -8836,10 +8959,22 @@ export function QmSimpleTradeScopePanels({
             placeholder='Enter'
             unitLabel={option.unit}
             onChangeText={value =>
-              setMeasurements(prev => ({
-                ...prev,
-                [option.measurementKey!]: value,
-              }))
+              setMeasurements(prev => {
+                const key = option.measurementKey!;
+                const next = { ...prev, [key]: value };
+                if (scopeKey !== 'deck_patio') return next;
+                return {
+                  ...next,
+                  quickMeasurementSources: {
+                    ...(prev.quickMeasurementSources || {}),
+                    [key]: 'user_entered',
+                  },
+                  quickMeasurementUserOverrides: {
+                    ...(prev.quickMeasurementUserOverrides || {}),
+                    [key]: true,
+                  },
+                };
+              })
             }
             applying={applying}
             darkMode={darkMode}

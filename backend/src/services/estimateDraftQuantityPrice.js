@@ -351,6 +351,29 @@ function splitNoteClauses(text) {
   return clauses;
 }
 
+function landscapeCoverageOwnsSqft(packageName, clause, match) {
+  const pkg = normalizePackageKey(packageName);
+  const material =
+    /\bpaver/.test(pkg)
+      ? /\bpavers?\b/
+      : /\bmulch\b/.test(pkg) && /\brock\b/.test(pkg)
+        ? /\b(?:mulch|rock)\b/
+        : /\bmulch\b/.test(pkg)
+          ? /\bmulch\b/
+          : /\brock\b/.test(pkg)
+            ? /\brock\b/
+            : /\b(?:sod|turf)\b/.test(pkg)
+              ? /\b(?:sod|turf)\b/
+              : null;
+  if (!material) return true;
+  const lower = String(clause || "").toLowerCase();
+  const before = lower.slice(Math.max(0, match.index - 55), match.index);
+  const after = lower
+    .slice(match.index + match[0].length, match.index + match[0].length + 55)
+    .split(/[.;,\n]/, 1)[0];
+  return material.test(before) || material.test(after);
+}
+
 /** Match a note sentence to a scope package (avoid cross-assigning qty between packages). */
 function sentenceMatchesPackage(packageName, scopeText, sentence) {
   const pkgKey = normalizePackageKey(packageName);
@@ -432,6 +455,7 @@ function extractScopeQuantitiesForPackage(packageName, scopeText, originalNotes)
       packageAcceptsUnit(packageName, scopeText, 'sqft')
     ) {
       for (const m of sqftMatches) {
+        if (!landscapeCoverageOwnsSqft(packageName, clause, m)) continue;
         const qty = Number(String(m[1]).replace(/,/g, ''));
         if (Number.isFinite(qty) && qty > 0) {
           results.push({ label: packageName, quantity: qty, unit: 'sqft' });

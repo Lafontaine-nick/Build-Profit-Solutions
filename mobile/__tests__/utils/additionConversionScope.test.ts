@@ -11,6 +11,13 @@ import {
 } from '@/utils/estimateScopeChecklistUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import {
+  getInitialRevealChecklistScopePreview,
+  getInitialRevealConfirmItems,
+  getInitialRevealTotals,
+  getInitialRevealUnderstoodBullets,
+} from '@/utils/estimateInitialRevealUi';
+import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 
 const GARAGE_OFFICE_NOTES =
   'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint, add 4 recessed lights and a few outlets, mini split HVAC. Keep existing garage door for now.';
@@ -144,17 +151,79 @@ describe('addition / conversion scope defaults', () => {
     );
 
     const included = next.filter(i => i.state === 'included').map(i => i.id);
-    expect(included).toEqual(
-      expect.arrayContaining([
-        'framing',
-        'exterior_finishes',
-        'foundation',
-        'concrete',
-        'roof_tie_in',
-        'windows_doors',
-        'final_inspections',
-      ])
+    expect(included).toEqual([
+      'foundation',
+      'framing',
+      'roof_tie_in',
+      'windows_doors',
+      'exterior_finishes',
+      'electrical_rough',
+      'insulation',
+      'drywall',
+      'paint',
+      'flooring',
+      'interior_trim',
+      'cleanup',
+    ]);
+    expect(next.filter(i => i.state !== 'excluded').map(i => i.id)).toEqual(
+      included
     );
+    expect(
+      quickMeasurementRowsForInput('addition', 'room_addition', {}, undefined, {
+        scopeNotes: notes,
+      })
+        .flat()
+        .map(field => field.key)
+    ).toEqual([
+      'floorAreaSqft',
+      'concreteCy',
+      'roofSquares',
+      'exteriorWallInsulationSqft',
+      'atticInsulationSqft',
+      'drywallSqft',
+      'flooringSqft',
+      'wallPaintSqft',
+      'exteriorPaintSqft',
+      'windowCount',
+      'exteriorDoorCount',
+      'baseboardLf',
+    ]);
+    expect(
+      quickMeasurementRowsForInput('addition', 'room_addition', {}, undefined, {
+        scopeNotes: notes,
+      })
+        .flat()
+        .find(field => field.key === 'floorAreaSqft')?.label
+    ).toBe('Room addition');
+
+    const draft = {
+      originalNotes: notes,
+      projectType: 'room_addition',
+      scopeChecklist: { templateKey: 'addition', items: next },
+    } as EstimateAiDraft;
+    const preview = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(preview).toEqual(
+      included.map(id =>
+        id === 'paint'
+          ? 'Interior paint'
+          : id === 'flooring'
+            ? 'Flooring installation'
+            : id
+      )
+    );
+    expect(preview).not.toEqual(
+      expect.arrayContaining(['cabinets_counters', 'hvac', 'plumbing_rough'])
+    );
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(included.length);
+    const priced = getInitialRevealChecklistScopePreview(draft);
+    expect(priced.find(row => row.name === 'foundation')?.amount).toBeGreaterThan(0);
+    expect(priced.find(row => row.name === 'windows_doors')?.amount || 0).toBe(0);
+    expect(priced.find(row => row.name === 'interior_trim')?.amount || 0).toBe(0);
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      'Room addition · 400 sqft',
+    ]);
   });
 
   it('keeps a built addition note on canonical phases without inferred aliases', () => {
@@ -316,10 +385,19 @@ describe('addition / conversion scope defaults', () => {
       projectType: 'room_addition',
       notes,
     });
-    expect(grouped.map(group => group.title)).toEqual(
-      expect.arrayContaining(['Shell', 'MEP Rough-ins', 'Interior'])
+    const groupedIds = grouped.flatMap(group => group.items.map(item => item.id));
+    expect([...groupedIds].sort()).toEqual(
+      items
+        .filter(item => item.state === 'included')
+        .map(item => item.id)
+        .sort()
     );
-    expect(grouped.map(group => group.title)).not.toContain('Prep & structure');
+    expect(grouped.map(group => group.title)).toEqual(
+      expect.arrayContaining(['Foundation', 'Shell', 'Interior'])
+    );
+    expect(groupedIds).not.toEqual(
+      expect.arrayContaining(['cabinets_counters', 'hvac', 'plumbing_rough'])
+    );
   });
 
   it('lets existing-shell notes override a broad room-addition or ADU project type', () => {

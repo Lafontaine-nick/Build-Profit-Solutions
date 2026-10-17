@@ -23,6 +23,10 @@ import {
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
 import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import {
+  notesDescribeDedicatedDeckJob,
+  scrubDedicatedDeckMeasurements,
+} from '@/utils/deckNoteScope';
+import {
   dedicatedFlooringNoteText,
   notesDescribeDedicatedFlooringJob,
   scrubDedicatedFlooringMeasurements,
@@ -164,6 +168,17 @@ function restoreBaseMeasurementsWhenSavedEmpty(
 }
 
 /** Saved Confirm Scope M/L/allowance must win over note-parsed measurements on restore. */
+function applyDedicatedDeckMeasurementScrub(
+  measurements: ScopeMeasurementsInputExtended,
+  notes?: string | null
+): ScopeMeasurementsInputExtended {
+  if (!notesDescribeDedicatedDeckJob(notes)) return measurements;
+  return scrubDedicatedDeckMeasurements(
+    notes,
+    measurements as Record<string, unknown>
+  ) as ScopeMeasurementsInputExtended;
+}
+
 function applyDedicatedFlooringMeasurementScrub(
   measurements: ScopeMeasurementsInputExtended,
   notes?: string | null
@@ -180,10 +195,13 @@ export function mergeConfirmScopeSavedMeasurements(
   notes?: string | null
 ): ScopeMeasurementsInputExtended {
   if (!saved) {
-    return applyDedicatedFlooringMeasurementScrub(
+    return applyDedicatedDeckMeasurementScrub(
+      applyDedicatedFlooringMeasurementScrub(
       reconcileBathroomQuickMeasurements(
         reconcileRoofingQuickMeasurements(base, notes),
         notes
+      ),
+      notes
       ),
       notes
     );
@@ -223,10 +241,13 @@ export function mergeConfirmScopeSavedMeasurements(
   const reconciled = reconcilePlumbingEquipmentScopeMeasurements(
     reconcileFramingScopeMeasurements(merged) as typeof merged
   );
-  return applyDedicatedFlooringMeasurementScrub(
+  return applyDedicatedDeckMeasurementScrub(
+    applyDedicatedFlooringMeasurementScrub(
     reconcileBathroomQuickMeasurements(
       reconcileRoofingQuickMeasurements(reconciled, notes),
       notes
+    ),
+    notes
     ),
     notes
   );
@@ -774,6 +795,33 @@ export function listConfirmScopeAppliedPricingLines(params: {
   return lines;
 }
 
+function landscapingChoiceCountsInGroupTotal(item: {
+  id?: string;
+  inputType?: string;
+  state?: string;
+  choiceId?: string | null;
+  choiceIds?: string[];
+}): boolean {
+  if (
+    item.id === 'irrigation' &&
+    (item.choiceId === 'sprinkler' ||
+      item.choiceId === 'drip' ||
+      item.choiceId === 'unsure')
+  ) {
+    return true;
+  }
+  if (
+    item.id === 'demo_clearing' &&
+    (item.choiceId === 'light_clearing' ||
+      item.choiceId === 'medium_vegetation' ||
+      item.choiceId === 'dense_vegetation' ||
+      item.choiceId === 'unsure')
+  ) {
+    return true;
+  }
+  return checklistItemInScope(item);
+}
+
 /**
  * Whole-home contractor group total. Applied dollars win; otherwise the same
  * suggested card total is included so a collapsed group still shows a price.
@@ -789,7 +837,7 @@ export function wholeProjectGroupDisplayTotal(params: {
   );
   let total = 0;
   for (const item of params.items) {
-    if (!checklistItemInScope(item)) continue;
+    if (!landscapingChoiceCountsInGroupTotal(item)) continue;
     const appliedTotal = applied.get(item.id);
     if (appliedTotal != null && appliedTotal > 0) {
       total += appliedTotal;

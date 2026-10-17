@@ -241,6 +241,16 @@ export function confirmScopeDrywallSqftLabel(
       : 'Drywall hang / finish';
   }
   if (options.installNamed && !options.repairNamed) return 'Drywall install';
+  if (
+    /\b(?:new\s+build|new\s+construction|ground[\s-]?up|custom\s+home|spec\s+home)\b/i.test(
+      String(notes || '')
+    ) ||
+    /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+      String(notes || '')
+    )
+  ) {
+    return null;
+  }
   return 'Drywall repair area';
 }
 

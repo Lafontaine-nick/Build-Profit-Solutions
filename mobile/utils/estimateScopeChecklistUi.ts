@@ -17,6 +17,7 @@ import {
   isAdditionConversionJob,
   isExistingShellConversionJob,
   isGarageConversionJob,
+  notesDescribeAreaOnlyAddition,
   notesExplicitlyAddOpenings,
   suppressAdditionConversionPhasePaintDuplicate,
 } from '@/utils/additionConversionPlanning';
@@ -64,6 +65,14 @@ import {
   notesUseDedicatedDrywallScope,
 } from '@/utils/drywallNoteScope';
 import {
+  dedicatedDeckConfirmScopeItems,
+  notesDescribeDedicatedDeckJob,
+} from '@/utils/deckNoteScope';
+import {
+  filterDedicatedStuccoConfirmItems,
+  notesDescribeDedicatedStuccoJob,
+} from '@/utils/stuccoNoteScope';
+import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringNoteText,
   dedicatedFlooringRemovedTypes,
@@ -94,6 +103,7 @@ import {
   notesAreImportedPlanSummary,
   notesNameConcreteDecorativeFinish,
 } from '@/utils/concretePlanningMeasurements';
+import { notesIgnoringPaverSurfaces } from '@/utils/foundationPlanningMeasurements';
 import { planScopeRecordsHaveGroundUpAllowances } from '@/utils/planScopeRecords';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
@@ -776,6 +786,16 @@ const ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED = [
   'final_inspections',
 ] as const;
 
+/** Short room-addition notes. One foundation pour, no inspection allowance. */
+export function areaOnlyAdditionScopeIds(): string[] {
+  return [
+    ...NEW_STRUCTURE_CONVERSION_INCLUDED,
+    ...ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED.filter(
+      id => id !== 'concrete' && id !== 'final_inspections'
+    ),
+  ];
+}
+
 const GARAGE_CONVERSION_DEFAULT_EXCLUDED = new Set([
   'foundation',
   'roof_tie_in',
@@ -860,6 +880,14 @@ export function applyAdditionConversionScopeDefaults(
   if (!isAdditionConversionJob(templateKey, projectType, notes)) return items;
   if (notesNameFramingOnlyAddition(String(notes || ''))) {
     return filterFramingOnlyAdditionScopeItems(items, notes);
+  }
+  if (notesDescribeAreaOnlyAddition(notes)) {
+    const packageIds = new Set<string>(areaOnlyAdditionScopeIds());
+    return items.map(item =>
+      packageIds.has(item.id)
+        ? { ...item, state: 'included' as const }
+        : { ...item, state: 'excluded' as const }
+    );
   }
 
   const n = String(notes || '');
@@ -2331,7 +2359,7 @@ export function applyScopeInferencesFromNotes(
           item.state === 'included' &&
           !notesNameConcreteDecorativeFinish(notes)
         ) {
-          return { ...item, state: 'unsure' as const, noteBacked: false };
+          return { ...item, state: 'excluded' as const, noteBacked: false };
         }
         const inferredState = inferItemStateFromNotes(item.id, notes);
         // Explicit exclusions in notes override a stale included state from
@@ -3559,7 +3587,7 @@ const MIXED_EXTERIOR_SCOPE_ROWS: {
     helperText: 'Concrete patio or exterior flatwork installation.',
     category: 'hardscape',
     pattern:
-      /\b(?:concrete\s+)?(?:patio|flatwork|walkway|sidewalk|driveway)\b|\bconcrete\b[^.;\n]{0,45}\b(?:patio|flatwork|walkway|sidewalk|driveway)\b/i,
+      /\b(?:concrete\s+)?(?<!pavers?\s)(?:patio|flatwork|walkway|sidewalk|driveway)\b|\bconcrete\b[^.;\n]{0,45}\b(?:patio|flatwork|walkway|sidewalk|driveway)\b/i,
   },
   {
     id: 'pour_foundation',
@@ -3594,10 +3622,10 @@ const MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS: Record<string, RegExp> = {
 
 export function isMixedExteriorScopeNotes(notes?: string | null): boolean {
   if (notesAreImportedPlanSummary(notes)) return false;
-  const text = String(notes || '');
+  const text = notesIgnoringPaverSurfaces(notes);
   return (
-    /\b(?:concrete|flatwork|patio|pavers?|retaining\s+walls?)\b/i.test(text) &&
-    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|grading|soil\s+prep|drainage|landscape\s+lighting|exterior\s+doors?)\b/i.test(
+    /\b(?:concrete|flatwork|patio|retaining\s+walls?)\b/i.test(text) &&
+    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|grading|soil\s+prep|drainage|landscape\s+lighting|pavers?|exterior\s+doors?)\b/i.test(
       text
     )
   );
@@ -5306,6 +5334,9 @@ export function restoreConfirmedChecklistItemStates(
   return hydrated.map(item => {
     const saved = byId.get(item.id);
     if (!saved) return item;
+    if (inferItemStateFromNotes(item.id, notes) === 'excluded') {
+      return { ...item, state: 'excluded' as const, noteBacked: false };
+    }
     if (inferItemStateFromNotes(item.id, notes) === 'included') {
       return {
         ...item,
@@ -7608,6 +7639,28 @@ export function groupScopeChecklistItems(
         },
       ];
     }
+  }
+  if (notesDescribeAreaOnlyAddition(context.notes)) {
+    items = items.filter(item => item.state === 'included');
+  }
+  if (notesDescribeDedicatedStuccoJob(context.notes)) {
+    const named = filterDedicatedStuccoConfirmItems(items, context.notes);
+    if (named.length) return [{ title: 'Stucco', items: named }];
+  }
+  if (notesDescribeDedicatedDeckJob(context.notes)) {
+    const allowed = new Set(
+      dedicatedDeckConfirmScopeItems(context.notes).map(item => item.id)
+    );
+    const named: ScopeChecklistItem[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (item.state === 'excluded' || !allowed.has(item.id) || seen.has(item.id)) {
+        continue;
+      }
+      seen.add(item.id);
+      named.push(item);
+    }
+    if (named.length) return [{ title: '', items: named }];
   }
   const flooringNote = dedicatedFlooringNoteText(context.notes);
   if (notesDescribeDedicatedFlooringJob(flooringNote)) {

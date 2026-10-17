@@ -5,12 +5,23 @@
 import type { ScopeItemQuantity } from '@/utils/estimateAiDraft';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
 import { applyBathroomPlanningMeasurements } from '@/utils/bathroomPlanningMeasurements';
-import { applyConcretePlanningMeasurements } from '@/utils/concretePlanningMeasurements';
+import {
+  applyConcretePlanningMeasurements,
+  notesImplyConcreteFlatwork,
+} from '@/utils/concretePlanningMeasurements';
+import {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
 import { applyRoofingPlanningMeasurements } from '@/utils/roofingPlanningMeasurements';
 import { notesImplyRoofTearOffAndInstall } from '@/utils/scopeItemNoteHints';
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  dedicatedDeckFootingCount,
+  notesDescribeDedicatedDeckJob,
+} from '@/utils/deckNoteScope';
 
 const AIR_SEALING_SYNONYM_RE =
   /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i;
@@ -178,6 +189,7 @@ export type ParsedScopeMeasurements = {
   excavationAreaSqft?: number;
   excavationDepthInches?: number;
   deckSqft?: number;
+  deckFootingCount?: number;
   railingLf?: number;
   baseboardLf?: number;
   sqft?: number;
@@ -198,7 +210,7 @@ const ROOF_PITCH_RE =
 const STORY_COUNT_RE =
   /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:-\s*)?tons?\b/gi;
-const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
+const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:inch(?:es)?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
@@ -357,6 +369,11 @@ export function parseStuccoMeasurementsFromNotes(
       /\b(\d[\d,]*(?:\.\d+)?)\s*(?:ft|feet|foot)\s+(?:typical\s+)?wall\s+height(?:\s*\/\s*story|\s+per\s+story)?\b/i
     );
   const wallHeight = parseNonnegativeNumber(wallHeightMatch?.[1]);
+  const statedExteriorWall =
+    gross == null
+      ? matchStuccoQuantity(text, 'exterior\\s+walls?', STUCCO_SQFT_UNIT_RE)
+      : undefined;
+  const resolvedGross = gross ?? statedExteriorWall;
   const net =
     explicitNet ??
     (gross != null &&
@@ -370,10 +387,15 @@ export function parseStuccoMeasurementsFromNotes(
             garageOpenings -
             otherFinishDeduction
         )
-      : undefined);
+      : statedExteriorWall != null &&
+          windowDoorOpenings == null &&
+          garageOpenings == null &&
+          otherFinishDeduction == null
+        ? statedExteriorWall
+        : undefined);
 
   return {
-    ...(gross == null ? {} : { stuccoGrossWallSqft: gross }),
+    ...(resolvedGross == null ? {} : { stuccoGrossWallSqft: resolvedGross }),
     ...(windowDoorOpenings == null
       ? {}
       : { stuccoWindowDoorOpeningSqft: windowDoorOpenings }),
@@ -613,11 +635,10 @@ export function parseInsulationAssembliesFromNotes(
     );
   const add = (
     location: ParsedInsulationAssembly['location'],
-    pattern: RegExp,
-    clause: string
+    clause: string,
+    detail: string
   ) => {
     if (!clauseMentionsInsulation(clause)) return;
-    if (!pattern.test(clause)) return;
     if (
       location === 'floor' &&
       /\bfloor(?:ing)?\s+(?:tile|lvp|vinyl|laminate|hardwood|carpet|plank)\b/i.test(
@@ -629,7 +650,7 @@ export function parseInsulationAssembliesFromNotes(
     ) {
       return;
     }
-    const sqft = quantity(clause);
+    const sqft = quantity(detail);
     const hasInsulationInstallIntent =
       /\b(?:install|replace|add|upgrade|build|construct|include|with)\b[^.;,\n]{0,60}\b(?:insulat(?:e|ion|ed)|batt|blown(?:[-\s]?in)?|R[-\s]?\d{2,3})\b/i.test(
         text
@@ -639,7 +660,7 @@ export function parseInsulationAssembliesFromNotes(
       ) ||
       (hasStructuralContext &&
         /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i.test(clause));
-    const parsedRValue = rValue(clause);
+    const parsedRValue = rValue(detail);
     const hasUnquantifiedExplicitLocation =
       hasExplicitWallAndAtticInsulation &&
       (location === 'exterior_wall' || location === 'attic_ceiling');
@@ -652,17 +673,67 @@ export function parseInsulationAssembliesFromNotes(
     }
     assemblies.push({
       location,
-      materialType: material(clause),
+      materialType: material(detail),
       rValue: parsedRValue,
       sqft,
-      ...(battFacing(clause) ? { battFacing: battFacing(clause) } : {}),
+      ...(battFacing(detail) ? { battFacing: battFacing(detail) } : {}),
     });
   };
+  const locationSpecs: Array<{
+    location: ParsedInsulationAssembly['location'];
+    pattern: RegExp;
+  }> = [
+    {
+      location: 'exterior_wall',
+      pattern: /\b(?:(?:exterior|outside)\s+)?walls?\b/gi,
+    },
+    {
+      location: 'attic_ceiling',
+      pattern: /\b(?:attic|ceiling)(?:\s+area)?\b/gi,
+    },
+    { location: 'floor', pattern: /\bfloor(?:\s+area)?\b/gi },
+  ];
   for (const clause of clauses) {
     const assemblyCountBeforeClause = assemblies.length;
-    add('exterior_wall', /\b(?:(?:exterior|outside)\s+)?walls?\b/i, clause);
-    add('attic_ceiling', /\b(?:attic|ceiling)(?:\s+area)?\b/i, clause);
-    add('floor', /\bfloor(?:\s+area)?\b/i, clause);
+    if (clauseMentionsInsulation(clause)) {
+      const found: Array<{
+        location: ParsedInsulationAssembly['location'];
+        index: number;
+        length: number;
+      }> = [];
+      for (const spec of locationSpecs) {
+        const pattern = new RegExp(spec.pattern.source, 'gi');
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(clause))) {
+          if (
+            spec.location === 'floor' &&
+            isFloorCoveringAfterInsulationLocationMatch(
+              clause,
+              match.index + match[0].length
+            )
+          ) {
+            continue;
+          }
+          found.push({
+            location: spec.location,
+            index: match.index ?? 0,
+            length: match[0].length,
+          });
+        }
+      }
+      found.sort((a, b) => a.index - b.index);
+      let cursor = 0;
+      for (const loc of found) {
+        const nextStart =
+          found.find(row => row.index > loc.index)?.index ?? clause.length;
+        const before = clause.slice(cursor, loc.index + loc.length);
+        const after = clause.slice(loc.index + loc.length, nextStart);
+        const afterOwned =
+          quantity(before) > 0 ? '' : after.split(/\b(?=R[-\s]?\d{2,3}\b)/i)[0];
+        add(loc.location, clause, `${before}${afterOwned}`);
+        cursor = loc.index + loc.length + afterOwned.length;
+      }
+    }
     if (
       hasStructuralContext &&
       assemblies.length === assemblyCountBeforeClause &&
@@ -2133,6 +2204,7 @@ export function parseScopeMeasurementsFromNotes(
   const demoClearingSqft = pickSqftFromClauses([
     /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/,
     /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/,
+    /\bclear(?:ing)?\s+and\s+grade\b|\bgrade\s+and\s+clear(?:ing)?\b/,
   ]);
   if (demoClearingSqft) out.demoClearingSqft = demoClearingSqft;
 
@@ -2248,11 +2320,19 @@ export function parseScopeMeasurementsFromNotes(
 
   const floorAreaSqft = (() => {
     if (templateKey === 'bathroom' || projectType === 'bathroom') return null;
+    const allowsHomeFloorInference =
+      templateKey === 'ground_up' ||
+      projectType === 'ground_up' ||
+      projectType === 'new_build' ||
+      templateKey === 'insulation' ||
+      /\b(?:insulat(?:e|ion|ed)|fiberglass\s+batt|blown[-\s]?in)\b/i.test(text);
+    // A landscaping mention must not wipe the home's living area on a new build.
     if (
       /\b(?:sod|turf|pavers?|rock|mulch|shrubs?|landscap(?:e|ing))\b/i.test(
         text
       ) &&
-      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text)
+      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text) &&
+      !allowsHomeFloorInference
     ) {
       return null;
     }
@@ -2299,12 +2379,6 @@ export function parseScopeMeasurementsFromNotes(
       if (conversionSf) return conversionSf;
     }
     if (livingAreaSqft) return livingAreaSqft;
-    const allowsHomeFloorInference =
-      templateKey === 'ground_up' ||
-      projectType === 'ground_up' ||
-      projectType === 'new_build' ||
-      templateKey === 'insulation' ||
-      /\b(?:insulat(?:e|ion|ed)|fiberglass\s+batt|blown[-\s]?in)\b/i.test(text);
     if (allowsHomeFloorInference) {
       const homeFloor = inferHomeFloorAreaSqftFromNotes(text);
       if (homeFloor) return homeFloor;
@@ -2347,7 +2421,9 @@ export function parseScopeMeasurementsFromNotes(
     }
     return max > 0 ? max : null;
   })();
-  if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (floorAreaSqft && !notesDescribeDedicatedDeckJob(text)) {
+    out.floorAreaSqft = floorAreaSqft;
+  }
   if (out.airSealingIncluded && floorAreaSqft) {
     out.airSealingSqft = floorAreaSqft;
   }
@@ -2416,6 +2492,8 @@ export function parseScopeMeasurementsFromNotes(
     );
   })();
   if (deckSqft && !roofDeckingRepairNote) out.deckSqft = deckSqft;
+  const deckFootingCount = dedicatedDeckFootingCount(text);
+  if (deckFootingCount) out.deckFootingCount = deckFootingCount;
 
   const garageSqft = (() => {
     if (
@@ -2648,28 +2726,14 @@ export function parseScopeMeasurementsFromNotes(
     if (
       !isDemoClause(clause) ||
       isDirtExcavationClause(clause) ||
-      !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b/i.test(
+      !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b|\bflat[\s-]?work\b/i.test(
         clause
       )
     ) {
       continue;
     }
-    const depth = clause.match(DEPTH_INCHES_RE)?.[1]
-      ? Number(clause.match(DEPTH_INCHES_RE)?.[1])
-      : null;
-    if (depth == null || !Number.isFinite(depth)) continue;
-    out.concreteDemoThicknessBand =
-      depth >= 7
-        ? 'structural_7_plus'
-        : depth >= 5
-          ? 'heavy_5_6'
-          : depth >= 4
-            ? 'standard_4'
-            : 'thin_2_3';
     if (
-      /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
-        clause
-      )
+      /\b(?:reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(clause)
     ) {
       out.concreteDemoReinforced = true;
     }
@@ -2680,23 +2744,18 @@ export function parseScopeMeasurementsFromNotes(
     ) {
       out.concreteDemoLimitedAccess = true;
     }
+    const depthMatch = clause.match(DEPTH_INCHES_RE);
+    const depth = depthMatch?.[1] ? Number(depthMatch[1]) : null;
+    if (depth == null || !Number.isFinite(depth)) continue;
+    out.concreteDemoThicknessBand =
+      depth >= 7
+        ? 'structural_7_plus'
+        : depth >= 5
+          ? 'heavy_5_6'
+          : depth >= 4
+            ? 'standard_4'
+            : 'thin_2_3';
     break;
-  }
-  if (
-    /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
-      text
-    ) &&
-    out.concreteDemoSqft
-  ) {
-    out.concreteDemoReinforced = true;
-  }
-  if (
-    /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
-      text
-    ) &&
-    out.concreteDemoSqft
-  ) {
-    out.concreteDemoLimitedAccess = true;
   }
 
   // Do not map covered patio / porch into concrete — those belong on deckSqft.
@@ -2794,7 +2853,7 @@ export function parseScopeMeasurementsFromNotes(
   if (out.baseboardLf) out.lf = out.baseboardLf;
 
   const hvacSignal =
-    /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat[\s-]*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
+    /\bhvac\b|\bmechanical\b|\bfurnaces?\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat[\s-]*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
   const hvacText = hvacSignal.test(text)
     ? text
     : clauses.filter(clause => hvacSignal.test(clause)).join(' ');
@@ -2854,7 +2913,7 @@ export function parseScopeMeasurementsFromNotes(
       out.hvacEquipmentReplacementCount = Math.round(replacementCount);
     } else if (
       /\b(?:replace|replacement)\b/i.test(hvacText) &&
-      /\b(?:equipment|furnace|air\s*handler|condenser|heat[\s-]*pump)\b/i.test(
+      /\b(?:equipment|furnaces?|air\s*handler|condenser|heat[\s-]*pump)\b/i.test(
         hvacText
       )
     ) {
@@ -2898,6 +2957,27 @@ export function parseScopeMeasurementsFromNotes(
     if (!(key in planned)) delete (out as Record<string, unknown>)[key];
   }
   Object.assign(out, planned);
+  if (
+    !notesImplyConcreteFlatwork(text) &&
+    !notesImplyExteriorFlatwork(text) &&
+    !notesImplyStructuralFoundation(text)
+  ) {
+    out.concreteSqft = undefined;
+    out.concreteWalkwaySqft = undefined;
+    out.concretePatioSqft = undefined;
+    out.concreteSidewalkSqft = undefined;
+    out.concreteDrivewaySqft = undefined;
+    out.concreteRvPadSqft = undefined;
+    out.concreteAreaByType = undefined;
+    out.concreteThicknessByType = undefined;
+    out.concreteThicknessInches = undefined;
+  }
+  if (/\b(?:mulch|rock)\b/i.test(text) && !out.rockMulchSqft && !out.landscapeTons) {
+    out.rockMulchSqft = undefined;
+  }
+  if (/\bpavers?\b/i.test(text) && !out.paverSqft) {
+    out.paverSqft = undefined;
+  }
 
   if (
     (templateKey === 'concrete' || projectType === 'concrete') &&

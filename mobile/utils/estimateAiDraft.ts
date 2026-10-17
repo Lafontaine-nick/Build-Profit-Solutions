@@ -3,6 +3,11 @@ import {
   clearStalePricingWhenNotesUnpriced,
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
+import { notesImplyConcreteFlatwork } from '@/utils/concretePlanningMeasurements';
+import {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import {
   ruleKeysToTryForPackage,
@@ -17,6 +22,12 @@ import {
   notesDescribeDedicatedKitchenRemodel,
 } from '@/utils/kitchenNoteScope';
 import { explicitCrossTradeScopeItems } from '@/utils/noteScopeLines';
+import {
+  dedicatedDeckConfirmScopeItems,
+  dedicatedDeckMeasurementSeed,
+  notesDescribeDedicatedDeckJob,
+  scrubDedicatedDeckMeasurements,
+} from '@/utils/deckNoteScope';
 import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringMeasurementSeed,
@@ -113,7 +124,9 @@ import {
   finalizeStandalonePlumbingChecklist,
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
+  notesDescribeRoomContextPlumbingRelocate,
   notesDescribeMixedCrossTradeScope,
+  stripUnstatedPlumbingNoteMeasurements,
   parsePlumbingMeasurementsFromNotes,
   parsePlumbingProjectContextFromNotes,
   restrictPlumbingMeasurementsForServiceMode,
@@ -1367,12 +1380,50 @@ function stripRatePricingSubkeys(
   return Object.keys(out).length ? out : undefined;
 }
 
-export function repairDraftRatePricingFromNotes(
+function applyPlumbingNoteQuantityAuthority(
   draft: EstimateAiDraft,
   notes: string
 ): EstimateAiDraft {
-  const text = String(notes || draft.originalNotes || '').trim();
-  if (!text) return draft;
+  if (draft.scopeAssumptionsConfirmed) return draft;
+  const source = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const stripped = stripUnstatedPlumbingNoteMeasurements(source, notes);
+  if (stripped === source) return draft;
+  const templateKey = String(
+    draft.scopeChecklist?.templateKey || ''
+  ).toLowerCase();
+  const items = draft.scopeChecklist?.items;
+  const nextItems =
+    items && ['plumbing', 'plumbing_service'].includes(templateKey)
+      ? finalizeStandalonePlumbingChecklist(items, {
+          notes,
+          mode: stripped.plumbingWorkflowMode as
+            | 'bathroom_remodel'
+            | 'new_construction'
+            | 'service'
+            | null
+            | undefined,
+          plumbingScope: Array.isArray(stripped.plumbingScope)
+            ? (stripped.plumbingScope as string[])
+            : null,
+          quantities: stripped,
+        })
+      : items;
+  return {
+    ...draft,
+    scopeMeasurements: stripped as ScopeMeasurements,
+    scopeChecklist: draft.scopeChecklist
+      ? { ...draft.scopeChecklist, items: nextItems || [] }
+      : draft.scopeChecklist,
+  };
+}
+
+export function repairDraftRatePricingFromNotes(
+  incoming: EstimateAiDraft,
+  notes: string
+): EstimateAiDraft {
+  const text = String(notes || incoming.originalNotes || '').trim();
+  if (!text) return incoming;
+  const draft = applyPlumbingNoteQuantityAuthority(incoming, text);
   const dedicatedKitchenRemodel = notesDescribeDedicatedKitchenRemodel(text);
 
   const parsed = parseScopeMeasurementsFromNotes(text, {
@@ -1405,16 +1456,38 @@ export function repairDraftRatePricingFromNotes(
     text,
     parsed.itemQuantities
   );
+  const dropUnboundNoteQuantity = (id: string) => {
+    const row = mergedItemQuantities?.[id];
+    if (!row || row.quantitySource === 'user_entered') return;
+    delete mergedItemQuantities[id];
+  };
+  if (parsed.rockMulchSqft == null && parsed.landscapeTons == null) {
+    dropUnboundNoteQuantity('mulch');
+    dropUnboundNoteQuantity('rock');
+    dropUnboundNoteQuantity('rock_mulch');
+  }
+  if (parsed.paverSqft == null) dropUnboundNoteQuantity('pavers');
+  if (
+    !notesImplyConcreteFlatwork(text) &&
+    !notesImplyExteriorFlatwork(text) &&
+    !notesImplyStructuralFoundation(text)
+  ) {
+    dropUnboundNoteQuantity('pour_flatwork');
+    dropUnboundNoteQuantity('concrete');
+  }
 
   const parsedKeepingPlanReads = preservePlanBackedMeasurementFields(
     (draft.scopeMeasurements || {}) as Record<string, unknown>,
     parsed as Record<string, unknown>
   );
-  let mergedScopeMeasurements: ScopeMeasurements = {
-    ...(draft.scopeMeasurements || {}),
-    ...parsedKeepingPlanReads,
-    itemQuantities: mergedItemQuantities,
-  };
+  let mergedScopeMeasurements: ScopeMeasurements = stripUnstatedPlumbingNoteMeasurements(
+    {
+      ...(draft.scopeMeasurements || {}),
+      ...parsedKeepingPlanReads,
+      itemQuantities: mergedItemQuantities,
+    },
+    text
+  ) as ScopeMeasurements;
   if (
     draft.scopeChecklist?.templateKey === 'roofing' ||
     draft.projectType === 'roofing'
@@ -1645,6 +1718,18 @@ export function repairDraftRatePricingFromNotes(
   const explicitBathroomRemodel =
     /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text) ||
     /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(text);
+  if (
+    notesDescribeRoomContextPlumbingRelocate(text) &&
+    !repairedDraft.scopeAssumptionsConfirmed
+  ) {
+    return createStandalonePlumbingDraft(text, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: 'bathroom_remodel',
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(text),
+    });
+  }
   const mixedBathroomRemodel =
     /\b(?:bathroom|bath)\b/i.test(text) &&
     (String(
@@ -1969,6 +2054,52 @@ export function repairDraftRatePricingFromNotes(
       detectedTrades: ['drywall', 'flooring'],
       scopeTradeLabels: ['Drywall', 'Flooring'],
       whatAiDid: ['Detected the work named in the notes.'],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (notesDescribeDedicatedDeckJob(text)) {
+    const title = String(repairedDraft.projectTitle || '').trim();
+    const seed = dedicatedDeckMeasurementSeed(text);
+    const measurements = scrubDedicatedDeckMeasurements(text, {
+      ...(repairedDraft.scopeMeasurements || {}),
+      ...seed,
+      itemQuantities: {
+        ...(repairedDraft.scopeMeasurements?.itemQuantities || {}),
+        ...((seed.itemQuantities as Record<string, unknown>) || {}),
+      },
+    } as Record<string, unknown>);
+    return {
+      ...repairedDraft,
+      projectType: 'deck_patio',
+      projectTitle: /deck|patio/i.test(title) ? title : 'Deck',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'dedicated',
+        primaryTrade: 'deck_patio',
+        detectedTrades: ['deck_patio'],
+      },
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'deck_patio',
+        title: 'Deck & patio — confirm project scope',
+        intro: 'Confirm the deck work named in the notes.',
+        items: dedicatedDeckConfirmScopeItems(text),
+        scopeFacts: [],
+        suggestedMeasurements: measurements,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      detectedTrades: ['deck_patio'],
+      scopeTradeLabels: ['Deck'],
+      whatAiDid: ['Detected deck/patio.'],
       missingInfo: [],
       needsReviewItems: [],
       stillNeededReview: [],
@@ -5344,6 +5475,10 @@ export function applyPlanImportToDraft(
         scopeMeasurements as Record<string, unknown>,
         'notes'
       );
+      scopeMeasurements = stripUnstatedPlumbingNoteMeasurements(
+        scopeMeasurements as Record<string, unknown>,
+        noteText
+      ) as ScopeMeasurements;
     }
   }
   scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
@@ -6209,26 +6344,40 @@ export function applyPlanImportToDraft(
         projectContext
       ),
     };
-    const reconciledMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
-      mergedMeasurements,
-      next.originalNotes
+    const reconciledMeasurements = stripUnstatedPlumbingNoteMeasurements(
+      reconcilePlumbingEquipmentScopeMeasurements(
+        mergedMeasurements,
+        next.originalNotes
+      ),
+      noteText
     );
     rebuildPlumbingStructuredScopeFromMeasurements(
       reconciledMeasurements,
       'notes'
     );
+    const noteOwnedMeasurements = stripUnstatedPlumbingNoteMeasurements(
+      reconciledMeasurements,
+      noteText
+    );
     const syncedAfterNotes = finalizeStandalonePlumbingChecklist(
       next.scopeChecklist?.items || [],
       {
         notes: next.originalNotes,
-        mode: reconciledMeasurements.plumbingWorkflowMode,
-        plumbingScope: reconciledMeasurements.plumbingScope,
-        quantities: reconciledMeasurements,
+        mode: noteOwnedMeasurements.plumbingWorkflowMode as
+          | 'bathroom_remodel'
+          | 'new_construction'
+          | 'service'
+          | null
+          | undefined,
+        plumbingScope: Array.isArray(noteOwnedMeasurements.plumbingScope)
+          ? (noteOwnedMeasurements.plumbingScope as string[])
+          : null,
+        quantities: noteOwnedMeasurements,
       }
     );
     next = {
       ...next,
-      scopeMeasurements: reconciledMeasurements as ScopeMeasurements,
+      scopeMeasurements: noteOwnedMeasurements as ScopeMeasurements,
       scopeChecklist: {
         ...(next.scopeChecklist || {
           templateKey: 'plumbing_service',

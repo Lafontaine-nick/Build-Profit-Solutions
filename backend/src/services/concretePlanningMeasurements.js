@@ -1,5 +1,6 @@
 const {
   applyFoundationPlanningMeasurements,
+  notesIgnoringPaverSurfaces,
   notesImplyExteriorFlatwork,
   notesImplyMixedConcreteJob,
   notesImplyStructuralFoundation,
@@ -14,7 +15,7 @@ const FLATWORK_TYPE_PATTERNS = [
   { id: "walkways", re: /\bwalkway\b/i },
 ];
 
-const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inch(?:es)?|in\.?|["″])/i;
+const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:inch(?:es)?|in\.?|["″])/i;
 
 const PER_TYPE_SQFT_KEYS = {
   driveways: "concreteDrivewaySqft",
@@ -76,7 +77,7 @@ function notesMentionConcretePump(notes) {
 }
 
 function notesImplyConcreteFlatwork(notes) {
-  const n = String(notes || "");
+  const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   if (notesImplyStructuralFoundation(n) && !notesImplyExteriorFlatwork(n)) {
     return false;
@@ -138,7 +139,7 @@ function resolveFlatworkExcavationDepthInches(
 }
 
 function inferConcreteScopeIds(notes, measurements = {}) {
-  const blob = String(notes || "").toLowerCase();
+  const blob = notesIgnoringPaverSurfaces(notes).toLowerCase();
   const ids = new Set();
   const areaByType =
     measurements.concreteAreaByType && typeof measurements.concreteAreaByType === "object"
@@ -170,12 +171,13 @@ function inferConcreteScopeIds(notes, measurements = {}) {
   }
 
   if (
-    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}\b(?:concrete|slab|sidewalk|driveway|patio)\b/.test(
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b/.test(
       blob,
     ) ||
-    /\b(?:concrete|slab|sidewalk|driveway|patio)\b[^.;\n]{0,40}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/.test(
+    /\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b[^.;\n]{0,60}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/.test(
       blob,
-    )
+    ) ||
+    positiveNumber(measurements.concreteDemoSqft)
   ) {
     ids.add("demo_removal");
   }
@@ -195,7 +197,9 @@ function inferConcreteScopeIds(notes, measurements = {}) {
   }
 
   if (
-    /\b(?:site\s+prep|subgrade|compaction|grade\s+prep)\b/.test(blob) ||
+    /\b(?:site\s+prep|subgrade|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/.test(
+      blob,
+    ) ||
     /\b(?:gravel\s+base|base\s+gravel)\b/.test(blob) ||
     positiveNumber(measurements.concreteSubgradePrepSqft)
   ) {
@@ -301,9 +305,9 @@ function mergeUniqueScopeIds(...scopeLists) {
 
 function parseExteriorFlatworkSqftFromNotes(notes, typeId) {
   const mixed = notesImplyMixedConcreteJob(notes);
-  const section = mixed
-    ? splitConcreteNoteSections(notes).exterior
-    : String(notes || "");
+  const section = notesIgnoringPaverSurfaces(
+    mixed ? splitConcreteNoteSections(notes).exterior : String(notes || ""),
+  );
   const keyword = FLATWORK_TYPE_KEYWORDS[typeId];
   if (!keyword) return null;
   const patterns = [
@@ -331,7 +335,10 @@ function parseExteriorFlatworkSqftFromNotes(notes, typeId) {
 
 function resolveExteriorFlatworkSqft(notes, blob, out) {
   const existing = positiveNumber(out.concreteSqft);
-  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) => re.test(blob));
+  const typeBlob = notesIgnoringPaverSurfaces(blob);
+  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) =>
+    re.test(typeBlob),
+  );
   if (matchedTypes.length === 1) {
     const fromType = parseExteriorFlatworkSqftFromNotes(notes, matchedTypes[0].id);
     if (fromType) return fromType;
@@ -379,7 +386,9 @@ function applyExteriorFlatworkPlanningMeasurements(out, notes) {
     next.concreteThicknessInches = thickness;
   }
 
-  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) => re.test(blob));
+  const matchedTypes = FLATWORK_TYPE_PATTERNS.filter(({ re }) =>
+    re.test(notesIgnoringPaverSurfaces(blob)),
+  );
   if (flatworkSqft && matchedTypes.length) {
     const areaByType = { ...(next.concreteAreaByType || {}) };
     const thicknessByType = { ...(next.concreteThicknessByType || {}) };
@@ -427,7 +436,9 @@ function applyExteriorFlatworkPlanningMeasurements(out, notes) {
       }
     }
   } else if (
-    /\b(?:subgrade\s+prep|site\s+prep|compaction|grade\s+prep)\b/.test(blob) &&
+    /\b(?:subgrade\s+prep|site\s+prep|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/.test(
+      blob,
+    ) &&
     flatworkSqft
   ) {
     if (mixed) {

@@ -61,11 +61,7 @@ function positiveNumber(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function isIncluded(items: ScopeChecklistItem[], id: string): boolean {
-  return items.some((item) => item.id === id && item.state === 'included');
-}
-
-function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
+function inferredScope(notes: string): string[] {
   const ids = new Set<string>();
   const add = (id: string, pattern: RegExp) => {
     // Normal cleanup, haul-off, and equipment use belong to the individual
@@ -75,12 +71,14 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
       if (pattern.test(notes)) ids.add(id);
       return;
     }
-    if (isIncluded(items, id) || inferItemStateFromNotes(id, notes) === 'included' || pattern.test(notes)) {
+    // Note language decides the first scope. A draft that marked the whole
+    // catalog included must not pull unmentioned rows onto the bid.
+    if (inferItemStateFromNotes(id, notes) === 'included' || pattern.test(notes)) {
       ids.add(id);
     }
   };
   add('demo_clearing', /\b(?:demo|clear(?:ing)?|remove|tear[\s-]?out)\b/);
-  add('grading', /\bgrading?\b/);
+  add('grading', /\b(?:grading|grade(?!\s+prep))\b/);
   add('soil_prep', /\bsoil\s+prep(?:aration)?\b/);
   add('drainage', /\bdrain(?:age|ing)\b/);
   add('irrigation', /\birrigation\b/);
@@ -114,8 +112,67 @@ export function readLandscapingScope(m: Record<string, unknown>): string[] {
   return Array.isArray(m.landscapeScope) ? m.landscapeScope.map(String) : [];
 }
 
+const LANDSCAPE_CHIP_PATTERNS: Record<string, RegExp> = {
+  grading: /\b(?:grading|grade(?!\s+prep))\b/i,
+  soil_prep: /\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/i,
+  drainage: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b/i,
+  artificial_turf: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b|\bartificial\s+turf\b/i,
+  sod: /\b(?:sod|natural\s+grass)\b/i,
+  rock: /\b(?:decorative\s+)?rock\b|\bgravel\b/i,
+  mulch: /\bmulch\b/i,
+  plants: /\b(?:plants?|shrubs?|planting)\b/i,
+  trees: /\btrees?\b/i,
+  irrigation: /\birrigation|sprinkler|drip\s+system/i,
+  concrete_edging: /\bedging\b/i,
+  pavers: /\bpavers?\b/i,
+  decorative_boulders: /\b(?:landscape\s+)?boulders?\b/i,
+  landscape_lighting: /\b(?:landscape|path|outdoor)\s+lights?\b/i,
+  mobilization:
+    /\b(?:dedicated|extra|additional|specialty)\b[^.;]{0,50}\b(?:mobilization|skid[\s-]?steer|excavator|compactor|crane|equipment)\b|\b(?:mobilization|skid[\s-]?steer|excavator|compactor|crane)\s+(?:rental|charge|delivery)\b/i,
+  cleanup:
+    /\b(?:extra|additional|multiple|large|extraordinary)\b[^.;]{0,50}\b(?:cleanup|haul[\s-]?off|disposal|dumpster|dump trailer|dump runs?)\b|\b(?:dumpster|dump trailer|multiple dump runs?|extraordinary disposal)\b/i,
+};
+
+/** Condensed landscaping chips that this note actually names. */
+export function landscapingScopeChipNamedInNotes(
+  id: string,
+  notes: string | null | undefined
+): boolean {
+  return Boolean(LANDSCAPE_CHIP_PATTERNS[id]?.test(String(notes || '')));
+}
+
+export function landscapingNotesNameSpecificWork(
+  notes: string | null | undefined
+): boolean {
+  return Object.values(LANDSCAPE_CHIP_PATTERNS).some(pattern =>
+    pattern.test(String(notes || ''))
+  ) || /\b(?:clear(?:ing)?|demo|demolish|remove|tear[\s-]?out)\b/i.test(String(notes || ''));
+}
+
+/**
+ * A note that names landscape work shows the included lines only.
+ * Unmentioned catalog rows stay off the bid until the contractor adds them.
+ */
+export function landscapingConfirmItemVisible(input: {
+  templateKey?: string | null;
+  notes?: string | null;
+  item: { id?: string | null; state?: string | null };
+}): boolean {
+  if (String(input.templateKey || '').toLowerCase() !== 'landscaping') return true;
+  if (!landscapingNotesNameSpecificWork(input.notes)) return true;
+  const id = String(input.item.id || '');
+  if (
+    !LANDSCAPING_QM_SYNC_SCOPE_IDS.has(id) &&
+    id !== 'rock_mulch' &&
+    id !== 'plants_trees'
+  ) {
+    return true;
+  }
+  return input.item.state === 'included';
+}
+
 const LANDSCAPE_DEMO_NOTE =
-  /\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b[^.;\n]{0,45}\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)|\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)\b[^.;\n]{0,45}\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b/i;
+  /\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b[^.;\n]{0,45}\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)|\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)\b[^.;\n]{0,45}\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b|\bclear(?:ing)?\s+and\s+grade\b|\b(?:^|[.;\n]\s*)clear(?:ing)?\b/i;
 
 /**
  * Mixed-exterior cards stay off until the notes describe landscape clearing.
@@ -315,6 +372,15 @@ export function syncLandscapingQmScopeItems(
         changed = true;
         return { ...item, ...patch };
       }
+      // A saved selection list is the bid. Unmentioned catalog rows, including
+      // ones a draft marked included, stay off until the contractor adds them.
+      if (Array.isArray(measurements.landscapeScope)) {
+        if (item.state !== 'excluded' || item.noteBacked) {
+          changed = true;
+          return { ...item, state: 'excluded' as const, noteBacked: false };
+        }
+        return item;
+      }
       if (item.state === 'included' && item.noteBacked === true) {
         changed = true;
         return { ...item, state: 'excluded' as const, noteBacked: false };
@@ -355,7 +421,7 @@ export function syncLandscapingQmScopeItems(
 
 function hydrateLandscaping(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const saved = readLandscapingScope(ctx.measurements);
-  const inferred = inferredScope(String(ctx.notes || '').toLowerCase(), ctx.checklistItems);
+  const inferred = inferredScope(String(ctx.notes || '').toLowerCase());
   const notes = String(ctx.notes || '').toLowerCase();
   const notesDescribeArtificialTurf =
     /\b(?:fake|artificial|synthetic)\s+(?:grass|turf)\b|\bartificial\s+turf\b/.test(notes) &&
@@ -363,7 +429,19 @@ function hydrateLandscaping(ctx: QmPanelHydrateContext): Record<string, unknown>
   const migratedSaved = notesDescribeArtificialTurf
     ? saved.map((id) => (id === 'sod' || id === 'sod_turf' ? 'artificial_turf' : id))
     : saved;
-  const scope = migratedSaved.length ? migratedSaved : inferred;
+  const scope = migratedSaved.length ? [...migratedSaved] : [...inferred];
+  if (
+    LANDSCAPE_DEMO_NOTE.test(notes) &&
+    !scope.some(id => landscapingScopeCanonicalId(id) === 'demo_clearing')
+  ) {
+    scope.push('demo_clearing');
+  }
+  if (
+    landscapingScopeChipNamedInNotes('grading', notes) &&
+    !scope.some(id => landscapingScopeCanonicalId(id) === 'grading')
+  ) {
+    scope.push('grading');
+  }
   return {
     ...ctx.measurements,
     landscapeScope: scope.length ? scope : null,

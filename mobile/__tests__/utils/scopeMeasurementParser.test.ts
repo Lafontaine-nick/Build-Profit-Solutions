@@ -136,6 +136,17 @@ describe('mobile scope measurement parser', () => {
     });
   });
 
+  it('uses a stated exterior wall area as the stucco takeoff', () => {
+    const parsed = parseStuccoMeasurementsFromNotes(
+      'Patch and install new stucco on 800 sqft of exterior wall, including mesh and base coat.'
+    );
+
+    expect(parsed.stuccoGrossWallSqft).toBe(800);
+    expect(parsed.stuccoNetWallSqft).toBe(800);
+    expect(parsed.stuccoStories).toBeUndefined();
+    expect(parsed.stuccoWallHeightFt).toBeUndefined();
+  });
+
   it('does not paint cabinets because the word appears in the note', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Paint 1,800 sqft of the interior. Include prep. Doors, trim, cabinets, and exterior stay off.',
@@ -535,6 +546,26 @@ describe('mobile scope measurement parser', () => {
         materialType: 'Batt',
         rValue: 'R-30',
         sqft: 900,
+      },
+    ]);
+  });
+
+  it('keeps each R-value and area when wall and attic are in one sentence', () => {
+    const notes =
+      'Install R-21 insulation in 1,600 sqft of walls and R-30 insulation in 1,200 sqft of attic.';
+
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([
+      {
+        location: 'exterior_wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 1600,
+      },
+      {
+        location: 'attic_ceiling',
+        materialType: 'Batt',
+        rValue: 'R-30',
+        sqft: 1200,
       },
     ]);
   });
@@ -1436,6 +1467,39 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.concreteSqft).toBe(100);
   });
 
+  it('keeps driveway replacement demo area, base prep, and pour thickness from the notes', () => {
+    const notes =
+      'Remove 400 sqft of existing flatwork. Prep the base and pour 400 sqft of 4-inch driveway.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'concrete',
+    });
+
+    expect(parsed.concreteDemoSqft).toBe(400);
+    expect(parsed.concreteSqft).toBe(400);
+    expect(parsed.concreteThicknessInches).toBe(4);
+    expect(parsed.concreteSubgradePrepSqft).toBe(400);
+    expect(parsed.concreteDemoThicknessBand).toBeUndefined();
+    expect(parsed.gravelBaseCy).toBeUndefined();
+  });
+
+  it('keeps existing 6-inch demo thickness off the 4-inch driveway pour', () => {
+    const notes =
+      'Remove 400 sqft of existing 6-inch reinforced concrete flatwork. Dig out, prep the base, and place a gravel base. Pour 400 sqft of driveway, 4 inches thick, with rebar and 80 ft of thickened edge.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'concrete',
+    });
+
+    expect(parsed.concreteDemoSqft).toBe(400);
+    expect(parsed.concreteDemoThicknessBand).toBe('heavy_5_6');
+    expect(parsed.concreteDemoReinforced).toBe(true);
+    expect(parsed.concreteThicknessInches).toBe(4);
+    expect(parsed.concreteSqft).toBe(400);
+    expect(parsed.complexFormingLf).toBe(80);
+    expect(parsed.concreteReinforcementSqft).toBe(400);
+  });
+
   it('does not borrow patio or paver areas for exterior paint or landscape coverage', () => {
     const notes =
       'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
@@ -1466,6 +1530,25 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.landscapeTons).toBe(30);
     expect(parsed.plantCount).toBe(12);
     expect(parsed.exteriorDoorCount).toBe(2);
+  });
+
+  it('keeps a paver walkway on landscaping and does not steal the sod area', () => {
+    const notes =
+      'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'landscaping',
+      projectType: 'landscaping',
+    });
+
+    expect(parsed.gradingSqft).toBe(1200);
+    expect(parsed.demoClearingSqft).toBe(1200);
+    expect(parsed.sodSqft).toBe(800);
+    expect(parsed.rockMulchSqft).toBeUndefined();
+    expect(parsed.paverSqft).toBeUndefined();
+    expect(parsed.concreteSqft).toBeUndefined();
+    expect(parsed.concreteWalkwaySqft).toBeUndefined();
+    expect(parsed.concreteAreaByType).toBeUndefined();
+    expect(parsed.concreteThicknessInches).toBeUndefined();
   });
 
   it('parses quantities for additional landscaping work items', () => {
@@ -1781,6 +1864,7 @@ describe('mobile scope measurement parser', () => {
       projectType: 'new_build',
     });
     expect(parsed.floorAreaSqft).toBe(2800);
+    expect(parsed.landscapeSqft).toBeUndefined();
     expect(parsed.garageSqft).toBe(500);
     expect(parsed.storyCount).toBe(2);
     expect(parsed.garageDoorDoubleCount).toBe(1);

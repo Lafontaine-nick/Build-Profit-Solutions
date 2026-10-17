@@ -764,6 +764,25 @@ Demo old cabinets and haul off $850 lump sum`;
     });
   });
 
+  test('keeps a paver walkway on landscaping and does not steal the sod area', () => {
+    const notes =
+      'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'landscaping',
+      projectType: 'landscaping',
+    });
+
+    expect(parsed.gradingSqft).toBe(1200);
+    expect(parsed.demoClearingSqft).toBe(1200);
+    expect(parsed.sodSqft).toBe(800);
+    expect(parsed.rockMulchSqft).toBeNull();
+    expect(parsed.paverSqft).toBeNull();
+    expect(parsed.concreteSqft).toBeNull();
+    expect(parsed.concreteWalkwaySqft).toBeNull();
+    expect(parsed.concreteAreaByType).toBeNull();
+    expect(parsed.concreteThicknessInches).toBeNull();
+  });
+
   test('parses quantities for additional landscaping work items', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Clear 1,200 sqft of brush, grade 1,500 sqft, soil prep 900 sqft, install 180 LF drainage, 6 irrigation zones, and 8 landscape lights.',

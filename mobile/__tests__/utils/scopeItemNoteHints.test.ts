@@ -714,6 +714,11 @@ describe('ground-up owner-handled scope exclusions', () => {
       },
     ];
     expect(isMixedExteriorScopeNotes(notes)).toBe(false);
+    expect(
+      isMixedExteriorScopeNotes(
+        'Clear and grade 1,200 sqft. Install irrigation, 800 sqft of sod, mulch, plants, and a paver walkway.'
+      )
+    ).toBe(false);
     expect(filterRoomRemodelNoteScopeItems(shortList, notes)).toHaveLength(
       shortList.length
     );

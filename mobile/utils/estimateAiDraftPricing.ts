@@ -2883,6 +2883,32 @@ function splitNoteClauses(text: string): string[] {
   return clauses;
 }
 
+function landscapeCoverageOwnsSqft(
+  packageName: string,
+  clause: string,
+  match: RegExpMatchArray
+): boolean {
+  const pkg = packageName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const material = /\bpaver/.test(pkg)
+    ? /\bpavers?\b/
+    : /\bmulch\b/.test(pkg) && /\brock\b/.test(pkg)
+      ? /\b(?:mulch|rock)\b/
+      : /\bmulch\b/.test(pkg)
+        ? /\bmulch\b/
+        : /\brock\b/.test(pkg)
+          ? /\brock\b/
+          : /\b(?:sod|turf)\b/.test(pkg)
+            ? /\b(?:sod|turf)\b/
+            : null;
+  if (!material || match.index == null) return true;
+  const lower = clause.toLowerCase();
+  const before = lower.slice(Math.max(0, match.index - 55), match.index);
+  const after = lower
+    .slice(match.index + match[0].length, match.index + match[0].length + 55)
+    .split(/[.;,\n]/, 1)[0];
+  return material.test(before) || material.test(after);
+}
+
 function sentenceMatchesPackage(packageName: string, scopeText: string, sentence: string): boolean {
   const pkgKey = packageName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const scopeKey = scopeText.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -2938,6 +2964,7 @@ function extractScopeQuantitiesForPackage(
       packageAcceptsUnit(packageName, scopeText, 'sqft')
     ) {
       for (const m of sqftMatches) {
+        if (!landscapeCoverageOwnsSqft(packageName, clause, m)) continue;
         const qty = Number(String(m[1]).replace(/,/g, ''));
         if (Number.isFinite(qty) && qty > 0) {
           results.push({ label: packageName, quantity: qty, unit: 'sqft' });

@@ -12,6 +12,7 @@ import {
   bathroomAffirmativeNotes,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
+import { notesNameDedicatedHvacServiceVisit } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type PlumbingQuantityKey =
   | 'serviceCallCount'
@@ -618,6 +619,249 @@ function parseLength(text: string, noun: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * "Relocate 12 LF of supply and drain" is one fixture move. The same length
+ * belongs on the supply line and the drain line. It is not a room remodel.
+ */
+export function fixtureSupplyDrainRelocateLf(
+  notes: string | null | undefined
+): number | null {
+  const match = String(notes || '').match(
+    /\brelocat(?:e|ed|ing|ion)\s+(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:feet|foot)|feet|foot)\s+of\s+supply\s+(?:and|&)\s+drain\b/i
+  );
+  if (!match?.[1]) return null;
+  const value = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function notesDescribeDedicatedPlumbingFixtureRelocate(
+  notes: string | null | undefined
+): boolean {
+  if (fixtureSupplyDrainRelocateLf(notes) == null) return false;
+  return !/\b(?:bathroom|bath|kitchen|remodel|renovat|new\s+construction|ground[\s-]?up)\b/i.test(
+    String(notes || '')
+  );
+}
+
+/**
+ * A bathroom or kitchen mention whose only measured work is moving supply
+ * and drain. The fixture named in that sentence is why the pipe moves.
+ * Tile, a toilet, a shower, or a vanity install stays on the room remodel.
+ */
+export function notesDescribeRoomContextPlumbingRelocate(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (fixtureSupplyDrainRelocateLf(text) == null) return false;
+  const withoutMove = text.replace(
+    /\brelocat(?:e|ed|ing|ion)\s+\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:feet|foot)|feet|foot)\s+of\s+supply\s+(?:and|&)\s+drain\b[^.]*/gi,
+    ' '
+  );
+  return !/\b(?:tile|tiles|tub|bathtub|shower|toilet|paint(?:ing)?|floor(?:ing)?|faucet|demo|demolition|tear[\s-]?out|drywall|sheetrock|exhaust|lighting|mirror|vanity)\b/i.test(
+    withoutMove
+  );
+}
+
+/** Cards this fixture-move note actually quantified. The rest of the catalog stays off. */
+export function dedicatedPlumbingFixtureRelocateItemIds(
+  notes: string | null | undefined
+): string[] {
+  if (!notesDescribeDedicatedPlumbingFixtureRelocate(notes)) return [];
+  const parsed = parsePlumbingMeasurementsFromNotes(String(notes || ''));
+  return PLUMBING_CARDS.filter(
+    card => positiveNumber(parsed[card.measurementKey]) != null
+  ).map(card => card.itemId);
+}
+
+export function filterDedicatedPlumbingConfirmItems<
+  T extends { id?: string | null; label?: string | null },
+>(items: T[], notes?: string | null): T[] {
+  const allowed = new Set(dedicatedPlumbingFixtureRelocateItemIds(notes));
+  if (!allowed.size) return items;
+  return items.flatMap(item => {
+    const id = String(item.id || '');
+    if (id.startsWith('custom_')) return [item];
+    if (!allowed.has(id)) return [];
+    if (id === 'water_line') return [{ ...item, label: 'Supply relocate' }];
+    if (id === 'sewer_line') return [{ ...item, label: 'Drain relocate' }];
+    return [item];
+  });
+}
+
+const PLUMBING_USER_HELD_SOURCES = new Set(['user_entered', 'manual_override']);
+
+function plumbingMeasurementHeldByUser(
+  measurements: Record<string, unknown> | null | undefined,
+  key: string
+): boolean {
+  const overrides =
+    (measurements?.quickMeasurementUserOverrides as
+      | Record<string, boolean>
+      | undefined) || {};
+  const sources =
+    (measurements?.quickMeasurementSources as
+      | Record<string, string>
+      | undefined) || {};
+  return (
+    overrides[key] === true ||
+    PLUMBING_USER_HELD_SOURCES.has(String(sources[key] || ''))
+  );
+}
+
+/**
+ * A note that states real plumbing quantities owns the cards. Plan takeoff
+ * and a contractor-typed count stay. A model leftover does not.
+ */
+export function plumbingNotesAreQuantityAuthority(
+  notes: string | null | undefined,
+  measurements?: Record<string, unknown> | null
+): boolean {
+  if (measurements?.planImportFingerprint) return false;
+  if (measurements?.planImportMode) return false;
+  const inventory = measurements?.plumbingFixtureInventory;
+  if (
+    inventory &&
+    typeof inventory === 'object' &&
+    Object.keys(inventory as Record<string, unknown>).length > 0
+  ) {
+    return false;
+  }
+  if (
+    measurements?.plumbingWaterHeaterDetail &&
+    typeof measurements.plumbingWaterHeaterDetail === 'object'
+  ) {
+    return false;
+  }
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  return Object.keys(parsePlumbingMeasurementsFromNotes(text)).length > 0;
+}
+
+/** Job-type chooser for a notes plumbing bid. A pipe-only bathroom mention still shows it. */
+export function plumbingJobTypePickerVisible(params: {
+  notes?: string | null;
+  planImport?: boolean;
+  singleTradePlanImport?: boolean;
+  wholeProject?: boolean;
+  templateKey?: string | null;
+}): boolean {
+  const notes = String(params.notes || '');
+  const explicitBathroomRemodel =
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notes) ||
+    /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes);
+  const roomContextRelocate = notesDescribeRoomContextPlumbingRelocate(notes);
+  return (
+    !params.planImport &&
+    !params.singleTradePlanImport &&
+    !(explicitBathroomRemodel && !roomContextRelocate) &&
+    !params.wholeProject &&
+    !notesDescribeDedicatedPlumbingFixtureRelocate(notes) &&
+    (notesSuggestPlumbingBid(notes) ||
+      ['plumbing', 'plumbing_service'].includes(
+        String(params.templateKey || '').toLowerCase()
+      ))
+  );
+}
+
+/**
+ * Drop plumbing quantities the note did not state. "Replace 40 LF of water
+ * line" keeps the water line and loses a model water heater or drain length.
+ */
+export function stripUnstatedPlumbingNoteMeasurements<
+  T extends Record<string, unknown>,
+>(measurements: T, notes: string | null | undefined): T {
+  if (!plumbingNotesAreQuantityAuthority(notes, measurements)) {
+    return measurements;
+  }
+  const parsed = parsePlumbingMeasurementsFromNotes(String(notes || ''));
+  const next = { ...measurements } as T;
+  const sources = {
+    ...((next.quickMeasurementSources as Record<string, string> | undefined) ||
+      {}),
+  };
+  const itemQuantities = {
+    ...((next.itemQuantities as Record<string, unknown> | undefined) || {}),
+  };
+  const pricingAcceptance = {
+    ...((next.pricingAcceptance as Record<string, unknown> | undefined) || {}),
+  };
+  let changed = false;
+  const keptScope: string[] = [];
+  for (const card of PLUMBING_CARDS) {
+    const key = card.measurementKey;
+    const stated = positiveNumber(parsed[key]) != null;
+    const held = plumbingMeasurementHeldByUser(measurements, key);
+    if (stated || held) {
+      if (stated && !held && positiveNumber(next[key]) == null) {
+        next[key] = parsed[key];
+        changed = true;
+      }
+      if (positiveNumber(next[key]) != null || stated) {
+        keptScope.push(card.itemId);
+      }
+      continue;
+    }
+    if (key in next) {
+      delete next[key];
+      changed = true;
+    }
+    if (sources[key]) {
+      delete sources[key];
+      changed = true;
+    }
+    if (itemQuantities[card.itemId]) {
+      delete itemQuantities[card.itemId];
+      changed = true;
+    }
+    if (pricingAcceptance[card.itemId]) {
+      delete pricingAcceptance[card.itemId];
+      changed = true;
+    }
+  }
+  const currentScope = Array.isArray(next.plumbingScope)
+    ? (next.plumbingScope as string[])
+    : [];
+  if (currentScope.join('|') !== keptScope.join('|')) {
+    next.plumbingScope = keptScope;
+    changed = true;
+  }
+  if (!changed) return measurements;
+  next.quickMeasurementSources = sources;
+  next.itemQuantities = itemQuantities;
+  next.pricingAcceptance = pricingAcceptance;
+  return next;
+}
+
+/** Confirm rows for a quantified plumbing note: named cards, typed counts, and custom lines. */
+export function filterPlumbingNoteAuthorityConfirmItems<
+  T extends { id?: string | null },
+>(
+  items: T[],
+  notes?: string | null,
+  measurements?: Record<string, unknown> | null
+): T[] {
+  if (!plumbingNotesAreQuantityAuthority(notes, measurements)) return items;
+  const text = String(notes || '');
+  const parsed = parsePlumbingMeasurementsFromNotes(text);
+  const allowed = new Set<string>([
+    ...PLUMBING_CARDS.filter(
+      card => positiveNumber(parsed[card.measurementKey]) != null
+    ).map(card => card.itemId),
+    ...plumbingNoteScopeItemIds(text),
+  ]);
+  return items.filter(item => {
+    const id = String(item.id || '');
+    if (id.startsWith('custom_')) return true;
+    if (allowed.has(id)) return true;
+    const card = PLUMBING_CARDS.find(entry => entry.itemId === id);
+    if (!card) return false;
+    return (
+      plumbingMeasurementHeldByUser(measurements, card.measurementKey) &&
+      positiveNumber(measurements?.[card.measurementKey]) != null
+    );
+  });
+}
+
 function parseSqftFromNotes(text: string): number | null {
   const patterns = [
     /(\d{1,3}(?:,\d{3})*)\s*(?:sq\.?\s*ft|sf)\b[^.\n]{0,48}\bnew\s+(?:build|construction)\b/i,
@@ -785,6 +1029,7 @@ export function standalonePlumbingProjectTitle(
   roomContext?: PlumbingRoomContext | null
 ): string {
   const text = String(notes || '').trim();
+  if (notesNameDedicatedHvacServiceVisit(text)) return 'Plumbing bid';
   const workflowMode = inferPlumbingWorkflowModeFromNotes(text);
   if (workflowMode === 'service') {
     return 'Plumbing service call';
@@ -824,8 +1069,10 @@ export function parsePlumbingMeasurementsFromNotes(
 
   assign(
     'serviceCallCount',
-    count(new RegExp(`${COUNT_TOKEN}\\s+service\\s+calls?`, 'i')) ??
-      (/\bservice\s+call\b/i.test(text) ? 1 : null)
+    notesNameDedicatedHvacServiceVisit(text)
+      ? null
+      : (count(new RegExp(`${COUNT_TOKEN}\\s+service\\s+calls?`, 'i')) ??
+        (/\bservice\s+call\b/i.test(text) ? 1 : null))
   );
   assign(
     'fixtureRepairCount',
@@ -859,6 +1106,11 @@ export function parsePlumbingMeasurementsFromNotes(
     parseLength(text, '(?:sewer|drain|waste)\\s+lines?') ??
       parseLength(text, 'drain\\s+line')
   );
+  const supplyDrainRelocateLf = fixtureSupplyDrainRelocateLf(text);
+  if (supplyDrainRelocateLf != null) {
+    if (out.waterLineLf == null) assign('waterLineLf', supplyDrainRelocateLf);
+    if (out.sewerLineLf == null) assign('sewerLineLf', supplyDrainRelocateLf);
+  }
   assign('gasLineLf', parseLength(text, 'gas\\s+(?:line|piping|pipes?)'));
   const roughInPhrase = /\brough(?:-in| in)\b/i;
   assign(
@@ -986,8 +1238,17 @@ export function summarizePlumbingNoteBullets(notes: string, max = 4): string[] {
     'rough-in points'
   );
   pushCount(parsed.plumbingTrimHookupCount, 'trim hookup', 'trim hookups');
-  pushLf(parsed.waterLineLf, 'water line');
-  pushLf(parsed.sewerLineLf, 'sewer line');
+  const supplyDrainRelocateLf = fixtureSupplyDrainRelocateLf(notes);
+  if (
+    supplyDrainRelocateLf != null &&
+    parsed.waterLineLf === supplyDrainRelocateLf &&
+    parsed.sewerLineLf === supplyDrainRelocateLf
+  ) {
+    bullets.push(`${supplyDrainRelocateLf} LF supply and drain`);
+  } else {
+    pushLf(parsed.waterLineLf, 'water line');
+    pushLf(parsed.sewerLineLf, 'sewer line');
+  }
   pushLf(parsed.gasLineLf, 'gas piping');
   pushCount(parsed.waterHeaterCount, 'water heater', 'water heaters');
   pushCount(
@@ -1087,7 +1348,7 @@ function countDirectFixtureReplacementOperations(text: string): number | null {
 /** Strong whole-house / trade-plumbing signals that should not be treated as a room remodel. */
 export function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
   const text = String(notes || '').trim();
-  if (!text) return false;
+  if (!text || notesNameDedicatedHvacServiceVisit(text)) return false;
   const directFixtureServiceWork =
     /\b(?:replace|replaced|repair|repairing|service|test|tested|dispose|disposed)\b[^.;\n]{0,70}\b(?:faucets?|angle\s+stops?|braided\s+supply\s+lines?|supply\s+lines?|p[\s-]?traps?|toilet\s+(?:fill\s+)?valves?|flappers?|drain(?:age)?|fixtures?)\b/i.test(
       text
@@ -1178,6 +1439,7 @@ export function inferPlumbingWorkflowModeFromNotes(
   notes: string
 ): PlumbingWorkflowMode {
   const text = String(notes || '').toLowerCase();
+  if (notesNameDedicatedHvacServiceVisit(notes)) return 'bathroom_remodel';
   if (/\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/.test(text)) {
     return 'new_construction';
   }

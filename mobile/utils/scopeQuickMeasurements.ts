@@ -15,8 +15,20 @@ import {
   notesUseDedicatedDrywallScope,
   statedDedicatedDrywallDemoSqft,
 } from '@/utils/drywallNoteScope';
-import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
+import {
+  isGarageConversionJob,
+  notesDescribeAreaOnlyAddition,
+} from '@/utils/additionConversionPlanning';
 import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  insulationNoteNamesAtticArea,
+  insulationNoteNamesWallArea,
+} from '@/utils/insulationNoteScope';
+import {
+  notesNameDedicatedHvacEquipmentJob,
+  notesNameDedicatedHvacServiceVisit,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { notesOwnerHandlesScopeCategory } from '@/utils/scopeItemNoteHints';
 import {
   notesFrameExplicitWallArea,
   notesMentionAffirmativeWallFraming,
@@ -198,6 +210,9 @@ export type QuickMeasurementFieldKey =
   | 'concreteFlatworkGravelBaseCy'
   | 'complexFormingLf'
   | 'deckSqft'
+  | 'deckDemoSqft'
+  | 'deckFootingCount'
+  | 'deckStairCount'
   | 'garageSqft'
   | 'stuccoGrossWallSqft'
   | 'stuccoWindowDoorOpeningSqft'
@@ -2532,6 +2547,12 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
     params.projectType
   );
   const notes = String(params.notes || '');
+  if (
+    notesNameDedicatedHvacServiceVisit(notes) ||
+    notesNameDedicatedHvacEquipmentJob(notes)
+  ) {
+    return 'hvac';
+  }
   const insulationRequested =
     /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3}|fiberglass\s+batt|blown[-\s]?in)\b/i.test(
       notes
@@ -2877,8 +2898,12 @@ export function quickMeasurementRowsForTemplate(
         ]
       : kitchenScopedRows;
   if (key !== 'room_remodel' || !String(notes || '').trim()) {
-    return wallAreaFramingRows
+    const rows = wallAreaFramingRows
       .map(row => row.filter(noteBackedCrossTradeFields))
+      .filter(row => row.length > 0);
+    if (!notesOwnerHandlesScopeCategory(notes, 'sitework')) return rows;
+    return rows
+      .map(row => row.filter(field => field.key !== 'excavationCy'))
       .filter(row => row.length > 0);
   }
   const remodelNoteText = String(notes || '');
@@ -3286,6 +3311,65 @@ function dedicatedDrywallMeasurementRows(
   return rows;
 }
 
+function roomAdditionPackageMeasurementRows(): QuickMeasurementRow[] {
+  const field = (
+    key: QuickMeasurementFieldKey,
+    patch?: Partial<QuickMeasurementFieldDef>
+  ): QuickMeasurementFieldDef => ({
+    ...QUICK_MEASUREMENT_FIELD_DEFS[key],
+    ...patch,
+  });
+  return [
+    [
+      field('floorAreaSqft', {
+        label: 'Room addition',
+        placeholder: '400',
+        primary: true,
+        helperText: 'Addition floor area from the notes.',
+      }),
+    ],
+    [
+      field('concreteCy', {
+        label: 'Foundation',
+        helperText: 'Foundation pour for the addition. One charge.',
+      }),
+    ],
+    [
+      field('roofSquares', {
+        label: 'Roof tie-in',
+        helperText: 'New roof area for the addition.',
+      }),
+    ],
+    [field('exteriorWallInsulationSqft'), field('atticInsulationSqft')],
+    [
+      field('drywallSqft', {
+        label: 'Drywall hang / finish',
+        helperText: 'New drywall for the addition.',
+      }),
+    ],
+    [
+      field('flooringSqft', {
+        label: 'Flooring',
+        helperText: 'Flooring area for the addition.',
+      }),
+    ],
+    [field('wallPaintSqft', { label: 'Interior paint' })],
+    [
+      field('exteriorPaintSqft', {
+        label: 'Exterior finishes',
+        helperText: 'One exterior line for the addition.',
+      }),
+    ],
+    [field('windowCount', { label: 'Windows' }), field('exteriorDoorCount')],
+    [
+      field('baseboardLf', {
+        label: 'Interior trim',
+        helperText: 'Trim for the addition. Enter the linear feet.',
+      }),
+    ],
+  ];
+}
+
 export function quickMeasurementRowsForInput(
   templateKey: string | null | undefined,
   projectType: string | null | undefined,
@@ -3304,6 +3388,9 @@ export function quickMeasurementRowsForInput(
     scopeNotes?: string | null;
   }
 ): QuickMeasurementRow[] {
+  if (notesDescribeAreaOnlyAddition(options?.scopeNotes)) {
+    return roomAdditionPackageMeasurementRows();
+  }
   if (notesNameLinearFootStudWall(String(options?.scopeNotes || ''))) {
     return linearFootStudWallRows(String(options?.scopeNotes || ''));
   }
@@ -3742,6 +3829,11 @@ export function quickMeasurementRowsForInput(
   // Note-backed companion rows can add drywall after the initial template
   // pass; apply the same install/repair semantics to those rows as well.
   baseRows = applyDrywallNoteSemantics(baseRows, scopeNotes);
+  if (notesOwnerHandlesScopeCategory(scopeNotes, 'sitework')) {
+    baseRows = baseRows
+      .map(row => row.filter(field => field.key !== 'excavationCy'))
+      .filter(row => row.length > 0);
+  }
   // Electrical has its own owned quantity surface. Do not append generic
   // note-backed fields such as floor area from the nearby project context.
   if (resolvedKey === 'electrical') return baseRows;
@@ -3780,6 +3872,17 @@ export function quickMeasurementRowsForInput(
   // drywall, or flooring to an insulation scope.
   if (resolvedKey === 'insulation') {
     const notes = String(options?.scopeNotes || '');
+    const planBacked = Boolean(
+      (measurements as { planImportMode?: unknown }).planImportMode ||
+        (measurements as { planImportFingerprint?: unknown }).planImportFingerprint
+    );
+    const hasEntered = (key: QuickMeasurementFieldKey) => {
+      const raw = String(measurements[key] ?? '')
+        .replace(/,/g, '')
+        .trim();
+      const value = Number(raw);
+      return Number.isFinite(value) && value > 0;
+    };
     const hasRoofDeckReference =
       noteKeySet?.has('insulatedRoofDeckSqft') ||
       /\b(?:insulated|insulation|insulate)\b[^.;\n]{0,45}\b(?:roof\s+deck|roof\s+sheathing)\b|\b(?:roof\s+deck|roof\s+sheathing)\b[^.;\n]{0,45}\b(?:insulated|insulation|insulate)\b/i.test(
@@ -3790,6 +3893,16 @@ export function quickMeasurementRowsForInput(
       /\b(?:opening|window|door)\b[^.;\n]{0,45}\b(?:deduction|subtract|deduct)\b|\b(?:deduction|subtract|deduct)\b[^.;\n]{0,45}\b(?:opening|window|door)\b/i.test(
         notes
       );
+    const showWall =
+      planBacked ||
+      Boolean(noteKeySet?.has('exteriorWallInsulationSqft')) ||
+      hasEntered('exteriorWallInsulationSqft') ||
+      insulationNoteNamesWallArea(notes);
+    const showAttic =
+      planBacked ||
+      Boolean(noteKeySet?.has('atticInsulationSqft')) ||
+      hasEntered('atticInsulationSqft') ||
+      insulationNoteNamesAtticArea(notes);
     const optionalFields = new Set<QuickMeasurementFieldKey>([
       'insulatedRoofDeckSqft',
       'openingDeductionSqft',
@@ -3797,6 +3910,8 @@ export function quickMeasurementRowsForInput(
     return baseRows
       .map(row =>
         row.filter(field => {
+          if (field.key === 'exteriorWallInsulationSqft') return showWall;
+          if (field.key === 'atticInsulationSqft') return showAttic;
           if (!optionalFields.has(field.key)) return true;
           return field.key === 'insulatedRoofDeckSqft'
             ? Boolean(hasRoofDeckReference)
@@ -4590,6 +4705,9 @@ export function emptyQuickMeasurementInput(): Record<
     concreteCy: '',
     excavationCy: '',
     deckSqft: '',
+    deckDemoSqft: '',
+    deckFootingCount: '',
+    deckStairCount: '',
     garageSqft: '',
     stuccoGrossWallSqft: '',
     stuccoWindowDoorOpeningSqft: '',

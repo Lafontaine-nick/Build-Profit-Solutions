@@ -1,10 +1,12 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   applyConcretePlanningMeasurements,
+  inferConcreteDemoConditions,
   inferConcreteScopeIds,
   notesNameConcreteDecorativeFinish,
 } from '@/utils/concretePlanningMeasurements';
 import {
+  notesIgnoringPaverSurfaces,
   notesImplyExteriorFlatwork,
   notesImplyStructuralFoundation,
 } from '@/utils/foundationPlanningMeasurements';
@@ -107,7 +109,7 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
   };
   add(
     'demo_removal',
-    /\b(?:demo|demolition|remove|tear[\s-]?out|break(?:ing)?\s+out)\b[^.;]{0,40}\b(?:concrete|slab|sidewalk|driveway|patio)\b|\b(?:concrete|slab|sidewalk|driveway|patio)\b[^.;]{0,40}\b(?:demo|demolition|remove|tear[\s-]?out)\b/
+    /\b(?:demo|demolition|remove|tear[\s-]?out|break(?:ing)?\s+out)\b[^.;]{0,60}\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b|\b(?:concrete|slab|sidewalk|driveway|patio|walkway|flat[\s-]?work)\b[^.;]{0,60}\b(?:demo|demolition|remove|tear[\s-]?out)\b/
   );
   if (
     /\b(?:dirt|soil|earth)\b[^.;]{0,50}\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b|\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b[^.;]{0,50}\b(?:dirt|soil|earth)\b/.test(
@@ -118,7 +120,7 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
   }
   add(
     'site_prep',
-    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/
+    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/
   );
   add(
     'gravel_base',
@@ -162,18 +164,22 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
     'exterior_trim_paint',
     /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/
   );
+  const concreteNotes = notesIgnoringPaverSurfaces(notes);
   if (
     /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|walkway|rv\s+pad)\b/.test(
-      notes
+      concreteNotes
     ) ||
-    isIncluded(items, 'pour_flatwork')
+    (isIncluded(items, 'pour_flatwork') &&
+      /\b(?:concrete|flatwork|slab|sidewalk|driveway|walkway|patio|rv\s+pad)\b/.test(
+        concreteNotes
+      ))
   ) {
     ids.add('pour_flatwork');
-    if (/\bdriveway\b/.test(notes)) ids.add('driveways');
-    if (/\bsidewalk\b/.test(notes)) ids.add('sidewalks');
-    if (/\bpatio\b/.test(notes)) ids.add('patios');
-    if (/\brv\s+pad\b/.test(notes)) ids.add('rv_pads');
-    if (/\bwalkway\b/.test(notes)) ids.add('walkways');
+    if (/\bdriveway\b/.test(concreteNotes)) ids.add('driveways');
+    if (/\bsidewalk\b/.test(concreteNotes)) ids.add('sidewalks');
+    if (/\bpatio\b/.test(concreteNotes)) ids.add('patios');
+    if (/\brv\s+pad\b/.test(concreteNotes)) ids.add('rv_pads');
+    if (/\bwalkway\b/.test(concreteNotes)) ids.add('walkways');
   }
   return [...ids];
 }
@@ -452,7 +458,7 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const hasSitePrepQuantity =
     positiveNumber(mergedMeasurements.concreteSubgradePrepSqft) != null;
   const notesImplySitePrep =
-    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/.test(
+    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep|prep(?:ping|s|ped)?\s+(?:the\s+)?(?:base|subgrade)|base\s+prep)\b/.test(
       notes
     );
   const manuallyIncludedSitePrep = ctx.checklistItems.some(
@@ -484,6 +490,24 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
       concreteScopeCanonicalId(id) !== 'decorative_finish' ||
       notesNameConcreteDecorativeFinish(notes)
   );
+  const demoConditions = inferConcreteDemoConditions(ctx.notes);
+  if (
+    demoConditions.concreteDemoThicknessBand &&
+    !mergedMeasurements.concreteDemoThicknessBand &&
+    !(
+      Array.isArray(mergedMeasurements.concreteDemoThicknessBands) &&
+      mergedMeasurements.concreteDemoThicknessBands.length > 0
+    )
+  ) {
+    mergedMeasurements.concreteDemoThicknessBand =
+      demoConditions.concreteDemoThicknessBand;
+  }
+  if (
+    demoConditions.concreteDemoReinforced &&
+    mergedMeasurements.concreteDemoReinforced == null
+  ) {
+    mergedMeasurements.concreteDemoReinforced = true;
+  }
   const selectedFlatworkIds = cleanedScope.filter(id =>
     CONCRETE_FLATWORK_OPTION_IDS.has(id as ConcreteFlatworkOptionId)
   );
@@ -579,7 +603,7 @@ export const CONCRETE_SCOPE_OPTIONS = [
     measurementKey: 'concreteDemoSqft' as const,
     unit: 'sqft',
     helperText:
-      'Existing concrete removal area. Select thickness before pricing; normal haul-off/disposal is included.',
+      'Existing concrete removal area from the notes. Thickness is optional and stays blank until confirmed. Normal haul-off and disposal are included.',
   },
   {
     id: 'site_prep',

@@ -127,6 +127,21 @@ export function computeExcavationCyFromFootingTrench(
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|sidewalk|walkway|patio\s+slab|rv\s+pad|porch\s+slab)\b/i;
 
+/** "Paver walkway" is landscape pavers. Leave a real concrete walkway in place. */
+export function notesIgnoringPaverSurfaces(
+  notes: string | null | undefined
+): string {
+  return String(notes || '')
+    .replace(
+      /\bpavers?\s+(?:walkways?|patios?|sidewalks?|paths?|driveways?)\b/gi,
+      'pavers'
+    )
+    .replace(
+      /\b(?:walkways?|patios?|sidewalks?|paths?)\s+(?:of|with|in)\s+pavers?\b/gi,
+      'pavers'
+    );
+}
+
 const STRUCTURAL_FOUNDATION_RE =
   /\b(?:house|garage|building|monolithic)\s+slab\b|\b(?:slab\s+on\s+grade|foundation\s+pour|footings?|stem\s+wall|continuous\s+footings?|piers?)\b/i;
 
@@ -154,7 +169,7 @@ export function notesImplyStructuralFoundation(
 export function notesImplyExteriorFlatwork(
   notes: string | null | undefined
 ): boolean {
-  const n = String(notes || '');
+  const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   return (
     EXTERIOR_FLATWORK_RE.test(n) ||
