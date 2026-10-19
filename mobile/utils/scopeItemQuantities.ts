@@ -258,7 +258,12 @@ import {
 } from '@/utils/groundUpBarometerLumpPackages';
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  wholeHomeRemodelSuppressesInventedPrice,
+} from '@/utils/wholeHomeRemodelNote';
+import {
   isUndercountedDrywallSurface,
+  planningFirstFloorSqft,
   syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
 import {
@@ -313,6 +318,7 @@ import {
   type ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import {
+  areaOnlyAdditionSqft,
   conversionDrywallSurfaceSqft,
   conversionPrimaryFloorSqft,
   conversionWallFramingLf,
@@ -327,6 +333,15 @@ import {
   notesDescribeAreaOnlyAddition,
 } from '@/utils/additionConversionPlanning';
 import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
+import {
+  areaOnlyStuccoSystemRate,
+  AREA_ONLY_BRICK_RATE,
+  areaOnlyExteriorCladding,
+  areaOnlyExteriorFinishFromNotes,
+  asAreaOnlyStuccoSystem,
+  resolveAreaOnlyExteriorFinishes,
+  resolveAreaOnlyStuccoSystem,
+} from '@/utils/areaOnlyExteriorFinish';
 import {
   buildFloorPrepPricingContext,
   demoCatalogAssumptionNote,
@@ -5445,7 +5460,9 @@ function costBucketKindForLabel(label: string): SuggestedPricingCostBucketKind {
   if (normalized.includes('allowance')) return 'allowance';
   if (normalized.includes('subcontract')) return 'subcontractor';
   if (normalized.includes('labor')) return 'labor';
-  if (normalized.includes('material')) return 'material';
+  if (normalized.includes('material') || normalized.includes('drywall board')) {
+    return 'material';
+  }
   return 'other_direct_cost';
 }
 
@@ -5464,6 +5481,7 @@ function nationalAverageLaborBucketLabel(
   average?: NationalAverageBudgetSplit | null
 ): string {
   if (average?.laborBucketLabel) return average.laborBucketLabel;
+  if (itemId === 'cleanup' || itemId === 'haul_off') return 'Labor';
   if (average?.unit === 'allowance' || average?.unit === 'lump_sum')
     return 'Allowance';
   if (itemId === 'drywall')
@@ -10365,6 +10383,39 @@ export function resolveSuggestAlignedEditorPricingBasis(
     livingSf &&
     livingSf > 0
   ) {
+    const drywallSf = parseScopeMeasurementInput(
+      String(measurementsInput.drywallSqft ?? '')
+    );
+    if (
+      drywallSf != null &&
+      drywallSf > 0 &&
+      !isUndercountedDrywallSurface(drywallSf, livingSf)
+    ) {
+      const formSurface = drywallSurfacePlanningQuantity(livingSf);
+      const garagePackage = drywallPackageSurfacePlanningQuantity(
+        livingSf,
+        garageSf > 0 ? garageSf : null
+      );
+      const pricedTheGaragePackage =
+        formSurface != null &&
+        garagePackage != null &&
+        Math.abs(drywallSf - garagePackage) / garagePackage <= 0.02 &&
+        Math.abs(drywallSf - formSurface) / formSurface > 0.02;
+      return {
+        quantity: pricedTheGaragePackage ? formSurface : drywallSf,
+        unit: 'sqft',
+      };
+    }
+    const plannedSurface =
+      formPlanningQuantity(
+        'drywallSqft',
+        measurementsInput,
+        tk,
+        String(measurementsInput.scopeNotes || '')
+      ) ?? drywallSurfacePlanningQuantity(livingSf);
+    if (plannedSurface != null && plannedSurface > 0) {
+      return { quantity: plannedSurface, unit: 'sqft' };
+    }
     const componentQuantity = resolveDrywallPackageSurfaceQuantity(
       measurementsInput as unknown as Record<string, unknown>,
       { planFacts: measurementsInput.planFacts }
@@ -10372,29 +10423,14 @@ export function resolveSuggestAlignedEditorPricingBasis(
     if (componentQuantity != null) {
       return { quantity: componentQuantity, unit: 'sqft' };
     }
-    const drywallSf = parseScopeMeasurementInput(
-      String(measurementsInput.drywallSqft ?? '')
-    );
     const needsSurface =
       !drywallSf ||
       drywallSf <= 0 ||
       Math.abs(drywallSf - livingSf) < 0.51 ||
       isUndercountedDrywallSurface(drywallSf, livingSf);
     if (needsSurface) {
-      const garageSf =
-        parseScopeMeasurementInput(
-          String(measurementsInput.garageSqft ?? '')
-        ) ||
-        parseScopeMeasurementInput(
-          String(measurementsInput.planFacts?.buildingAreas?.garageSqft ?? '')
-        ) ||
-        0;
-      const packageSf = drywallPackageSurfacePlanningQuantity(
-        livingSf,
-        garageSf > 0 ? garageSf : null
-      );
       return {
-        quantity: packageSf ?? Math.round(livingSf * 3.5),
+        quantity: Math.round(livingSf * 3.5),
         unit: 'sqft',
       };
     }
@@ -10445,14 +10481,14 @@ export function resolveSuggestAlignedEditorPricingBasis(
       String(measurementsInput.excavationCy ?? '')
     );
     if (cy && cy > 0) return { quantity: cy, unit: 'cy' };
-    if (livingSf && livingSf > 0) {
-      const perimeter = 4 * Math.sqrt(livingSf);
-      const trenchCy = (perimeter * 3 * 3) / 27;
-      const padCutCy = (livingSf * 0.5) / 27;
-      return {
-        quantity: Math.max(1, Math.round(trenchCy + padCutCy + trenchCy * 0.1)),
-        unit: 'cy',
-      };
+    const plannedCy = formPlanningQuantity(
+      'excavationCy',
+      measurementsInput,
+      tk,
+      String(measurementsInput.scopeNotes || '')
+    );
+    if (plannedCy && plannedCy > 0) {
+      return { quantity: plannedCy, unit: 'cy' };
     }
     return null;
   }
@@ -12876,6 +12912,32 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function formPlanningQuantity(
+  key: 'excavationCy' | 'drywallSqft' | 'exteriorPaintSqft',
+  measurements: {
+    floorAreaSqft?: unknown;
+    garageSqft?: unknown;
+    planFacts?: unknown;
+    scopeNotes?: unknown;
+  },
+  templateKey?: string | null,
+  notes?: string | null
+): number | null {
+  const estimate = getQuickMeasurementEstimate(
+    key,
+    measurements as never,
+    measurements.planFacts as never,
+    templateKey,
+    {
+      notes: notes || String(measurements.scopeNotes || ''),
+      projectType: templateKey,
+    }
+  );
+  const value = Number(estimate?.value);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return key === 'excavationCy' ? value : Math.round(value);
+}
+
 function volumeSensitiveExcavationPricing(quantityCy: number) {
   const cy = Math.max(0, quantityCy);
   const tier =
@@ -14200,6 +14262,16 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     (params.unit === 'sqft' && Number(params.paintableOrCount) > 0
       ? Number(params.paintableOrCount)
       : null);
+  // A square footage already on the ground-up form prices at the surface rate.
+  // The living-SF paint package stays for a blank box.
+  if (
+    String(params.templateKey || '').toLowerCase() === 'ground_up' &&
+    (id === 'interior_paint' || id === 'paint') &&
+    paintableSf != null &&
+    paintableSf > 0
+  ) {
+    return null;
+  }
   const state = params.pricingContext?.state;
   const pricingNotes = [
     String(params.originalNotes || ''),
@@ -15836,20 +15908,124 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const notesText = String(originalNotes || '');
   if (
-    itemId === 'exterior_finishes' &&
-    notesDescribeAreaOnlyAddition(notesText) &&
-    Number(resolved.quantity) > 0
+    wholeHomeRemodelSuppressesInventedPrice(
+      itemId,
+      notesText,
+      measurementsInput as unknown as Record<string, unknown>
+    )
   ) {
-    return resolveScopeItemSuggestedPricing(
-      'exterior_paint',
-      measurementsInput,
-      templateKey,
-      resolved,
-      pricingContext,
+    return empty;
+  }
+  if (
+    itemId === 'exterior_finishes' &&
+    notesDescribeAreaOnlyAddition(notesText)
+  ) {
+    const finishes = resolveAreaOnlyExteriorFinishes({
+      stored: measurementsInput.exteriorFinish,
+      storedMany: Array.isArray(measurementsInput.exteriorFinishes)
+        ? measurementsInput.exteriorFinishes
+        : null,
       choiceId,
-      originalNotes,
-      options
-    );
+      notes: notesText,
+    });
+    const finish = areaOnlyExteriorCladding(finishes);
+    const sqft = Number(resolved.quantity);
+    const brickSqft = sqft;
+    if (finish === 'brick' && brickSqft > 0) {
+      const material = round2(brickSqft * AREA_ONLY_BRICK_RATE.material);
+      const labor = round2(brickSqft * AREA_ONLY_BRICK_RATE.labor);
+      const average: NationalAverageBudgetSplit = {
+        unit: 'sqft',
+        material: AREA_ONLY_BRICK_RATE.material,
+        labor: AREA_ONLY_BRICK_RATE.labor,
+        sourceLabel: `BPS national planning rate · ${AREA_ONLY_BRICK_RATE.label}`,
+        pricingMethod: 'material_labor',
+        rateSource: 'bps_national_benchmark',
+        productionStatus: 'review_required',
+        geographicBasis: 'national',
+      };
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: average.sourceLabel,
+          helper: `${brickSqft.toLocaleString('en-US')} sqft of ${AREA_ONLY_BRICK_RATE.label}.`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: brickSqft, unit: 'sqft' },
+          costBuckets: buildSuggestedPricingCostBuckets({
+            itemId: 'brick',
+            average,
+            material,
+            labor,
+            materialRate: AREA_ONLY_BRICK_RATE.material,
+            laborRate: AREA_ONLY_BRICK_RATE.labor,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+          }),
+          pricingRecordId: 'bps_national:brick:sqft',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'brick',
+          benchmarkAction: 'price_ready',
+        },
+        comparison: null,
+      };
+    }
+    const system = resolveAreaOnlyStuccoSystem({
+      finish,
+      stored: measurementsInput.exteriorStuccoSystem,
+      notes: notesText,
+    });
+    const stuccoRate = areaOnlyStuccoSystemRate(system);
+    if (finish === 'stucco' && stuccoRate && sqft > 0) {
+      const material = round2(sqft * stuccoRate.material);
+      const labor = round2(sqft * stuccoRate.labor);
+      const average: NationalAverageBudgetSplit = {
+        unit: 'sqft',
+        material: stuccoRate.material,
+        labor: stuccoRate.labor,
+        sourceLabel: `BPS national planning rate · ${stuccoRate.label}`,
+        pricingMethod: 'material_labor',
+        rateSource: 'bps_national_benchmark',
+        productionStatus: 'review_required',
+        geographicBasis: 'national',
+      };
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: average.sourceLabel,
+          helper: `${sqft.toLocaleString('en-US')} sqft of ${stuccoRate.label}.`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: sqft, unit: 'sqft' },
+          costBuckets: buildSuggestedPricingCostBuckets({
+            itemId: 'stucco',
+            average,
+            material,
+            labor,
+            materialRate: stuccoRate.material,
+            laborRate: stuccoRate.labor,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+          }),
+          pricingRecordId: `bps_national:stucco:${system}`,
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'stucco',
+          benchmarkAction: 'price_ready',
+        },
+        comparison: null,
+      };
+    }
+    return empty;
   }
   const dedicatedDrywallNotes = notesText || String(measurementsInput.scopeNotes || '');
   const dedicatedDrywallNote = notesDescribeDedicatedDrywallJob(dedicatedDrywallNotes);
@@ -20365,6 +20541,42 @@ export function resolveScopeItemSuggestedPricing(
         ? measurementMatch.quantity
         : firstMeasurementQuantityForRule(rule, measurementsInput));
   if (
+    itemId === 'drywall' &&
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    !['user_entered', 'manual_override'].includes(
+      String(resolved.quantitySource || '')
+    )
+  ) {
+    const livingForDrywall = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const formDrywall = drywallSurfacePlanningQuantity(livingForDrywall);
+    const garageForDrywall =
+      parseScopeMeasurementInput(measurementsInput.garageSqft) ||
+      parseScopeMeasurementInput(
+        measurementsInput.planFacts?.buildingAreas?.garageSqft
+      );
+    const garagePackage = drywallPackageSurfacePlanningQuantity(
+      livingForDrywall,
+      garageForDrywall
+    );
+    const countMatchesPackage =
+      formDrywall != null &&
+      garagePackage != null &&
+      count != null &&
+      count > 0 &&
+      Math.abs(count - garagePackage) / garagePackage <= 0.02;
+    if (
+      formDrywall != null &&
+      (countMatchesPackage ||
+        !count ||
+        count <= 0 ||
+        isUndercountedDrywallSurface(count, livingForDrywall))
+    ) {
+      count = formDrywall;
+    }
+  }
+  if (
     (!count || count <= 0) &&
     (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')
   ) {
@@ -20548,7 +20760,128 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
 
-    if (itemId === 'stucco') {
+    if (itemId === 'stucco' || itemId === 'brick') {
+      const choiceSystem = asAreaOnlyStuccoSystem(choiceId);
+      const exteriorFinishes = resolveAreaOnlyExteriorFinishes({
+        stored: measurementsInput.exteriorFinish,
+        storedMany: Array.isArray(measurementsInput.exteriorFinishes)
+          ? measurementsInput.exteriorFinishes
+          : null,
+        choiceId,
+        notes: originalNotes,
+      });
+      const exteriorFinish =
+        areaOnlyExteriorCladding(exteriorFinishes) ||
+        (choiceSystem ? 'stucco' : null);
+      const stuccoSystem = resolveAreaOnlyStuccoSystem({
+        finish: exteriorFinish,
+        stored: measurementsInput.exteriorStuccoSystem || choiceSystem,
+        notes: originalNotes,
+      });
+      const stuccoRate = areaOnlyStuccoSystemRate(stuccoSystem);
+      const pickedWallSf =
+        parseScopeMeasurementInput(measurementsInput.exteriorPaintSqft) ||
+        formPlanningQuantity(
+          'exteriorPaintSqft',
+          measurementsInput,
+          templateKey,
+          originalNotes
+        );
+      if (exteriorFinish === 'brick' && pickedWallSf && pickedWallSf > 0) {
+        const material = round2(pickedWallSf * AREA_ONLY_BRICK_RATE.material);
+        const labor = round2(pickedWallSf * AREA_ONLY_BRICK_RATE.labor);
+        const average: NationalAverageBudgetSplit = {
+          unit: 'sqft',
+          material: AREA_ONLY_BRICK_RATE.material,
+          labor: AREA_ONLY_BRICK_RATE.labor,
+          sourceLabel: `BPS national planning rate · ${AREA_ONLY_BRICK_RATE.label}`,
+          pricingMethod: 'material_labor',
+          rateSource: 'bps_national_benchmark',
+          productionStatus: 'review_required',
+          geographicBasis: 'national',
+        };
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: average.sourceLabel,
+            helper: `${pickedWallSf.toLocaleString('en-US')} sqft of ${AREA_ONLY_BRICK_RATE.label}.`,
+            mode: 'suggested_price',
+            lumpSumOnly: false,
+            basis: { quantity: pickedWallSf, unit: 'sqft' },
+            costBuckets: buildSuggestedPricingCostBuckets({
+              itemId: 'brick',
+              average,
+              material,
+              labor,
+              materialRate: AREA_ONLY_BRICK_RATE.material,
+              laborRate: AREA_ONLY_BRICK_RATE.labor,
+              materialSource: 'national_average',
+              laborSource: 'national_average',
+            }),
+            pricingRecordId: 'bps_national:brick:sqft',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'brick',
+            benchmarkAction: 'price_ready',
+          },
+          comparison: null,
+        };
+      }
+      if (itemId === 'brick') return empty;
+      if (exteriorFinish === 'siding' || exteriorFinish === 'brick') return empty;
+      if (
+        exteriorFinish === 'stucco' &&
+        stuccoRate &&
+        pickedWallSf &&
+        pickedWallSf > 0
+      ) {
+        const material = round2(pickedWallSf * stuccoRate.material);
+        const labor = round2(pickedWallSf * stuccoRate.labor);
+        const average: NationalAverageBudgetSplit = {
+          unit: 'sqft',
+          material: stuccoRate.material,
+          labor: stuccoRate.labor,
+          sourceLabel: `BPS national planning rate · ${stuccoRate.label}`,
+          pricingMethod: 'material_labor',
+          rateSource: 'bps_national_benchmark',
+          productionStatus: 'review_required',
+          geographicBasis: 'national',
+        };
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: average.sourceLabel,
+            helper: `${pickedWallSf.toLocaleString('en-US')} sqft of ${stuccoRate.label}.`,
+            mode: 'suggested_price',
+            lumpSumOnly: false,
+            basis: { quantity: pickedWallSf, unit: 'sqft' },
+            costBuckets: buildSuggestedPricingCostBuckets({
+              itemId: 'stucco',
+              average,
+              material,
+              labor,
+              materialRate: stuccoRate.material,
+              laborRate: stuccoRate.labor,
+              materialSource: 'national_average',
+              laborSource: 'national_average',
+            }),
+            pricingRecordId: `bps_national:stucco:${stuccoSystem}`,
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'stucco',
+            benchmarkAction: 'price_ready',
+          },
+          comparison: null,
+        };
+      }
       const wallSf = parseScopeMeasurementInput(
         measurementsInput.exteriorPaintSqft
       );
@@ -20577,6 +20910,9 @@ export function resolveScopeItemSuggestedPricing(
       const hasEachCount =
         eachQty != null && eachQty > 0 && eachUnit === 'each';
       if (!hasEachCount) {
+        if (notesDescribeMeasuredWholeHomeRemodel(notesText)) {
+          return empty;
+        }
         const lump =
           itemId === 'plumbing_rough'
             ? resolvePlumbingRoughLumpSuggestedFill({
@@ -20669,6 +21005,48 @@ export function resolveScopeItemSuggestedPricing(
         Number(measurementsInput.insulatedRoofDeckSqft) > 0 ||
         Number(measurementsInput.floorInsulationSqft) > 0 ||
         assemblyRows.length > 0;
+      if (
+        !explicitInsulationSurface &&
+        notesDescribeMeasuredWholeHomeRemodel(notesText)
+      ) {
+        return empty;
+      }
+      if (!explicitInsulationSurface && livingSf && livingSf > 0) {
+        const perimeter = 4 * Math.sqrt(livingSf);
+        const envelopeSf = Math.round(Math.max(0, perimeter * 9 * 0.85) + livingSf);
+        const reframed = regionalAdjustedNationalAverage(
+          'insulation',
+          'sqft',
+          pricingContext
+        );
+        if (
+          envelopeSf > 0 &&
+          reframed.average?.material != null &&
+          reframed.average?.labor != null
+        ) {
+          const material = round2(envelopeSf * reframed.average.material);
+          const labor = round2(envelopeSf * reframed.average.labor);
+          return {
+            fill: {
+              material,
+              labor,
+              total: round2(material + labor),
+              materialSource: 'national_average',
+              laborSource: 'national_average',
+              rateSourceLabel:
+                reframed.average.sourceLabel ||
+                'Suggested budget split · National Average · insulation',
+              helper: `${envelopeSf.toLocaleString('en-US')} sqft thermal envelope`,
+              mode: 'suggested_price',
+              lumpSumOnly: false,
+              basis: { quantity: envelopeSf, unit: 'sqft' },
+              productionStatus: 'review_required',
+              benchmarkAction: 'price_ready',
+            },
+            comparison: null,
+          };
+        }
+      }
       return buildGroundUpBarometerLumpPricing('insulation', adjustedLump, {
         livingSf,
         basis:
@@ -20725,11 +21103,20 @@ export function resolveScopeItemSuggestedPricing(
       const paintSf = parseScopeMeasurementInput(
         measurementsInput.exteriorPaintSqft
       );
-      const userPaint =
-        resolved.quantitySource === 'user_entered' &&
-        paintSf != null &&
-        paintSf > 0;
-      if (!userPaint) {
+      const resolvedPaint =
+        resolved.unit === 'sqft' && Number(resolved.quantity) > 0
+          ? Number(resolved.quantity)
+          : 0;
+      const plannedPaint =
+        (paintSf != null && paintSf > 0 ? paintSf : 0) ||
+        resolvedPaint ||
+        formPlanningQuantity(
+          'exteriorPaintSqft',
+          measurementsInput,
+          templateKey,
+          String(measurementsInput.scopeNotes || '')
+        );
+      if (!(plannedPaint && plannedPaint > 0)) {
         const lump = resolveExteriorPaintLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -21003,6 +21390,8 @@ export function resolveScopeItemSuggestedPricing(
             laborSource: 'national_average',
             rateSourceLabel: garagePkg.sourceLabel,
             helper: garagePkg.helper,
+            displayQuantityLine: garagePkg.helper,
+            displayUnitRateLabel: garagePkg.helper,
             mode: 'suggested_price',
             basis: { quantity: garagePkg.quantity, unit: 'each' },
             splitSource: 'source',
@@ -21024,13 +21413,11 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput.floorAreaSqft
     );
     if (livingSf && livingSf > 0) {
-      // Same shallow-pad + footing-trench planning basis as Quick Measurements (~Lot 41 ~100–130 CY).
-      const perimeter = 4 * Math.sqrt(livingSf);
-      const trenchCy = (perimeter * 3 * 3) / 27;
-      const padCutCy = (livingSf * 0.5) / 27;
-      const planningCy = Math.max(
-        1,
-        Math.round(trenchCy + padCutCy + trenchCy * 0.1)
+      const planningCy = formPlanningQuantity(
+        'excavationCy',
+        measurementsInput,
+        templateKey,
+        originalNotes
       );
       const reframed = regionalAdjustedNationalAverage(
         itemId,
@@ -21038,6 +21425,8 @@ export function resolveScopeItemSuggestedPricing(
         pricingContext
       );
       if (
+        planningCy &&
+        planningCy > 0 &&
         reframed.average?.material != null &&
         reframed.average?.labor != null
       ) {
@@ -21058,9 +21447,24 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput.floorAreaSqft
     );
     const garageSf = parseScopeMeasurementInput(measurementsInput.garageSqft);
-    if (livingSf && livingSf > 0) {
+    // A two-story living area is not the slab. Price the first floor, which is
+    // the same footprint the Foundation box shows.
+    const slabFootprint =
+      planningFirstFloorSqft(
+        measurementsInput.planFacts,
+        measurementsInput as unknown as Record<string, unknown>,
+        livingSf,
+        parseScopeMeasurementInput(
+          String(
+            (measurementsInput as { foundationFootprintSqft?: unknown })
+              .foundationFootprintSqft ?? ''
+          )
+        ),
+        originalNotes
+      ) || livingSf;
+    if (slabFootprint && slabFootprint > 0) {
       const foundation = computeFoundationCyFromFootprint({
-        livingFootprintSqft: livingSf,
+        livingFootprintSqft: slabFootprint,
         garageSqft: garageSf || 0,
       });
       const reframed = regionalAdjustedNationalAverage(
@@ -21246,7 +21650,65 @@ export function resolveScopeItemSuggestedPricing(
       ['user_entered', 'manual_override'].includes(
         String(resolved.quantitySource)
       );
-    if (componentQuantity != null && !protectedDrywallQty) {
+    const displayedDrywall = parseScopeMeasurementInput(
+      measurementsInput.drywallSqft
+    );
+    const garagePackageDrywall = drywallPackageSurfacePlanningQuantity(
+      livingSf,
+      parseScopeMeasurementInput(measurementsInput.garageSqft) ||
+        parseScopeMeasurementInput(
+          measurementsInput.planFacts?.buildingAreas?.garageSqft
+        )
+    );
+    const displayedIsGaragePackage =
+      !protectedDrywallQty &&
+      displayedDrywall != null &&
+      garagePackageDrywall != null &&
+      Math.abs(displayedDrywall - garagePackageDrywall) / garagePackageDrywall <=
+        0.02;
+    const formSurfaceIsPriced =
+      String(templateKey || '').toLowerCase() === 'ground_up' &&
+      displayedDrywall != null &&
+      displayedDrywall > 0 &&
+      !displayedIsGaragePackage &&
+      (livingSf == null ||
+        !isUndercountedDrywallSurface(displayedDrywall, livingSf));
+    const areaOnlyShellSurface =
+      notesDescribeAreaOnlyAddition(notesText) &&
+      displayedDrywall != null &&
+      displayedDrywall > 0 &&
+      !protectedDrywallQty;
+    const plannedHouseSurface =
+      !formSurfaceIsPriced &&
+      !areaOnlyShellSurface &&
+      String(templateKey || '').toLowerCase() === 'ground_up'
+        ? formPlanningQuantity(
+            'drywallSqft',
+            measurementsInput,
+            templateKey,
+            originalNotes
+          ) ??
+          (livingSf != null ? drywallSurfacePlanningQuantity(livingSf) : null)
+        : null;
+    if (
+      notesDescribeMeasuredWholeHomeRemodel(notesText) &&
+      displayedDrywall != null &&
+      displayedDrywall > 0
+    ) {
+      count = displayedDrywall;
+      unit = 'sqft';
+    } else if (areaOnlyShellSurface || formSurfaceIsPriced) {
+      count = displayedDrywall;
+      unit = 'sqft';
+    } else if (
+      plannedHouseSurface != null &&
+      plannedHouseSurface > 0 &&
+      (livingSf == null ||
+        !isUndercountedDrywallSurface(plannedHouseSurface, livingSf))
+    ) {
+      count = plannedHouseSurface;
+      unit = 'sqft';
+    } else if (componentQuantity != null && !protectedDrywallQty) {
       count = componentQuantity;
       unit = 'sqft';
     } else if (livingSf && livingSf > 0) {
@@ -23175,7 +23637,8 @@ function applyAutoDrywallSurfaceQuantity(
     ctx.projectType,
     ctx.notes
   );
-  const stored = measurements.itemQuantities[itemId];
+  const areaOnlyAddition = notesDescribeAreaOnlyAddition(ctx.notes);
+  const stored = measurements.itemQuantities?.[itemId];
   if (
     stored?.quantitySource === 'user_entered' ||
     stored?.quantitySource === 'manual_override' ||
@@ -23199,34 +23662,55 @@ function applyAutoDrywallSurfaceQuantity(
   if (!Number.isFinite(living) || living <= 0) return resolved;
 
   const current = Number(resolved.quantity);
+  const primarySf =
+    template === 'addition' ? conversionPrimaryFloorSqft(measurements) : living;
+  const areaOnlyWholeHomeSurface =
+    areaOnlyAddition &&
+    isMistakenConversionWholeHomeDrywall(
+      primarySf,
+      Number.isFinite(current) && current > 0
+        ? current
+        : Number(measurements.drywallSqft)
+    );
+  const garageForPackage = Number(measurements.garageSqft);
+  const garagePackageSf =
+    template === 'ground_up'
+      ? drywallPackageSurfacePlanningQuantity(
+          living,
+          Number.isFinite(garageForPackage) && garageForPackage > 0
+            ? garageForPackage
+            : Number(measurements.planFacts?.buildingAreas?.garageSqft ?? 0) ||
+                null
+        )
+      : null;
+  const formSurface =
+    template === 'ground_up' ? drywallSurfacePlanningQuantity(living) : null;
+  const matchesGaragePackage =
+    garagePackageSf != null &&
+    formSurface != null &&
+    Number.isFinite(current) &&
+    current > 0 &&
+    Math.abs(current - garagePackageSf) / garagePackageSf <= 0.02 &&
+    Math.abs(current - formSurface) / formSurface > 0.02;
   const needsSurface =
     existingShellConversion ||
+    areaOnlyWholeHomeSurface ||
+    matchesGaragePackage ||
     !Number.isFinite(current) ||
     current <= 0 ||
     resolved.unit !== 'sqft' ||
     isUndercountedDrywallSurface(current, living);
   if (!needsSurface) return resolved;
 
-  const primarySf =
-    template === 'addition' ? conversionPrimaryFloorSqft(measurements) : living;
   if (primarySf == null || !(primarySf > 0)) return resolved;
-  // Same package SF fallback used by Quick Measurement, kept in the
-  // canonical drywall convergence module.
-  const garageSf = Number(measurements.garageSqft);
   const packageSf =
     template === 'addition'
-      ? existingShellConversion
+      ? existingShellConversion || areaOnlyAddition
         ? conversionDrywallSurfaceSqft(primarySf)
         : Number(measurements.drywallSqft) > 0
           ? Number(measurements.drywallSqft)
           : drywallSurfacePlanningQuantity(primarySf)
-      : (drywallPackageSurfacePlanningQuantity(
-          living,
-          Number.isFinite(garageSf) && garageSf > 0
-            ? garageSf
-            : Number(measurements.planFacts?.buildingAreas?.garageSqft ?? 0) ||
-                null
-        ) ?? drywallSurfacePlanningQuantity(living));
+      : (formSurface ?? drywallSurfacePlanningQuantity(living));
   if (!(packageSf > 0)) return resolved;
 
   return {
@@ -24870,6 +25354,33 @@ function areaOnlyReadyQuantity(
   };
 }
 
+function replaceAreaOnlyWholeHomeSurface(
+  measurements: NormalizedScopeMeasurements,
+  key: 'drywallSqft' | 'wallPaintSqft',
+  surface: number
+): NormalizedScopeMeasurements {
+  if (measurements.quickMeasurementUserOverrides?.[key]) return measurements;
+  const source = String(measurements.quickMeasurementSources?.[key] || '');
+  if (
+    source === 'user_entered' ||
+    source === 'manual_override' ||
+    source === 'user_confirmed_suggestion'
+  ) {
+    return measurements;
+  }
+  const current = areaOnlyPositive(measurements[key]);
+  if (current != null && Math.abs(current - surface) < 0.51) {
+    return measurements;
+  }
+  if (!(surface > 0)) return measurements;
+  return setSeededMeasurementField(
+    measurements,
+    key,
+    surface,
+    'calculated_confirmed'
+  );
+}
+
 function areaOnlyOpenQuantity(unit: string, helper: string): ResolvedItemQuantity {
   return {
     quantity: null,
@@ -24903,10 +25414,12 @@ function areaOnlyAdditionPlanningMeasurements(
   };
   fill('concreteCy', estimateFor('concreteCy'));
   fill('roofSquares', estimateFor('roofSquares') || floor / 100);
-  fill('drywallSqft', estimateFor('drywallSqft') || Math.round(floor * 3.5));
-  fill(
+  const shell = conversionDrywallSurfaceSqft(floor);
+  next = replaceAreaOnlyWholeHomeSurface(next, 'drywallSqft', shell);
+  next = replaceAreaOnlyWholeHomeSurface(
+    next,
     'wallPaintSqft',
-    areaOnlyPositive(next.drywallSqft) || Math.round(floor * 3.5)
+    areaOnlyPositive(next.drywallSqft) || shell
   );
   fill('flooringSqft', floor);
   fill('exteriorWallInsulationSqft', conversionWallInsulationSqft(floor));
@@ -24931,6 +25444,21 @@ export function areaOnlyAdditionResolvedQuantity(
     );
   }
   if (itemId === 'interior_trim') {
+    const trimLf = areaOnlyPositive(
+      measurements.trimFinishLf ?? measurements.baseboardLf
+    );
+    if (trimLf) {
+      return {
+        quantity: trimLf,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Quick Measurements',
+        pricingReady: true,
+        quantityHelper: 'Interior trim length for the addition.',
+        missingMessage: 'Enter the interior trim length.',
+        showInput: true,
+      };
+    }
     return areaOnlyOpenQuantity('lf', 'Enter the interior trim length.');
   }
   if (itemId === 'final_inspections') {
@@ -24986,7 +25514,7 @@ export function areaOnlyAdditionResolvedQuantity(
   if (itemId === 'exterior_finishes') {
     const sqft = areaOnlyPositive(measurements.exteriorPaintSqft);
     if (sqft) {
-      return areaOnlyReadyQuantity(sqft, 'sqft', 'Exterior finishes for the addition.');
+      return areaOnlyReadyQuantity(sqft, 'sqft', 'Exterior wall area for the addition.');
     }
   }
   if (itemId === 'electrical_rough' && floor) {
@@ -24996,17 +25524,23 @@ export function areaOnlyAdditionResolvedQuantity(
       'Rough electrical for the addition floor area.'
     );
   }
-  if (itemId === 'cleanup') {
-    const split = getNationalAverageBudgetSplit('cleanup');
-    const material = Number(split?.material || 0);
-    const labor = Number(split?.labor || 0);
-    if (material + labor > 0) {
-      return areaOnlyReadyQuantity(
-        1,
-        'each',
-        'Final cleanup. Dumpsters are material and the clean is labor.'
-      );
-    }
+  if (itemId === 'windows') {
+    const count = areaOnlyPositive(measurements.windowCount);
+    return count
+      ? areaOnlyReadyQuantity(count, 'each', 'Windows for the addition.')
+      : areaOnlyOpenQuantity('each', 'Enter the window count.');
+  }
+  if (itemId === 'exterior_doors') {
+    const count = areaOnlyPositive(measurements.exteriorDoorCount);
+    return count
+      ? areaOnlyReadyQuantity(count, 'each', 'Exterior doors for the addition.')
+      : areaOnlyOpenQuantity('each', 'Enter the exterior door count.');
+  }
+  if (itemId === 'interior_doors') {
+    const count = areaOnlyPositive(measurements.interiorDoorCount);
+    return count
+      ? areaOnlyReadyQuantity(count, 'each', 'Interior doors for the addition.')
+      : areaOnlyOpenQuantity('each', 'Enter the interior door count.');
   }
   return null;
 }
@@ -25530,7 +26064,25 @@ export function resolveChecklistItemQuantity(
       };
     }
   }
-  if (itemId === 'interior_trim') {
+  if (itemId === 'interior_trim' && notesDescribeAreaOnlyAddition(ctx.notes)) {
+    const manualTrimLf = Number(
+      String(
+        measurements.trimFinishLf ?? measurements.baseboardLf ?? ''
+      ).replace(/,/g, '')
+    );
+    if (Number.isFinite(manualTrimLf) && manualTrimLf > 0) {
+      return {
+        quantity: manualTrimLf,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Quick Measurements',
+        pricingReady: true,
+        quantityHelper: 'Interior trim length for the addition.',
+        missingMessage: 'Enter the interior trim length.',
+        showInput: true,
+      };
+    }
+  } else if (itemId === 'interior_trim') {
     const interiorDoorCount = Number(
       String(measurements.interiorDoorCount ?? '').replace(/,/g, '')
     );
@@ -25829,7 +26381,10 @@ export function resolveChecklistItemQuantity(
     itemId === 'exterior_doors'
       ? Number(measurements.exteriorDoorCount)
       : itemId === 'sliding_doors'
-        ? Number(measurements.slidingDoorCount)
+        ? // The measurement form has one exterior door box. Use it when no
+          // separate sliding count was entered.
+          Number(measurements.slidingDoorCount) ||
+          Number(measurements.exteriorDoorCount)
         : itemId === 'interior_doors'
           ? Number(measurements.interiorDoorCount)
           : itemId === 'windows_doors'
@@ -26796,6 +27351,20 @@ export function seedAdditionConversionPhysicalMeasurements(
   const notes = String(options.notes || '').trim();
   const overrides = input.quickMeasurementUserOverrides || {};
   let next = input;
+  if (notesDescribeAreaOnlyAddition(notes)) {
+    const statedFloor = areaOnlyAdditionSqft(notes);
+    if (
+      statedFloor &&
+      !measurementFieldFilledForSeed(next, 'floorAreaSqft', overrides)
+    ) {
+      next = setSeededMeasurementField(
+        next,
+        'floorAreaSqft',
+        statedFloor,
+        'notes'
+      );
+    }
+  }
 
   if (isGarageConversionJob(options.projectType, notes)) {
     const conversionSf =
@@ -26974,6 +27543,26 @@ export function seedAdditionConversionPhysicalMeasurements(
             'calculated_confirmed'
           );
         }
+      } else if (
+        next.quickMeasurementSources?.roofSquares !== 'user_entered' &&
+        !next.quickMeasurementUserOverrides?.roofSquares
+      ) {
+        const pitched = estimateFor('roofSquares');
+        const current = Number(String(next.roofSquares ?? '').replace(/,/g, ''));
+        if (
+          pitched &&
+          pitched > 0 &&
+          Number.isFinite(current) &&
+          Math.abs(current - floor / 100) < 0.51 &&
+          Math.abs(current - pitched) >= 0.05
+        ) {
+          next = setSeededMeasurementField(
+            next,
+            'roofSquares',
+            pitched,
+            'calculated_confirmed'
+          );
+        }
       }
       if (!measurementFieldFilledForSeed(next, 'exteriorPaintSqft', overrides)) {
         const exterior = estimateFor('exteriorPaintSqft');
@@ -26986,28 +27575,13 @@ export function seedAdditionConversionPhysicalMeasurements(
           );
         }
       }
-      if (!measurementFieldFilledForSeed(next, 'drywallSqft', overrides)) {
-        const drywall = estimateFor('drywallSqft') || Math.round(floor * 3.5);
-        if (drywall > 0) {
-          next = setSeededMeasurementField(
-            next,
-            'drywallSqft',
-            drywall,
-            'calculated_confirmed'
-          );
-        }
-      }
-      if (!measurementFieldFilledForSeed(next, 'wallPaintSqft', overrides)) {
-        const paint = Number(String(next.drywallSqft ?? '').replace(/,/g, ''));
-        if (paint > 0) {
-          next = setSeededMeasurementField(
-            next,
-            'wallPaintSqft',
-            paint,
-            'calculated_confirmed'
-          );
-        }
-      }
+      const shell = conversionDrywallSurfaceSqft(floor);
+      next = replaceAreaOnlyWholeHomeSurface(next, 'drywallSqft', shell);
+      next = replaceAreaOnlyWholeHomeSurface(
+        next,
+        'wallPaintSqft',
+        areaOnlyPositive(next.drywallSqft) || shell
+      );
     }
   }
 
@@ -29409,6 +29983,7 @@ export function prepareScopeMeasurementsInputForUi(
 
   const withSouthernUtah = syncMeasurementsWithSouthernUtahPlanFacts(reparsed, {
     templateKey: options?.templateKey,
+    notes,
   });
 
   const template = String(options?.templateKey || '').toLowerCase();
@@ -29549,6 +30124,18 @@ export function prepareScopeMeasurementsInputForUi(
     seeded.framedAreaSqft = '';
   }
 
+  const notedFinish = areaOnlyExteriorFinishFromNotes(notes);
+  if (
+    notedFinish &&
+    !String(seeded.exteriorFinish || '').trim() &&
+    !(
+      Array.isArray(seeded.exteriorFinishes) && seeded.exteriorFinishes.length > 0
+    )
+  ) {
+    seeded.exteriorFinish = notedFinish;
+    seeded.exteriorFinishes = [notedFinish];
+  }
+
   return {
     ...seeded,
     quickMeasurementSources: mergeRoofingPlanningMeasurementSources(
@@ -29561,6 +30148,10 @@ export function prepareScopeMeasurementsInputForUi(
 export type ScopeMeasurementsInputExtended = ReturnType<
   typeof emptyQuickMeasurementInput
 > & {
+  /** Room-addition exterior finish. Empty string means the contractor cleared it. */
+  exteriorFinish?: 'stucco' | 'siding' | 'brick' | '' | null;
+  exteriorFinishes?: Array<'stucco' | 'siding' | 'brick'> | null;
+  exteriorStuccoSystem?: 'three_coat' | 'one_coat' | 'eifs' | '' | null;
   /** QM landscaping selections shown in the trade scope panel. */
   landscapeScope?: string[] | null;
   landscapeClearingLevel?:
@@ -31139,6 +31730,7 @@ export function initialScopeMeasurementInputExtended(
   } else {
     result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
       templateKey: draft?.scopeChecklist?.templateKey,
+      notes: scopeNotes,
     });
   }
 

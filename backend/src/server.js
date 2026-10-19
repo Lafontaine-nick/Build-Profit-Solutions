@@ -430,6 +430,16 @@ const { hydrateDurableStores } = require('./services/durableStores');
 const server1 = http.createServer(app);
 const server2 = http.createServer(app);
 
+// Render's proxy reuses connections for up to ~2 minutes. Node closes an idle
+// socket after 5 seconds, and the next request on that socket — including plan
+// import — comes back as a bare HTTP 502 with no JSON body.
+function keepRenderConnectionsAlive(server) {
+  server.keepAliveTimeout = 120000;
+  server.headersTimeout = 125000;
+}
+keepRenderConnectionsAlive(server1);
+keepRenderConnectionsAlive(server2);
+
 async function startServers() {
   try {
     await hydrateDurableStores();

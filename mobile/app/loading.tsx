@@ -5,9 +5,9 @@ import { useTheme } from '../contexts/ThemeContext';
 export default function LoadingScreen() {
   const { darkMode } = useTheme();
 
-  const backgroundColor = darkMode ? '#14213D' : '#E0E0E0';
+  const backgroundColor = darkMode ? '#000000' : '#E0E0E0';
   const textColor = darkMode ? '#E0E0E0' : '#333333';
-  const accentColor = '#1B365D';
+  const accentColor = darkMode ? '#2dcc9a' : '#1B365D';
 
   return (
     <View style={[styles.container, { backgroundColor }]}>

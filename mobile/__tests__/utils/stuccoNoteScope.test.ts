@@ -20,6 +20,11 @@ describe('dedicated stucco note', () => {
     expect(notesDescribeDedicatedStuccoJob(NOTE)).toBe(true);
     expect(
       notesDescribeDedicatedStuccoJob(
+        'New 2,450 sqft two-story home with an attached 520 sqft 2-car garage. Stucco exterior. Owner is taking care of landscaping separate from us.'
+      )
+    ).toBe(false);
+    expect(
+      notesDescribeDedicatedStuccoJob(
         'Patch stucco on 800 sqft of exterior wall and paint the trim.'
       )
     ).toBe(false);

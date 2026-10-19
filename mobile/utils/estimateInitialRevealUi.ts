@@ -18,6 +18,7 @@ import {
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import { estimatedIceWaterShieldSqft } from '@/utils/roofingPlanningMeasurements';
+import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
 import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
 import {
   dedicatedDeckRevealQuantity,
@@ -48,6 +49,14 @@ import {
   areaOnlyAdditionSqft,
   notesDescribeAreaOnlyAddition,
 } from '@/utils/additionConversionPlanning';
+import {
+  AREA_ONLY_BRICK_RATE,
+  areaOnlyExteriorCladding,
+  areaOnlyExteriorFinishLabel,
+  areaOnlyStuccoSystemRate,
+  resolveAreaOnlyExteriorFinishes,
+  resolveAreaOnlyStuccoSystem,
+} from '@/utils/areaOnlyExteriorFinish';
 import {
   dedicatedFlooringRevealQuantity,
   filterDedicatedFlooringConfirmItems,
@@ -465,6 +474,17 @@ function groundUpLivingRevealLine(
   return `${qty.toLocaleString()} sqft ${stories}home`.trim();
 }
 
+function groundUpHomeRevealTitle(draft: EstimateAiDraft): string | null {
+  if (noteOwnedRevealSkippedForPlan(draft)) return null;
+  const line = groundUpLivingRevealLine(draft.originalNotes);
+  if (!line) return null;
+  const titled = line.replace(/\bsqft\b/i, 'Sq Ft').replace(/\b[a-z]+/gi, word => {
+    if (word === 'Sq' || word === 'Ft') return word;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+  return `New ${titled}`;
+}
+
 function hvacDuctworkFeet(notes: string | null | undefined): number | null {
   const text = String(notes || '');
   if (!text.trim() || hvacNotesLeaveOptionAlone(text, 'ductwork')) return null;
@@ -605,9 +625,51 @@ function namedScopeReaderOwnsPricing(
   );
 }
 
+function areaOnlyAdditionAttention(draft: EstimateAiDraft): string[] {
+  const measurements = initialScopeMeasurementInputExtended(draft);
+  const filled = (key: string) => {
+    const value = Number(
+      String(
+        (measurements as Record<string, unknown>)[key] ?? ''
+      ).replace(/,/g, '')
+    );
+    return Number.isFinite(value) && value > 0;
+  };
+  const finishItem = draft.scopeChecklist?.items?.find(
+    item => item.id === 'exterior_finishes'
+  );
+  const finishes = resolveAreaOnlyExteriorFinishes({
+    stored: measurements.exteriorFinish,
+    storedMany: Array.isArray(measurements.exteriorFinishes)
+      ? measurements.exteriorFinishes
+      : null,
+    choiceId: finishItem?.choiceId,
+    choiceIds: finishItem?.choiceIds,
+    notes: draft.originalNotes,
+  });
+  const finish = areaOnlyExteriorCladding(finishes);
+  const system = resolveAreaOnlyStuccoSystem({
+    finish,
+    stored: measurements.exteriorStuccoSystem,
+    notes: draft.originalNotes,
+  });
+  const items: string[] = [];
+  if (!finish) items.push('Price needed for Exterior finish');
+  else if (finish === 'stucco' && !system) items.push('Price needed for Stucco');
+  else if (finish === 'siding') items.push('Price needed for Exterior siding');
+  if (!filled('windowCount')) items.push('Price needed for Windows');
+  if (!filled('exteriorDoorCount')) items.push('Price needed for Exterior doors');
+  if (!filled('interiorDoorCount')) items.push('Price needed for Interior doors');
+  if (!filled('baseboardLf')) items.push('Price needed for Interior trim');
+  return items;
+}
+
 function collectInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
+  if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
+    return splitInitialRevealConfirmItems(areaOnlyAdditionAttention(draft));
+  }
   if (roofingPlanOnlyExport(draft)) {
     return splitInitialRevealConfirmItems([
       'Roof surface area / squares: needs measurement',
@@ -1367,6 +1429,12 @@ function revealChecklistItemVisible(
   }
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  if (
+    item.id === 'grading' &&
+    inferItemStateFromNotes('grading', draft.originalNotes) !== 'included'
+  ) {
+    return false;
+  }
   if (ownerHandledRevealItem(draft.originalNotes, item.id)) return false;
   if (
     item.id === 'decorative_finish' &&
@@ -1752,6 +1820,9 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (stuccoNoteOwnsReveal(draft)) {
     return dedicatedStuccoRevealRows(draft.originalNotes).length;
   }
+  if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
+    return areaOnlyAdditionRevealRows(draft)?.length || 0;
+  }
   if (roofingPlanOnlyExport(draft)) {
     return roofingPlanOnlyScopeRows(draft).length;
   }
@@ -1769,6 +1840,9 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   }
   const checklistCount = getInitialRevealScopeRows(draft).length;
   if (checklistCount > 0) return checklistCount;
+  if (groundUpLivingRevealLine(draft.originalNotes)) {
+    return getInitialRevealChecklistScopePreview(draft).length;
+  }
   const packageCount = getScopePackages(draft).length;
   return packageCount;
 }
@@ -2807,6 +2881,12 @@ function getInitialRevealScopeRows(
     if (hasConcreteFlatworkRow && id === 'concrete') continue;
     if (!id || fact.status === 'excluded' || ids.has(id)) continue;
     if (
+      id === 'grading' &&
+      inferItemStateFromNotes('grading', notes) !== 'included'
+    ) {
+      continue;
+    }
+    if (
       (notesNameDedicatedHvacServiceVisit(notes) &&
         (id === 'equipment_replace' ||
           id === 'hvac' ||
@@ -3061,21 +3141,48 @@ function getInitialRevealScopeRows(
     rows = rows.filter(row => keep.has(row.id));
   }
   if (drywallRepairSqft && !dedicatedDrywallNote) {
-    const drywallRowIndex = rows.findIndex(
-      row =>
-        row.id === 'drywall' ||
-        /\bdrywall\s+(?:patch|repair)\b/i.test(row.name)
-    );
-    if (drywallRowIndex >= 0) {
-      rows[drywallRowIndex] = {
-        ...rows[drywallRowIndex],
-        name: 'Drywall repair',
-      };
-    } else {
-      rows.push({
-        id: 'note:drywall_repair',
-        name: `Drywall repair · ${drywallRepairSqft} sqft`,
+    const hangAndRepair =
+      /\bhang\b/i.test(notes) &&
+      /\b(?:patch(?:ing)?|repair)\b/i.test(notes);
+    const isDrywallRepairRow = (row: { id: string; name: string }) =>
+      row.id === 'drywall' ||
+      row.id === 'patch_repair' ||
+      row.id === 'note:drywall_repair' ||
+      /\bdrywall\s*\/\s*patch/i.test(row.name) ||
+      /\bdrywall\s+(?:patch|repair)\b/i.test(row.name);
+    if (!hangAndRepair) {
+      let kept = false;
+      rows = rows.flatMap(row => {
+        if (!isDrywallRepairRow(row)) return [row];
+        if (kept) return [];
+        kept = true;
+        return [
+          {
+            ...row,
+            name: `Drywall repair · ${drywallRepairSqft} sqft`,
+            quantityOverride: null,
+          },
+        ];
       });
+      if (!kept) {
+        rows.push({
+          id: 'note:drywall_repair',
+          name: `Drywall repair · ${drywallRepairSqft} sqft`,
+        });
+      }
+    } else {
+      const drywallRowIndex = rows.findIndex(isDrywallRepairRow);
+      if (drywallRowIndex >= 0) {
+        rows[drywallRowIndex] = {
+          ...rows[drywallRowIndex],
+          name: 'Drywall repair',
+        };
+      } else {
+        rows.push({
+          id: 'note:drywall_repair',
+          name: `Drywall repair · ${drywallRepairSqft} sqft`,
+        });
+      }
     }
   }
   if (
@@ -3300,6 +3407,8 @@ function getInitialRevealScopeRows(
           plain
         ) ||
         ownerHandledRevealItem(notes, plain) ||
+        (/^grading$/i.test(plain) &&
+          inferItemStateFromNotes('grading', notes) !== 'included') ||
         fallbackNames.has(plain.toLowerCase())
       ) {
         continue;
@@ -3519,7 +3628,7 @@ function areaOnlyAdditionRevealRows(
   if (!notesDescribeAreaOnlyAddition(draft.originalNotes)) return null;
   const measurements = initialScopeMeasurementInputExtended(draft);
   const packageIds = new Set(areaOnlyAdditionScopeIds());
-  return getInitialRevealScopeRows(draft)
+  const rows = getInitialRevealScopeRows(draft)
     .filter(row => packageIds.has(row.id))
     .map(row => {
     const resolved = areaOnlyAdditionResolvedQuantity(
@@ -3541,11 +3650,45 @@ function areaOnlyAdditionRevealRows(
           : {}),
       };
     }
-    const rateId = row.id === 'exterior_finishes' ? 'exterior_paint' : row.id;
-    const split =
-      resolved?.pricingReady && resolved.quantity
-        ? getNationalAverageBudgetSplit(rateId, resolved.unit)
+    const finishItem = draft.scopeChecklist?.items?.find(
+      item => item.id === 'exterior_finishes'
+    );
+    const exteriorFinishes =
+      row.id === 'exterior_finishes'
+        ? resolveAreaOnlyExteriorFinishes({
+            stored: measurements.exteriorFinish,
+            storedMany: Array.isArray(measurements.exteriorFinishes)
+              ? measurements.exteriorFinishes
+              : null,
+            choiceId: finishItem?.choiceId,
+            choiceIds: finishItem?.choiceIds,
+            notes: draft.originalNotes,
+          })
+        : [];
+    const exteriorFinish = areaOnlyExteriorCladding(exteriorFinishes);
+    const exteriorSystem = resolveAreaOnlyStuccoSystem({
+      finish: exteriorFinish,
+      stored: measurements.exteriorStuccoSystem,
+      notes: draft.originalNotes,
+    });
+    const stuccoRate = areaOnlyStuccoSystemRate(exteriorSystem);
+    const brickRate =
+      row.id === 'exterior_finishes' && exteriorFinish === 'brick'
+        ? AREA_ONLY_BRICK_RATE
         : null;
+    const rateId = row.id === 'exterior_finishes' ? null : row.id;
+    const split =
+      brickRate && resolved?.pricingReady
+        ? brickRate
+        : stuccoRate && resolved?.pricingReady
+        ? stuccoRate
+        : resolved?.pricingReady && resolved.quantity && rateId
+          ? getNationalAverageBudgetSplit(rateId, resolved.unit)
+          : null;
+    const rowName =
+      row.id === 'exterior_finishes'
+        ? areaOnlyExteriorFinishLabel(exteriorFinish)
+        : row.name;
     const rate = Number(split?.material || 0) + Number(split?.labor || 0);
     const amount =
       resolved?.unit === 'allowance'
@@ -3560,11 +3703,50 @@ function areaOnlyAdditionRevealRows(
           : `${Number(resolved.quantity).toLocaleString('en-US')} ${resolved.unit}`
         : null;
     return {
-      name: row.name,
+      name: rowName,
       amount,
       ...(quantity ? { quantity } : {}),
     };
   });
+  return rows;
+}
+
+function groundUpExteriorFinishRevealQuantity(
+  draft: Parameters<typeof getInitialRevealChecklistScopePreview>[0],
+  rowName: string,
+  quantity: string | null | undefined
+): string | null | undefined {
+  if (!notesDescribeGroundUpHome(draft.originalNotes)) return quantity;
+  if (!/\bstucco\b|exterior wall finish/i.test(rowName)) return quantity;
+  const measurements = (draft.scopeMeasurements || {}) as {
+    floorAreaSqft?: unknown;
+    garageSqft?: unknown;
+  };
+  const livingFromNotes = String(draft.originalNotes || '').match(
+    /\b(\d[\d,]*)\s*(?:sq\.?\s*ft|sqft)\b/i
+  );
+  const living =
+    Number(String(measurements.floorAreaSqft ?? '').replace(/,/g, '')) ||
+    Number(String(livingFromNotes?.[1] || '').replace(/,/g, ''));
+  const shown = Number(String(quantity ?? '').replace(/[^\d.]/g, ''));
+  const livingMatches =
+    !quantity ||
+    !Number.isFinite(shown) ||
+    shown <= 0 ||
+    (Number.isFinite(living) && living > 0 && Math.abs(shown - living) < 1);
+  if (!livingMatches) return quantity;
+  const estimate = getQuickMeasurementEstimate(
+    'exteriorPaintSqft',
+    {
+      floorAreaSqft: (measurements.floorAreaSqft as string | number | null) || living,
+      garageSqft: measurements.garageSqft as string | number | null,
+    },
+    undefined,
+    'ground_up',
+    { notes: draft.originalNotes, projectType: 'new_build' }
+  );
+  if (!estimate || !(estimate.value > 0)) return quantity;
+  return `${Math.round(estimate.value).toLocaleString()} sqft`;
 }
 
 export function getInitialRevealChecklistScopePreview(
@@ -3660,7 +3842,9 @@ export function getInitialRevealChecklistScopePreview(
       .map(row => {
         const id = row.id;
         const pkg = packageById.get(id);
-        const quantity =
+        const quantity = groundUpExteriorFinishRevealQuantity(
+          draft,
+          row.name,
           row.quantityOverride !== undefined
             ? row.quantityOverride
             : formatScopeQuantity(
@@ -3669,7 +3853,8 @@ export function getInitialRevealChecklistScopePreview(
                   checklistItemId: row.id,
                 } as EstimateDraftScopePackage,
                 draft
-              );
+              )
+        );
         return {
           name: row.name,
           amount:
@@ -3713,11 +3898,18 @@ export function getInitialRevealChecklistScopePreview(
     ]).slice(0, 50);
   }
   if (!scopeRows.length) return [];
-  return scopeRows.slice(0, 50).map(row => ({
-    name: row.name,
-    amount: 0,
-    ...(row.quantityOverride ? { quantity: row.quantityOverride } : {}),
-  }));
+  return scopeRows.slice(0, 50).map(row => {
+    const quantity = groundUpExteriorFinishRevealQuantity(
+      draft,
+      row.name,
+      row.quantityOverride
+    );
+    return {
+      name: row.name,
+      amount: 0,
+      ...(quantity ? { quantity } : {}),
+    };
+  });
 }
 
 export function shouldDefaultExpandInitialRevealScope(
@@ -3847,6 +4039,8 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
     );
     if (roomTitle !== 'Plumbing bid') return roomTitle;
   }
+  const groundUpTitle = groundUpHomeRevealTitle(draft);
+  if (groundUpTitle) return groundUpTitle;
   const titled = draft.projectTitle?.trim();
   if (titled && !/^your project$/i.test(titled)) {
     return titled;
@@ -3925,6 +4119,7 @@ function getRevealClassification(draft: EstimateAiDraft) {
   const hasMixedExteriorHardscape =
     !importedPlanSummary &&
     !selectedTradePlan &&
+    !notesDescribeGroundUpHome(notes) &&
     /\b(?:concrete|flatwork|patio|retaining\s+walls?)\b/i.test(hardscapeNotes) &&
     /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|pavers?|exterior\s+doors?)\b/i.test(
       notes
@@ -4111,6 +4306,19 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
+  const revealProjectType = String(draft.projectType || '').toLowerCase();
+  const revealTemplateKey = String(
+    draft.scopeChecklist?.templateKey || ''
+  ).toLowerCase();
+  if (
+    notesDescribeGroundUpHome(draft.originalNotes) &&
+    (revealProjectType === 'new_build' ||
+      revealProjectType === 'stucco' ||
+      revealTemplateKey === 'ground_up' ||
+      revealTemplateKey === 'stucco')
+  ) {
+    return 'Detected new build.';
+  }
   if (
     notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
     notesNameDedicatedHvacEquipmentJob(draft.originalNotes)

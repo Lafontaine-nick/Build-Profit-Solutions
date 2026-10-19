@@ -18,6 +18,12 @@ import {
   getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
+import {
+  AREA_ONLY_BRICK_RATE,
+  areaOnlyExteriorCladding,
+  areaOnlyExteriorFinishFromNotes,
+  toggleAreaOnlyExteriorFinish,
+} from '@/utils/areaOnlyExteriorFinish';
 
 const GARAGE_OFFICE_NOTES =
   'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint, add 4 recessed lights and a few outlets, mini split HVAC. Keep existing garage door for now.';
@@ -151,23 +157,30 @@ describe('addition / conversion scope defaults', () => {
     );
 
     const included = next.filter(i => i.state === 'included').map(i => i.id);
-    expect(included).toEqual([
-      'foundation',
-      'framing',
-      'roof_tie_in',
-      'windows_doors',
-      'exterior_finishes',
-      'electrical_rough',
-      'insulation',
-      'drywall',
-      'paint',
-      'flooring',
-      'interior_trim',
-      'cleanup',
-    ]);
-    expect(next.filter(i => i.state !== 'excluded').map(i => i.id)).toEqual(
-      included
+    expect(included.sort()).toEqual(
+      [
+        'foundation',
+        'framing',
+        'roof_tie_in',
+        'windows',
+        'exterior_doors',
+        'interior_doors',
+        'exterior_finishes',
+        'electrical_rough',
+        'insulation',
+        'drywall',
+        'paint',
+        'flooring',
+        'interior_trim',
+        'cleanup',
+      ].sort()
     );
+    expect(
+      next
+        .filter(i => i.state !== 'excluded')
+        .map(i => i.id)
+        .sort()
+    ).toEqual(included);
     expect(
       quickMeasurementRowsForInput('addition', 'room_addition', {}, undefined, {
         scopeNotes: notes,
@@ -186,6 +199,7 @@ describe('addition / conversion scope defaults', () => {
       'exteriorPaintSqft',
       'windowCount',
       'exteriorDoorCount',
+      'interiorDoorCount',
       'baseboardLf',
     ]);
     expect(
@@ -204,14 +218,26 @@ describe('addition / conversion scope defaults', () => {
     const preview = getInitialRevealChecklistScopePreview(draft).map(
       row => row.name
     );
-    expect(preview).toEqual(
-      included.map(id =>
-        id === 'paint'
-          ? 'Interior paint'
-          : id === 'flooring'
-            ? 'Flooring installation'
-            : id
-      )
+    expect(preview.sort()).toEqual(
+      included
+        .map(id =>
+          id === 'paint'
+            ? 'Interior paint'
+            : id === 'flooring'
+              ? 'Flooring installation'
+              : id === 'windows'
+                ? 'Windows'
+                : id === 'exterior_doors'
+                  ? 'Exterior doors'
+                  : id === 'interior_doors'
+                    ? 'Interior doors'
+                    : id === 'interior_trim'
+                      ? 'Interior trim'
+                      : id === 'exterior_finishes'
+                        ? 'Exterior finish'
+                        : id
+        )
+        .sort()
     );
     expect(preview).not.toEqual(
       expect.arrayContaining(['cabinets_counters', 'hvac', 'plumbing_rough'])
@@ -222,11 +248,52 @@ describe('addition / conversion scope defaults', () => {
     const cleanup = priced.find(row => row.name === 'cleanup');
     expect(cleanup?.amount).toBe(1000);
     expect(cleanup?.quantity).toBe('Material $450 · Labor $550');
-    expect(priced.find(row => row.name === 'windows_doors')?.amount || 0).toBe(0);
+    expect(priced.find(row => row.name === 'Windows')?.amount || 0).toBe(0);
+    expect(priced.find(row => row.name === 'Exterior doors')?.amount || 0).toBe(0);
+    expect(priced.find(row => row.name === 'Interior doors')?.amount || 0).toBe(0);
+    expect(next.find(item => item.id === 'exterior_finishes')?.label).toBe(
+      'Exterior finish'
+    );
+    expect(next.find(item => item.id === 'exterior_finishes')?.choiceId || null).toBe(
+      null
+    );
+    expect(priced.find(row => row.name === 'Exterior finish')?.amount || 0).toBe(0);
     expect(priced.find(row => row.name === 'interior_trim')?.amount || 0).toBe(0);
     expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
       'Room addition · 400 sqft',
     ]);
+  });
+
+  it('names the room-addition exterior card from the finish in the note', () => {
+    const notes =
+      '400 sqft room addition off the back of the house with 3-coat stucco.';
+    const next = hydrateScopeChecklistFromNotes(
+      additionChecklistItems(),
+      'addition',
+      notes,
+      undefined,
+      'room_addition'
+    );
+    const exterior = next.find(item => item.id === 'exterior_finishes');
+    expect(exterior?.label).toBe('Stucco');
+    expect(exterior?.choiceId).toBe('stucco');
+    expect(exterior?.state).toBe('included');
+  });
+
+  it('selects one exterior wall material at a time', () => {
+    expect(toggleAreaOnlyExteriorFinish([], 'stucco')).toEqual(['stucco']);
+    expect(toggleAreaOnlyExteriorFinish(['stucco'], 'brick')).toEqual(['brick']);
+    expect(toggleAreaOnlyExteriorFinish(['brick'], 'siding')).toEqual(['siding']);
+    expect(toggleAreaOnlyExteriorFinish(['siding'], 'siding')).toEqual([]);
+    expect(areaOnlyExteriorCladding(['brick'])).toBe('brick');
+    expect(AREA_ONLY_BRICK_RATE.material).toBe(8);
+    expect(AREA_ONLY_BRICK_RATE.labor).toBe(10);
+    expect(areaOnlyExteriorFinishFromNotes('room addition with brick')).toBe(
+      'brick'
+    );
+    expect(
+      areaOnlyExteriorFinishFromNotes('room addition with exterior paint')
+    ).toBeNull();
   });
 
   it('keeps a built addition note on canonical phases without inferred aliases', () => {
@@ -398,6 +465,19 @@ describe('addition / conversion scope defaults', () => {
     expect(grouped.map(group => group.title)).toEqual(
       expect.arrayContaining(['Foundation', 'Shell', 'Interior'])
     );
+    expect(groupedIds).not.toContain('plans_engineering');
+    const withPlansOn = items.map(item =>
+      item.id === 'plans_engineering'
+        ? { ...item, state: 'included' as const }
+        : item
+    );
+    expect(
+      groupScopeChecklistItems(withPlansOn, 'addition', {
+        projectType: 'room_addition',
+        notes,
+      })
+        .flatMap(group => group.items.map(item => item.id))
+    ).not.toContain('plans_engineering');
     expect(groupedIds).not.toEqual(
       expect.arrayContaining(['cabinets_counters', 'hvac', 'plumbing_rough'])
     );

@@ -1,3 +1,4 @@
+import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import {
   dedicatedDeckRailingLf,
   notesDescribeDedicatedDeckJob,
@@ -651,7 +652,7 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
     ['circuit_device_count'],
     ['building_floor_area', 'fixture_count'],
     {
-      alternateUnits: ['allowance', 'lump_sum', 'hr'],
+      alternateUnits: ['sqft', 'allowance', 'lump_sum', 'hr'],
       requiredMeasurementTypes: ['circuit_device_count'],
     }
   ),
@@ -1137,6 +1138,12 @@ const SCOPE_VALIDATION_RULES: ScopeValidationRule[] = [
     evaluate: ({ relationship, definition, resolved }) => {
       if (relationship.type !== 'derived') return null;
       if (resolved.quantity == null) return null;
+      const unit = normalizeUnit(resolved.unit);
+      const approved = new Set([
+        ...definition.preferredUnits,
+        ...definition.alternateUnits,
+      ]);
+      if (unit && approved.has(unit)) return null;
       const source = relationship.sourceMeasurementType
         ? MEASUREMENT_LABELS[relationship.sourceMeasurementType] || relationship.sourceMeasurementType
         : 'this measurement';
@@ -1343,7 +1350,16 @@ export function resolveScopeItemIntelligence(params: {
     notesDescribeDedicatedDeckJob(params.notes) &&
     (Number(String(params.measurements.railingLf ?? '').replace(/,/g, '')) > 0 ||
       dedicatedDeckRailingLf(params.notes) != null);
-  const formula = statedDrywallHang || statedFlooringArea || statedDeckRailingLength
+  const enteredInteriorPaint =
+    (params.scopeKey === 'interior_paint' || params.scopeKey === 'paint') &&
+    Number(String(params.measurements.wallPaintSqft ?? '').replace(/,/g, '')) > 0;
+  const areaOnlyDrywallSurface =
+    (params.scopeKey === 'drywall' ||
+      params.scopeKey === 'hang' ||
+      params.scopeKey === 'finish_tape') &&
+    notesDescribeAreaOnlyAddition(params.notes) &&
+    Number(String(params.measurements.drywallSqft ?? '').replace(/,/g, '')) > 0;
+  const formula = statedDrywallHang || statedFlooringArea || statedDeckRailingLength || enteredInteriorPaint || areaOnlyDrywallSurface
     ? null
     : calculateFormulaForScope({
         scopeKey: params.scopeKey,

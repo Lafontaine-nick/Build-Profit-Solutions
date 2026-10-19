@@ -671,10 +671,18 @@ function classifyScopeFromNotes(notes, projectType) {
     detectedTrades.length === 1
       ? NOTE_TRADE_PROJECT_TYPES[detectedTrades[0]] || null
       : null;
+  const inferredIsWholeHouse = [
+    "new_build",
+    "home_addition",
+    "room_addition",
+    "adu",
+    "garage_conversion",
+  ].includes(inferredProjectType);
   const resolvedProjectType =
     notePrimaryProjectType &&
     inferredProjectType === projectType &&
-    projectType !== notePrimaryProjectType
+    projectType !== notePrimaryProjectType &&
+    !(inferredIsWholeHouse && notePrimaryProjectType === "stucco")
       ? notePrimaryProjectType
       : inferredProjectType;
   const isDedicatedStructure =
@@ -713,7 +721,11 @@ function classifyScopeFromNotes(notes, projectType) {
 
 function inferProjectTypeFromNotes(notes, projectType) {
   const n = String(notes || '').toLowerCase();
-  if (/\b(new\s+home|custom\s+home|spec\s+home|ground\s*up|ground-up|new\s+build)\b/.test(n)) {
+  const { notesDescribeGroundUpHome } = require('./scopeChecklistLibrary');
+  if (
+    notesDescribeGroundUpHome(notes) ||
+    /\b(new\s+home|custom\s+home|spec\s+home|ground\s*up|ground-up|new\s+build)\b/.test(n)
+  ) {
     return 'new_build';
   }
   if (/\b(?:adu|casita)\b/.test(n)) return 'adu';

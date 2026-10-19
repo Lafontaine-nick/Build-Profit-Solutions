@@ -610,6 +610,17 @@ describe('scopeItemNoteHints roofing inference', () => {
 describe('ground-up owner-handled scope exclusions', () => {
   const GROUND_UP_HOME_NOTES = `New 2,800 sqft two story home with attached 2-car garage. Standard builder grade finishes. Owner is taking care of sitework, utilities, and landscaping separate from us.`;
 
+  test('keeps a new home with a driveway from becoming mixed exterior hardscape', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Brick veneer, concrete driveway and front walks, builder-grade interior. Owner is handling landscaping only.';
+    expect(isMixedExteriorScopeNotes(notes)).toBe(false);
+    expect(notesOwnerHandlesScopeCategory(notes, 'landscaping')).toBe(true);
+    expect(notesOwnerHandlesScopeCategory(notes, 'sitework')).toBe(false);
+    expect(inferItemStateFromNotes('landscaping', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('grading', notes)).toBe('unsure');
+    expect(inferItemStateFromNotes('pour_flatwork', notes)).toBe('included');
+  });
+
   test('detects owner-handled sitework, utilities, and landscaping', () => {
     expect(
       notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'sitework')

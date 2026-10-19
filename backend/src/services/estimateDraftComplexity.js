@@ -18,6 +18,7 @@ const {
   checklistTemplateKey,
   notesImplyMixedInteriorRefresh,
   notesImplyMixedExteriorHardscape,
+  notesDescribeGroundUpHome,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
@@ -219,6 +220,7 @@ function classifyEstimateTier(draft, originalNotes) {
 
   if (
     projectType === "new_build" ||
+    notesDescribeGroundUpHome(notes) ||
     /\b(new\s+home|custom\s+home|spec\s+home|duplex|ground\s*up|new\s+construction|new\s+build|build\s+(?:a\s+)?\d{3,5}\s*sqft\s+(?:home|house))\b/i.test(
       notes,
     )
@@ -1367,10 +1369,17 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
         "Flooring demo / removal",
         "Remove existing flooring in the affected areas.",
       ],
-      plumbing: [
-        "Plumbing fixture updates",
-        "Update existing bathroom plumbing fixtures.",
-      ],
+      plumbing: /\b(?:updat(?:e|ing)|replac(?:e|ing)|new)\b[^.;\n]{0,40}\b(?:plumbing\s+)?fixtures?\b|\b(?:plumbing\s+)?fixtures?\b[^.;\n]{0,40}\b(?:updat(?:e|ing)|replac(?:e|ing)|new)\b/i.test(
+        notes,
+      )
+        ? [
+            "Plumbing fixture updates",
+            "Update existing bathroom plumbing fixtures.",
+          ]
+        : [
+            "Plumbing",
+            "Plumbing work named in the notes. Fixture removal stays on its own line.",
+          ],
       flooring: [
         flooringLabel,
         "Install the note-specified flooring area; confirm the product if not specified.",

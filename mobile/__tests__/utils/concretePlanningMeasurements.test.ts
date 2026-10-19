@@ -27,6 +27,14 @@ Exterior flatwork (separate):
 - Pump truck may be needed for driveway depending on access`;
 
 describe('concretePlanningMeasurements', () => {
+  it('does not use a new home living area as the driveway', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Brick veneer, concrete driveway and front walks, builder-grade interior. Owner is handling landscaping only.';
+    const parsed = applyConcretePlanningMeasurements({}, notes);
+    expect(parsed.concreteDrivewaySqft).toBeUndefined();
+    expect(parsed.concreteSqft).not.toBe(1960);
+  });
+
   it('parses driveway flatwork measurements from notes', () => {
     const parsed = applyConcretePlanningMeasurements({ concreteSqft: 900 }, DRIVEWAY_NOTE);
     expect(parsed).toMatchObject({

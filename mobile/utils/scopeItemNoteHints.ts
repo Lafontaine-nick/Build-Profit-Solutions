@@ -127,7 +127,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation:
     /\b(excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?|cut\s+foundation)\b/,
-  grading: /\b(grading|grade(?!\s+prep)|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  grading:
+    /\b(grading|(?<!builder[-\s])grade(?!\s+(?:prep|finish(?:es)?))|grade\s+site|rough\s+grade|final\s+grade)\b/i,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
   foundation: /\b(foundation|footings?|stem\s+wall|crawlspace)\b|\b(?:pour|new)\b[^.]{0,30}\bslab\b/,

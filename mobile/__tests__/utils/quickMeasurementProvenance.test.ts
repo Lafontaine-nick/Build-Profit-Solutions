@@ -31,6 +31,27 @@ function groundUpRows() {
 }
 
 describe('resolveQuickMeasurementFields', () => {
+  test('confirms a flooring area the note stated', () => {
+    const notes =
+      'Remodel a 1,800 sqft home. Install 1,200 sqft of flooring, repair 400 sqft of drywall, and paint the interior.';
+    const results = resolveQuickMeasurementFields({
+      rows: groundUpRows(),
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        flooringSqft: '1200',
+        floorAreaSqft: '1800',
+      },
+      sourceMap: { flooringSqft: 'estimated_from_formula' },
+      includedScopeKeys: ['flooring'],
+      templateKey: 'ground_up',
+      notes,
+    });
+    const flooring = results.find(result => result.key === 'flooringSqft');
+    expect(flooring?.state).toBe('confirmed');
+    expect(flooring?.fromNotes).toBe(true);
+    expect(quickMeasurementPlanningEstimateNote(flooring || {})).toBeNull();
+  });
+
   test('moves a typed value to Confirmed even when an old conflict remains', () => {
     const results = resolveQuickMeasurementFields({
       rows: groundUpRows(),
@@ -441,6 +462,53 @@ describe('summarizeQuickMeasurementFieldStates', () => {
         summary.estimateAvailable +
         summary.needsConfirmation +
         summary.confirmed
+    );
+  });
+
+  test('counts filled room-addition suggestions as planning estimates', () => {
+    const notes = 'Add a 256 sqft bedroom addition on the side of the house.';
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      floorAreaSqft: '256',
+      concreteCy: '12',
+      roofSquares: '3',
+      exteriorWallInsulationSqft: '435',
+      atticInsulationSqft: '256',
+      drywallSqft: '691',
+      flooringSqft: '256',
+      wallPaintSqft: '691',
+      exteriorPaintSqft: '490',
+      quickMeasurementSources: {
+        concreteCy: 'calculated_confirmed' as const,
+        roofSquares: 'calculated_confirmed' as const,
+        exteriorWallInsulationSqft: 'calculated_confirmed' as const,
+        atticInsulationSqft: 'calculated_confirmed' as const,
+        drywallSqft: 'calculated_confirmed' as const,
+        flooringSqft: 'calculated_confirmed' as const,
+        wallPaintSqft: 'calculated_confirmed' as const,
+        exteriorPaintSqft: 'calculated_confirmed' as const,
+      },
+    };
+    const rows = quickMeasurementRowsForInput(
+      'addition',
+      'room_addition',
+      measurements,
+      ['floorAreaSqft'],
+      { scopeNotes: notes }
+    );
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      noteValues: { floorAreaSqft: '256' },
+      noteBackedKeys: ['floorAreaSqft'],
+      sourceMap: measurements.quickMeasurementSources,
+      includedScopeKeys: [],
+      templateKey: 'addition',
+      projectType: 'room_addition',
+      notes,
+    });
+    expect(quickMeasurementSummaryLine(summarizeQuickMeasurementFieldStates(results))).toBe(
+      '0 from plan · 0 AI verified · 8 planning estimates · 4 need confirmation'
     );
   });
 

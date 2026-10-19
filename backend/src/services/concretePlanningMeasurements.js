@@ -355,6 +355,8 @@ function resolveExteriorFlatworkSqft(notes, blob, out) {
     if (found) return total;
   }
   if (existing) return existing;
+  const { notesDescribeGroundUpHome } = require("./scopeChecklistLibrary");
+  if (notesDescribeGroundUpHome(notes)) return null;
   const workBlob = notesImplyMixedConcreteJob(notes)
     ? splitConcreteNoteSections(notes).exterior.toLowerCase()
     : blob;

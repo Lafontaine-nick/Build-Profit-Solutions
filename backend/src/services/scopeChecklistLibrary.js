@@ -2715,7 +2715,8 @@ const CHECKLIST_YES_HINTS = {
     /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/,
   decorative_finish:
     /\b(stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
-  grading: /\b(grading|grade(?!\s+prep)|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  grading:
+    /\b(grading|(?<!builder[-\s])grade(?!\s+(?:prep|finish(?:es)?))|grade\s+site|rough\s+grade|final\s+grade)\b/i,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
   foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
@@ -2867,6 +2868,55 @@ const CONCRETE_FLATWORK_NOTES =
 const CONCRETE_FLATWORK_CONTEXT =
   /\b(?:forms?|rebar|thickened\s+edge|broom\s+finish|pump\s+truck|gravel\s+base|dig\s+out|mesh|control\s+joints?)\b/i;
 
+/** New-home notes such as "New 1,960 sqft single-story home". */
+function notesDescribeGroundUpHome(notes) {
+  const text = String(notes || "");
+  return (
+    /\b(?:new\s+build|new\s+construction|ground[\s-]?up|custom\s+home|spec\s+home)\b/i.test(
+      text,
+    ) ||
+    /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+      text,
+    )
+  );
+}
+
+function notesOwnerHandlesScopeCategory(notes, category) {
+  const text = String(notes || "").trim();
+  if (!text) return false;
+  const keywords = {
+    sitework:
+      /\b(?:sitework|site\s*work|excavat(?:e|ion)?|grading|site\s+prep)\b/i,
+    utilities: /\butilities?\b/i,
+    landscaping: /\blandscap(?:e|ing)\b/i,
+  };
+  const keyword = keywords[category];
+  if (!keyword) return false;
+  const ownerClause = text.match(
+    /\b(?:customer|owner|homeowner|client)\s+(?:is\s+)?(?:handling|doing|providing|taking\s+care\s+of)\s+([^.;]+)/i,
+  );
+  if (ownerClause && keyword.test(ownerClause[1])) return true;
+  if (/\bseparate\s+from\s+us\b/i.test(text) && keyword.test(text)) return true;
+  if (
+    /\b(?:by\s+others|not\s+included|excluded|owner[\s-]provided)\b/i.test(
+      text,
+    ) &&
+    keyword.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+const OWNER_HANDLED_SCOPE_ITEM_CATEGORIES = {
+  sitework: "sitework",
+  excavation: "sitework",
+  grading: "sitework",
+  utility_taps: "utilities",
+  utility_trenching: "utilities",
+  landscaping: "landscaping",
+};
+
 function notesImplyConcreteFlatwork(notes) {
   const n = String(notes || "");
   if (!n.trim()) return false;
@@ -2891,6 +2941,7 @@ function notesImplyConcreteFlatwork(notes) {
 }
 
 function notesImplyMixedExteriorHardscape(notes) {
+  if (notesDescribeGroundUpHome(notes)) return false;
   const n = notesIgnoringPaverSurfaces(notes);
   if (!n.trim()) return false;
   const hasHardscape =
@@ -3081,6 +3132,8 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
   }
+  // "Stucco exterior" on a new house is the wall finish. The bid stays the house.
+  if (notesDescribeGroundUpHome(notes)) return "ground_up";
   // Stucco notes often mention that painting beyond the stucco finish is
   // excluded. Keep that exclusion from routing the job to the paint checklist.
   if (dedicatedStuccoIntent) {
@@ -3337,6 +3390,10 @@ function inferTrimStateFromNotes(n) {
 }
 
 function inferItemStateFromNotes(itemId, notes) {
+  const ownerCategory = OWNER_HANDLED_SCOPE_ITEM_CATEGORIES[itemId];
+  if (ownerCategory && notesOwnerHandlesScopeCategory(notes, ownerCategory)) {
+    return "excluded";
+  }
   const n = String(notes || "").toLowerCase();
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return "excluded";
   if (itemId === "floor_demo")
@@ -4059,6 +4116,7 @@ module.exports = {
   notesImplyMixedInteriorRefresh,
   notesImplyConcreteFlatwork,
   notesImplyMixedExteriorHardscape,
+  notesDescribeGroundUpHome,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,

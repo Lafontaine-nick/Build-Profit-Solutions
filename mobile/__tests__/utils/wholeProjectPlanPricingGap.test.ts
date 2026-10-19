@@ -155,6 +155,16 @@ describe('whole project plan pricing gap', () => {
       ])
     ).toBe(true);
     expect(
+      checklistHasWholeHouseOpeningPackage(
+        [
+          { id: 'windows', state: 'included' },
+          { id: 'interior_doors', state: 'included' },
+          { id: 'foundation', state: 'included' },
+        ],
+        { notes: '400 sqft room addition off the back of the house.' }
+      )
+    ).toBe(false);
+    expect(
       checklistHasWholeHouseOpeningPackage([
         { id: 'window_install', state: 'included' },
         { id: 'interior_door_install', state: 'included' },

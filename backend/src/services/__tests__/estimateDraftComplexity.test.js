@@ -818,6 +818,40 @@ describe("estimateDraftComplexity", () => {
     );
   });
 
+  test("keeps a new home with a driveway and owner landscaping on the ground-up checklist", () => {
+    const notes =
+      "New 1,960 sqft single-story home with an attached 3-car garage. Brick veneer, concrete driveway and front walks, builder-grade interior. Owner is handling landscaping only.";
+    const draft = { projectType: "concrete", rooms: [] };
+    expect(classifyEstimateTier(draft, notes)).toBe("ground_up");
+    expect(checklistTemplateKey(draft, "ground_up", notes)).toBe("ground_up");
+    const checklist = buildScopeChecklist(draft, "ground_up", notes);
+    expect(checklist.templateKey).toBe("ground_up");
+    const byId = new Map(checklist.items.map((item) => [item.id, item.state]));
+    expect(byId.get("landscaping")).toBe("excluded");
+    expect(byId.get("grading")).not.toBe("included");
+    expect(byId.get("pour_flatwork")).toBe("included");
+    expect(byId.get("foundation")).not.toBe("excluded");
+  });
+
+  test("keeps a new home with a stucco exterior on the ground-up checklist", () => {
+    const notes =
+      "New 2,450 sqft two-story home with an attached 520 sqft 2-car garage. Stucco exterior. Owner is taking care of landscaping separate from us.";
+    const draft = { projectType: "new_build", rooms: [] };
+    expect(classifyEstimateTier(draft, notes)).toBe("ground_up");
+    expect(checklistTemplateKey(draft, "ground_up", notes)).toBe("ground_up");
+    expect(
+      checklistTemplateKey({ projectType: "stucco", rooms: [] }, "ground_up", notes),
+    ).toBe("ground_up");
+    expect(
+      checklistTemplateKey({ projectType: "other", rooms: [] }, "room_remodel", notes),
+    ).toBe("ground_up");
+    const checklist = buildScopeChecklist(draft, "ground_up", notes);
+    expect(checklist.templateKey).toBe("ground_up");
+    const byId = new Map(checklist.items.map((item) => [item.id, item.state]));
+    expect(byId.get("landscaping")).toBe("excluded");
+    expect(byId.has("stucco")).toBe(true);
+  });
+
   test("classifies notes-only ground-up language as ground_up tier", () => {
     const notes =
       "Ground up build for a 1850 sqft custom home with sitework, foundation, framing, roofing, MEP, drywall and finishes.";

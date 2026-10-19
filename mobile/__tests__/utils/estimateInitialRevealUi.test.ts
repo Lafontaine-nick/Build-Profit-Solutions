@@ -24,6 +24,10 @@ import {
   repairDraftRatePricingFromNotes,
   type EstimateAiDraft,
 } from '@/utils/estimateAiDraft';
+import {
+  inferItemStateFromNotes,
+  notesDescribeGroundUpHome,
+} from '@/utils/scopeItemNoteHints';
 
 const classificationFixtures =
   require('../../../test-fixtures/scopeClassificationFixtures.json') as {
@@ -357,6 +361,39 @@ describe('estimateInitialRevealUi', () => {
         'Conduit / raceway only',
       ])
     );
+  });
+
+  it('collapses a stated drywall repair beside flooring to one line', () => {
+    const notes =
+      'Remodel a 2,000 sqft home. Remove 800 sqft of existing flooring and install 800 sqft of new flooring. Repair 300 sqft of drywall.';
+    const draft = {
+      projectType: 'other',
+      scopeMode: 'mixed',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'floor_demo', label: 'Flooring demo / removal', state: 'included' },
+          { id: 'drywall', label: 'Drywall / patching', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          { id: 'patch_repair', label: 'Drywall patch / repair', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        floorDemoSqft: 800,
+        flooringSqft: 800,
+        drywallSqft: 300,
+        patchRepairSqft: 300,
+      },
+    } as EstimateAiDraft;
+
+    const drywall = getInitialRevealChecklistScopePreview(draft).filter(row =>
+      /drywall/i.test(row.name)
+    );
+
+    expect(drywall.map(row => row.name)).toEqual([
+      'Drywall repair · 300 sqft',
+    ]);
   });
 
   it('limits a mixed addition reveal to note-backed scope rows', () => {
@@ -1093,6 +1130,56 @@ describe('estimateInitialRevealUi', () => {
       'Framing',
       'Flooring',
     ]);
+  });
+
+  it('keeps a new home with a driveway from the mixed exterior title', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Brick veneer, concrete driveway and front walks, builder-grade interior. Owner is handling landscaping only.';
+    const draft = {
+      projectTitle: 'Concrete',
+      projectType: 'concrete',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'dedicated',
+        detectedTrades: ['concrete', 'landscaping'],
+        scopeSummary: null,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe(
+      'New 1,960 Sq Ft Single-Story Home'
+    );
+    expect(getInitialRevealTagline(draft) || '').not.toContain(
+      'Mixed exterior hardscape'
+    );
+  });
+
+  it('drops grading that only came from builder-grade finishes', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio. Brick exterior. Standard builder-grade finishes.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'ground_up',
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [
+          {
+            id: 'grading',
+            label: 'Grading',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+        scopeFacts: [{ scopeId: 'grading', status: 'included' }],
+      },
+    } as EstimateAiDraft;
+
+    expect(inferItemStateFromNotes('grading', notes)).toBe('unsure');
+    expect(notesDescribeGroundUpHome(notes)).toBe(true);
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(names).toEqual(['1,960 sqft single-story home']);
   });
 
   it('labels mixed exterior hardscape instead of the concrete trade title', () => {

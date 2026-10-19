@@ -68,6 +68,11 @@ import {
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
+import {
+  applyWholeHomeRemodelChecklist,
+  notesDescribeMeasuredWholeHomeRemodel,
+  scrubWholeHomeRemodelMeasurements,
+} from '@/utils/wholeHomeRemodelNote';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import {
   applyPaintPricingMethodChoice,
@@ -304,6 +309,21 @@ import {
 } from '@/utils/insulationNoteScope';
 import { filterDedicatedStuccoConfirmItems } from '@/utils/stuccoNoteScope';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import {
+  AREA_ONLY_EXTERIOR_FINISHES,
+  AREA_ONLY_STUCCO_SYSTEMS,
+  areaOnlyExteriorCladding,
+  areaOnlyExteriorFinishFromNotes,
+  areaOnlyExteriorFinishHelper,
+  areaOnlyExteriorFinishLabel,
+  asAreaOnlyExteriorFinish,
+  asAreaOnlyStuccoSystem,
+  resolveAreaOnlyExteriorFinishes,
+  resolveAreaOnlyStuccoSystem,
+  toggleAreaOnlyExteriorFinish,
+  type AreaOnlyExteriorFinish,
+  type AreaOnlyStuccoSystem,
+} from '@/utils/areaOnlyExteriorFinish';
 import { withPlanScopeRecordMeasurements } from '@/utils/planScopeRecords';
 import {
   existingShellConversionElectricalBreakdown,
@@ -312,7 +332,6 @@ import {
 } from '@/utils/additionConversionPlanning';
 import {
   DrywallFinishQuickMeasurementToggles,
-  DrywallTextureSelectedLabel,
   filterGroupedItemsWithoutPinnedTexture,
   resolvePinnedDrywallFinishItem,
 } from '@/components/estimate/DrywallConfirmScopePanels';
@@ -476,6 +495,7 @@ import {
   filterDedicatedRoofingConfirmItems,
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
+  notesDescribeGroundUpHome,
 } from '@/utils/scopeItemNoteHints';
 import { applyFinishScheduleToChecklistItems } from '@/utils/finishScheduleScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
@@ -524,7 +544,6 @@ import {
   acceptReviewedQuickMeasurementSuggestions,
   quickMeasurementEstimateBadgeLabel,
   quickMeasurementPlanningEstimateNote,
-  quickMeasurementSuggestionRequiresReview,
   quickMeasurementValuesMatch,
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
@@ -6608,12 +6627,16 @@ function QuantitySection({
       const flooringStandardSuggestedCard =
         Boolean(suggestedBudgetSplit) &&
         itemId === 'flooring' &&
-        String(templateKey || '').toLowerCase() === 'room_remodel';
+        (String(templateKey || '').toLowerCase() === 'room_remodel' ||
+          notesDescribeAreaOnlyAddition(originalNotes));
+      const flatworkStandardSuggestedCard =
+        Boolean(suggestedBudgetSplit) && itemId === 'pour_flatwork';
       const hideNoteRateRows =
         (itemId === 'shower_tile' && Boolean(suggestedBudgetSplit)) ||
         kitchenStandardSuggestedCard ||
         framingStandardSuggestedCard ||
-        flooringStandardSuggestedCard;
+        flooringStandardSuggestedCard ||
+        flatworkStandardSuggestedCard;
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -6720,7 +6743,10 @@ function QuantitySection({
           (['paint', 'interior_paint'].includes(itemId) &&
             measurementsInput.paintPricingMethod === 'separate') ||
           noteBackedFlooring ||
-          noteBackedDrywall)
+          (itemId === 'flooring' &&
+            notesDescribeAreaOnlyAddition(originalNotes)) ||
+          noteBackedDrywall ||
+          itemId === 'pour_flatwork')
       );
       return (
         <View
@@ -12485,6 +12511,11 @@ function ChoiceRow({
             const active = displayedChoiceId === opt.id;
             const isUnsure = opt.id === 'unsure';
             const isExcluded = opt.id === 'not_in_scope';
+            const isTexture = item.id === 'texture';
+            const chipLabel =
+              isTexture && opt.label.includes('—')
+                ? DRYWALL_TEXTURE_CHIP_LABEL[opt.id] || opt.label
+                : opt.label;
             const chipInactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
             let borderColor = chipInactiveStyle.borderColor;
             let backgroundColor = chipInactiveStyle.backgroundColor;
@@ -12502,6 +12533,10 @@ function ChoiceRow({
                   ? QM_MEASUREMENT_SHELL_FILL_DARK
                   : 'rgba(0,0,0,0.04)';
                 textColor = darkMode ? '#F5F7FA' : Colors.text;
+              } else if (isTexture) {
+                borderColor = '#2dcc9a';
+                backgroundColor = 'rgba(45,204,154,0.16)';
+                textColor = '#2dcc9a';
               } else {
                 borderColor = '#60a5fa';
                 backgroundColor = 'rgba(96,165,250,0.18)';
@@ -12529,6 +12564,11 @@ function ChoiceRow({
                       ? styles.roofingChoiceChipHalf
                       : styles.roofingChoiceChipFull
                     : null,
+                  isTexture
+                    ? isUnsure
+                      ? styles.roofingChoiceChipFull
+                      : styles.roofingChoiceChipHalf
+                    : null,
                   item.id === 'stucco' ? styles.stuccoChoiceChip : null,
                   { borderColor, backgroundColor },
                 ]}
@@ -12544,19 +12584,13 @@ function ChoiceRow({
                     item.id === 'stucco' ? styles.stuccoChoiceLabel : null,
                   ]}
                 >
-                  {opt.label}
+                  {chipLabel}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </View>
       )}
-      {item.id === 'texture' && displayedChoiceId ? (
-        <DrywallTextureSelectedLabel
-          choiceId={displayedChoiceId}
-          darkMode={darkMode}
-        />
-      ) : null}
       {showToiletRelocateFloorPrompt ? (
         <View style={{ marginTop: 10 }}>
           <Text
@@ -12616,6 +12650,9 @@ function ChoiceRow({
           </View>
         </View>
       ) : null}
+      {item.id === 'texture' &&
+      displayedChoiceId !== 'custom_specialty' &&
+      isDrywallCompletePackageScope({ templateKey }) ? null : (
       <QuantitySection
         itemId={item.id}
         choiceId={item.choiceId}
@@ -12641,9 +12678,20 @@ function ChoiceRow({
         darkMode={darkMode}
         applying={applying}
       />
+      )}
     </View>
   );
 }
+
+const DRYWALL_TEXTURE_CHIP_LABEL: Record<string, string> = {
+  orange_peel: 'Orange peel',
+  knockdown: 'Knockdown +10%',
+  skip_trowel: 'Skip trowel +23%',
+  smooth_level_4: 'Level 4 +17%',
+  smooth_level_5: 'Level 5 +52%',
+  custom_specialty: 'Custom',
+  unsure: 'Not sure yet',
+};
 
 function choiceIdToState(choiceId: string): ScopeAssumptionState {
   if (choiceId === 'not_in_scope') return 'excluded';
@@ -12892,8 +12940,16 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       setNumericDraft(String(value ?? '').replace(/,/g, ''));
     }
   }, [value, numericEditing]);
+  const planningFill =
+    variant === 'suggestion' &&
+    estimate &&
+    quickMeasurementEstimateBadgeLabel(estimate) === 'Planning estimate' &&
+    String(value ?? '').trim() === ''
+      ? String(estimate.value)
+      : '';
+  const committedValue = planningFill || value;
   const inputValue =
-    usesNumericEditDraft && numericEditing ? numericDraft : value;
+    usesNumericEditDraft && numericEditing ? numericDraft : committedValue;
   const textInputValue =
     usesNumericEditDraft && numericEditing
       ? numericDraft
@@ -12909,7 +12965,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   const handleInputFocus = () => {
     onQuantityEditFocus?.();
     if (usesNumericEditDraft) {
-      setNumericDraft(String(value ?? '').replace(/,/g, ''));
+      setNumericDraft(String(committedValue ?? '').replace(/,/g, ''));
       setNumericEditing(true);
     }
     onFocus?.();
@@ -12930,7 +12986,13 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   };
   const handleInputBlur = () => {
     if (usesNumericEditDraft) {
-      onChangeText(numericDraft);
+      const unchangedPlanningFill =
+        Boolean(planningFill) &&
+        numericDraft.replace(/,/g, '') ===
+          String(planningFill).replace(/,/g, '');
+      if (!unchangedPlanningFill) {
+        onChangeText(numericDraft);
+      }
       setNumericEditing(false);
     }
     onBlur?.();
@@ -12981,15 +13043,19 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     estimate?.value
   );
   const showSuggestionActions =
-    variant === 'suggestion' && Boolean(estimate) && !suggestionAlreadyShown;
+    variant === 'suggestion' &&
+    Boolean(estimate) &&
+    !suggestionAlreadyShown &&
+    !planningFill;
   const planningNote =
-    statusLabel || (suggestionAlreadyShown ? 'Planning estimate' : undefined);
+    statusLabel ||
+    (suggestionAlreadyShown || planningFill ? 'Planning estimate' : undefined);
   const measurementInfo = quickMeasurementInfoText(field, {
     displayLabel: label,
     planningEstimate: planningNote === 'Planning estimate',
   });
   const infoColor = darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub;
-  const isEmptyMeasurement = String(inputValue).trim() === '';
+  const isEmptyMeasurement = String(committedValue).trim() === '';
   const numericMeasurementMissing =
     ['baseboardLf', 'windowCount', 'interiorDoorCount'].includes(field.key) &&
     (!String(inputValue).trim() ||
@@ -14821,6 +14887,72 @@ function InsulationAssemblyCard({
   );
 }
 
+function ExteriorFinishChoiceButtons({
+  options,
+  selectedIds,
+  onSelect,
+  darkMode,
+  Colors,
+  applying,
+}: {
+  options: Array<{ id: string; label: string }>;
+  selectedIds?: readonly string[] | null;
+  onSelect: (id: string) => void;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+  applying: boolean;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {options.map(option => {
+        const selected = selectedIds?.includes(option.id);
+        const inactiveBorder = darkMode
+          ? 'rgba(148, 163, 184, 0.28)'
+          : Colors.line;
+        const inactiveFill = darkMode
+          ? 'rgba(255,255,255,0.06)'
+          : 'rgba(0,0,0,0.03)';
+        return (
+          <TouchableOpacity
+            key={option.id}
+            onPress={() => onSelect(option.id)}
+            disabled={applying}
+            activeOpacity={0.88}
+            style={{
+              flexGrow: 1,
+              minWidth: 88,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: selected ? '#2dcc9a' : inactiveBorder,
+              backgroundColor: selected
+                ? 'rgba(45,204,154,0.16)'
+                : inactiveFill,
+              paddingHorizontal: 10,
+              paddingVertical: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text
+              style={{
+                color: selected
+                  ? '#2dcc9a'
+                  : darkMode
+                    ? '#e5e7eb'
+                    : Colors.text,
+                fontSize: 14,
+                fontWeight: selected ? '800' : '600',
+              }}
+            >
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function CollapsibleQuickMeasurements({
   visible,
   expanded,
@@ -14864,6 +14996,8 @@ function CollapsibleQuickMeasurements({
   onHvacScopeSelectionChange,
   stuccoSystemChoiceId = null,
   onStuccoSystemChange,
+  onExteriorFinishChange,
+  onExteriorStuccoSystemChange,
   onStuccoStoriesChange,
   onOpeningGradeChange,
   Colors,
@@ -14963,6 +15097,8 @@ function CollapsibleQuickMeasurements({
   onHvacScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   stuccoSystemChoiceId?: string | null;
   onStuccoSystemChange?: (choiceId: string | null) => void;
+  onExteriorFinishChange?: (finishes: AreaOnlyExteriorFinish[]) => void;
+  onExteriorStuccoSystemChange?: (system: AreaOnlyStuccoSystem | null) => void;
   onStuccoStoriesChange?: () => void;
   onOpeningGradeChange?: () => void;
   Colors: ReturnType<typeof getColors>;
@@ -15146,15 +15282,18 @@ function CollapsibleQuickMeasurements({
     variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null;
   }>({ homeGroup: null, homeIndex: null, variant: null });
   const stuccoTradeFlow = useMemo(
-    () => String(templateKey || '').toLowerCase() === 'stucco',
-    [templateKey]
+    () =>
+      String(templateKey || '').toLowerCase() === 'stucco' &&
+      !notesDescribeGroundUpHome(notes),
+    [templateKey, notes]
   );
   const stuccoNoteFlow = useMemo(
     () =>
-      stuccoTradeFlow ||
-      /\bstucco\b|\b(?:gross|net)\s+(?:exterior\s+)?wall\s+area\b|\b(?:foam\s+trim|control\s+joints?)\b/i.test(
-        String(notes || '')
-      ),
+      !notesDescribeGroundUpHome(notes) &&
+      (stuccoTradeFlow ||
+        /\bstucco\b|\b(?:gross|net)\s+(?:exterior\s+)?wall\s+area\b|\b(?:foam\s+trim|control\s+joints?)\b/i.test(
+          String(notes || '')
+        )),
     [notes, stuccoTradeFlow]
   );
   const effectiveTemplateKey = useMemo(() => {
@@ -15166,6 +15305,14 @@ function CollapsibleQuickMeasurements({
       Number(String(measurements.garageSqft || '').replace(/,/g, '')) ||
       Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
       null;
+    if (
+      notesDescribeGroundUpHome(notes) &&
+      !/^(?:plumbing(?:_service)?|hvac|electrical|roofing|drywall|framing|flooring|painting|concrete|kitchen|bathroom|windows_doors|insulation|deck_patio)$/i.test(
+        String(templateKey || '')
+      )
+    ) {
+      return 'ground_up';
+    }
     if (stuccoTradeFlow) return 'stucco';
     return resolveEffectiveQuickMeasurementTemplateKey({
       templateKey,
@@ -15827,8 +15974,12 @@ function CollapsibleQuickMeasurements({
     const hasScopeOrNote = (scopeKeys: string[], pattern: RegExp) =>
       scopeKeys.some(key => activeScopeSet.has(key)) ||
       pattern.test(notesTextForScopeFields);
+    const measuredWholeHomeWithoutFraming =
+      notesDescribeMeasuredWholeHomeRemodel(notesTextForScopeFields) &&
+      !/\b(?:frame|framing|framed)\b/i.test(notesTextForScopeFields);
     if (
       !dedicatedStuccoScope &&
+      !measuredWholeHomeWithoutFraming &&
       (structuralNotesMentioned ||
         (activeScopeSet.has('framing') && !wetAreaFramingOnly) ||
         activeScopeSet.has('shear_sheathing') ||
@@ -15865,9 +16016,17 @@ function CollapsibleQuickMeasurements({
         ensureScopeField('framedAreaSqft', {
           label: 'Wall framing area',
           helperText:
-            'Square feet of walls explicitly identified for framing in the notes.',
+            'Square feet of wall surface. Framing still prices from living area plus garage when this stays blank.',
         });
-        ensureScopeField('wallFramingLf');
+        // Linear feet price a named stud wall. A whole-house note has no
+        // linear-foot count, so that box stays off ground-up bids.
+        if (
+          !['ground_up', 'addition'].includes(
+            String(effectiveTemplateKey || '').toLowerCase()
+          )
+        ) {
+          ensureScopeField('wallFramingLf');
+        }
         ensureScopeField('sheathingSqft');
         ensureScopeField('framingOpeningCount');
       }
@@ -15883,6 +16042,7 @@ function CollapsibleQuickMeasurements({
     if (
       !compactBathroomPlumbingFlow &&
       !notesDescribeDedicatedDrywallPatchJob(notesTextForScopeFields) &&
+      !notesNameDrywallBesideFlooring(notesTextForScopeFields) &&
       hasScopeOrNote(['drywall'], /\b(?:drywall|sheetrock|gypsum)\b/i)
     ) {
       ensureScopeField('drywallSqft');
@@ -17391,16 +17551,6 @@ function CollapsibleQuickMeasurements({
     notes,
   ]);
   const displayGroups = groups.groups;
-  const unappliedSuggestionCount = displayGroups.suggestions.filter(result => {
-    if (!result.estimate) return false;
-    const shown = resolveQuickMeasurementDisplayValue(
-      result.key,
-      measurements,
-      noteQuickMeasurements.values,
-      measurements.quickMeasurementUserOverrides
-    );
-    return !quickMeasurementValuesMatch(shown, result.estimate.value);
-  }).length;
   const wetAreaFields = groups.wetArea;
   const visibleMoreResults = displayGroups.more.filter(result => result.filled);
   const roofingMeasurementKeys = new Set<QuickMeasurementFieldKey>([
@@ -19625,44 +19775,6 @@ function CollapsibleQuickMeasurements({
     [setMeasurements]
   );
 
-  const useAllSuggestions = useCallback(() => {
-    if (!displayGroups.suggestions.length) return;
-    hapticTap();
-    const suggestions = displayGroups.suggestions
-      .map(result => result.estimate)
-      .filter((estimate): estimate is QuickMeasurementEstimate =>
-        Boolean(estimate)
-      );
-    const reviewRequired = suggestions.filter(
-      quickMeasurementSuggestionRequiresReview
-    );
-    const reviewLines = suggestions.map(
-      estimate =>
-        `${estimate.quantityLabel || fieldByKey.get(estimate.key)?.label || estimate.key}: ${estimate.summary} · ${estimate.confidence}`
-    );
-    Alert.alert(
-      'Review planning suggestions',
-      [
-        ...reviewLines,
-        reviewRequired.length
-          ? `\n${reviewRequired.length} high-risk or low-confidence ${reviewRequired.length === 1 ? 'quantity requires' : 'quantities require'} explicit review.`
-          : '\nAll values remain editable after use.',
-      ].join('\n'),
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Use reviewed values',
-          onPress: () => {
-            setOpenDetailsKey(null);
-            setMeasurements(prev =>
-              acceptReviewedQuickMeasurementSuggestions(prev, suggestions, true)
-            );
-          },
-        },
-      ]
-    );
-  }, [fieldByKey, displayGroups.suggestions, setMeasurements]);
-
   const wetAreaSuggestions = useMemo(
     () =>
       wetAreaFields.filter(
@@ -20111,9 +20223,39 @@ function CollapsibleQuickMeasurements({
     const displayEstimate = estimateForRender
       ? { ...estimateForRender, quantityLabel: displayField.label }
       : null;
+    const areaOnlyExteriorWall =
+      field.key === 'exteriorPaintSqft' &&
+      (notesDescribeAreaOnlyAddition(notes) || groundUpNewHome);
+    const selectedExteriorFinishes = areaOnlyExteriorWall
+      ? (() => {
+          const cleared =
+            measurements.exteriorFinish === '' ||
+            (Array.isArray(measurements.exteriorFinishes) &&
+              measurements.exteriorFinishes.length === 0);
+          if (cleared) return [] as AreaOnlyExteriorFinish[];
+          const resolved = resolveAreaOnlyExteriorFinishes({
+            stored: measurements.exteriorFinish,
+            storedMany: Array.isArray(measurements.exteriorFinishes)
+              ? measurements.exteriorFinishes
+              : null,
+            notes,
+          });
+          return resolved;
+        })()
+      : [];
+    const selectedExteriorFinish = areaOnlyExteriorCladding(
+      selectedExteriorFinishes
+    );
+    const selectedStuccoSystem = areaOnlyExteriorWall
+      ? resolveAreaOnlyStuccoSystem({
+          finish: selectedExteriorFinish,
+          stored: measurements.exteriorStuccoSystem,
+          notes,
+        })
+      : null;
     return (
+      <View key={field.key}>
       <QuickMeasurementField
-        key={field.key}
         field={displayField}
         value={displayValue}
         variant={lockedVariant}
@@ -20154,6 +20296,59 @@ function CollapsibleQuickMeasurements({
           }) || undefined
         }
       />
+      {areaOnlyExteriorWall ? (
+        <View style={{ marginTop: 8, gap: 8 }}>
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 12,
+              fontWeight: '700',
+            }}
+          >
+            Exterior finish
+          </Text>
+          <ExteriorFinishChoiceButtons
+            options={AREA_ONLY_EXTERIOR_FINISHES}
+            selectedIds={selectedExteriorFinishes}
+            applying={applying}
+            darkMode={darkMode}
+            Colors={Colors}
+            onSelect={id => {
+              const next = asAreaOnlyExteriorFinish(id);
+              if (!next) return;
+              onExteriorFinishChange?.(
+                toggleAreaOnlyExteriorFinish(selectedExteriorFinishes, next)
+              );
+            }}
+          />
+          {selectedExteriorFinishes.includes('stucco') ? (
+            <>
+              <Text
+                style={{
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 12,
+                  fontWeight: '700',
+                }}
+              >
+                Stucco system
+              </Text>
+              <ExteriorFinishChoiceButtons
+                options={AREA_ONLY_STUCCO_SYSTEMS}
+                selectedIds={selectedStuccoSystem ? [selectedStuccoSystem] : []}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                onSelect={id => {
+                  const next = asAreaOnlyStuccoSystem(id);
+                  const cleared = selectedStuccoSystem === next ? null : next;
+                  onExteriorStuccoSystemChange?.(cleared);
+                }}
+              />
+            </>
+          ) : null}
+        </View>
+      ) : null}
+      </View>
     );
   };
 
@@ -22196,32 +22391,6 @@ function CollapsibleQuickMeasurements({
           ) : null}
           {wholeHomeLayout ? (
             <>
-              {unappliedSuggestionCount > 1 ? (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'flex-end',
-                    marginBottom: 4,
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={useAllSuggestions}
-                    disabled={applying}
-                    activeOpacity={0.75}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text
-                      style={{
-                        color: '#2dcc9a',
-                        fontSize: 12,
-                        fontWeight: '800',
-                      }}
-                    >
-                      Review and use all suggestions
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
               {physicalSections.map((section, sectionIndex) => (
                 <View
                   key={section.id}
@@ -22524,33 +22693,7 @@ function CollapsibleQuickMeasurements({
 
               {displayGroups.suggestions.some(shouldRenderGeneralResult) ? (
                 <View style={styles.quickMeasurementSection}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    {sectionTitle('Planning estimate')}
-                    {unappliedSuggestionCount > 1 ? (
-                      <TouchableOpacity
-                        onPress={useAllSuggestions}
-                        disabled={applying}
-                        activeOpacity={0.75}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text
-                          style={{
-                            color: '#2dcc9a',
-                            fontSize: 12,
-                            fontWeight: '800',
-                          }}
-                        >
-                          Review and use all
-                        </Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
+                  {sectionTitle('Planning estimate')}
                   {displayGroups.suggestions.map((result, index) =>
                     renderDisplayedResultField(
                       result,
@@ -23814,6 +23957,10 @@ export default function AIEstimateScopeAssumptionsModal({
     (wholeProjectPlanChecklist ||
       seedWholeProjectShell ||
       planLooksGroundUp ||
+      (notesDescribeGroundUpHome(scopeNotes) &&
+        !/^(?:plumbing(?:_service)?|hvac|electrical|roofing|drywall|framing|flooring|painting|concrete|kitchen|bathroom|windows_doors|insulation|deck_patio)$/i.test(
+          String(checklist?.templateKey || '')
+        )) ||
       (collapsedScopeGroupSummary && !roomRemodelChecklist));
   const scopeCardTemplateKey = useCallback(
     (itemId: string) => {
@@ -23846,6 +23993,7 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   const stuccoTradeFlow =
     !wholeProjectFlow &&
+    !notesDescribeGroundUpHome(scopeNotes) &&
     (items.some(
       item => item.id === 'stucco' || item.id.startsWith('stucco_')
     ) ||
@@ -24012,7 +24160,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ];
       }
     }
-    if (!explicitInteriorTrimMention) {
+    if (!explicitInteriorTrimMention && !areaOnlyAdditionNote) {
       expanded = expanded.filter(item => item.id !== 'interior_trim');
     }
     if (!/\bbaseboards?\b|\bbase\s*board\b/i.test(currentUserNote)) {
@@ -24068,28 +24216,20 @@ export default function AIEstimateScopeAssumptionsModal({
       ),
       scopeNotes
     );
-    const floorDemoHasUserQuantity =
-      Number(String(measurements.floorDemoSqft ?? '').replace(/,/g, '')) > 0 &&
-      (measurements.quickMeasurementUserOverrides?.floorDemoSqft === true ||
-        measurements.quickMeasurementSources?.floorDemoSqft ===
-          'user_entered' ||
-        measurements.itemQuantities?.floor_demo?.quantitySource ===
-          'user_entered');
     // Apply the note boundary again after restoring legacy/saved rows. Older
     // drafts can reintroduce a generic demo row after the first normalization
     // pass; drywall removal must not turn that row into flooring removal.
     const withNoteScopeFilter = filterRoomRemodelNoteScopeItems(
       withConversionFilter,
       currentUserNote
-    ).filter(
-      item =>
-        !(
-          isWholeHomeMixedRemodelNote &&
-          item.id === 'floor_demo' &&
-          item.state !== 'excluded' &&
-          !floorDemoHasUserQuantity
-        )
     );
+    const finishWholeHomeList = (list: ScopeChecklistItem[]) => {
+      if (draft?.scopeAssumptionsConfirmed) return list;
+      if (measurements.planImportFingerprint || measurements.planImportMode) {
+        return list;
+      }
+      return applyWholeHomeRemodelChecklist(list, currentUserNote);
+    };
     const openingScopeIds = new Set([
       'windows',
       'window_install',
@@ -24184,7 +24324,31 @@ export default function AIEstimateScopeAssumptionsModal({
         list,
         currentUserNote
       );
-      return syncElectricalScopeItems(restored, {
+      const notedFinish = areaOnlyExteriorFinishFromNotes(currentUserNote);
+      const storedFinish = areaOnlyExteriorCladding(
+        resolveAreaOnlyExteriorFinishes({
+          stored: measurements.exteriorFinish,
+          storedMany: Array.isArray(measurements.exteriorFinishes)
+            ? measurements.exteriorFinishes
+            : null,
+          notes: currentUserNote,
+        })
+      );
+      const wallFinish = storedFinish || notedFinish;
+      const withWallFinish =
+        wallFinish === 'brick'
+          ? restored.map(item =>
+              item.id === 'stucco'
+                ? {
+                    ...item,
+                    label: 'Brick',
+                    helperText:
+                      'Standard brick veneer on the exterior wall area.',
+                  }
+                : item
+            )
+          : restored;
+      return syncElectricalScopeItems(withWallFinish, {
         templateKey: 'ground_up',
         notes: currentUserNote,
         quantities: withPlanScopeRecordMeasurements(
@@ -24196,8 +24360,10 @@ export default function AIEstimateScopeAssumptionsModal({
     };
     const groundUpShellOnThisList =
       showGroundUpPlanShell ||
-      checklistHasWholeHouseOpeningPackage(withExplicitTradeExclusionBoundary);
-    if (groundUpShellOnThisList) {
+      checklistHasWholeHouseOpeningPackage(withExplicitTradeExclusionBoundary, {
+        notes: currentUserNote,
+      });
+    if (groundUpShellOnThisList && !notesDescribeMeasuredWholeHomeRemodel(currentUserNote)) {
       return finalizeGroundUpPlanScope(
         withDrywallLayout(
           syncElectricalScopeItems(
@@ -24391,7 +24557,9 @@ export default function AIEstimateScopeAssumptionsModal({
       return withDrywallLayout(electricalItems);
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
-      return withDrywallLayout(withExplicitTradeExclusionBoundary);
+      return finishWholeHomeList(
+        withDrywallLayout(withExplicitTradeExclusionBoundary)
+      );
     const description = flooringDemoDescription(
       measurements,
       scopeNotes,
@@ -24428,7 +24596,7 @@ export default function AIEstimateScopeAssumptionsModal({
           'flooring_sheet_vinyl',
         ].includes(item.id) && item.state !== 'excluded'
     );
-    return filterDedicatedFlooringConfirmItems(
+    return finishWholeHomeList(filterDedicatedFlooringConfirmItems(
       groupedOpeningItems.filter(
         item =>
           item.id !== 'plans_engineering' &&
@@ -24453,7 +24621,7 @@ export default function AIEstimateScopeAssumptionsModal({
           flooringOrder(a.item.id) - flooringOrder(b.item.id) ||
           a.index - b.index
       )
-      .map(({ item }) => item);
+      .map(({ item }) => item));
   }, [
     items,
     checklist?.templateKey,
@@ -25642,7 +25810,12 @@ export default function AIEstimateScopeAssumptionsModal({
         sourceItems = dedicatedHvacEquipmentChecklistItems(scopeNotes);
       }
     }
-    if (!sourceItems.length) return;
+    if (!sourceItems.length) {
+      hydratedVisibleSessionRef.current = false;
+      setScopeHydrated(true);
+      setScopeDisplayReady(true);
+      return;
+    }
     const draftForScope =
       draft && scopeNotes.trim()
         ? repairDraftRatePricingFromNotes(draft, scopeNotes)
@@ -26865,6 +27038,13 @@ export default function AIEstimateScopeAssumptionsModal({
         });
       }
     }
+    if (!draft?.scopeAssumptionsConfirmed) {
+      normalized = applyWholeHomeRemodelChecklist(normalized, scopeNotes);
+      nextMeasurements = scrubWholeHomeRemodelMeasurements(
+        nextMeasurements as Record<string, unknown>,
+        scopeNotes
+      ) as typeof nextMeasurements;
+    }
     baseItemsRef.current = normalized;
     setItems(normalized);
     setMeasurementsSynced(nextMeasurements);
@@ -27091,13 +27271,20 @@ export default function AIEstimateScopeAssumptionsModal({
     ].join('\u001f');
     if (preparedMeasurementsNotesKeyRef.current === preparationKey) return;
     preparedMeasurementsNotesKeyRef.current = preparationKey;
-    setMeasurementsSynced(prev =>
-      prepareScopeMeasurementsInputForUi(prev, {
+    setMeasurementsSynced(prev => {
+      const prepared = prepareScopeMeasurementsInputForUi(prev, {
         notes: scopeNotes,
         templateKey: checklist?.templateKey,
         projectType: draft?.projectType,
-      })
-    );
+      });
+      const notedFinish = areaOnlyExteriorFinishFromNotes(scopeNotes);
+      if (!notedFinish) return prepared;
+      return {
+        ...prepared,
+        exteriorFinish: notedFinish,
+        exteriorFinishes: [notedFinish],
+      };
+    });
   }, [visible, scopeNotes, checklist?.templateKey, draft?.projectType]);
 
   // Keep Garage doors Yes when QM type counts are set.
@@ -27752,6 +27939,7 @@ export default function AIEstimateScopeAssumptionsModal({
       : collapsedScopeGroupSummary
         ? bucketWholeProjectScopeGroups(grouped, {
             seedGroundUpShell: showGroundUpPlanShell,
+            notes: scopeNotes,
           })
         : grouped;
     return filterGroupedItemsWithoutPinnedTexture(
@@ -28120,10 +28308,11 @@ export default function AIEstimateScopeAssumptionsModal({
     const itemOrder = (id: string) =>
       id === 'cleanup' ? 10000 : (openingOrder[id] ?? 50);
     const isBathroomFlow =
-      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
-      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
-      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
-      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
+      !notesDescribeMeasuredWholeHomeRemodel(scopeNotes) &&
+      (String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
+        String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+        /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+        /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes));
     const keepBathroomPricingCard = (_id: string) =>
       // Every detected bathroom row must reach renderItem so it can show
       // pricing or an explicit missing-measurement state.
@@ -28158,6 +28347,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ...group,
         items: group.items.filter(
           item =>
+            checklistItemInScope(item) &&
             !(
               notesNameDedicatedHvacServiceVisit(scopeNotes) &&
               (item.id === 'equipment_replace' ||
@@ -31375,10 +31565,11 @@ export default function AIEstimateScopeAssumptionsModal({
       return null;
     }
     const isBathroomFlow =
-      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
-      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
-      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
-      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
+      !notesDescribeMeasuredWholeHomeRemodel(scopeNotes) &&
+      (String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
+        String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+        /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+        /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes));
     const keepBathroomPricingCard =
       isBathroomFlow &&
       // Every detected bathroom row must remain reviewable in Confirm Scope,
@@ -31963,10 +32154,11 @@ export default function AIEstimateScopeAssumptionsModal({
               return next;
             });
             if (state === 'included' && item.state !== 'included') {
-              // Open the pricing editor optimistically with the scope toggle so
-              // the contractor can edit immediately instead of waiting for the
-              // quantity/pricing reconciliation pass to finish.
-              setPricingEditorRequest({ itemId: item.id, token: Date.now() });
+              // Not sure has no price on the card yet. Yes should show the
+              // suggested price, and Edit stays available if they want to change it.
+              if (item.state !== 'unsure') {
+                setPricingEditorRequest({ itemId: item.id, token: Date.now() });
+              }
               setTimeout(() => scrollToScopeItem(item.id), 50);
             }
             if (item.id === 'plumbing_rough' && state !== 'included') {
@@ -32745,6 +32937,96 @@ export default function AIEstimateScopeAssumptionsModal({
               );
               handleClearAcceptedPricing('stucco');
             }}
+            onExteriorFinishChange={finishes => {
+              const cladding = areaOnlyExteriorCladding(finishes);
+              const system =
+                cladding === 'stucco'
+                  ? asAreaOnlyStuccoSystem(measurements.exteriorStuccoSystem)
+                  : null;
+              setMeasurementsSynced(previous => ({
+                ...previous,
+                exteriorFinishes: finishes,
+                exteriorFinish: cladding || '',
+                exteriorStuccoSystem:
+                  cladding === 'stucco' ? previous.exteriorStuccoSystem : '',
+              }));
+              setItems(prev => {
+                const wallCard = prev.some(row => row.id === 'exterior_finishes');
+                const brickCard = {
+                  id: 'brick',
+                  inputType: 'yes_no' as const,
+                  label: 'Brick',
+                  helperText: areaOnlyExteriorFinishHelper('brick'),
+                  category: 'exterior',
+                  state:
+                    cladding === 'brick'
+                      ? ('included' as const)
+                      : ('excluded' as const),
+                };
+                const next = prev.map(row => {
+                  if (row.id === 'exterior_finishes') {
+                    return {
+                      ...row,
+                      state: 'included' as const,
+                      choiceId: cladding,
+                      choiceIds: finishes,
+                      label: areaOnlyExteriorFinishLabel(cladding),
+                      helperText: areaOnlyExteriorFinishHelper(cladding, system),
+                    };
+                  }
+                  if (row.id === 'brick') return { ...row, ...brickCard };
+                  if (row.id === 'stucco' && cladding && !wallCard) {
+                    return {
+                      ...row,
+                      state:
+                        cladding === 'stucco'
+                          ? ('included' as const)
+                          : ('excluded' as const),
+                    };
+                  }
+                  return row;
+                });
+                if (
+                  cladding === 'brick' &&
+                  !wallCard &&
+                  !next.some(row => row.id === 'brick')
+                ) {
+                  next.push(brickCard);
+                }
+                return next;
+              });
+              handleClearAcceptedPricing('exterior_finishes');
+              handleClearAcceptedPricing('brick');
+              handleClearAcceptedPricing('stucco');
+            }}
+            onExteriorStuccoSystemChange={system => {
+              setMeasurementsSynced(previous => ({
+                ...previous,
+                exteriorFinishes: ['stucco'],
+                exteriorFinish: 'stucco',
+                exteriorStuccoSystem: system || '',
+              }));
+              setItems(prev =>
+                prev.map(row => {
+                  if (row.id === 'exterior_finishes') {
+                    return {
+                      ...row,
+                      state: 'included' as const,
+                      choiceId: 'stucco',
+                      choiceIds: ['stucco'],
+                      label: areaOnlyExteriorFinishLabel('stucco'),
+                      helperText: areaOnlyExteriorFinishHelper('stucco', system),
+                    };
+                  }
+                  if (row.id === 'stucco') {
+                    return { ...row, state: 'included' as const };
+                  }
+                  return row;
+                })
+              );
+              handleClearAcceptedPricing('exterior_finishes');
+              handleClearAcceptedPricing('stucco');
+            }}
             onStuccoStoriesChange={() => handleClearAcceptedPricing('stucco')}
             onOpeningGradeChange={() => {
               for (const itemId of [
@@ -33149,8 +33431,36 @@ export default function AIEstimateScopeAssumptionsModal({
                         state: 'excluded' as const,
                       }))
                     : regularItems
-                ).filter(item => !hiddenOnGroundUpHouseBid(item.id, groundUpHouseBid));
+                ).filter(item => {
+                  if (hiddenOnGroundUpHouseBid(item.id, groundUpHouseBid)) {
+                    return false;
+                  }
+                  if (
+                    item.id === 'flooring' &&
+                    regularItems.some(
+                      row =>
+                        row.id === 'tile_flooring' &&
+                        row.state !== 'excluded'
+                    )
+                  ) {
+                    return false;
+                  }
+                  return true;
+                });
                 const visibleItems = regularItems.filter(item => {
+                  // Yes, or a selected finish, stays. No and Not sure come off.
+                  if (!checklistItemInScope(item)) {
+                    return false;
+                  }
+                  if (
+                    item.id === 'flooring' &&
+                    regularItems.some(
+                      row =>
+                        row.id === 'tile_flooring' && checklistItemInScope(row)
+                    )
+                  ) {
+                    return false;
+                  }
                   if (item.id === 'sitework' && item.state === 'excluded') {
                     return false;
                   }
@@ -33187,6 +33497,13 @@ export default function AIEstimateScopeAssumptionsModal({
                   measurements.framingOpeningCount,
                   measurements.wallDemoSqft,
                   measurements.drywallSqft,
+                  measurements.wallPaintSqft,
+                  measurements.exteriorPaintSqft,
+                  measurements.exteriorFinish,
+                  measurements.exteriorStuccoSystem,
+                  Array.isArray(measurements.exteriorFinishes)
+                    ? measurements.exteriorFinishes.join(',')
+                    : '',
                   measurements.patchRepairSqft,
                   measurements.demoClearingSqft,
                   measurements.gradingSqft,
@@ -33312,6 +33629,12 @@ export default function AIEstimateScopeAssumptionsModal({
                     : !expandedPlumbingPlanGroups[group.title]
                   : false;
                 if (!visibleItems.length) return null;
+                if (
+                  notesDescribeMeasuredWholeHomeRemodel(scopeNotes) &&
+                  !(groupPrice > 0)
+                ) {
+                  return null;
+                }
                 if (
                   drywallPlanExport &&
                   group.title === 'Closeout' &&

@@ -96,7 +96,13 @@ function catalogMentionIsExplicit(notes, alias, entry) {
     );
   }
   if (entry.scopeId === "grading") {
-    return /\b(?:grading|regrade|grade)\b/i.test(context);
+    const siteGrading = context.replace(
+      /\b(?:builder|paint|stain|contractor|cabinet)[-\s]+grade\b/gi,
+      " ",
+    );
+    return /\b(?:grading|regrade|rough\s+grade|final\s+grade|grade\s+site|cut\s+fill)\b|\bgrade\b(?!\s+prep)/i.test(
+      siteGrading,
+    );
   }
   if (entry.scopeId === "soil_prep") {
     return /\b(?:soil\s+prep(?:aration)?|topsoil|soil\s+amendment)\b/i.test(

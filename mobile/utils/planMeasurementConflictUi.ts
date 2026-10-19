@@ -962,6 +962,18 @@ export function pendingPlanConfirmationCandidateValues(
   );
 }
 
+/** Tap-to-confirm cards belong to an imported plan. Notes planning estimates stay in Quick measurements. */
+export function planImportOwnsPendingConfirmation(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!measurements) return false;
+  return Boolean(
+    measurements.planImportMode ||
+      measurements.planImportTradeKey ||
+      measurements.planImportFingerprint
+  );
+}
+
 /** Plan reads the contractor skipped in takeoff review — still need confirmation in QM. */
 export function pendingPlanConfirmationReads(
   measurements: Record<string, unknown> | null | undefined,

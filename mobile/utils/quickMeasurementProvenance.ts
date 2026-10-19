@@ -16,6 +16,7 @@ import {
   resolveQuickMeasurementDisplayValue,
   wholeProjectCoverQuantity,
 } from '@/utils/scopeQuickMeasurements';
+import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import { shellPackageIncludesSheathing } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { flooringSqftCopiesLivingArea } from '@/utils/subcontractorTrade/flooringPlanConvergence';
@@ -325,6 +326,7 @@ export function resolveQuickMeasurementFields(params: {
   const fields = params.rows.flat();
   const seen = new Set<QuickMeasurementFieldKey>();
   const results: QuickMeasurementFieldResult[] = [];
+  const areaOnlyAddition = notesDescribeAreaOnlyAddition(params.notes);
 
   for (const field of fields) {
     if (seen.has(field.key)) continue;
@@ -371,10 +373,12 @@ export function resolveQuickMeasurementFields(params: {
       sourceTag === 'measured_from_geometry' ||
       Boolean(params.userOverrides?.[field.key]);
     const clearStaleDrywallValue =
+      !areaOnlyAddition &&
       field.key === 'drywallSqft' &&
       !drywallHasCurrentNoteArea &&
       !drywallIsProtectedSource;
     const flooringLivingProxy =
+      !areaOnlyAddition &&
       field.key === 'flooringSqft' &&
       !params.userOverrides?.[field.key] &&
       sourceTag !== 'user_entered' &&
@@ -387,6 +391,7 @@ export function resolveQuickMeasurementFields(params: {
       flooringLivingProxy
         ? ''
         : isPaintAreaField &&
+      !areaOnlyAddition &&
       !hasNoteBackedPaintArea &&
       !params.userOverrides?.[field.key] &&
       !paintingPlanSurface
@@ -408,6 +413,13 @@ export function resolveQuickMeasurementFields(params: {
       sourceTag === 'manual_override' ||
       sourceTag === 'user_confirmed_suggestion';
     const noteText = String(params.notes || '');
+    const statedFlooringInstall = noteText.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:new\s+)?flooring\b/i
+    );
+    const statedFlooringSqft = Number(
+      String(statedFlooringInstall?.[1] || '').replace(/,/g, '')
+    );
+    const displayedSqft = Number(String(displayValue ?? '').replace(/,/g, ''));
     const explicitlyMeasuredByNotes =
       (field.key === 'baseboardLf' &&
         /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:foot|feet))\b[^.;\n]{0,25}\b(?:baseboards?|trim)\b/i.test(
@@ -419,7 +431,11 @@ export function resolveQuickMeasurementFields(params: {
         ) ||
           /\bdrywall\s+repair\b[^.;\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
             noteText
-          )));
+          ))) ||
+      (field.key === 'flooringSqft' &&
+        Number.isFinite(statedFlooringSqft) &&
+        statedFlooringSqft > 0 &&
+        Math.abs(displayedSqft - statedFlooringSqft) < 0.51);
     const coverQuantity =
       field.key === 'floorAreaSqft' ||
       field.key === 'garageSqft' ||
@@ -699,6 +715,17 @@ export function summarizeQuickMeasurementFieldStates(
   for (const result of results) {
     if (result.state === 'not_relevant') continue;
     summary.relevantTotal += 1;
+    // A filled suggestion wears the Planning estimate badge. Count that badge
+    // instead of hiding it under confirmed or needs confirmation. Plan reads
+    // and AI-verified values keep their own counts.
+    if (
+      result.state !== 'detected' &&
+      result.state !== 'ai_verified' &&
+      quickMeasurementPlanningEstimateNote(result) === PLANNING_ESTIMATE_NOTE
+    ) {
+      summary.estimateAvailable += 1;
+      continue;
+    }
     if (result.state === 'detected') summary.detected += 1;
     else if (result.state === 'ai_verified')
       summary.aiVerified = (summary.aiVerified || 0) + 1;

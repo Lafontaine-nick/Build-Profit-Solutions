@@ -2179,10 +2179,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
    */
   ground_up: [
     row(F('floorAreaSqft', 'Living area', '2400', 'sqft', 'structure', true)),
-    row(
-      F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
-      F('deckSqft', 'Deck / patio', '400', 'sqft', 'exterior')
-    ),
+    row(F('garageSqft', 'Garage', '480', 'sqft', 'structure')),
     row(
       F(
         'concreteSqft',
@@ -2994,6 +2991,13 @@ function applyProjectSpecificQuickMeasurementLabels(
   projectType?: string | null
 ): QuickMeasurementRow[] {
   if (templateKey !== 'addition' && templateKey !== 'ground_up') return rows;
+  // The whole-house Flooring box already covers the kitchen. A separate
+  // kitchen floor would count that area twice.
+  rows = rows
+    .map(measurementRow =>
+      measurementRow.filter(field => field.key !== 'kitchenFloorSqft')
+    )
+    .filter(measurementRow => measurementRow.length > 0);
   const floorAreaLabel = projectAreaFieldLabel(projectType);
   // new_build / ground_up keep "Living area"; ADU/addition variants override.
   if (!floorAreaLabel) return rows;
@@ -3356,11 +3360,12 @@ function roomAdditionPackageMeasurementRows(): QuickMeasurementRow[] {
     [field('wallPaintSqft', { label: 'Interior paint' })],
     [
       field('exteriorPaintSqft', {
-        label: 'Exterior finishes',
-        helperText: 'One exterior line for the addition.',
+        label: 'Exterior wall',
+        helperText: 'New exterior wall area. Choose stucco, siding, or brick.',
       }),
     ],
     [field('windowCount', { label: 'Windows' }), field('exteriorDoorCount')],
+    [field('interiorDoorCount', { label: 'Interior doors' })],
     [
       field('baseboardLf', {
         label: 'Interior trim',
@@ -3402,8 +3407,9 @@ export function quickMeasurementRowsForInput(
       patchOnly
         ? [
             {
-              ...QUICK_MEASUREMENT_FIELD_DEFS.patchRepairSqft,
+              ...QUICK_MEASUREMENT_FIELD_DEFS.drywallSqft,
               label: 'Drywall patch / repair',
+              helperText: 'Repair area from the notes.',
               placeholder: '300',
             },
           ]
@@ -3854,6 +3860,11 @@ export function quickMeasurementRowsForInput(
           (!noteKeySet || noteKeySet.has(key)) &&
           hasQuickMeasurementValue(measurements[key]) &&
           !(key === 'deckSqft' && resolvedKey === 'concrete') &&
+          !(
+            key === 'deckSqft' &&
+            resolvedKey === 'ground_up' &&
+            !/\b(?:deck|patio)\b/i.test(scopeNotes)
+          ) &&
           !(
             key === 'paintAreaSqft' &&
             resolvedKey === 'room_remodel' &&
@@ -4307,8 +4318,17 @@ export function quickMeasurementRowsForInput(
       .map(row => row.filter(noteMentions))
       .filter(row => row.length > 0);
   }
-  if (!filteredExtras.length) return normalizedRows;
-  return [...normalizedRows, ...chunkRows(filteredExtras)].map(row =>
+  const groundUpNamesDeck =
+    resolvedKey === 'ground_up' &&
+    /\b(?:deck|patio)\b/i.test(scopeNotes) &&
+    !normalizedRows.some(row => row.some(field => field.key === 'deckSqft')) &&
+    !filteredExtras.some(field => field.key === 'deckSqft');
+  const rowsForDeck =
+    groundUpNamesDeck && QUICK_MEASUREMENT_FIELD_DEFS.deckSqft
+      ? [...normalizedRows, [QUICK_MEASUREMENT_FIELD_DEFS.deckSqft]]
+      : normalizedRows;
+  if (!filteredExtras.length) return rowsForDeck;
+  return [...rowsForDeck, ...chunkRows(filteredExtras)].map(row =>
     applyContextLabels(normalizeGenericPaintRows([row])[0] || row)
   );
 }
@@ -4534,7 +4554,9 @@ export function quickMeasurementDisplayLabel(
   ) {
     return 'Total Flooring Area';
   }
-  if (field.key === 'windowCount') return 'Window install';
+  if (field.key === 'windowCount' && field.label !== 'Windows') {
+    return 'Window install';
+  }
   if (field.key === 'floorAreaSqft' && field.label === 'Floor area')
     return 'Living area';
   return field.label;

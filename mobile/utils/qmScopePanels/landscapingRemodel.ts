@@ -78,7 +78,7 @@ function inferredScope(notes: string): string[] {
     }
   };
   add('demo_clearing', /\b(?:demo|clear(?:ing)?|remove|tear[\s-]?out)\b/);
-  add('grading', /\b(?:grading|grade(?!\s+prep))\b/);
+  add('grading', /\b(?:grading|(?<!builder[-\s])grade(?!\s+(?:prep|finish(?:es)?)))\b/i);
   add('soil_prep', /\bsoil\s+prep(?:aration)?\b/);
   add('drainage', /\bdrain(?:age|ing)\b/);
   add('irrigation', /\birrigation\b/);
@@ -113,7 +113,7 @@ export function readLandscapingScope(m: Record<string, unknown>): string[] {
 }
 
 const LANDSCAPE_CHIP_PATTERNS: Record<string, RegExp> = {
-  grading: /\b(?:grading|grade(?!\s+prep))\b/i,
+  grading: /\b(?:grading|(?<!builder[-\s])grade(?!\s+(?:prep|finish(?:es)?)))\b/i,
   soil_prep: /\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/i,
   drainage: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b/i,
   artificial_turf: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b|\bartificial\s+turf\b/i,

@@ -28,6 +28,7 @@ import {
   notesDescribeDedicatedDeckJob,
   scrubDedicatedDeckMeasurements,
 } from '@/utils/deckNoteScope';
+import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringMeasurementSeed,
@@ -95,6 +96,11 @@ import {
   withConcreteGroundUpStructurePrompts,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  applyWholeHomeRemodelChecklist,
+  notesDescribeMeasuredWholeHomeRemodel,
+  scrubWholeHomeRemodelMeasurements,
+} from '@/utils/wholeHomeRemodelNote';
 import {
   hydratePlumbingPlanMeasurementsFromInventory,
   reconcilePlumbingEquipmentScopeMeasurements,
@@ -1423,7 +1429,23 @@ export function repairDraftRatePricingFromNotes(
 ): EstimateAiDraft {
   const text = String(notes || incoming.originalNotes || '').trim();
   if (!text) return incoming;
-  const draft = applyPlumbingNoteQuantityAuthority(incoming, text);
+  const plumbingOwned = applyPlumbingNoteQuantityAuthority(incoming, text);
+  const draft = {
+    ...plumbingOwned,
+    scopeMeasurements: scrubWholeHomeRemodelMeasurements(
+      (plumbingOwned.scopeMeasurements || {}) as Record<string, unknown>,
+      text
+    ) as ScopeMeasurements,
+    scopeChecklist: plumbingOwned.scopeChecklist
+      ? {
+          ...plumbingOwned.scopeChecklist,
+          items: applyWholeHomeRemodelChecklist(
+            plumbingOwned.scopeChecklist.items || [],
+            text
+          ),
+        }
+      : plumbingOwned.scopeChecklist,
+  };
   const dedicatedKitchenRemodel = notesDescribeDedicatedKitchenRemodel(text);
 
   const parsed = parseScopeMeasurementsFromNotes(text, {
@@ -1730,7 +1752,9 @@ export function repairDraftRatePricingFromNotes(
       plumbingRoomContext: inferPlumbingRoomContextFromNotes(text),
     });
   }
+  const measuredWholeHomeRemodel = notesDescribeMeasuredWholeHomeRemodel(text);
   const mixedBathroomRemodel =
+    !measuredWholeHomeRemodel &&
     /\b(?:bathroom|bath)\b/i.test(text) &&
     (String(
       repairedDraft.classification?.scopeMode || repairedDraft.scopeMode || ''
@@ -2283,6 +2307,46 @@ export function repairDraftRatePricingFromNotes(
       missingInfo: [],
       needsReviewItems: [],
       stillNeededReview: [],
+    };
+  }
+  if (
+    notesDescribeGroundUpHome(text) &&
+    (String(repairedDraft.scopeChecklist?.templateKey || '').toLowerCase() ===
+      'stucco' ||
+      String(repairedDraft.projectType || '').toLowerCase() === 'stucco')
+  ) {
+    const keptItems = (repairedDraft.scopeChecklist?.items || []).filter(
+      item => item.id !== 'stucco' && !String(item.id || '').startsWith('stucco_')
+    );
+    return {
+      ...repairedDraft,
+      projectType: 'new_build',
+      projectTitle: repairedDraft.projectTitle || 'New build',
+      estimateTier: 'ground_up',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        scopeMode: 'dedicated',
+        primaryTrade: 'new_build',
+        detectedTrades: ['new_build'],
+        scopeSummary: repairedDraft.classification?.scopeSummary || null,
+        evidence: repairedDraft.classification?.evidence || [],
+        exclusions: repairedDraft.classification?.exclusions || [],
+        confidence: repairedDraft.classification?.confidence || 'high',
+      },
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'ground_up',
+        templateKey: 'ground_up',
+        items: keptItems,
+      },
+      scopePackages: [],
+      detectedTrades: ['new_build'],
+      scopeTradeLabels: [],
+      whatAiDid: ['Detected new build.'],
+      stillNeededReview: (repairedDraft.stillNeededReview || []).filter(
+        line => !/stucco/i.test(String(line))
+      ),
     };
   }
   return repairedDraft;

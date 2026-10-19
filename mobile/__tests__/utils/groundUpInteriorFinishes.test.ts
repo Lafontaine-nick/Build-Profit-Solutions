@@ -14,6 +14,7 @@ import {
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
   applyGroundUpStageHostDemotions,
+  ensureWholeProjectGroundUpScopeItems,
   hydrateScopeChecklistFromNotes,
   normalizeScopeChecklistItems,
 } from '@/utils/estimateScopeChecklistUi';
@@ -174,10 +175,139 @@ describe('ground-up interior finish trades', () => {
     expect(flooring.fill?.basis?.quantity).toBe(1879);
     expect(flooring.fill!.total).toBeLessThan(1879 * 8.57);
 
-    // Thermal envelope lump when takeoff missing — not living SF or drywall ×3.5.
-    expect(insulation.fill?.installedBudgetBenchmark).toBe(true);
-    expect(insulation.fill?.basis).toBeNull();
+    // The offered thermal-envelope sqft is the priced quantity.
+    expect(insulation.fill?.installedBudgetBenchmark).not.toBe(true);
+    expect(insulation.fill?.basis?.unit).toBe('sqft');
+    expect(insulation.fill?.basis?.quantity).toBeGreaterThan(1879);
+    expect(insulation.fill?.helper).toMatch(/thermal envelope/i);
     expect(insulation.fill!.total).toBeGreaterThan(2000);
-    expect(insulation.comparison?.benchmarkAction).not.toBe('included_in_stage');
+  });
+
+  it('prices drywall, interior paint, and stucco from the quantities on the form', () => {
+    const measurements = inputWith({
+      floorAreaSqft: '2800',
+      garageSqft: '500',
+      drywallSqft: '9800',
+      wallPaintSqft: '7000',
+      exteriorPaintSqft: '2668',
+      exteriorFinish: 'stucco',
+      exteriorFinishes: ['stucco'],
+      exteriorStuccoSystem: 'eifs',
+    });
+
+    const drywall = resolveScopeItemSuggestedPricing(
+      'drywall',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('drywall', measurements, { templateKey: 'ground_up' })
+    );
+    expect(drywall.fill?.basis?.quantity).toBe(9800);
+
+    const paint = resolveScopeItemSuggestedPricing(
+      'interior_paint',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('interior_paint', measurements, {
+        templateKey: 'ground_up',
+      })
+    );
+    expect(paint.fill?.basis?.quantity).toBe(7000);
+    expect(paint.fill?.installedBudgetBenchmark).not.toBe(true);
+    expect(paint.fill?.total).toBeCloseTo(7000 * 3.35, 0);
+
+    const stucco = resolveScopeItemSuggestedPricing(
+      'stucco',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('stucco', measurements, { templateKey: 'ground_up' }),
+      null,
+      'eifs'
+    );
+    expect(stucco.fill?.basis?.quantity).toBe(2668);
+    expect(stucco.fill?.total).toBeCloseTo(2668 * 10.5, 0);
+    expect(stucco.fill?.helper).toMatch(/Synthetic stucco/i);
+  });
+
+  it('prices the planning quantities the form shows for a single-story house', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio. Brick exterior. Standard builder-grade finishes.';
+    const measurements = inputWith({
+      floorAreaSqft: '1960',
+      garageSqft: '720',
+      deckSqft: '240',
+      scopeNotes: notes,
+      exteriorFinish: 'brick',
+      exteriorFinishes: ['brick'],
+    });
+    const ctx = { templateKey: 'ground_up', notes };
+
+    const drywall = resolveScopeItemSuggestedPricing(
+      'drywall',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('drywall', measurements, ctx),
+      null,
+      null,
+      notes
+    );
+    expect(drywall.fill?.basis?.quantity).toBe(6860);
+
+    const excavation = resolveScopeItemSuggestedPricing(
+      'excavation',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('excavation', measurements, ctx),
+      null,
+      null,
+      notes
+    );
+    expect(excavation.fill?.basis?.quantity).toBeGreaterThan(110);
+    expect(excavation.fill?.basis?.quantity).not.toBe(101);
+
+    const wall = resolveScopeItemSuggestedPricing(
+      'stucco',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('stucco', measurements, ctx),
+      null,
+      null,
+      notes
+    );
+    expect(wall.fill?.basis?.quantity).toBeGreaterThan(1000);
+    expect(wall.fill?.helper).toMatch(/brick/i);
+    expect(wall.fill?.total).toBeCloseTo(
+      Number(wall.fill?.basis?.quantity) * 18,
+      0
+    );
+
+    const deck = resolveScopeItemSuggestedPricing(
+      'decking',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('decking', measurements, ctx),
+      null,
+      null,
+      notes
+    );
+    expect(deck.fill?.basis?.quantity).toBe(240);
+
+    const items = ensureWholeProjectGroundUpScopeItems([], notes);
+    expect(items.find(item => item.id === 'decking')?.state).toBe('included');
+  });
+
+  it('keeps one whole-house flooring card when tile and flooring would both price the same area', () => {
+    const items = ensureWholeProjectGroundUpScopeItems(
+      [
+        {
+          id: 'tile_flooring',
+          label: 'Tile & flooring',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+      ] as any,
+      'New 2,800 sqft two story home with attached 2-car garage.'
+    );
+    expect(items.some(item => item.id === 'tile_flooring')).toBe(true);
+    expect(items.some(item => item.id === 'flooring')).toBe(false);
   });
 });

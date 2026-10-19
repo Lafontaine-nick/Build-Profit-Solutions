@@ -109,6 +109,12 @@ export type InsulationEnvelopeInputs = {
   requireExplicitSurfaceTakeoff?: boolean;
   /** Allow a clearly labeled conditioned-ceiling suggestion for review. */
   allowConditionedAreaCeilingSuggestion?: boolean;
+  /** Garage floor area added to the wall perimeter, not the attic. */
+  garageSqft?: number | null;
+  /** Note text used when plan facts omit the story count. */
+  scopeNotes?: string | null;
+  /** Wall perimeter uses first floor + garage after a note-driven story split. */
+  planningWallIncludesGarage?: boolean;
   conditionedCeilingAreaSqft?: number | null;
   ceilingBoundary?: PlanCeilingBoundary | null;
   vaultedCeilingDetected?: boolean | null;
@@ -122,6 +128,13 @@ function n(value: unknown): number | null {
 
 function nearlyEqual(a: number, b: number, tolerance = 0.02): boolean {
   return Math.abs(a - b) <= Math.max(1, Math.abs(b) * tolerance);
+}
+
+function notedStoryCount(notes: unknown): number | null {
+  const text = String(notes || '');
+  if (/\b(?:three|3)[\s-]?story\b/i.test(text)) return 3;
+  if (/\b(?:two|2)[\s-]?story\b/i.test(text)) return 2;
+  return null;
 }
 
 function estimatedPerimeterFromLiving(livingSf: number): number {
@@ -306,7 +319,7 @@ export function insulationEnvelopeInputsFromPlanFacts(
   const garageChoice = String(overrides?.garageInsulationIncluded || '')
     .trim()
     .toLowerCase();
-  return {
+  const merged: InsulationEnvelopeInputs = {
     floorAreaSqft: living,
     mainFloorLivingSqft: n(facts?.buildingAreas?.mainFloorLivingSqft) || living,
     exteriorPerimeterLf: n(facts?.exteriorPerimeterLf),
@@ -326,6 +339,38 @@ export function insulationEnvelopeInputsFromPlanFacts(
           ? false
           : undefined),
     ...overrides,
+  };
+  const noted = notedStoryCount(merged.scopeNotes);
+  const recorded =
+    (n(facts?.storyCount) && n(facts?.storyCount)! > 1
+      ? n(facts?.storyCount)
+      : null) ||
+    (n(overrides?.storyCount) && n(overrides?.storyCount)! > 1
+      ? n(overrides?.storyCount)
+      : null);
+  const storyCount = Math.max(1, Math.round(recorded || noted || stories));
+  const labeledMain = n(facts?.buildingAreas?.mainFloorLivingSqft);
+  const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
+  const mainEqualsLiving =
+    living != null &&
+    labeledMain != null &&
+    Math.abs(labeledMain - living) < 1;
+  const splitMainFloor =
+    noted != null &&
+    noted > 1 &&
+    storyCount > 1 &&
+    living != null &&
+    upstairs == null &&
+    (labeledMain == null || mainEqualsLiving);
+  return {
+    ...merged,
+    storyCount,
+    mainFloorLivingSqft: splitMainFloor
+      ? Math.round((living! / storyCount) * 10) / 10
+      : merged.mainFloorLivingSqft,
+    garageSqft:
+      n(merged.garageSqft) ?? n(facts?.buildingAreas?.garageSqft),
+    planningWallIncludesGarage: splitMainFloor,
   };
 }
 
@@ -488,8 +533,13 @@ export function resolveInsulationEnvelopePlanningQuantity(
     } else if (!raw.requireExplicitSurfaceTakeoff) {
       const footprint =
         n(raw.mainFloorLivingSqft) || (stories <= 1 ? living : null);
-      if (footprint) {
-        const estPerimeter = estimatedPerimeterFromLiving(footprint);
+      const garage = n(raw.garageSqft);
+      const wallFootprint =
+        footprint != null && raw.planningWallIncludesGarage && garage
+          ? footprint + garage
+          : footprint;
+      if (wallFootprint) {
+        const estPerimeter = estimatedPerimeterFromLiving(wallFootprint);
         exteriorWalls = Math.round(estPerimeter * height * stories * 10) / 10;
         wallSource = 'planning_assumption';
         wallConfidence = 'low';

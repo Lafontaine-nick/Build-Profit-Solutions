@@ -36,9 +36,11 @@ import {
   type InsulationEnvelopeInputs,
 } from '@/utils/insulationEnvelopeQuantity';
 import {
+  areaOnlyAdditionSqft,
   conversionDrywallSurfaceSqft,
   conversionPrimaryFloorSqft,
   isGarageConversionJob,
+  notesDescribeAreaOnlyAddition,
 } from '@/utils/additionConversionPlanning';
 import {
   computeExcavationCyFromFootingTrench,
@@ -100,7 +102,7 @@ type MeasurementLookup = Partial<
   >;
 };
 
-function resolvedStoryCount(
+export function resolvedStoryCount(
   facts: PlanFacts | undefined,
   measurements: MeasurementLookup,
   notes?: string | null
@@ -114,7 +116,7 @@ function resolvedStoryCount(
 }
 
 /** Two-story living area is not the ground-floor slab or the roof footprint. */
-function planningFirstFloorSqft(
+export function planningFirstFloorSqft(
   facts: PlanFacts | undefined,
   measurements: MeasurementLookup,
   totalLiving: number | null,
@@ -432,9 +434,25 @@ function asMeasurementNumber<T extends MeasurementLookup>(
  * Attach SHV barometer floor/pitch facts; replace bad roof squares and
  * undercounted drywall/paint surface SF (Plan 39 4,056 → ~10.8k @ ~$2.10/SF blend).
  */
+function contractorEnteredMeasurement(
+  measurements: MeasurementLookup,
+  key: string
+): boolean {
+  const extra = measurements as MeasurementLookup & {
+    quickMeasurementSources?: Record<string, string>;
+    quickMeasurementUserOverrides?: Record<string, boolean>;
+  };
+  const source = String(extra.quickMeasurementSources?.[key] || '');
+  if (source === 'user_entered' || source === 'manual_override') return true;
+  return extra.quickMeasurementUserOverrides?.[key] === true;
+}
+
 export function syncMeasurementsWithSouthernUtahPlanFacts<
   T extends MeasurementLookup,
->(measurements: T, options?: { templateKey?: string | null }): T {
+>(
+  measurements: T,
+  options?: { templateKey?: string | null; notes?: string | null }
+): T {
   const living = n(measurements.floorAreaSqft);
   const enriched = enrichPlanFactsWithSouthernUtahInsulationCeiling(
     enrichPlanFactsWithSouthernUtahBarometer(measurements.planFacts, living),
@@ -532,22 +550,71 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
     }
   }
 
+  const planningNotes =
+    options?.notes ||
+    String((measurements as { scopeNotes?: unknown }).scopeNotes || '');
   const roofEstimate = getQuickMeasurementEstimate(
     'roofSquares',
     next,
-    next.planFacts
+    next.planFacts,
+    options?.templateKey,
+    { notes: planningNotes }
   );
   const currentRoof = n(measurements.roofSquares);
-  // Only rewrite the bad total-living roof path — leave empty for QM "estimate available".
+  const stories = resolvedStoryCount(next.planFacts, next, planningNotes);
+  const livingHundred =
+    living != null ? Math.round((living / 100) * 10) / 10 : null;
+  const copiedLivingIntoRoof =
+    stories > 1 &&
+    currentRoof != null &&
+    livingHundred != null &&
+    Math.abs(currentRoof - livingHundred) < 0.05;
+  // Rewrite a bad total-living roof, or living sqft copied into squares on a
+  // multi-story home. Leave an empty field for the QM suggestion.
   if (
     roofEstimate &&
     currentRoof != null &&
-    isLegacyTotalLivingRoofSquares(currentRoof, measurements)
+    !contractorEnteredMeasurement(measurements, 'roofSquares') &&
+    (isLegacyTotalLivingRoofSquares(currentRoof, measurements) ||
+      copiedLivingIntoRoof)
   ) {
     next = {
       ...next,
       roofSquares: asMeasurementNumber(next, 'roofSquares', roofEstimate.value),
     };
+  }
+
+  if (
+    stories > 1 &&
+    living != null &&
+    !contractorEnteredMeasurement(measurements, 'excavationCy')
+  ) {
+    const currentExcavation = n(measurements.excavationCy);
+    const garage = n(measurements.garageSqft) ?? 0;
+    const fullLivingDig = computeExcavationCyFromFootingTrench({
+      livingFootprintSqft: living,
+      garageSqft: garage,
+    });
+    const excavationEstimate = getQuickMeasurementEstimate(
+      'excavationCy',
+      next,
+      next.planFacts,
+      options?.templateKey,
+      { notes: planningNotes }
+    );
+    if (
+      currentExcavation != null &&
+      excavationEstimate &&
+      Math.abs(currentExcavation - fullLivingDig.totalCy) < 1
+    ) {
+      next = {
+        ...next,
+        excavationCy: roundSuggestedDisplayNumber(
+          excavationEstimate.value,
+          'cy'
+        ),
+      };
+    }
   }
 
   const isGroundUp =
@@ -720,7 +787,11 @@ export function getQuickMeasurementEstimate(
     notes?: string | null;
   }
 ): QuickMeasurementEstimate | null {
-  const living = n(measurements.floorAreaSqft);
+  const living =
+    n(measurements.floorAreaSqft) ??
+    (notesDescribeAreaOnlyAddition(options?.notes)
+      ? areaOnlyAdditionSqft(options?.notes)
+      : null);
   const baseFacts = suppliedFacts || measurements.planFacts;
   // Roof footprint needs main-floor + pitch; cover sheets often omit those.
   const facts =
@@ -750,7 +821,8 @@ export function getQuickMeasurementEstimate(
       if (
         primaryLiving != null &&
         primaryLiving > 0 &&
-        isGarageConversionJob(options?.projectType, options?.notes)
+        (isGarageConversionJob(options?.projectType, options?.notes) ||
+          notesDescribeAreaOnlyAddition(options?.notes))
       ) {
         const value = conversionDrywallSurfaceSqft(primaryLiving);
         return baseEstimate({
@@ -1277,9 +1349,19 @@ export function getQuickMeasurementEstimate(
           : 'Uses supplied roof-plane geometry and detected/assigned pitch per plane.';
         includedComponents = ['Measured roof planes'];
       } else {
-        if (firstFloorLiving == null) return null;
+        const additionFloor =
+          String(templateKey || '').toLowerCase() === 'addition' ? living : null;
+        const footprint =
+          planningFirstFloorSqft(
+            facts,
+            measurements,
+            totalLiving,
+            firstFloorLiving,
+            options?.notes
+          ) ?? additionFloor;
+        if (footprint == null) return null;
         const patioIncluded = patio > 0 && facts?.coveredPatioRoofed !== false;
-        projectedArea = firstFloorLiving + garage + (patioIncluded ? patio : 0);
+        projectedArea = footprint + garage + (patioIncluded ? patio : 0);
         slopedArea = projectedArea * pitchMultiplier(pitch);
         const hasPlanFootprint = Boolean(
           n(facts?.buildingAreas?.mainFloorLivingSqft) ||
@@ -1469,7 +1551,13 @@ export function getQuickMeasurementEstimate(
       const livingFootprint =
         geometryFootprint ??
         n(facts?.foundationFootprintSqft) ??
-        firstFloorLiving;
+        planningFirstFloorSqft(
+          facts,
+          measurements,
+          totalLiving,
+          firstFloorLiving,
+          options?.notes
+        );
       if (livingFootprint == null) return null;
       const measuredPerimeter =
         n(facts?.foundationPerimeterLf) ??

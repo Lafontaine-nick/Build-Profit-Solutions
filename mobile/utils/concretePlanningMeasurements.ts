@@ -8,11 +8,12 @@ import {
 } from '@/utils/foundationPlanningMeasurements';
 import { detectAdditionConversionIntent } from '@/utils/additionConversionPlanning';
 import { notesDescribeDedicatedDeckJob } from '@/utils/deckNoteScope';
+import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 
 const FLATWORK_TYPE_PATTERNS = [
   { id: 'driveways' as const, re: /\bdriveway\b/i },
   { id: 'sidewalks' as const, re: /\bsidewalk\b/i },
-  { id: 'patios' as const, re: /\bpatio\b/i },
+  { id: 'patios' as const, re: /(?<!covered\s)\bpatio\b/i },
   { id: 'rv_pads' as const, re: /\brv\s+pad\b/i },
   { id: 'walkways' as const, re: /\bwalkway\b/i },
 ];
@@ -225,7 +226,7 @@ export function parseExteriorFlatworkSqftFromNotes(
       'i'
     ),
     new RegExp(
-      `\\b(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:sq\\.?\\s*ft|sqft|sf)\\b[^.;]{0,50}\\b${keyword}\\b`,
+      `\\b(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:sq\\.?\\s*ft|sqft|sf)\\b(?:(?!\\b\\d[\\d,]*(?:\\.\\d+)?\\s*(?:sq\\.?\\s*ft|sqft|sf)\\b)[^.;]){0,40}\\b(?:${keyword})\\b`,
       'i'
     ),
     new RegExp(
@@ -266,6 +267,7 @@ function resolveExteriorFlatworkSqft(
     if (found) return total;
   }
   if (existing) return existing;
+  if (notesDescribeGroundUpHome(notes)) return null;
   const workBlob = notesImplyMixedConcreteJob(notes)
     ? splitConcreteNoteSections(notes).exterior.toLowerCase()
     : blob;
@@ -465,8 +467,11 @@ export function notesImplyConcreteFlatwork(notes: string | null | undefined): bo
   if (notesImplyStructuralFoundation(n) && !notesImplyExteriorFlatwork(n)) {
     return false;
   }
+  const withoutCoveredOutdoor = n.replace(/\bcovered\s+(?:patio|porch)\b/gi, ' ');
   return (
-    /\b(?:concrete|flat[\s-]?work|driveway|sidewalk|walkway|patio|pour\b)/i.test(n) ||
+    /\b(?:concrete|flat[\s-]?work|driveway|sidewalk|walkway|patio|pour\b)/i.test(
+      withoutCoveredOutdoor
+    ) ||
     notesImplyStructuralFoundation(n) ||
     (/\b\d{2,4}\s*(?:sq\.?\s*ft|sf)\b/i.test(n) &&
       /\b(?:\d\s*(?:inch|in)\b[^.]{0,20}thick|thickened\s+edge|rebar|broom\s+finish|gravel\s+base|dig\s+out)\b/i.test(

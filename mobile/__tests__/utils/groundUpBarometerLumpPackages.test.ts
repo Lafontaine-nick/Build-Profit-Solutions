@@ -124,6 +124,15 @@ describe('groundUpBarometerLumpPackages', () => {
         quantitySource: 'user_entered',
       })
     ).toBe(false);
+    expect(
+      flooringUsesBarometerLumpPackage({
+        itemId: 'flooring',
+        livingSf: 2400,
+        floorQuantity: 1800,
+        flooringSqft: 1800,
+        quantitySource: 'notes',
+      })
+    ).toBe(false);
   });
 
   it('scales verified stucco wall SF at the package rate with a barometer cap', () => {

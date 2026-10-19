@@ -1532,7 +1532,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     const explicitHomeInterior = parseLabeledInteriorFloorAreaTotal(text);
     const additionFloorArea = (() => {
       const direct =
-        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:room|home)?\s*addition\b/i.exec(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:bedroom|room|home)?\s*addition\b/i.exec(
           text,
         );
       const reversed =

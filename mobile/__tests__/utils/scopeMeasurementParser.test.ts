@@ -44,6 +44,16 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
   });
 
+  it('does not borrow the house size or the whole-home flooring for kitchen floor or flooring removal', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+    expect(parsed.kitchenFloorSqft).toBeUndefined();
+    expect(parsed.floorDemoSqft).toBeUndefined();
+    expect(parsed.flooringSqft).toBe(1800);
+  });
+
   it('keeps explicit flooring area in a mixed addition note', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Repair 420 sqft of drywall, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior.',
@@ -2100,5 +2110,18 @@ describe('mobile scope measurement parser', () => {
       notes
     );
     expect(suggestion.fill).toBeNull();
+  });
+
+  it('keeps a stated garage size off exterior flatwork when the home also has a covered patio', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio. Brick exterior. Standard builder-grade finishes.',
+      { templateKey: 'ground_up', projectType: 'ground_up' }
+    );
+    expect(parsed.floorAreaSqft).toBe(1960);
+    expect(parsed.garageSqft).toBe(720);
+    expect(parsed.deckSqft).toBe(240);
+    expect(parsed.concreteSqft).toBeUndefined();
+    expect(parsed.garageDoorSingleCount).toBe(1);
+    expect(parsed.garageDoorDoubleCount).toBe(1);
   });
 });

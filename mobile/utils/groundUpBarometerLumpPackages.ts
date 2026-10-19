@@ -411,6 +411,15 @@ export function flooringUsesBarometerLumpPackage(params: {
   if (!matchesLiving && !matchesFlooring) {
     return false;
   }
+  // "1,800 sqft flooring" inside a larger home is that area, not the whole-house allowance.
+  if (
+    matchesFlooring &&
+    Number.isFinite(living) &&
+    living > 0 &&
+    Math.abs(flooringSf - living) >= 0.51
+  ) {
+    return false;
+  }
 
   if (
     params.itemId === 'tile_flooring' &&

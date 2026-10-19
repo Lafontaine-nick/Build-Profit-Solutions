@@ -22,6 +22,22 @@ export function notesDescribeDedicatedDeckJob(
   notes: string | null | undefined
 ): boolean {
   const text = String(notes || '');
+  // A new house that includes a patio is still a house. The patio is one
+  // measurement, not a deck-only bid.
+  if (
+    /\b(?:new\s+(?:build|construction|home)|ground[\s-]?up|custom\s+home|spec\s+home)\b/i.test(
+      text
+    ) ||
+    /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+      text
+    ) ||
+    /\b(?:single|one|two|three|1|2|3)[\s-]?story\s+(?:home|house)\b/i.test(
+      text
+    ) ||
+    (/\b(?:home|house)\b/i.test(text) && /\bgarage\b/i.test(text))
+  ) {
+    return false;
+  }
   if (/\bconcrete\s+patio\b/i.test(text) && !/\bdeck(?:ing)?\b/i.test(text)) {
     return false;
   }

@@ -2000,15 +2000,22 @@ export function parseScopeMeasurementsFromNotes(
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
   // The kitchen install panel owns this takeoff. A kitchen job often names
-  // "LVP flooring 180 sqft" without the word "kitchen".
+  // "LVP flooring 180 sqft" without the word "kitchen". A whole-home note
+  // that only says "kitchen and bathroom updates" does not.
   const kitchenFloorJob =
     templateKey === 'kitchen' ||
     projectType === 'kitchen' ||
     /\bkitchen\b/i.test(blob);
+  const wholeHomeFlooring =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      blob
+    );
+  const explicitKitchenFloor = /\bkitchen\s+floor(?:ing)?\b/i.test(blob);
   if (
     flooringSqft &&
     kitchenFloorJob &&
-    /\b(?:lvp|luxury\s+vinyl|vinyl|flooring)\b/i.test(blob)
+    /\b(?:lvp|luxury\s+vinyl|vinyl|flooring)\b/i.test(blob) &&
+    !(wholeHomeFlooring && !explicitKitchenFloor)
   ) {
     out.kitchenFloorSqft = flooringSqft;
   }
@@ -2123,11 +2130,26 @@ export function parseScopeMeasurementsFromNotes(
       /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
       /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
     ];
+    const homeSizeMatch = text.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i
+    );
+    const homeSize = homeSizeMatch?.[1]
+      ? Number(homeSizeMatch[1].replace(/,/g, ''))
+      : null;
+    const removalNamesItsOwnArea =
+      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:existing\s+)?(?:floor|flooring)\b/i.test(
+        text
+      ) ||
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:existing\s+)?(?:floor|flooring)\b[^.;\n]{0,40}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+        text
+      );
+    const acceptDemoQty = (qty: number | null) =>
+      qty != null && !(qty === homeSize && !removalNamesItsOwnArea);
     for (const clause of clauses) {
       for (const pattern of patterns) {
         if (!pattern.test(clause.toLowerCase())) continue;
         const near = pickSqftNearPattern(clause, pattern);
-        if (near) return near;
+        if (acceptDemoQty(near)) return near;
       }
     }
     // Comma-formatted quantities such as "1,200 sqft existing flooring"
@@ -2137,7 +2159,8 @@ export function parseScopeMeasurementsFromNotes(
       /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,100}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
     );
     if (removalBeforeQuantity?.[1]) {
-      return Number(removalBeforeQuantity[1].replace(/,/g, ''));
+      const qty = Number(removalBeforeQuantity[1].replace(/,/g, ''));
+      if (acceptDemoQty(qty)) return qty;
     }
     return null;
   })();
@@ -2339,7 +2362,7 @@ export function parseScopeMeasurementsFromNotes(
     const explicitHomeInterior = parseLabeledInteriorFloorAreaTotal(text);
     const additionFloorArea = (() => {
       const direct =
-        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:room|home)?\s*addition\b/i.exec(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:bedroom|room|home)?\s*addition\b/i.exec(
           text
         );
       const reversed =
@@ -2379,6 +2402,13 @@ export function parseScopeMeasurementsFromNotes(
       if (conversionSf) return conversionSf;
     }
     if (livingAreaSqft) return livingAreaSqft;
+    const statedHomeSize = text.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i
+    );
+    if (statedHomeSize?.[1]) {
+      const homeQty = Number(statedHomeSize[1].replace(/,/g, ''));
+      if (Number.isFinite(homeQty) && homeQty > 0) return homeQty;
+    }
     if (allowsHomeFloorInference) {
       const homeFloor = inferHomeFloorAreaSqftFromNotes(text);
       if (homeFloor) return homeFloor;
@@ -2514,6 +2544,17 @@ export function parseScopeMeasurementsFromNotes(
     for (const clause of clauses) {
       if (!/\bgarages?\b/i.test(clause)) continue;
       if (clauseHomeSqftBeforeGarage(clause)) {
+        const homeSqft = clauseHomeSqftBeforeGarage(clause);
+        const statedGarage = pickSqftNearPattern(clause, /\bgarages?\b/);
+        if (
+          statedGarage &&
+          statedGarage >= 100 &&
+          statedGarage <= 1200 &&
+          homeSqft &&
+          Math.abs(statedGarage - homeSqft) >= 1
+        ) {
+          return statedGarage;
+        }
         const inferred =
           inferGarageSqftFromCarCount(clause) ??
           inferGarageSqftFromCarCount(text);

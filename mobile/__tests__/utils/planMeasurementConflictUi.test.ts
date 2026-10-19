@@ -31,6 +31,7 @@ import {
   conflictChooserConfirmedLine,
   conflictChooserLowConfidenceAcceptedLine,
   pendingPlanConfirmationReads,
+  planImportOwnsPendingConfirmation,
   pendingPlanConfirmationCandidateValues,
   confirmPendingPlanConfirmationRead,
   isNewBuildHvacSystemOfferRead,
@@ -575,6 +576,32 @@ describe('planMeasurementConflictUi', () => {
         tradeKey: 'electrical',
       })
     ).toBe(false);
+  });
+
+  it('keeps tap-to-confirm cards on a plan import and off a notes estimate', () => {
+    const notesDrywall = {
+      drywallWallSqft: 7000,
+      drywallCeilingSqft: 2800,
+      drywallSqft: 11194,
+      quickMeasurementSources: {
+        drywallWallSqft: 'needs_confirmation',
+        drywallCeilingSqft: 'needs_confirmation',
+        drywallSqft: 'needs_confirmation',
+      },
+    };
+    expect(planImportOwnsPendingConfirmation(notesDrywall)).toBe(false);
+    expect(
+      planImportOwnsPendingConfirmation({
+        ...notesDrywall,
+        planImportMode: 'whole_project',
+        planImportFingerprint: 'plan-1',
+      })
+    ).toBe(true);
+    expect(
+      planImportOwnsPendingConfirmation({
+        planImportTradeKey: 'drywall',
+      })
+    ).toBe(true);
   });
 
   it('lists skipped low-confidence HVAC reads for the pending confirmation strip', () => {

@@ -37,20 +37,22 @@ describe('drywall scope card layout', () => {
     expect(ids).not.toContain('trim');
   });
 
-  it('uses one complete package card plus standalone finish card for ground_up', () => {
+  it('uses one complete drywall package for ground_up and leaves finish off a second card', () => {
     const items = normalizeScopeChecklistItems(
-      [{ id: 'drywall', label: 'Drywall', state: 'included' }] as any,
+      [
+        { id: 'drywall', label: 'Drywall', state: 'included' },
+        { id: 'texture', label: 'Drywall finish', state: 'included', choiceId: 'orange_peel' },
+      ] as any,
       'ground_up'
     );
     const ids = items.map(i => i.id);
     expect(ids).toContain('drywall');
-    expect(ids).toContain('texture');
+    expect(ids).not.toContain('texture');
     expect(ids).not.toContain('hang');
     expect(ids).not.toContain('finish_tape');
     expect(items.find(i => i.id === 'drywall')?.label).toBe(
       COMPLETE_DRYWALL_ASSEMBLY_LABEL
     );
-    expect(items.find(i => i.id === 'texture')?.label).toBe('Drywall finish');
   });
 
   it('splits plan export into install, mud, and texture cards', () => {

@@ -843,6 +843,7 @@ export function wholeProjectGroupDisplayTotal(params: {
       total += appliedTotal;
       continue;
     }
+    if (!checklistItemInScope(item)) continue;
     const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
       choiceId: item.choiceId,
       templateKey: params.templateKey,

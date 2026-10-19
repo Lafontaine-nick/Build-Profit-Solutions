@@ -5,11 +5,18 @@ import type {
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 import {
   bathroomAffirmativeNotes,
   notesAskForSeparateHaulOff,
   notesReuseExistingShowerDoor,
 } from '@/utils/bathroomNoteScope';
+import {
+  areaOnlyExteriorFinishFromNotes,
+  areaOnlyExteriorFinishHelper,
+  areaOnlyExteriorFinishLabel,
+  areaOnlyStuccoSystemFromNotes,
+} from '@/utils/areaOnlyExteriorFinish';
 import {
   detectAdditionConversionIntent,
   consolidateExistingShellConversionMeasurements,
@@ -92,6 +99,7 @@ import {
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   inferItemStateFromNotes,
+  notesDescribeGroundUpHome,
 } from '@/utils/scopeItemNoteHints';
 import { migrateKitchenDemoSplit } from '@/utils/qmScopePanels/kitchenRemodel';
 import {
@@ -791,8 +799,14 @@ export function areaOnlyAdditionScopeIds(): string[] {
   return [
     ...NEW_STRUCTURE_CONVERSION_INCLUDED,
     ...ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED.filter(
-      id => id !== 'concrete' && id !== 'final_inspections'
+      id =>
+        id !== 'concrete' &&
+        id !== 'final_inspections' &&
+        id !== 'windows_doors'
     ),
+    'windows',
+    'exterior_doors',
+    'interior_doors',
   ];
 }
 
@@ -883,11 +897,77 @@ export function applyAdditionConversionScopeDefaults(
   }
   if (notesDescribeAreaOnlyAddition(notes)) {
     const packageIds = new Set<string>(areaOnlyAdditionScopeIds());
-    return items.map(item =>
-      packageIds.has(item.id)
-        ? { ...item, state: 'included' as const }
-        : { ...item, state: 'excluded' as const }
-    );
+    const openingCards: ScopeChecklistItem[] = [
+      {
+        id: 'windows',
+        inputType: 'yes_no',
+        label: 'Windows',
+        helperText:
+          'New windows for the addition. Enter the count. Standard install is about $740 each.',
+        category: 'openings',
+        state: 'included',
+      },
+      {
+        id: 'exterior_doors',
+        inputType: 'yes_no',
+        label: 'Exterior doors',
+        helperText:
+          'New exterior doors for the addition. Enter the count. Standard install is about $1,650 each.',
+        category: 'openings',
+        state: 'included',
+      },
+      {
+        id: 'interior_doors',
+        inputType: 'yes_no',
+        label: 'Interior doors',
+        helperText:
+          'New interior doors for the addition. Enter the count. Standard install is about $350 each.',
+        category: 'openings',
+        state: 'included',
+      },
+    ];
+    const mapped = items.map(item => {
+      if (item.id === 'windows_doors') {
+        return { ...item, state: 'excluded' as const };
+      }
+      if (!packageIds.has(item.id)) {
+        return { ...item, state: 'excluded' as const };
+      }
+      if (item.id === 'interior_trim') {
+        return {
+          ...item,
+          state: 'included' as const,
+          label: 'Interior trim',
+          helperText:
+            'Linear feet of baseboard and other interior trim. Interior doors are a separate count.',
+        };
+      }
+      if (item.id === 'exterior_finishes') {
+        const finish = areaOnlyExteriorFinishFromNotes(notes);
+        const system = areaOnlyStuccoSystemFromNotes(notes);
+        return {
+          ...item,
+          state: 'included' as const,
+          choiceId: finish,
+          label: areaOnlyExteriorFinishLabel(finish),
+          helperText: areaOnlyExteriorFinishHelper(finish, system),
+        };
+      }
+      if (item.id === 'drywall') {
+        return {
+          ...item,
+          state: 'included' as const,
+          helperText: 'New drywall for the addition walls and ceiling.',
+        };
+      }
+      return { ...item, state: 'included' as const };
+    });
+    for (const card of openingCards) {
+      const index = mapped.findIndex(item => item.id === card.id);
+      if (index >= 0) mapped[index] = { ...mapped[index], ...card };
+      else mapped.push(card);
+    }
+    return mapped;
   }
 
   const n = String(notes || '');
@@ -1700,10 +1780,8 @@ export function applyDrywallScopeCardLayout(
           : item
       );
     }
-    return ensureStandaloneDrywallTextureCard(
-      next,
-      measurements as Record<string, unknown> | undefined
-    );
+    // Finish is inside the drywall package. A separate finish card has no price.
+    return stripStandaloneDrywallTextureItem(next).items;
   }
 
   if (notesDescribeNoteRatedDrywallJob(inferenceCtx?.notes)) {
@@ -2019,10 +2097,32 @@ export function ensureWholeProjectGroundUpScopeItems(
     ? notes
     : `Ground-up new construction from imported architectural plans.\n${notes || ''}`;
   next = applyGroundUpSoftCostDefaults(next, 'ground_up', notesForDefaults);
-  return applyGroundUpShellScopeDefaults(next, {
+  next = applyGroundUpShellScopeDefaults(next, {
     templateKey: 'ground_up',
     notes: notesForDefaults,
   });
+  // Tile & flooring is the whole-house floor package. A second Flooring card
+  // prices the same square feet again.
+  if (
+    next.some(item => item.id === 'tile_flooring' && item.state !== 'excluded')
+  ) {
+    next = next.filter(item => item.id !== 'flooring');
+  }
+  const notesText = String(notes || '');
+  const namesCoveredPatio =
+    /\b(?:deck|patio|porch)\b/i.test(notesText) &&
+    !/\bconcrete\s+patio\b/i.test(notesText);
+  if (namesCoveredPatio && !next.some(item => item.id === 'decking')) {
+    next.push({
+      id: 'decking',
+      label: 'Deck / patio',
+      helperText: 'Covered patio or deck surface from the notes.',
+      inputType: 'yes_no',
+      state: 'included',
+      category: 'structure',
+    });
+  }
+  return next;
 }
 
 export function isWholeProjectPlanExport(input: {
@@ -2210,7 +2310,7 @@ export function shouldSeedWholeProjectShellChecklist(input: {
  */
 export function checklistHasWholeHouseOpeningPackage(
   items: Array<{ id?: string | null; state?: string | null }> | null | undefined,
-  options?: { singleTradePlan?: boolean }
+  options?: { singleTradePlan?: boolean; notes?: string | null }
 ): boolean {
   if (options?.singleTradePlan) return false;
   const active = new Set(
@@ -2246,6 +2346,14 @@ export function checklistHasWholeHouseOpeningPackage(
   // Plan cards are not always named garage_doors / pour_flatwork. A window
   // schedule plus interior doors plus foundation or flatwork is the same
   // general-contractor plan, and Confirm Scope still needs the other trades.
+  // A room addition also has windows, doors, and a foundation. It keeps its
+  // own phases, so plans, sliding doors, and garage doors stay off it.
+  if (
+    options?.notes &&
+    isAdditionConversionJob('addition', null, options.notes)
+  ) {
+    return false;
+  }
   return hasWindows && hasInteriorDoors && hasGarageOrStructure;
 }
 
@@ -2357,6 +2465,15 @@ export function applyScopeInferencesFromNotes(
           return { ...item, state: 'excluded' as const, noteBacked: false };
         }
         const inferredState = inferItemStateFromNotes(item.id, notes);
+        // "Builder-grade" used to mark Grading included. A saved row stays
+        // off unless the note actually asks for grading.
+        if (
+          item.id === 'grading' &&
+          item.noteBacked === true &&
+          inferredState !== 'included'
+        ) {
+          return { ...item, state: 'excluded' as const, noteBacked: false };
+        }
         // Explicit exclusions in notes override a stale included state from
         // an older generic checklist/draft.
         if (inferredState === 'excluded' && item.state !== 'excluded') {
@@ -3617,6 +3734,7 @@ const MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS: Record<string, RegExp> = {
 
 export function isMixedExteriorScopeNotes(notes?: string | null): boolean {
   if (notesAreImportedPlanSummary(notes)) return false;
+  if (notesDescribeGroundUpHome(notes)) return false;
   const text = notesIgnoringPaverSurfaces(notes);
   return (
     /\b(?:concrete|flatwork|patio|retaining\s+walls?)\b/i.test(text) &&
@@ -4390,10 +4508,24 @@ export function suppressDefaultPermitsScope(
   if (String(templateKey || '').toLowerCase() === 'ground_up') return items;
   const explicitPermits =
     inferItemStateFromNotes('permits', notes) === 'included';
+  // "Plans" in a note is usually the bid, not an engineering allowance.
+  // Keep the card only when the note asks for plans or drawings.
+  const explicitPlans =
+    /\b(engineering|architect(?:ural)?|drawings?|design\s+docs?|blueprints?)\b/i.test(
+      String(notes || '')
+    );
   return items.map(item => {
-    if (item.id !== 'permits' || item.state !== 'included') return item;
-    if (explicitPermits) return item;
-    return { ...item, state: 'unsure' as const, noteBacked: false };
+    if (item.id === 'permits' && item.state === 'included' && !explicitPermits) {
+      return { ...item, state: 'unsure' as const, noteBacked: false };
+    }
+    if (
+      item.id === 'plans_engineering' &&
+      item.state === 'included' &&
+      !explicitPlans
+    ) {
+      return { ...item, state: 'excluded' as const, noteBacked: false };
+    }
+    return item;
   });
 }
 
@@ -5757,6 +5889,7 @@ export function syncInteriorPaintScopeItems(
     templateKey?: string | null;
   }
 ): ScopeChecklistItem[] {
+  if (notesDescribeAreaOnlyAddition(params.notes)) return items;
   const measuredScopeIds = new Set<string>();
   const explicitScope = params.paintScope;
   const planSummary = notesAreImportedPlanSummary(params.notes);
@@ -7102,7 +7235,14 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Foundation', itemIds: ['foundation', 'concrete'] },
     {
       title: 'Shell',
-      itemIds: ['framing', 'roof_tie_in', 'windows_doors', 'exterior_finishes'],
+      itemIds: [
+        'framing',
+        'roof_tie_in',
+        'windows_doors',
+        'exterior_finishes',
+        'exterior_paint',
+        'brick',
+      ],
     },
     {
       title: 'MEP Rough-ins',
@@ -7153,8 +7293,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'sliding_doors',
         'garage_doors',
         'garage_door_openers',
+        'decking',
         'trim_finish',
         'stucco',
+        'brick',
       ],
     },
     {
@@ -7525,7 +7667,7 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
 /** Collapse a whole-home contractor checklist into priced summary groups. */
 export function bucketWholeProjectScopeGroups(
   groups: Array<{ title: string; items: ScopeChecklistItem[] }>,
-  options?: { seedGroundUpShell?: boolean }
+  options?: { seedGroundUpShell?: boolean; notes?: string | null }
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
   const flat: ScopeChecklistItem[] = [];
   const seenIds = new Set<string>();
@@ -7540,7 +7682,9 @@ export function bucketWholeProjectScopeGroups(
   // A house that already has windows, garage doors, and interior doors is
   // the general-contractor plan. Put the rest of the trades on the cards.
   const source =
-    options?.seedGroundUpShell || checklistHasWholeHouseOpeningPackage(flat)
+    !notesDescribeMeasuredWholeHomeRemodel(options?.notes) &&
+    (options?.seedGroundUpShell ||
+      checklistHasWholeHouseOpeningPackage(flat, { notes: options?.notes }))
       ? ensureWholeProjectGroundUpScopeItems(flat)
       : flat;
   const buckets = WHOLE_PROJECT_PRICE_GROUPS.map(group => ({
@@ -7636,7 +7780,12 @@ export function groupScopeChecklistItems(
     }
   }
   if (notesDescribeAreaOnlyAddition(context.notes)) {
-    items = items.filter(item => item.state === 'included');
+    const packageIds = new Set(areaOnlyAdditionScopeIds());
+    items = items.filter(
+      item =>
+        item.state === 'included' &&
+        (packageIds.has(item.id) || String(item.id || '').startsWith('custom_'))
+    );
   }
   if (notesDescribeDedicatedStuccoJob(context.notes)) {
     const named = filterDedicatedStuccoConfirmItems(items, context.notes);

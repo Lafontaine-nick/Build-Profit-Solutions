@@ -10,7 +10,7 @@ import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle, estimateFlowScopeCardAlignStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
-  /** Full benchmark payload — enables variance + Compare. */
+  /** Full benchmark payload — enables Compare. */
   value?: BenchmarkReasonableness | null;
   /** Fallback $/living SF when benchmark API has not returned yet. */
   buildCostPerLivingSf?: number | null;
@@ -26,8 +26,6 @@ type Props = {
   showBuildCostPerSf?: boolean;
   scopeConfirmDisclaimer?: { label: string; onPress: () => void } | null;
 };
-
-const APP_GREEN = '#22c55e';
 
 /** Planning $/SF comparisons — whole dollars is fine. */
 function formatWholeDollars(amount: number): string {
@@ -53,16 +51,6 @@ export default function BenchmarkReasonablenessCard({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const text = darkMode ? '#ffffff' : Colors.text;
   const muted = darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
-  const farOff =
-    value?.variancePercent != null && Math.abs(value.variancePercent) > 20;
-  const verdictColor = farOff ? '#f59e0b' : APP_GREEN;
-
-  const variance =
-    value?.variancePercent == null
-      ? null
-      : `${Math.abs(value.variancePercent).toFixed(0)}% ${
-          value.variancePercent >= 0 ? 'above' : 'below'
-        } planning baseline`;
 
   const cardStyle = [
     !embedded ? estimateFlowScopeCardAlignStyle() : null,
@@ -134,10 +122,6 @@ export default function BenchmarkReasonablenessCard({
         scopeConfirmDisclaimer={scopeConfirmDisclaimer}
       />
 
-      {showBuildCostPerSf && variance && value ? (
-        <Text style={[styles.verdict, { color: verdictColor }]}>{variance}</Text>
-      ) : null}
-
       {showCompare ? (
         <>
           <Pressable
@@ -184,11 +168,6 @@ export default function BenchmarkReasonablenessCard({
 const styles = StyleSheet.create({
   cardPad: {
     paddingVertical: 16,
-  },
-  verdict: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 8,
   },
   detailsToggle: {
     marginTop: 12,

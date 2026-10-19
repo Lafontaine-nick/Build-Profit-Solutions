@@ -1,5 +1,8 @@
 import type { ParsedScopeMeasurements } from '@/utils/scopeMeasurementParser';
-import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
+import {
+  infersRoofingUnderlaymentUpgradeFromNotes,
+  notesDescribeGroundUpHome,
+} from '@/utils/scopeItemNoteHints';
 
 export type RoofingPlanningMeasurementKey =
   | 'roofDripEdgeLf'
@@ -100,7 +103,12 @@ export function reconcileRoofSquaresFromRoofAreaSqft(
   if (sqft == null && squares == null) return { changed: false };
 
   // Notes parsed sqft but squares field was never filled (common after stale draft merge).
+  // A new home's first sqft is living area, not the roof.
   if (sqft != null && squares == null) {
+    const sqftCameFromNotes = parseMeasurementNumber(input.roofAreaSqft) == null;
+    if (sqftCameFromNotes && notesDescribeGroundUpHome(notes)) {
+      return { changed: false };
+    }
     const filled = squaresFromRoofAreaSqft(sqft);
     return {
       roofSquares: String(filled),

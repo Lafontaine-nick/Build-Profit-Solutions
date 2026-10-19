@@ -117,7 +117,11 @@ export function notesDescribeAreaOnlyAddition(
     NEW_STRUCTURE_ADDITION_NOTES.test(text) ||
     /\b(?:room|home|bedroom)\s+addition\b/i.test(text);
   if (!namesAddition) return false;
-  return !ADDITION_NAMED_PHASE.test(text);
+  const phasesBesidesExteriorFinish = text.replace(
+    /\b(?:exterior\s+paint(?:ing)?|siding|stucco|eifs|brick)\b/gi,
+    ' '
+  );
+  return !ADDITION_NAMED_PHASE.test(phasesBesidesExteriorFinish);
 }
 
 export function areaOnlyAdditionSqft(

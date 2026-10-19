@@ -1,10 +1,12 @@
 import { parseStuccoMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 
 const COMPANION_TRADE =
   /\b(?:plumbing|hvac|framing|roof(?:ing)?|drywall|sheetrock|flooring|lvp|tile|cabinets?|concrete|foundation|insulat(?:e|ion|ed)|paint(?:ing)?|electrical|windows?|doors?|landscap(?:e|ing)|siding)\b/i;
 
 function notesAreStuccoOnly(notes: string | null | undefined): boolean {
   const text = String(notes || '');
+  if (notesDescribeGroundUpHome(text)) return false;
   const namesStucco = /\bstucco\b|\beifs\b/i.test(text);
   return namesStucco && !COMPANION_TRADE.test(text);
 }

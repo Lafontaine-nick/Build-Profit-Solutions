@@ -396,6 +396,27 @@ describe('scopeQuickMeasurements', () => {
     );
   });
 
+  it('uses one drywall field when a home remodel repairs drywall beside flooring', () => {
+    const notes =
+      'Remodel a 2,000 sqft home. Remove 800 sqft of existing flooring and install 800 sqft of new flooring. Repair 300 sqft of drywall.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      undefined,
+      { scopeNotes: notes }
+    ).flat();
+
+    expect(fields.map(field => field.key)).toEqual([
+      'drywallSqft',
+      'flooringSqft',
+    ]);
+    expect(fields.map(field => field.label)).toEqual([
+      'Drywall patch / repair',
+      'Flooring',
+    ]);
+  });
+
   it('uses the patch and texture measurement for drywall patch notes', () => {
     const rows = quickMeasurementRowsForInput('bathroom', 'bathroom', {}, [], {
       scopeNotes: 'Patch drywall and match the existing texture.',
@@ -1070,8 +1091,6 @@ describe('scopeQuickMeasurements', () => {
       expect.arrayContaining([
         'floorAreaSqft',
         'garageSqft',
-        'deckSqft',
-        'kitchenFloorSqft',
         'bathroomFloorSqft',
         'showerWallTileSqft',
         'showerFloorTileSqft',
@@ -1089,6 +1108,8 @@ describe('scopeQuickMeasurements', () => {
       .find(field => field.key === 'floorAreaSqft');
     expect(living?.label).toBe('Living area');
     expect(living?.primary).toBe(true);
+    expect(keys).not.toContain('kitchenFloorSqft');
+    expect(keys).not.toContain('deckSqft');
   });
 
   it('maps home_addition project type to addition living-first fields', () => {
@@ -1103,12 +1124,12 @@ describe('scopeQuickMeasurements', () => {
         'floorAreaSqft',
         'garageSqft',
         'deckSqft',
-        'kitchenFloorSqft',
         'bathroomFloorSqft',
         'showerWallTileSqft',
         'showerFloorTileSqft',
       ])
     );
+    expect(keys).not.toContain('kitchenFloorSqft');
   });
 
   it('prefers live form state over note prefill for note-backed quick fields', () => {

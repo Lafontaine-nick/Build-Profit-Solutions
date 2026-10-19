@@ -114,6 +114,165 @@ describe('addition conversion pricing parity', () => {
     expect(estimate?.formulaId).toBe('conversion_shell_drywall_surface');
   });
 
+  it('fills a bedroom addition from the stated sqft instead of a 1 sqft shell', () => {
+    const notes = 'Add a 256 sqft bedroom addition on the side of the house.';
+    const estimate = getQuickMeasurementEstimate(
+      'drywallSqft',
+      {},
+      undefined,
+      'addition',
+      { notes }
+    );
+    expect(estimate?.value).toBe(691);
+
+    const seeded = seedAdditionConversionPhysicalMeasurements(
+      {
+        ...emptyQuickMeasurementInput(),
+        drywallSqft: '27',
+        roofSquares: '2.56',
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(Number(seeded.floorAreaSqft)).toBe(256);
+    expect(Number(seeded.drywallSqft)).toBe(691);
+    expect(Number(seeded.wallPaintSqft)).toBe(691);
+    expect(Number(seeded.flooringSqft)).toBe(256);
+    expect(Number(seeded.atticInsulationSqft)).toBe(256);
+    expect(Number(seeded.exteriorWallInsulationSqft)).toBe(435);
+    expect(Number(seeded.concreteCy)).toBeGreaterThan(0);
+    expect(Number(seeded.exteriorPaintSqft)).toBeGreaterThan(400);
+    expect(Number(seeded.roofSquares)).toBeGreaterThan(2.8);
+  });
+
+  it('prices a short room addition from ceiling plus walls, not the 3.5× surface', () => {
+    const notes = '400 sqft room addition off the back of the house.';
+    const estimate = getQuickMeasurementEstimate(
+      'drywallSqft',
+      { floorAreaSqft: '400' },
+      undefined,
+      'addition',
+      { notes }
+    );
+    expect(estimate?.value).toBe(944);
+    expect(estimate?.formulaId).toBe('conversion_shell_drywall_surface');
+
+    const seeded = seedAdditionConversionPhysicalMeasurements(
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        drywallSqft: '1400',
+        wallPaintSqft: '1400',
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(Number(seeded.drywallSqft)).toBe(944);
+    expect(Number(seeded.wallPaintSqft)).toBe(944);
+
+    const quantity = resolveChecklistItemQuantity(
+      'drywall',
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        drywallSqft: '1400',
+        wallPaintSqft: '1400',
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(quantity.quantity).toBe(944);
+    expect(quantity.unit).toBe('sqft');
+
+    const paint = resolveChecklistItemQuantity(
+      'paint',
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        drywallSqft: '1400',
+        wallPaintSqft: '1400',
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(paint.quantity).toBe(944);
+
+    const drywallPricing = resolveScopeItemSuggestedPricing(
+      'drywall',
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        drywallSqft: '944',
+      },
+      'addition',
+      quantity,
+      { checklistItems: additionChecklistItems(), notes },
+      null,
+      notes
+    );
+    expect(drywallPricing.fill?.basis).toMatchObject({
+      quantity: 944,
+      unit: 'sqft',
+    });
+    expect(drywallPricing.fill?.costBuckets?.map(bucket => bucket.key)).toEqual([
+      'material',
+      'labor',
+    ]);
+
+    const typed = seedAdditionConversionPhysicalMeasurements(
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        drywallSqft: '1400',
+        quickMeasurementSources: { drywallSqft: 'user_entered' },
+        quickMeasurementUserOverrides: { drywallSqft: true },
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(Number(typed.drywallSqft)).toBe(1400);
+  });
+
+  it('prices room-addition interior trim from entered linear feet', () => {
+    const notes = '400 sqft room addition off the back of the house.';
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      floorAreaSqft: '400',
+      interiorDoorCount: '3',
+      baseboardLf: '50',
+    };
+    const quantity = resolveChecklistItemQuantity('interior_trim', input, {
+      templateKey: 'addition',
+      projectType: 'room_addition',
+      notes,
+    });
+    expect(quantity.quantity).toBe(50);
+    expect(quantity.unit).toBe('lf');
+
+    const pricing = resolveScopeItemSuggestedPricing(
+      'interior_trim',
+      input,
+      'addition',
+      quantity,
+      { checklistItems: additionChecklistItems(), notes },
+      null,
+      notes
+    );
+    expect(pricing.fill?.basis).toMatchObject({ quantity: 50, unit: 'lf' });
+    expect(pricing.fill?.total).toBe(425);
+  });
+
+  it('leaves room-addition trim open when no linear feet are entered', () => {
+    const notes = '400 sqft room addition off the back of the house.';
+    const quantity = resolveChecklistItemQuantity(
+      'interior_trim',
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '400',
+        interiorDoorCount: '3',
+      },
+      { templateKey: 'addition', projectType: 'room_addition', notes }
+    );
+    expect(quantity.unit).toBe('lf');
+    expect(quantity.quantity).toBeNull();
+    expect(quantity.pricingReady).toBe(false);
+  });
+
   it('replaces a stale 3.5x drywall quantity on existing-shell conversions', () => {
     const quantity = resolveChecklistItemQuantity(
       'drywall',

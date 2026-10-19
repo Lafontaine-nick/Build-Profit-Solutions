@@ -360,16 +360,6 @@ export default function LandingScreen() {
   const showReviews = sessionState !== "loading" && reviews.length > 0;
   const cardGap = wideWeb ? 12 : 16;
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: Platform.OS !== "web",
-    }).start();
-  }, [fadeAnim]);
-
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safeAreaShell} edges={['top']}>
@@ -392,11 +382,10 @@ export default function LandingScreen() {
         showsVerticalScrollIndicator={false}
         style={styles.scrollView}
       >
-        <Animated.View
+        <View
           style={[
             styles.container,
             returningUser && styles.containerCentered,
-            { opacity: fadeAnim },
           ]}
         >
           {/* HEADER / BRAND */}
@@ -590,7 +579,7 @@ export default function LandingScreen() {
               </View>
             </View>
           ) : null}
-        </Animated.View>
+        </View>
       </ScrollView>
       </SafeAreaView>
     </View>

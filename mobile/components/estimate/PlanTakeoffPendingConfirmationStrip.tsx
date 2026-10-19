@@ -17,6 +17,7 @@ import {
   pendingPlanConfirmationCandidateValues,
   pendingPlanConfirmationReads,
   pendingPlanConfirmationSelectedValue,
+  planImportOwnsPendingConfirmation,
   resolveHvacPendingPlanConfirmationReads,
   resolvePendingPlanConfirmationDisplayValue,
   isNewBuildHvacSystemOfferRead,
@@ -161,6 +162,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   }, [pending]);
 
   if (!displayReads.length) return null;
+  if (!planImportOwnsPendingConfirmation(measurements)) return null;
 
   const unconfirmedPlanReads = displayReads.filter(
     read =>

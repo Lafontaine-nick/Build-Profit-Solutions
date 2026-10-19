@@ -46,6 +46,20 @@ describe('quantity vs price parsing', () => {
     );
   });
 
+  test('keeps a new home that names a stucco exterior as a new build', () => {
+    const notes =
+      'New 2,450 sqft two-story home with an attached 520 sqft 2-car garage. Stucco exterior. Owner is taking care of landscaping separate from us.';
+    for (const hint of ['other', 'stucco', 'new_build']) {
+      expect(classifyScopeFromNotes(notes, hint).projectType).toBe('new_build');
+    }
+    expect(
+      classifyScopeFromNotes(
+        'Repair and install stucco on 800 sqft of exterior wall.',
+        'stucco'
+      ).projectType
+    ).toBe('stucco');
+  });
+
   test('classifies dedicated interior repaint notes as painting despite excluded kitchen cabinets', () => {
     const projectType = inferProjectTypeFromNotes(
       'Interior repaint throughout a 2-story home. Kitchen cabinets, closets, and exterior surfaces are excluded.'

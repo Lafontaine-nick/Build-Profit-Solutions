@@ -37,7 +37,7 @@ import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
 import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
 import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
-import { consumeDashboardAfterIntro, peekDashboardAfterIntro } from '../lib/iosIntroNavigation';
+import { consumeDashboardAfterIntro } from '../lib/iosIntroNavigation';
 import { initCrashReporting } from '@/lib/crashReporting';
 
 initCrashReporting();
@@ -330,22 +330,19 @@ function AuthGateWithClerk() {
     </Stack>;
   }
 
-  // Signed-in returning users always land on the marketing homepage (`index`). Get Started → app
-  // (skip sign-in only when “stay signed in” is on) is handled in `landing.tsx`.
-  // A new iOS user who just subscribed opens the dashboard instead.
-  const openDashboard = Platform.OS === 'ios' && peekDashboardAfterIntro();
+  // Signed-in users open the dashboard. Fading this stack in reveals the empty
+  // black content background for a frame before the dashboard paints.
   return (
     <>
-      {openDashboard ? <OpenDashboardAfterIntro /> : null}
+      <OpenDashboardAfterIntro />
       <Stack
         screenOptions={{
           headerShown: false,
           gestureEnabled: false,
-          animation: 'fade',
-          animationDuration: 280,
+          animation: 'none',
           contentStyle: { backgroundColor: '#000000' },
         }}
-        initialRouteName={openDashboard ? '(tabs)' : 'index'}
+        initialRouteName="(tabs)"
       />
     </>
   );

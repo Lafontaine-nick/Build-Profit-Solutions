@@ -4,7 +4,18 @@ import {
   drywallPackageSurfacePlanningQuantity,
   resolveDrywallProductionAssemblyBaseline,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
-import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
+import {
+  getQuickMeasurementEstimate,
+  syncMeasurementsWithSouthernUtahPlanFacts,
+} from '@/utils/quickMeasurementEstimates';
+import {
+  insulationEnvelopeInputsFromPlanFacts,
+  resolveInsulationEnvelopePlanningQuantity,
+} from '@/utils/insulationEnvelopeQuantity';
+import {
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
 import { prepareScopeMeasurementsInputForUi } from '@/utils/scopeItemQuantities';
 import { quickMeasurementRowsForTemplate } from '@/utils/scopeQuickMeasurements';
 import { confirmScopeDrywallSqftLabel } from '@/utils/drywallNoteScope';
@@ -15,10 +26,14 @@ import {
 import {
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
+  getInitialRevealDisplayTitle,
   getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
 
 const GROUND_UP_HOME_NOTES = `New 2,800 sqft two story home with attached 2-car garage. Standard builder grade finishes. Owner is taking care of sitework, utilities, and landscaping separate from us.`;
+
+const TWO_STORY_STUCCO_NOTES =
+  'New 2,450 sqft two-story home with an attached 520 sqft 2-car garage. Stucco exterior. Owner is taking care of landscaping separate from us.';
 
 describe('ground-up notes refinement', () => {
   it('infers garage door counts from 2-car garage language', () => {
@@ -131,6 +146,13 @@ describe('ground-up notes refinement', () => {
       '2,800 sqft two-story home',
     ]);
     expect(
+      getInitialRevealDisplayTitle({
+        ...draft,
+        projectTitle:
+          'New 2,800 Sq Ft Two-Story Home with Attached 2-Car Garage',
+      })
+    ).toBe('New 2,800 Sq Ft Two-Story Home');
+    expect(
       getInitialRevealChecklistScopePreview(draft).map(row => row.name)
     ).toEqual(['2,800 sqft two-story home', 'Plans / engineering']);
     const attention = getInitialRevealConfirmItems(draft).pricingScope.join(' ');
@@ -178,5 +200,108 @@ describe('ground-up notes refinement', () => {
         { notes: GROUND_UP_HOME_NOTES, projectType: 'new_build' }
       )?.value
     ).toBe(2668);
+  });
+
+  it('prices a two-story stucco home from the first floor and the wall area', () => {
+    const measurements = {
+      floorAreaSqft: 2450,
+      garageSqft: 520,
+      scopeNotes: TWO_STORY_STUCCO_NOTES,
+    };
+    const options = {
+      notes: TWO_STORY_STUCCO_NOTES,
+      projectType: 'new_build' as const,
+    };
+    const excavation = getQuickMeasurementEstimate(
+      'excavationCy',
+      measurements,
+      undefined,
+      'ground_up',
+      options
+    );
+    const roof = getQuickMeasurementEstimate(
+      'roofSquares',
+      measurements,
+      undefined,
+      'ground_up',
+      options
+    );
+    const walls = getQuickMeasurementEstimate(
+      'exteriorPaintSqft',
+      measurements,
+      undefined,
+      'ground_up',
+      options
+    );
+    expect(excavation?.value).toBeGreaterThan(80);
+    expect(excavation?.value).toBeLessThan(100);
+    expect(roof?.value).toBeCloseTo(20.8, 1);
+    expect(walls?.value).toBe(2557);
+
+    const envelope = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(undefined, 2450, {
+        garageSqft: 520,
+        scopeNotes: TWO_STORY_STUCCO_NOTES,
+      })
+    );
+    expect(envelope?.totalInsulationEnvelopeSqft).toBeGreaterThan(3400);
+    expect(envelope?.totalInsulationEnvelopeSqft).toBeLessThan(4200);
+
+    const drywallMeasurements = {
+      ...measurements,
+      drywallSqft: '10007',
+      itemQuantities: {},
+    } as any;
+    const drywallResolved = resolveChecklistItemQuantity(
+      'drywall',
+      drywallMeasurements,
+      {
+        templateKey: 'ground_up',
+        notes: TWO_STORY_STUCCO_NOTES,
+      }
+    );
+    const drywall = resolveScopeItemSuggestedPricing(
+      'drywall',
+      drywallMeasurements,
+      'ground_up',
+      drywallResolved,
+      null,
+      null,
+      TWO_STORY_STUCCO_NOTES
+    );
+    expect(drywallResolved.quantity).toBe(8575);
+    expect(drywall.fill?.basis?.quantity).toBe(8575);
+
+    const paint = resolveScopeItemSuggestedPricing(
+      'exterior_paint',
+      { ...measurements, exteriorPaintSqft: '2557', itemQuantities: {} } as any,
+      'ground_up',
+      resolveChecklistItemQuantity('exterior_paint', {
+        ...measurements,
+        exteriorPaintSqft: '2557',
+      } as any, {
+        templateKey: 'ground_up',
+        notes: TWO_STORY_STUCCO_NOTES,
+      }),
+      null,
+      null,
+      TWO_STORY_STUCCO_NOTES
+    );
+    expect(paint.fill?.basis?.quantity).toBe(2557);
+    expect(paint.fill?.total).toBeCloseTo(2557 * 3.15, 0);
+
+    const refreshed = syncMeasurementsWithSouthernUtahPlanFacts(
+      {
+        floorAreaSqft: 2450,
+        garageSqft: 520,
+        roofSquares: 24.5,
+        excavationCy: 135,
+        scopeNotes: TWO_STORY_STUCCO_NOTES,
+      },
+      { templateKey: 'ground_up', notes: TWO_STORY_STUCCO_NOTES }
+    );
+    expect(Number(refreshed.roofSquares)).toBeCloseTo(20.8, 1);
+    expect(Number(refreshed.excavationCy)).toBeGreaterThan(80);
+    expect(Number(refreshed.excavationCy)).toBeLessThan(100);
   });
 });

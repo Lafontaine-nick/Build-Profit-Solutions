@@ -30,6 +30,11 @@ describe('dedicated deck note', () => {
     expect(
       notesDescribeDedicatedDeckJob('Pour a 400 sqft concrete patio.')
     ).toBe(false);
+    expect(
+      notesDescribeDedicatedDeckJob(
+        'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio. Brick exterior. Standard builder-grade finishes.'
+      )
+    ).toBe(false);
 
     const repaired = repairDraftRatePricingFromNotes(
       {

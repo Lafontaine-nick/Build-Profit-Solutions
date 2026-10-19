@@ -14,13 +14,16 @@ import {
   filterUnmentionedMixedExteriorConcreteItems,
   syncInteriorPaintScopeItems,
   syncWindowInstallScopeFromNotes,
+  areaOnlyAdditionScopeIds,
   ensureWholeProjectGroundUpScopeItems,
   isWholeProjectPlanExport,
   WET_AREA_DERIVED_ITEM_IDS,
   type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
+import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import { isDrywallCompletePackageScope } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   notesFrameExplicitWallArea,
   notesMentionAffirmativeWallFraming,
@@ -559,6 +562,13 @@ export function buildConfirmScopeDisplayItems(
         : row
     );
   }
+  if (notesDescribeAreaOnlyAddition(noteText)) {
+    const packageIds = new Set(areaOnlyAdditionScopeIds());
+    expanded = expanded.filter(
+      row =>
+        packageIds.has(row.id) || String(row.id || '').startsWith('custom_')
+    );
+  }
   if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) {
     return dedupeScopeChecklistItems(expanded);
   }
@@ -819,6 +829,12 @@ export function flattenConfirmScopeVisibleRows(
     }
 
     if (ctx.forStep3Review) {
+      if (
+        isDrywallCompletePackageScope({ templateKey: ctx.templateKey }) &&
+        (item.id === 'texture' || item.id === 'finish_tape')
+      ) {
+        return false;
+      }
       if (item.id === 'wet_area_install') return false;
       if (!isConfirmScopeReviewRowSelected(item, displayItems, ctx.measurements)) return false;
       if (
