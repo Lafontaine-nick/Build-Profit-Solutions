@@ -219,6 +219,9 @@ describe('addition / conversion scope defaults', () => {
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(included.length);
     const priced = getInitialRevealChecklistScopePreview(draft);
     expect(priced.find(row => row.name === 'foundation')?.amount).toBeGreaterThan(0);
+    const cleanup = priced.find(row => row.name === 'cleanup');
+    expect(cleanup?.amount).toBe(1000);
+    expect(cleanup?.quantity).toBe('Material $450 · Labor $550');
     expect(priced.find(row => row.name === 'windows_doors')?.amount || 0).toBe(0);
     expect(priced.find(row => row.name === 'interior_trim')?.amount || 0).toBe(0);
     expect(getInitialRevealUnderstoodBullets(draft)).toEqual([

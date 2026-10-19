@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   aiScopeConfirmNumericKeyboardProps,
   resolveTextInputKeyboardProps,
@@ -35,6 +37,7 @@ import {
   kitchenNoteNamesSurfaceDemo,
 } from '@/utils/kitchenNoteScope';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
+import { measurementRowInfoText } from '@/utils/scopeQuickMeasurements';
 import {
   emptyKitchenExistingCounts,
   inferExistingKitchenFromNotes,
@@ -938,6 +941,25 @@ export function QmSqftMeasurementRow({
     fontSize: 13,
     fontWeight: '600' as const,
   };
+  const infoBody = measurementRowInfoText({
+    label,
+    unit: unitLabel,
+    helperText,
+  });
+  const infoButton = (
+    <TouchableOpacity
+      onPress={() => Alert.alert(label, infoBody)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole='button'
+      accessibilityLabel={`${label} info`}
+    >
+      <Ionicons
+        name='information-circle-outline'
+        size={16}
+        color={darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub}
+      />
+    </TouchableOpacity>
+  );
 
   if (compact) {
     return (
@@ -948,12 +970,19 @@ export function QmSqftMeasurementRow({
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <Text
-            style={[labelStyle, { flex: 1, lineHeight: 18 }]}
-            numberOfLines={2}
+          <View
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+            }}
           >
-            {label}
-          </Text>
+            <Text style={[labelStyle, { flexShrink: 1, lineHeight: 18 }]} numberOfLines={2}>
+              {label}
+            </Text>
+            {infoButton}
+          </View>
           <View style={[inputShellStyle, { width: 132, flexShrink: 0 }]}>
             <TextInput
               value={formattedValue}
@@ -1023,9 +1052,17 @@ export function QmSqftMeasurementRow({
         borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
       }}
     >
-      <Text style={[labelStyle, { marginBottom: helperText ? 2 : 4 }]}>
-        {label}
-      </Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: helperText ? 2 : 4,
+        }}
+      >
+        <Text style={[labelStyle, { flexShrink: 1 }]}>{label}</Text>
+        {infoButton}
+      </View>
       {helperText ? (
         <Text
           style={{
@@ -7114,7 +7151,7 @@ export function QmRoofingScopePanels({
               }
               value={roofSquaresValue}
               placeholder='Enter roof squares'
-              unitLabel='sq'
+              unitLabel='squares'
               onChangeText={value =>
                 markRoofingMeasurement(
                   'roofSquares',

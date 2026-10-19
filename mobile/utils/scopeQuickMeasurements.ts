@@ -567,7 +567,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   paverSqft: F('paverSqft', 'Pavers', '180', 'sqft', 'site'),
   rockMulchSqft: F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site'),
   landscapeTons: F('landscapeTons', 'Rock / mulch', '12', 'tons', 'site'),
-  roofSquares: F('roofSquares', 'Roof', '28', 'sq', 'structure'),
+  roofSquares: F('roofSquares', 'Roof', '28', 'squares', 'structure'),
   roofAreaSqft: F(
     'roofAreaSqft',
     'Roof surface area',
@@ -1765,7 +1765,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     row(F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site')),
   ],
   roofing: [
-    row(F('roofSquares', 'Roof squares', '28', 'sq', 'structure', true)),
+    row(F('roofSquares', 'Roof squares', '28', 'squares', 'structure', true)),
     row(
       F('roofAreaSqft', 'Roof surface area', 'e.g. 2800', 'sqft', 'structure'),
       F('roofPitch', 'Roof pitch / slope', 'e.g. 5:12', 'ratio', 'structure')
@@ -2193,7 +2193,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
         undefined,
         EXTERIOR_FLATWORK_HELPER
       ),
-      F('roofSquares', 'Roof', '28', 'sq', 'structure')
+      F('roofSquares', 'Roof', '28', 'squares', 'structure')
     ),
     row(
       F('excavationCy', 'Excavation', '45', 'CY', 'site'),
@@ -2237,7 +2237,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
         undefined,
         EXTERIOR_FLATWORK_HELPER
       ),
-      F('roofSquares', 'Roof', '22', 'sq', 'structure')
+      F('roofSquares', 'Roof', '22', 'squares', 'structure')
     ),
     row(
       F('excavationCy', 'Excavation', '45', 'CY', 'site'),
@@ -4558,6 +4558,134 @@ export function quickMeasurementHelperText(
     return 'Total for kitchen, bathrooms, and other countertops.';
   }
   return undefined;
+}
+
+function measurementUnitExplanation(unit: string | null | undefined): string {
+  const normalized = String(unit || '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'sqft' || normalized === 'sf' || normalized === 'sq.ft') {
+    return 'Measured in square feet.';
+  }
+  if (normalized === 'squares' || normalized === 'sq' || normalized === 'square') {
+    return 'Measured in squares. One square is 100 square feet.';
+  }
+  if (normalized === 'cy') return 'Measured in cubic yards.';
+  if (normalized === 'lf') {
+    return 'Measured in linear feet, the length along the work.';
+  }
+  if (normalized === 'each' || normalized === 'ea') {
+    return 'A count of individual pieces.';
+  }
+  if (normalized === 'story' || normalized === 'stories') {
+    return 'How many stories the work covers.';
+  }
+  if (normalized === 'tons' || normalized === 'ton') return 'Measured in tons.';
+  if (normalized === 'a') return 'Electrical service size in amps.';
+  if (normalized === 'ratio' || normalized === 'pitch') {
+    return 'The roof slope, such as 5:12.';
+  }
+  if (normalized === 'in') return 'Measured in inches.';
+  return '';
+}
+
+const QUICK_MEASUREMENT_INFO: Partial<Record<QuickMeasurementFieldKey, string>> = {
+  floorAreaSqft:
+    'The floor area of the work, in square feet. On a room addition this is the new room. On a new home this is the living area.',
+  concreteCy:
+    'Cubic yards of foundation concrete. This includes the slab and the footings.',
+  roofSquares:
+    'Roof area in squares. One square is 100 square feet of roof surface.',
+  roofAreaSqft:
+    'Measured roof surface in square feet. This is the roof itself, not the floor area.',
+  roofPitch: 'The roof slope, written as rise over run, such as 5:12.',
+  storyCount: 'How many stories the building has.',
+  exteriorWallInsulationSqft:
+    'Square feet of insulation in the exterior walls.',
+  atticInsulationSqft: 'Square feet of insulation in the attic or ceiling.',
+  drywallSqft:
+    'Square feet of drywall to hang and finish, including walls and ceiling.',
+  flooringSqft: 'Square feet of flooring to install.',
+  wallPaintSqft: 'Square feet of interior wall and ceiling to paint.',
+  exteriorPaintSqft: 'Square feet of exterior wall finish.',
+  windowCount: 'How many windows to install.',
+  exteriorDoorCount:
+    'How many exterior doors to install. Garage doors are counted separately.',
+  interiorDoorCount: 'How many interior doors to install.',
+  baseboardLf:
+    'Linear feet of interior trim, such as baseboard. This is a length, not the floor area.',
+  garageSqft:
+    'Floor area of the garage, in square feet. This stays separate from living area.',
+  deckSqft: 'Square feet of deck surface.',
+  deckDemoSqft: 'Square feet of existing deck to remove.',
+  deckFootingCount: 'How many deck footings.',
+  deckStairCount: 'How many stair runs.',
+  railingLf: 'Linear feet of railing.',
+  excavationCy: 'Cubic yards of soil to excavate.',
+  cabinetLf:
+    'Linear feet of cabinets or vanities, including kitchen, bathrooms, and laundry.',
+  countertopSqft: 'Square feet of countertop.',
+  countertopLf: 'Linear feet of countertop.',
+  backsplashSqft: 'Square feet of backsplash.',
+  showerWallTileSqft: 'Square feet of tile on the shower walls.',
+  showerFloorTileSqft: 'Square feet of tile on the shower floor.',
+  bathroomFloorSqft: 'Square feet of bathroom floor.',
+  kitchenFloorSqft: 'Square feet of kitchen floor.',
+  serviceAmperage: 'The electrical service size in amps, such as 200A.',
+  mainPanelCount: 'How many main electrical panels.',
+  standardReceptacleCount: 'How many standard receptacles.',
+  gfciReceptacleCount: 'How many GFCI receptacles.',
+  recessedLightCount: 'How many recessed-light rough-in locations.',
+  singlePoleSwitchCount: 'How many single-pole switches.',
+  dedicated20aCircuitCount: 'How many dedicated 20-amp circuits.',
+  conduitLf: 'Linear feet of conduit or raceway.',
+  insulationMaterialType: 'The insulation material, such as batt or blown-in.',
+  insulationRValue:
+    'The R-value of the insulation. A higher number resists more heat flow.',
+  stuccoStories: 'How many stories of exterior wall are getting stucco.',
+  stuccoWallHeightFt: 'The exterior wall height, in feet, used for the stucco area.',
+};
+
+/** Short explanation opened from the measurement info mark. */
+export function quickMeasurementInfoText(
+  field: Pick<QuickMeasurementFieldDef, 'key' | 'label' | 'unit' | 'helperText'>,
+  options?: { displayLabel?: string; planningEstimate?: boolean }
+): string {
+  const label = String(options?.displayLabel || field.label || '').trim();
+  let body = QUICK_MEASUREMENT_INFO[field.key];
+  if (field.key === 'floorAreaSqft' && /room addition/i.test(label)) {
+    body = 'The floor area of the new room, in square feet.';
+  }
+  if (!body) {
+    const helper = String(field.helperText || quickMeasurementHelperText({
+      ...field,
+      placeholder: '',
+      group: 'other',
+    }) || '').trim();
+    const unitLine = measurementUnitExplanation(field.unit);
+    body = [helper, unitLine].filter(Boolean).join(' ');
+  }
+  if (!body) {
+    body = `${label || 'This measurement'} is the quantity used to price this line.`;
+  }
+  if (options?.planningEstimate) {
+    body = `${body} The mint Planning estimate is a starting figure. Replace it when you measure the work.`;
+  }
+  return body;
+}
+
+/** Explanation for a trade measurement row that is not a quick-measurement key. */
+export function measurementRowInfoText(input: {
+  label: string;
+  unit?: string | null;
+  helperText?: string | null;
+}): string {
+  const helper = String(input.helperText || '').trim();
+  const unitLine = measurementUnitExplanation(input.unit);
+  const body = [helper, unitLine].filter(Boolean).join(' ');
+  return (
+    body || `${input.label || 'This measurement'} is the quantity used to price this line.`
+  );
 }
 
 export function emptyQuickMeasurementInput(): Record<

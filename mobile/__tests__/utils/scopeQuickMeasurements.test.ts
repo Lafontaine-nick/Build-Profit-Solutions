@@ -2,6 +2,8 @@ import {
   countFilledQuickMeasurements,
   quickMeasurementDisplayLabel,
   quickMeasurementHelperText,
+  quickMeasurementInfoText,
+  measurementRowInfoText,
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   quickMeasurementSectionsForRows,
@@ -1514,6 +1516,49 @@ describe('scopeQuickMeasurements', () => {
       unit: 'sqft',
       group: 'interior' as const,
     };
+    expect(quickMeasurementInfoText(living)).toMatch(/living area/i);
+    expect(
+      quickMeasurementInfoText(
+        { ...living, label: 'Room addition' },
+        { displayLabel: 'Room addition' }
+      )
+    ).toMatch(/new room/i);
+    expect(
+      quickMeasurementInfoText(
+        {
+          key: 'roofSquares',
+          label: 'Roof tie-in',
+          placeholder: '',
+          unit: 'squares',
+          group: 'structure',
+        },
+        { planningEstimate: true }
+      )
+    ).toMatch(/100 square feet/);
+    expect(
+      quickMeasurementInfoText(
+        {
+          key: 'concreteCy',
+          label: 'Foundation',
+          placeholder: '',
+          unit: 'CY',
+          group: 'structure',
+        },
+        { planningEstimate: true }
+      )
+    ).toMatch(/footings/);
+    expect(
+      quickMeasurementInfoText({
+        key: 'baseboardLf',
+        label: 'Interior trim',
+        placeholder: '',
+        unit: 'LF',
+        group: 'interior',
+      })
+    ).toMatch(/linear feet/i);
+    expect(
+      measurementRowInfoText({ label: 'Roof surface', unit: 'squares' })
+    ).toMatch(/100 square feet/);
     expect(quickMeasurementHelperText(living)).toMatch(/living area/i);
     expect(quickMeasurementHelperText(gross)).toMatch(/matches living area/i);
     // Display label rename is behind measurement-semantics flag; helper always applies.

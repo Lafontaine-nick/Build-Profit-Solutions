@@ -7,7 +7,9 @@ import {
 import {
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
+  quickMeasurementPlanningEstimateNote,
   quickMeasurementSummaryLine,
+  quickMeasurementValuesMatch,
   tagPlanDetectedQuickMeasurementKeys,
   preservePlanBackedMeasurementFields,
   groupQuickMeasurementFields,
@@ -824,5 +826,71 @@ describe('plan quantities survive the notes reparse', () => {
     expect(results.find(result => result.key === 'wallPaintSqft')?.state).toBe(
       'not_relevant'
     );
+  });
+});
+
+describe('quickMeasurementPlanningEstimateNote', () => {
+  test('labels a suggested quantity the note did not state', () => {
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: true,
+        sourceTag: 'calculated_confirmed',
+      })
+    ).toBe('Planning estimate');
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: false,
+        estimate: { value: 1400 },
+      })
+    ).toBe('Planning estimate');
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: true,
+        sourceTag: null,
+      })
+    ).toBe('Planning estimate');
+  });
+
+  test('labels typed values as entered and leaves note quantities and plan takeoffs unlabeled', () => {
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: true,
+        filled: true,
+        sourceTag: 'parsed_from_notes',
+      })
+    ).toBeNull();
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: true,
+        sourceTag: 'user_entered',
+      })
+    ).toBe('Entered');
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: true,
+        sourceTag: 'user_confirmed_suggestion',
+      })
+    ).toBe('Entered');
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: false,
+        sourceTag: 'user_entered',
+      })
+    ).toBeNull();
+    expect(
+      quickMeasurementPlanningEstimateNote({
+        fromNotes: false,
+        filled: true,
+        sourceTag: 'measured_from_geometry',
+      })
+    ).toBeNull();
+    expect(quickMeasurementValuesMatch('1,400', 1400)).toBe(true);
+    expect(quickMeasurementValuesMatch('', 1400)).toBe(false);
   });
 });

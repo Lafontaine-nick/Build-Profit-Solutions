@@ -190,7 +190,9 @@ export function formatSuggestedDisplayValue(
   value: number,
   unit: string
 ): string {
-  return `${roundSuggestedDisplayNumber(value, unit).toLocaleString()} ${unit}`;
+  const u = String(unit || '').toLowerCase();
+  const displayUnit = u === 'sq' || u === 'square' ? 'squares' : unit;
+  return `${roundSuggestedDisplayNumber(value, unit).toLocaleString()} ${displayUnit}`;
 }
 
 function evidenceFor(

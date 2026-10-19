@@ -175,6 +175,58 @@ export function quickMeasurementEstimateBadgeLabel(
   return base;
 }
 
+const PLANNING_ESTIMATE_NOTE = 'Planning estimate';
+const ENTERED_MEASUREMENT_NOTE = 'Entered';
+
+const ENTERED_MEASUREMENT_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'user_confirmed_suggestion',
+]);
+
+const PLANNING_ESTIMATE_EXCLUDED_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'user_confirmed_suggestion',
+  'plan_detected',
+  'detected_from_plan',
+  'plan_verified',
+  'measured_from_geometry',
+  'ai_verified',
+  'contractor_confirmed_from_plan_review',
+]);
+
+/** Suggested quantity the note did not state. Typed values say Entered. */
+export function quickMeasurementPlanningEstimateNote(result: {
+  fromNotes?: boolean;
+  filled?: boolean;
+  sourceTag?: string | null;
+  estimate?: unknown;
+}): string | null {
+  if (result.fromNotes) return null;
+  const source = String(result.sourceTag || '');
+  if (ENTERED_MEASUREMENT_SOURCES.has(source)) {
+    return result.filled ? ENTERED_MEASUREMENT_NOTE : null;
+  }
+  if (PLANNING_ESTIMATE_EXCLUDED_SOURCES.has(source)) return null;
+  if (!result.filled && !result.estimate) return null;
+  return PLANNING_ESTIMATE_NOTE;
+}
+
+export function quickMeasurementValuesMatch(
+  value: string | number | null | undefined,
+  estimateValue: number | null | undefined
+): boolean {
+  const shown = Number(String(value ?? '').replace(/,/g, ''));
+  const suggested = Number(estimateValue);
+  return (
+    Number.isFinite(shown) &&
+    shown > 0 &&
+    Number.isFinite(suggested) &&
+    Math.abs(shown - suggested) < 0.51
+  );
+}
+
 function resolveFieldState(params: {
   filled: boolean;
   fromNotes: boolean;

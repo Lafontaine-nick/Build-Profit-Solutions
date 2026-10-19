@@ -489,6 +489,7 @@ import {
   isWholeHomeQuickMeasurementTemplate,
   quickMeasurementDisplayLabel,
   quickMeasurementHelperText,
+  quickMeasurementInfoText,
   quickMeasurementPlaceholder,
   quickMeasurementFieldDef,
   quickMeasurementFieldMeta,
@@ -522,7 +523,9 @@ import {
   acceptQuickMeasurementSuggestion,
   acceptReviewedQuickMeasurementSuggestions,
   quickMeasurementEstimateBadgeLabel,
+  quickMeasurementPlanningEstimateNote,
   quickMeasurementSuggestionRequiresReview,
+  quickMeasurementValuesMatch,
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
   pinQuickMeasurementFieldInGroup,
@@ -12802,6 +12805,28 @@ function insulationLocationLabel(location: string | null | undefined): string {
 
 const GARAGE_INSULATION_OPTIONS = ['Yes', 'No', 'Separation only'] as const;
 
+function MeasurementInfoButton({
+  title,
+  body,
+  color,
+}: {
+  title: string;
+  body: string;
+  color: string;
+}) {
+  if (!body.trim()) return null;
+  return (
+    <TouchableOpacity
+      onPress={() => Alert.alert(title, body)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole='button'
+      accessibilityLabel={`${title} info`}
+    >
+      <Ionicons name='information-circle-outline' size={16} color={color} />
+    </TouchableOpacity>
+  );
+}
+
 const QuickMeasurementField = React.memo(function QuickMeasurementField({
   field,
   value,
@@ -12951,6 +12976,19 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       return text;
     return undefined;
   })();
+  const suggestionAlreadyShown = quickMeasurementValuesMatch(
+    inputValue,
+    estimate?.value
+  );
+  const showSuggestionActions =
+    variant === 'suggestion' && Boolean(estimate) && !suggestionAlreadyShown;
+  const planningNote =
+    statusLabel || (suggestionAlreadyShown ? 'Planning estimate' : undefined);
+  const measurementInfo = quickMeasurementInfoText(field, {
+    displayLabel: label,
+    planningEstimate: planningNote === 'Planning estimate',
+  });
+  const infoColor = darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub;
   const isEmptyMeasurement = String(inputValue).trim() === '';
   const numericMeasurementMissing =
     ['baseboardLf', 'windowCount', 'interiorDoorCount'].includes(field.key) &&
@@ -12967,7 +13005,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     )
   );
 
-  if (variant === 'suggestion') {
+  if (showSuggestionActions) {
     const badge = estimate
       ? quickMeasurementEstimateBadgeLabel(estimate)
       : null;
@@ -12988,20 +13026,34 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
             marginBottom: 6,
           }}
         >
-          <Text
-            style={[
-              styles.measurementLabel,
-              {
-                color: darkMode ? '#F5F7FA' : Colors.text,
-                fontSize: 13,
-                fontWeight: '700',
-                flex: 1,
-              },
-            ]}
-            numberOfLines={1}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              flex: 1,
+            }}
           >
-            {label}
-          </Text>
+            <Text
+              style={[
+                styles.measurementLabel,
+                {
+                  color: darkMode ? '#F5F7FA' : Colors.text,
+                  fontSize: 13,
+                  fontWeight: '700',
+                  flexShrink: 1,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {label}
+            </Text>
+            <MeasurementInfoButton
+              title={label}
+              body={measurementInfo}
+              color={infoColor}
+            />
+          </View>
           {estimate ? (
             <TouchableOpacity
               onPress={() => onUseSuggestion(estimate)}
@@ -13125,20 +13177,47 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           relaxedSpacing ? { marginBottom: 8 } : null,
         ]}
       >
-        <Text
-          style={[
-            styles.measurementLabel,
-            {
-              color: darkMode ? '#F5F7FA' : Colors.text,
-              fontSize: compact ? 13 : 12,
-              fontWeight: '700',
-            },
-          ]}
-          numberOfLines={2}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            flex: 1,
+          }}
         >
-          {label}
-        </Text>
+          <Text
+            style={[
+              styles.measurementLabel,
+              {
+                color: darkMode ? '#F5F7FA' : Colors.text,
+                fontSize: compact ? 13 : 12,
+                fontWeight: '700',
+                flexShrink: 1,
+              },
+            ]}
+            numberOfLines={2}
+          >
+            {label}
+          </Text>
+          <MeasurementInfoButton
+            title={label}
+            body={measurementInfo}
+            color={infoColor}
+          />
+        </View>
       </View>
+      {planningNote ? (
+        <Text
+          style={{
+            color: planningNote === 'Entered' ? '#F5F7FA' : '#2dcc9a',
+            fontSize: 12,
+            fontWeight: '600',
+            marginBottom: 4,
+          }}
+        >
+          {planningNote}
+        </Text>
+      ) : null}
       {helperText ? (
         <Text
           style={{
@@ -17312,6 +17391,16 @@ function CollapsibleQuickMeasurements({
     notes,
   ]);
   const displayGroups = groups.groups;
+  const unappliedSuggestionCount = displayGroups.suggestions.filter(result => {
+    if (!result.estimate) return false;
+    const shown = resolveQuickMeasurementDisplayValue(
+      result.key,
+      measurements,
+      noteQuickMeasurements.values,
+      measurements.quickMeasurementUserOverrides
+    );
+    return !quickMeasurementValuesMatch(shown, result.estimate.value);
+  }).length;
   const wetAreaFields = groups.wetArea;
   const visibleMoreResults = displayGroups.more.filter(result => result.filled);
   const roofingMeasurementKeys = new Set<QuickMeasurementFieldKey>([
@@ -19327,6 +19416,14 @@ function CollapsibleQuickMeasurements({
         }
       }
       setMeasurements(prev => {
+        const previousValue = String(prev[key] ?? '').replace(/,/g, '').trim();
+        const nextValue = String(value ?? '').replace(/,/g, '').trim();
+        if (
+          previousValue === nextValue ||
+          quickMeasurementValuesMatch(previousValue, Number(nextValue))
+        ) {
+          return prev;
+        }
         const nextItemQuantities = { ...(prev.itemQuantities || {}) };
         let nextPlumbingScope = prev.plumbingScope;
         const itemMapping: Partial<
@@ -20050,9 +20147,11 @@ function CollapsibleQuickMeasurements({
         relaxedSpacing={relaxedSpacing}
         laborComplexityMultiplier={mepLaborComplexityMultiplier}
         statusLabel={
-          result.sourceTag === 'plan_suggested'
-            ? 'Planning estimate'
-            : undefined
+          quickMeasurementPlanningEstimateNote({
+            ...result,
+            filled:
+              result.filled || String(displayValue || '').trim() !== '',
+          }) || undefined
         }
       />
     );
@@ -22097,7 +22196,7 @@ function CollapsibleQuickMeasurements({
           ) : null}
           {wholeHomeLayout ? (
             <>
-              {displayGroups.suggestions.length > 1 ? (
+              {unappliedSuggestionCount > 1 ? (
                 <View
                   style={{
                     flexDirection: 'row',
@@ -22433,7 +22532,7 @@ function CollapsibleQuickMeasurements({
                     }}
                   >
                     {sectionTitle('Planning estimate')}
-                    {displayGroups.suggestions.length > 1 ? (
+                    {unappliedSuggestionCount > 1 ? (
                       <TouchableOpacity
                         onPress={useAllSuggestions}
                         disabled={applying}

@@ -3527,6 +3527,20 @@ function areaOnlyAdditionRevealRows(
       measurements as Parameters<typeof areaOnlyAdditionResolvedQuantity>[1],
       draft.originalNotes
     );
+    if (row.id === 'cleanup') {
+      const cleanup = getNationalAverageBudgetSplit('cleanup');
+      const material = Number(cleanup?.material || 0);
+      const labor = Number(cleanup?.labor || 0);
+      return {
+        name: row.name,
+        amount: roundedMoney(material + labor),
+        ...(material + labor > 0
+          ? {
+              quantity: `Material $${material.toLocaleString('en-US')} · Labor $${labor.toLocaleString('en-US')}`,
+            }
+          : {}),
+      };
+    }
     const rateId = row.id === 'exterior_finishes' ? 'exterior_paint' : row.id;
     const split =
       resolved?.pricingReady && resolved.quantity

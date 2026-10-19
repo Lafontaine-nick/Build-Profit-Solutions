@@ -203,7 +203,7 @@ describe('getQuickMeasurementEstimate', () => {
   test('surface areas display as whole numbers; roof keeps one decimal', () => {
     expect(formatSuggestedDisplayValue(5468.7, 'sqft')).toBe('5,469 sqft');
     expect(formatSuggestedDisplayValue(1858.9, 'sqft')).toBe('1,859 sqft');
-    expect(formatSuggestedDisplayValue(37.24, 'sq')).toBe('37.2 sq');
+    expect(formatSuggestedDisplayValue(37.24, 'sq')).toBe('37.2 squares');
     expect(formatSuggestedDisplayValue(68.6, 'CY')).toBe('69 CY');
   });
 

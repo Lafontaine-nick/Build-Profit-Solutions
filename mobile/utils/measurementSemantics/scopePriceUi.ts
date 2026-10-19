@@ -294,7 +294,7 @@ export function missingStatusDisplayLabel(
 
   // Soft-cost allowances — always user-facing fee/allowance language (never "Needs takeoff").
   if (scopeKey === 'permits') return 'Needs local fee confirmation';
-  if (scopeKey === 'plans_engineering' || scopeKey === 'cleanup') return 'Needs allowance';
+  if (scopeKey === 'plans_engineering') return 'Needs fee';
 
   if (!measurementSemanticsV1Enabled()) {
     return measurementStatusLabel(missingStatusForScope(scopeKey));

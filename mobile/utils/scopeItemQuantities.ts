@@ -24998,9 +24998,14 @@ export function areaOnlyAdditionResolvedQuantity(
   }
   if (itemId === 'cleanup') {
     const split = getNationalAverageBudgetSplit('cleanup');
-    const total = Number(split?.material || 0) + Number(split?.labor || 0);
-    if (total > 0) {
-      return areaOnlyReadyQuantity(total, 'allowance', 'Cleanup and disposal allowance.');
+    const material = Number(split?.material || 0);
+    const labor = Number(split?.labor || 0);
+    if (material + labor > 0) {
+      return areaOnlyReadyQuantity(
+        1,
+        'each',
+        'Final cleanup. Dumpsters are material and the clean is labor.'
+      );
     }
   }
   return null;

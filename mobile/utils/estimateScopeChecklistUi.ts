@@ -1776,21 +1776,16 @@ export function applyGroundUpSoftCostDefaults(
   notes?: string | null
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'ground_up') return items;
+  const text = String(notes || '');
   return items.map(item => {
-    if (
-      !GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id) ||
-      item.state !== 'unsure'
-    )
-      return item;
-    // Respect explicit "no permits / owner pulls permits" style exclusions.
-    if (
-      /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/i.test(
-        String(notes || '')
-      )
-    ) {
-      if (item.id === 'permits') return item;
+    if (!GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id)) return item;
+    if (inferItemStateFromNotes(item.id, text) === 'included') {
+      return { ...item, state: 'included' as const };
     }
-    return { ...item, state: 'included' as const };
+    if (item.state === 'unsure') {
+      return { ...item, state: 'excluded' as const };
+    }
+    return item;
   });
 }
 
