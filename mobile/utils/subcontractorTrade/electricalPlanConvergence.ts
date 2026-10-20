@@ -1844,7 +1844,7 @@ function parseProjectCondition(
 }
 
 export function looksLikeElectricalNotes(text: string): boolean {
-  return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|trench(?:ing)?|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
+  return /\b(electrical|outlets?|receptacles?|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|trench(?:ing)?|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
     text
   );
 }

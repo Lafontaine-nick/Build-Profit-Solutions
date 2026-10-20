@@ -1,10 +1,15 @@
 import { filterBathroomRevealAttentionItems } from '@/utils/bathroomPlanningMeasurements';
-import { notesIgnoringPaverSurfaces } from '@/utils/foundationPlanningMeasurements';
+import {
+  concretePatioWithSodAreas,
+  notesIgnoringPaverSurfaces,
+  notesNameConcretePatioWithSod,
+} from '@/utils/foundationPlanningMeasurements';
 import {
   alignDedicatedBathroomScopeRows,
   bathroomAffirmativeNotes,
   filterDedicatedBathroomConfirmItems,
   notesNameShowerTileWithFlooring,
+  notesReplaceShowerTile,
   showerTileWithFlooringAreas,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
@@ -13,13 +18,20 @@ import {
   shouldLimitKitchenChecklistToNotes,
 } from '@/utils/kitchenNoteScope';
 import {
+  notesNameStuccoWithWindows,
+  stuccoWithWindowsRevealRows,
+} from '@/utils/stuccoNoteScope';
+import { receptaclesWithToiletRevealRows } from '@/utils/electricalNoteScope';
+import {
   dedicatedDrywallRevealQuantity,
   notesDescribeNoteRatedDrywallJob,
   notesDescribeSheetrockFinishJob,
   notesUseDedicatedDrywallScope,
+  drywallBesideFlooringRevealRows,
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import {
+  notesDescribeMeasuredWholeHomeRemodel,
   notesNameRemovalOf,
   statedCabinetInstallLf,
   wholeHomeWallAndAtticInsulationLabel,
@@ -43,8 +55,10 @@ import {
   notesDescribeDedicatedWindowsDoorsJob,
 } from '@/utils/windowsDoorsNoteScope';
 import {
+  atticInsulationWithDrywallAreas,
   dedicatedInsulationRevealLines,
   dedicatedInsulationRevealRows,
+  notesNameAtticInsulationWithDrywallHang,
   notesDescribeDedicatedInsulationJob,
 } from '@/utils/insulationNoteScope';
 import {
@@ -160,6 +174,10 @@ import {
   checklistItemInScope,
   getNationalAverageBudgetSplit,
   initialScopeMeasurementInputExtended,
+  measuredWholeHomeStatedScopeFill,
+  measuredWholeHomeTrimSuggestedFill,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
   wallAreaFramingWithFlooringPrices,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
@@ -859,9 +877,31 @@ function collectInitialRevealConfirmItems(
   });
   if (draftNeedsScopeConfirmation(draft) && kitchenNoteLimit) {
     const packages = getScopePackagesForReview(draft);
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
     const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
       const name = String(row.name || '').trim().toLowerCase();
       if (!name) return false;
+      const resolved = resolveChecklistItemQuantity(row.id, suggestedMeasurements, {
+        templateKey,
+        notes,
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      // Confirm Scope already has a national average for this line. Scope
+      // found stays unpriced, and the row is not a missing price.
+      if (Number(suggested.fill?.total) > 0) return false;
       const pkg = packages.find(
         item =>
           String(item.name || item.scope || '').trim().toLowerCase() === name
@@ -873,6 +913,67 @@ function collectInitialRevealConfirmItems(
         unpricedScope.map(row => `Pricing for ${row.name}`)
       );
     }
+  }
+  // Stucco plus a window count already has national averages on Confirm Scope.
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    notesNameStuccoWithWindows(draft.originalNotes)
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const missing = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(row.id, suggestedMeasurements, {
+        templateKey,
+        notes,
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      missing.map(row => `Pricing for ${row.name}`)
+    );
+  }
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    receptaclesWithToiletRevealRows(draft.originalNotes).length > 0
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const missing = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(row.id, suggestedMeasurements, {
+        templateKey,
+        notes,
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      missing.map(row => `Pricing for ${row.name}`)
+    );
   }
   // "Frame N sqft of walls and install N sqft of LVP" already has national
   // averages waiting on Confirm Scope. Scope found stays unpriced, and those
@@ -907,9 +1008,87 @@ function collectInitialRevealConfirmItems(
         ? measured
         : null);
     const attention: string[] = [];
+    // Demo and waterproofing price from the shower wall area, so one
+    // missing measurement covers those lines.
     if (!showerSqft) attention.push('Pricing for Shower wall tile');
-    if (!areas.flooringSqft) attention.push('Pricing for LVP flooring');
+    if (!areas.flooringSqft) {
+      attention.push('Pricing for Bathroom floor demo');
+      attention.push('Pricing for LVP flooring');
+    }
     return splitInitialRevealConfirmItems(attention);
+  }
+  // A concrete patio and sod already have areas and national averages on
+  // Confirm Scope. The extra flatwork catalog line is the same patio.
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    notesNameConcretePatioWithSod(draft.originalNotes)
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const missing = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(
+        row.id,
+        suggestedMeasurements,
+        {
+          templateKey,
+          notes,
+        }
+      );
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      missing.map(row => `Pricing for ${row.name}`)
+    );
+  }
+  // Attic insulation and a drywall hang already have areas and national
+  // averages on Confirm Scope. Scope found stays unpriced, and those rows
+  // are not missing prices.
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    notesNameAtticInsulationWithDrywallHang(draft.originalNotes)
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const missing = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(
+        row.id,
+        suggestedMeasurements,
+        {
+          templateKey,
+          notes,
+        }
+      );
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      missing.map(row => `Pricing for ${row.name}`)
+    );
   }
   // Before Confirm Scope, one package can generate several generic "still
   // needed" messages. Keep the attention card aligned to actual scope rows so
@@ -2254,6 +2433,30 @@ function getInitialRevealScopeRows(
   draft: EstimateAiDraft
 ): InitialRevealScopeRow[] {
   const notes = String(draft.originalNotes || '');
+  const stuccoWindowsRows = stuccoWithWindowsRevealRows(notes);
+  if (stuccoWindowsRows.length > 0) {
+    return stuccoWindowsRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      ...(row.quantity ? { quantityOverride: row.quantity } : {}),
+    }));
+  }
+  const receptacleToiletRows = receptaclesWithToiletRevealRows(notes);
+  if (receptacleToiletRows.length > 0) {
+    return receptacleToiletRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      ...(row.quantity ? { quantityOverride: row.quantity } : {}),
+    }));
+  }
+  const drywallFloorRows = drywallBesideFlooringRevealRows(notes);
+  if (drywallFloorRows.length > 0) {
+    return drywallFloorRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      ...(row.quantity ? { quantityOverride: row.quantity } : {}),
+    }));
+  }
   const wholeHomeMixedRemodelNote =
     /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
       notes
@@ -2557,7 +2760,7 @@ function getInitialRevealScopeRows(
       /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(notes)
     ) {
       const hasLocationSpecificInsulationArea =
-        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,20}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,40}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,20}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,80}\b(?:wall|walls|attic|ceiling|floor)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?(?:attic|ceiling|wall|walls|floor)\b/i.test(
           notes
         );
       if (!hasLocationSpecificInsulationArea) return null;
@@ -2610,6 +2813,15 @@ function getInitialRevealScopeRows(
   let rows =
     checklistItems
       ?.filter(item => revealChecklistItemVisible(draft, item))
+      .filter(item => {
+        if (
+          String(item.id || '').trim() === 'air_sealing' &&
+          notesDescribeMeasuredWholeHomeRemodel(notes)
+        ) {
+          return false;
+        }
+        return true;
+      })
       .filter(item => {
         if (!dedicatedElectricalReveal) return true;
         if (
@@ -2940,6 +3152,7 @@ function getInitialRevealScopeRows(
     }
     if (
       /\bair[\s-]+sealing\b/i.test(notes) &&
+      !notesDescribeMeasuredWholeHomeRemodel(notes) &&
       !rows.some(row => row.id === 'air_sealing')
     ) {
       addRoomRemodelRow('air_sealing', 'Air sealing');
@@ -3719,14 +3932,74 @@ function getInitialRevealScopeRows(
         return rows;
       })()
     : wallFloorRevealRows;
+  if (notesNameConcretePatioWithSod(notes)) {
+    const areas = concretePatioWithSodAreas(notes);
+    return [
+      {
+        id: 'pour_flatwork',
+        name: 'Concrete patio',
+        ...(areas.patioSqft
+          ? { quantityOverride: `${areas.patioSqft} sqft` }
+          : { quantityOverride: null }),
+      },
+      {
+        id: 'sod_turf',
+        name: 'Sod',
+        ...(areas.sodSqft
+          ? { quantityOverride: `${areas.sodSqft} sqft` }
+          : { quantityOverride: null }),
+      },
+    ];
+  }
+  if (notesNameAtticInsulationWithDrywallHang(notes)) {
+    const areas = atticInsulationWithDrywallAreas(notes);
+    return [
+      {
+        id: 'insulation',
+        name: 'Attic insulation',
+        ...(areas.atticSqft
+          ? { quantityOverride: `${areas.atticSqft} sqft` }
+          : { quantityOverride: null }),
+      },
+      {
+        id: 'drywall',
+        name: 'Drywall hang / finish',
+        ...(areas.drywallSqft
+          ? { quantityOverride: `${areas.drywallSqft} sqft` }
+          : { quantityOverride: null }),
+      },
+    ];
+  }
   if (notesNameShowerTileWithFlooring(notes)) {
     const areas = showerTileWithFlooringAreas(notes);
+    const showerQty = areas.showerWallTileSqft
+      ? { quantityOverride: `${areas.showerWallTileSqft} sqft` }
+      : { quantityOverride: null };
     return [
+      ...(notesReplaceShowerTile(notes)
+        ? [
+            {
+              id: 'demo',
+              name: 'Shower tile demo',
+              ...showerQty,
+            },
+          ]
+        : []),
       {
         id: 'shower_tile',
         name: 'Shower wall tile',
-        ...(areas.showerWallTileSqft
-          ? { quantityOverride: `${areas.showerWallTileSqft} sqft` }
+        ...showerQty,
+      },
+      {
+        id: 'waterproofing',
+        name: 'Shower waterproofing',
+        ...showerQty,
+      },
+      {
+        id: 'floor_demo',
+        name: 'Bathroom floor demo',
+        ...(areas.flooringSqft
+          ? { quantityOverride: `${areas.flooringSqft} sqft` }
           : { quantityOverride: null }),
       },
       {
@@ -3952,6 +4225,47 @@ function revealRowAmount(
   return 0;
 }
 
+function statedWholeHomeRevealAmount(
+  draft: EstimateAiDraft,
+  rowId: string
+): { total: number; quantity: string | null } | null {
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  const priced = measuredWholeHomeStatedScopeFill(
+    rowId,
+    initialScopeMeasurementInputExtended(draft, draft.originalNotes),
+    draft.scopeChecklist?.templateKey,
+    draft.originalNotes
+  );
+  if (!priced) return null;
+  const quantity = priced.basis?.quantity;
+  return {
+    total: Math.round(priced.total * 100) / 100,
+    quantity: quantity ? `${quantity} sqft` : null,
+  };
+}
+
+function statedTrimRevealAmount(
+  draft: EstimateAiDraft,
+  rowId: string
+): { total: number; quantity: string | null } | null {
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  const priced = measuredWholeHomeTrimSuggestedFill(
+    rowId,
+    initialScopeMeasurementInputExtended(draft, draft.originalNotes),
+    draft.scopeChecklist?.templateKey,
+    draft.originalNotes
+  );
+  if (!priced) return null;
+  return {
+    total: Math.round(priced.total * 100) / 100,
+    quantity: priced.quantity ? `${priced.quantity} LF` : null,
+  };
+}
+
 function showRevealAmounts(draft: EstimateAiDraft): boolean {
   return initialRevealPricingVisible(draft);
 }
@@ -3986,6 +4300,34 @@ export function getInitialRevealChecklistScopePreview(
   if (stuccoNoteOwnsReveal(draft)) {
     return dedicatedStuccoRevealRows(draft.originalNotes);
   }
+  const stuccoWindowsPreview = stuccoWithWindowsRevealRows(draft.originalNotes);
+  if (stuccoWindowsPreview.length > 0) {
+    return stuccoWindowsPreview.map(row => ({
+      name: row.name,
+      amount: 0,
+      ...(row.quantity ? { quantity: row.quantity } : {}),
+    }));
+  }
+  const receptacleToiletPreview = receptaclesWithToiletRevealRows(
+    draft.originalNotes
+  );
+  if (receptacleToiletPreview.length > 0) {
+    return receptacleToiletPreview.map(row => ({
+      name: row.name,
+      amount: 0,
+      ...(row.quantity ? { quantity: row.quantity } : {}),
+    }));
+  }
+  const drywallFloorPreview = drywallBesideFlooringRevealRows(
+    draft.originalNotes
+  );
+  if (drywallFloorPreview.length > 0) {
+    return drywallFloorPreview.map(row => ({
+      name: row.name,
+      amount: 0,
+      ...(row.quantity ? { quantity: row.quantity } : {}),
+    }));
+  }
   const areaOnlyPreview = areaOnlyAdditionRevealRows(draft);
   if (areaOnlyPreview) return areaOnlyPreview;
   if (roofingPlanOnlyExport(draft)) {
@@ -4006,9 +4348,13 @@ export function getInitialRevealChecklistScopePreview(
       amount: appliedElectricalPlanLineAmount(draft, name) ?? 0,
     }));
   }
-  const scopeRows = getInitialRevealScopeRows(draft).filter(
-    row => !hideUnnamedBathroomPaintScopeRow(draft, row)
-  );
+  const scopeRows = getInitialRevealScopeRows(draft).filter(row => {
+    if (hideUnnamedBathroomPaintScopeRow(draft, row)) return false;
+    if (!notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes)) return true;
+    if (row.id === 'air_sealing') return false;
+    if (/\bair\s*sealing\b/i.test(row.name)) return false;
+    return true;
+  });
   const groundUpLine = groundUpLivingRevealLine(draft.originalNotes);
   if (groundUpLine) {
     const kept = scopeRows.filter(
@@ -4095,12 +4441,19 @@ export function getInitialRevealChecklistScopePreview(
               )
         );
         const priced = revealRowAmount(draft, pkg);
-        const amount =
+        const applied =
           priced > 0 ? priced : appliedAliasRevealAmount(draft, id);
+        const statedScope = statedWholeHomeRevealAmount(draft, id);
+        const statedTrim =
+          statedScope || applied > 0 ? null : statedTrimRevealAmount(draft, id);
+        const amount = statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0);
+        const trimQuantity = !quantity ? statedTrim?.quantity : null;
         return {
           name: row.name,
           amount,
-          ...(quantity ? { quantity } : {}),
+          ...(quantity || trimQuantity
+            ? { quantity: quantity || trimQuantity }
+            : {}),
         };
       })
       .filter(row => row.name);
@@ -4141,12 +4494,20 @@ export function getInitialRevealChecklistScopePreview(
       row.name,
       row.quantityOverride
     );
+    const applied =
+      revealRowAmount(draft, undefined) ||
+      appliedAliasRevealAmount(draft, row.id);
+    const statedScope = statedWholeHomeRevealAmount(draft, row.id);
+    const statedTrim =
+      statedScope || applied > 0 ? null : statedTrimRevealAmount(draft, row.id);
+    const amount = statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0);
+    const trimQuantity = !quantity ? statedTrim?.quantity : null;
     return {
       name: row.name,
-      amount:
-        revealRowAmount(draft, undefined) ||
-        appliedAliasRevealAmount(draft, row.id),
-      ...(quantity ? { quantity } : {}),
+      amount,
+      ...(quantity || trimQuantity
+        ? { quantity: quantity || trimQuantity }
+        : {}),
     };
   });
 }
@@ -4353,10 +4714,41 @@ function getRevealClassification(draft: EstimateAiDraft) {
     hvac: 'HVAC',
     roofing: 'Roofing',
     windows_doors: 'Windows & doors',
+    windows: 'Windows',
+    stucco: 'Stucco',
     insulation: 'Insulation',
     trim: 'Trim',
   };
   const notes = String(draft.originalNotes || '');
+  if (notesNameAtticInsulationWithDrywallHang(notes)) {
+    return {
+      scopeMode: 'mixed',
+      scopeSummary: 'Attic insulation and drywall',
+      scopeTradeLabels: ['Drywall', 'Insulation'],
+    };
+  }
+  if (notesNameConcretePatioWithSod(notes)) {
+    return {
+      scopeMode: 'mixed',
+      scopeSummary: 'Concrete patio and sod',
+      scopeTradeLabels: ['Concrete', 'Landscaping'],
+    };
+  }
+  if (notesNameWallAreaFramingWithFlooring(notes)) {
+    const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(notes);
+    return {
+      scopeMode: 'mixed',
+      scopeSummary: lvp ? 'Wall framing and LVP' : 'Wall framing and flooring',
+      scopeTradeLabels: ['Framing', 'Flooring'],
+    };
+  }
+  if (notesNameStuccoWithWindows(notes)) {
+    return {
+      scopeMode: 'mixed',
+      scopeSummary: 'Stucco and windows',
+      scopeTradeLabels: ['Stucco', 'Windows'],
+    };
+  }
   const planRecord = draft.scopeMeasurements as
     | { planImportMode?: string | null; planImportTradeKey?: string | null }
     | null

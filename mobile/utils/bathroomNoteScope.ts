@@ -167,9 +167,10 @@ export function bathroomScopeLines(
   if (namedInNotes('tub_demo')) push('tub_demo', 'Remove tub');
   if (
     namedInNotes('demo') &&
-    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
-      affirmative
-    )
+    (notesReplaceShowerTile(notes) ||
+      /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+        affirmative
+      ))
   ) {
     push('demo', 'Shower tile demo / tear-out');
   }
@@ -538,6 +539,96 @@ export function notesNameShowerTileWithFlooring(
   return !/\b(?:vanity|toilet|tub|bathtub|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
     text
   );
+}
+
+/**
+ * "Replace the shower tile" is tear-out plus new tile.
+ * "Install new shower tile" is the new tile only.
+ */
+export function notesReplaceShowerTile(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomAffirmativeNotes(notes);
+  if (!SHOWER_WALL_TILE.test(text)) return false;
+  return /[^.;\n]*\breplac(?:e|ing|ement)\b[^.;\n]*\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b|[^.;\n]*\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b[^.;\n]*\breplac(?:e|ing|ement)\b/i.test(
+    text
+  );
+}
+
+export function showerTileWithFlooringChecklistItems(
+  notes: string | null | undefined
+): Array<{
+  id: string;
+  inputType: 'yes_no';
+  label: string;
+  helperText: string;
+  category: string;
+  state: 'included';
+  noteBacked: true;
+}> {
+  const items: Array<{
+    id: string;
+    inputType: 'yes_no';
+    label: string;
+    helperText: string;
+    category: string;
+    state: 'included';
+    noteBacked: true;
+  }> = [];
+  if (notesReplaceShowerTile(notes)) {
+    items.push({
+      id: 'demo',
+      inputType: 'yes_no',
+      label: 'Shower tile demo',
+      helperText: 'Tear out the existing shower tile. Uses the new shower wall area.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  items.push(
+    {
+      id: 'shower_tile',
+      inputType: 'yes_no',
+      label: 'Shower wall tile',
+      helperText: notesReplaceShowerTile(notes)
+        ? 'New shower wall tile. Tear-out uses this same area.'
+        : 'New shower wall tile area — enter sqft for pricing.',
+      category: 'wet_area',
+      state: 'included',
+      noteBacked: true,
+    },
+    {
+      id: 'waterproofing',
+      inputType: 'yes_no',
+      label: 'Shower waterproofing',
+      helperText:
+        'Backer and membrane for the new shower tile. Uses the shower wall area.',
+      category: 'wet_area',
+      state: 'included',
+      noteBacked: true,
+    },
+    {
+      id: 'floor_demo',
+      inputType: 'yes_no',
+      label: 'Bathroom floor demo',
+      helperText:
+        'Tear out the existing bathroom floor so the new LVP can go down. Uses the LVP area.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    },
+    {
+      id: 'flooring_lvp',
+      inputType: 'yes_no',
+      label: 'LVP flooring',
+      helperText: 'Install the LVP area named in the notes.',
+      category: 'flooring',
+      state: 'included',
+      noteBacked: true,
+    }
+  );
+  return items;
 }
 
 /** Shower sqft only when the note gives it. "80 sqft of LVP" stays on the floor. */

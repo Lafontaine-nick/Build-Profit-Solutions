@@ -946,4 +946,33 @@ describe('ground-up owner-handled scope exclusions', () => {
     expect(items.find(i => i.id === 'landscaping')?.state).toBe('excluded');
     expect(items.find(i => i.id === 'excavation')?.state).toBe('excluded');
   });
+
+  test('hang drywall stays on the drywall line when insulation is in the same note', () => {
+    const notes =
+      'Insulation and drywall Install R-38 insulation in 1,000 sqft of attic and hang 800 sqft of drywall.';
+    const filtered = filterRoomRemodelNoteScopeItems(
+      [
+        {
+          id: 'drywall',
+          label: 'Drywall hang / finish',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        {
+          id: 'hang',
+          label: 'Hang drywall',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        {
+          id: 'insulation',
+          label: 'Insulation',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+      ],
+      notes
+    );
+    expect(filtered.map(item => item.id)).toEqual(['drywall', 'insulation']);
+  });
 });

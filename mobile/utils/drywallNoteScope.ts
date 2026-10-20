@@ -49,6 +49,60 @@ export function notesNameDrywallBesideFlooring(
   return !DRYWALL_FLOORING_COMPANION_RE.test(stripped);
 }
 
+/** Sqft tied to a trade with "N sqft of drywall" or "N sqft of LVP". */
+export function drywallBesideFlooringAreas(
+  notes: string | null | undefined
+): { drywallSqft: number | null; flooringSqft: number | null } {
+  if (!notesNameDrywallBesideFlooring(notes)) {
+    return { drywallSqft: null, flooringSqft: null };
+  }
+  const text = String(notes || '');
+  const owned =
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?(drywall|sheetrock|gypsum|lvp|luxury\s+vinyl|laminate|vinyl\s+plank|carpet|flooring)\b/gi;
+  let drywallSqft: number | null = null;
+  let flooringSqft: number | null = null;
+  for (const match of text.matchAll(owned)) {
+    const qty = Number(String(match[1] || '').replace(/,/g, ''));
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(match[2] || '')) {
+      drywallSqft = qty;
+    } else {
+      flooringSqft = qty;
+    }
+  }
+  return { drywallSqft, flooringSqft };
+}
+
+export function drywallBesideFlooringLineLabel(
+  notes: string | null | undefined
+): string {
+  return /\b(?:lvp|luxury\s+vinyl)\b/i.test(String(notes || ''))
+    ? 'LVP'
+    : 'Flooring';
+}
+
+export function drywallBesideFlooringRevealRows(
+  notes: string | null | undefined
+): Array<{ id: string; name: string; quantity?: string }> {
+  if (!notesNameDrywallBesideFlooring(notes)) return [];
+  const areas = drywallBesideFlooringAreas(notes);
+  const drywallName = notesNameDrywallFlooringPatchOnly(notes)
+    ? 'Drywall patch / repair'
+    : 'Drywall hang / finish';
+  return [
+    {
+      id: notesNameDrywallFlooringPatchOnly(notes) ? 'patch_repair' : 'drywall',
+      name: drywallName,
+      ...(areas.drywallSqft ? { quantity: `${areas.drywallSqft} sqft` } : {}),
+    },
+    {
+      id: 'flooring',
+      name: drywallBesideFlooringLineLabel(notes),
+      ...(areas.flooringSqft ? { quantity: `${areas.flooringSqft} sqft` } : {}),
+    },
+  ];
+}
+
 /** Patch wording beside flooring, with no hang. */
 export function notesNameDrywallFlooringPatchOnly(
   notes: string | null | undefined

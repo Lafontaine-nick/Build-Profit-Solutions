@@ -21,6 +21,22 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('does not give LVP the drywall area from the same sentence', () => {
+    const notes = 'Hang 800 sqft of drywall and install 400 sqft of LVP.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+    expect(parsed.drywallSqft).toBe(800);
+    expect(parsed.flooringSqft).toBe(400);
+    expect(parsed.flooringLvpSqft).toBe(400);
+    const titled = parseScopeMeasurementsFromNotes(
+      'Drywall and flooring Hang 800 sqft of drywall and install 400 sqft of LVP.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+    expect(titled.flooringSqft).toBe(400);
+    expect(titled.flooringLvpSqft).toBe(400);
+  });
   it('does not give shower wall tile the LVP area from the same note', () => {
     const notes =
       'Bathroom and flooring Replace the shower tile and install 80 sqft of LVP in the bathroom.';
@@ -470,6 +486,19 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.paintAreaSqft).toBeUndefined();
     expect(parsed.wallPaintSqft).toBeUndefined();
     expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
+  it('keeps wall area off the LVP measurement', () => {
+    const notes =
+      'Framing and flooring Frame 1,600 sqft of walls and install 180 sqft of LVP.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(parsed.flooringSqft).toBe(180);
+    expect(parsed.flooringLvpSqft).toBe(180);
+    expect(parsed.floorAreaSqft).not.toBe(1600);
   });
 
   it('does not borrow drywall sqft for unquantified flooring in framing notes', () => {

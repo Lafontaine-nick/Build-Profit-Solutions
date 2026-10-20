@@ -854,6 +854,24 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('cabinetLf');
   });
 
+  it('shows attic insulation beside drywall when the note names both areas', () => {
+    const notes =
+      'Insulation and drywall Install R-38 insulation in 1,000 sqft of attic and hang 800 sqft of drywall.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    ).flat();
+    const keys = fields.map(field => field.key);
+    expect(keys).toContain('drywallSqft');
+    expect(keys).toContain('atticInsulationSqft');
+    expect(fields.find(field => field.key === 'atticInsulationSqft')?.label).toBe(
+      'Attic insulation'
+    );
+  });
+
   it('keeps a wall-framing note off garage and living area fields', () => {
     const notes =
       'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';

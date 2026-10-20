@@ -104,8 +104,10 @@ export function wholeHomeRemodelNamedItemIds(
   }
   if (/\binterior\s+doors?\b/i.test(text)) ids.add('interior_door_install');
   if (/\binsulat/i.test(text)) ids.add('insulation');
-  if (/\bair[\s-]+sealing\b/i.test(text)) ids.add('air_sealing');
-  if (/\btrim\b/i.test(text)) ids.add('trim');
+  if (/\btrim\b/i.test(text)) {
+    ids.add('trim');
+    ids.add('baseboard_install');
+  }
   if (/\bbaseboards?\b|\bbase\s*board\b/i.test(text)) ids.add('baseboard_install');
   if (/\bplumbing\b/i.test(text)) ids.add('plumbing');
   if (/\belectrical\b/i.test(text)) ids.add('electrical');
@@ -164,6 +166,7 @@ const DUPLICATE_SCOPE_IDS: string[][] = [
   ['interior_door_install', 'interior_doors'],
   ['paint', 'interior_paint'],
   ['drywall', 'patch_repair'],
+  ['trim', 'baseboard_install'],
 ];
 
 const NAMED_CARDS: Record<
@@ -235,10 +238,10 @@ const NAMED_CARDS: Record<
     helperText: 'Insulation named in the notes. Area was not stated.',
     category: 'structure',
   },
-  air_sealing: {
-    label: 'Air sealing',
-    helperText: 'Air sealing named in the notes.',
-    category: 'structure',
+  trim: {
+    label: 'Trim / baseboard installation',
+    helperText: 'Interior trim length named in the notes.',
+    category: 'finishes',
   },
 };
 

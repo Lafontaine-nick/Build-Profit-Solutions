@@ -66,6 +66,100 @@ export function insulationNoteNamesWallArea(
   return /\bwalls?\b/i.test(String(notes || ''));
 }
 
+const ATTIC_DRYWALL_OTHER_TRADE =
+  /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|tile|siding|concrete|framing|paint(?:ing)?|stucco)\b/i;
+
+/** Attic insulation and a drywall hang in one note, with no other trade named. */
+export function notesNameAtticInsulationWithDrywallHang(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (ATTIC_DRYWALL_OTHER_TRADE.test(text)) return false;
+  if (
+    /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  const namesInsulation = /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(
+    text
+  );
+  const namesAttic = /\battic\b/i.test(text);
+  const namesDrywallHang =
+    /\b(?:hang|install)\b[^.;\n]{0,80}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,40}\bhang\b/i.test(
+      text
+    );
+  return namesInsulation && namesAttic && namesDrywallHang;
+}
+
+export function atticInsulationWithDrywallAreas(
+  notes: string | null | undefined
+): { atticSqft: number | null; drywallSqft: number | null; rValue: string | null } {
+  const text = String(notes || '');
+  const attic = text.match(
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?attic\b/i
+  );
+  const drywall = text.match(
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:drywall|sheetrock|gypsum)\b/i
+  );
+  const rValue = text.match(/\bR[-\s]?(\d{2,3})\b/i);
+  const amount = (raw?: string) => {
+    const value = Number(String(raw || '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  return {
+    atticSqft: amount(attic?.[1]),
+    drywallSqft: amount(drywall?.[1]),
+    rValue: rValue ? `R-${rValue[1]}` : null,
+  };
+}
+
+export function atticInsulationWithDrywallHelpers(
+  notes: string | null | undefined
+): { insulation: string; drywall: string } {
+  const areas = atticInsulationWithDrywallAreas(notes);
+  const insulationPlace = areas.rValue
+    ? `${areas.rValue} attic insulation`
+    : 'Attic insulation';
+  return {
+    insulation: areas.atticSqft
+      ? `${insulationPlace}. Uses the attic area from the notes.`
+      : 'Attic insulation from the notes. Enter the attic square feet.',
+    drywall: 'Hang and finish the drywall named in the notes.',
+  };
+}
+
+export function applyAtticInsulationWithDrywallCards<
+  T extends {
+    id?: string | null;
+    helperText?: string | null;
+    noteBacked?: boolean | null;
+  },
+>(items: T[], notes: string | null | undefined): T[] {
+  if (!notesNameAtticInsulationWithDrywallHang(notes)) return items;
+  const helpers = atticInsulationWithDrywallHelpers(notes);
+  return items
+    .filter(item => item.id !== 'hang')
+    .map(item => {
+      if (item.id === 'insulation') {
+        return {
+          ...item,
+          helperText: helpers.insulation,
+          noteBacked: true,
+        };
+      }
+      if (item.id === 'drywall') {
+        return {
+          ...item,
+          helperText: helpers.drywall,
+          noteBacked: true,
+        };
+      }
+      return item;
+    });
+}
+
 /** Attic or ceiling insulation is named. “Paint the ceilings” is not attic area. */
 export function insulationNoteNamesAtticArea(
   notes: string | null | undefined

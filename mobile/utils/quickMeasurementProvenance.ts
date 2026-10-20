@@ -19,6 +19,10 @@ import {
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import { shellPackageIncludesSheathing } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import {
+  notesNameStuccoWithWindows,
+  stuccoWithWindowsCount,
+} from '@/utils/stuccoNoteScope';
 import { flooringSqftCopiesLivingArea } from '@/utils/subcontractorTrade/flooringPlanConvergence';
 import {
   getQuickMeasurementEstimate,
@@ -480,11 +484,33 @@ export function resolveQuickMeasurementFields(params: {
         /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:drywall\s+)?(?:repair|patch|texture)\b|\b(?:drywall\s+)?(?:repair|patch|texture)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
           noteText
         ));
+    const statedStuccoWall = notesNameStuccoWithWindows(noteText)
+      ? Number(
+          String(
+            noteText.match(
+              /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+exterior\s+walls?\b/i
+            )?.[1] || ''
+          ).replace(/,/g, '')
+        )
+      : null;
+    const statedWindowCount = notesNameStuccoWithWindows(noteText)
+      ? stuccoWithWindowsCount(noteText)
+      : null;
+    const confirmedStuccoAndWindows =
+      (field.key === 'stuccoGrossWallSqft' &&
+        statedStuccoWall != null &&
+        statedStuccoWall > 0 &&
+        Math.abs(displayedSqft - statedStuccoWall) < 0.51) ||
+      (field.key === 'windowCount' &&
+        statedWindowCount != null &&
+        statedWindowCount > 0 &&
+        Math.abs(displayedSqft - statedWindowCount) < 0.51);
     const confirmedFromExplicitNote =
       (explicitlyMeasuredByNotes ||
         noteBackedPhysicalMeasurement ||
         explicitlyMeasuredPhysicalNote ||
-        confirmedFromMatchingNoteValue) &&
+        confirmedFromMatchingNoteValue ||
+        confirmedStuccoAndWindows) &&
       filled &&
       !isUserOverride;
     const shellSheathingIncluded =

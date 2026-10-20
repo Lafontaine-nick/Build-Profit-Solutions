@@ -4,13 +4,17 @@
  */
 
 import { notesInferBathroomGlassDoorStyle } from '@/utils/bathroomGlassDoorPricing';
+import { TYPICAL_SHOWER_WALL_SQFT_PER_BATH } from '@/utils/planBathRooms';
+import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
 import {
   notesNameShowerTileWithFlooring,
+  notesReplaceShowerTile,
   notesWaterproofPanNotWalls,
   showerTileWithFlooringAreas,
 } from '@/utils/bathroomNoteScope';
 import {
   TILE_DEMO_LABOR_RATE,
+  TILE_DEMO_MATERIAL_RATE,
   TILE_PAN_DEMO_INSTALLED_RATE,
 } from '@/utils/bathroomWetAreaDemoPricing';
 import {
@@ -8281,6 +8285,32 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter bathroom vanity replacement count from the notes.',
     missingMessage: 'Enter vanity replacement count.',
   },
+  stucco: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['stuccoNetWallSqft', 'stuccoGrossWallSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter exterior wall surface SF for stucco material and labor.',
+    missingMessage: 'Needs exterior wall surface SF for stucco.',
+  },
+  windows: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'windowCount',
+    measurementKeys: ['windowCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Window count from the job notes.',
+    missingMessage: 'Enter window count or pricing.',
+  },
+  electrical_standard_receptacle: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['standardReceptacleCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Receptacle count from the job notes.',
+    missingMessage: 'Enter receptacle count or pricing.',
+  },
 };
 
 /** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
@@ -10191,6 +10221,11 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     openings: { unit: 'each', measurementKeys: ['framingOpeningCount'] },
   },
   room_remodel: {
+    stucco: {
+      unit: 'sqft',
+      measurementKeys: ['stuccoNetWallSqft', 'stuccoGrossWallSqft'],
+    },
+    windows: { unit: 'each', measurementKeys: ['windowCount'] },
     framing: {
       unit: 'sqft',
       measurementKeys: ['framedAreaSqft', 'floorAreaSqft'],
@@ -15929,10 +15964,19 @@ export function wallAreaFramingWithFlooringPrices(
   const wallSqft =
     parseScopeMeasurementInput(measurements?.wallFramingSqft) ||
     parseFramingMeasurementsFromNotes(notesText).wallFramingSqft;
-  const floorSqft =
+  const notedFloor = notedFlooringSqft(notesText);
+  const storedFloor =
     parseScopeMeasurementInput(measurements?.flooringSqft) ||
-    parseScopeMeasurementInput(measurements?.flooringLvpSqft) ||
-    notedFlooringSqft(notesText);
+    parseScopeMeasurementInput(measurements?.flooringLvpSqft);
+  // A wall-area number copied onto the flooring field is not the LVP area.
+  const floorSqft =
+    storedFloor &&
+    wallSqft &&
+    storedFloor === wallSqft &&
+    notedFloor &&
+    notedFloor !== wallSqft
+      ? notedFloor
+      : storedFloor || notedFloor;
   if (!(wallSqft && wallSqft > 0) || !(floorSqft && floorSqft > 0)) return null;
   const studWall = regionalAdjustedNationalAverage('wall_framing', 'lf', null)
     .average;
@@ -15998,6 +16042,131 @@ export function wallAreaFramingWithFlooringPrices(
     material: round2(framingMaterial + flooringMaterial),
     labor: round2(framingLabor + flooringLabor),
     total: round2(framing.total + flooring.total),
+  };
+}
+
+/**
+ * Measured whole-home flooring and insulation use the areas the note stated.
+ * A saved tile package or house-envelope lump must not replace those areas.
+ */
+export function measuredWholeHomeStatedScopeFill(
+  itemId: string,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  notes: string | null | undefined,
+  pricingContext?: ScopePricingContext | null
+): {
+  material: number;
+  labor: number;
+  total: number;
+  materialSource: 'national_average';
+  laborSource: 'national_average';
+  rateSourceLabel: string;
+  helper: string;
+  mode: 'suggested_price';
+  lumpSumOnly: false;
+  basis: { quantity: number; unit: 'sqft' };
+  benchmarkAction: 'price_ready';
+  productionStatus: 'review_required';
+} | null {
+  if (!notesDescribeMeasuredWholeHomeRemodel(notes)) return null;
+  const text = String(notes || '');
+  const parsed = parseScopeMeasurementsFromNotes(text, {
+    templateKey: templateKey ?? undefined,
+  });
+  const priced = (quantity: number, rateItemId: string, helper: string) => {
+    const rate = regionalAdjustedNationalAverage(
+      rateItemId,
+      'sqft',
+      pricingContext
+    );
+    if (rate.average?.material == null || rate.average?.labor == null) return null;
+    const material = round2(quantity * rate.average.material);
+    const labor = round2(quantity * rate.average.labor);
+    return {
+      material,
+      labor,
+      total: round2(material + labor),
+      materialSource: 'national_average' as const,
+      laborSource: 'national_average' as const,
+      rateSourceLabel:
+        rate.average.sourceLabel ||
+        `Suggested budget split · National Average · ${rateItemId}`,
+      helper,
+      mode: 'suggested_price' as const,
+      lumpSumOnly: false as const,
+      basis: { quantity, unit: 'sqft' as const },
+      benchmarkAction: 'price_ready' as const,
+      productionStatus: 'review_required' as const,
+    };
+  };
+  if (
+    (itemId === 'flooring' || itemId === 'tile_flooring') &&
+    !/\btile\b/i.test(text)
+  ) {
+    const quantity =
+      parseScopeMeasurementInput(measurements.flooringSqft) ||
+      parsed.flooringSqft ||
+      0;
+    if (!(quantity > 0)) return null;
+    return priced(
+      quantity,
+      'flooring',
+      `Based on ${quantity.toLocaleString()} sqft · suggested pricing`
+    );
+  }
+  if (itemId === 'insulation') {
+    const wall =
+      parseScopeMeasurementInput(measurements.exteriorWallInsulationSqft) ||
+      parsed.exteriorWallInsulationSqft ||
+      0;
+    const attic =
+      parseScopeMeasurementInput(measurements.atticInsulationSqft) ||
+      parsed.atticInsulationSqft ||
+      0;
+    const quantity = wall + attic;
+    if (!(quantity > 0)) return null;
+    return priced(
+      quantity,
+      'insulation',
+      `${quantity.toLocaleString()} sqft · wall and attic insulation`
+    );
+  }
+  return null;
+}
+
+/** Stated whole-home trim length at the trim rate. Air sealing is not part of this bid. */
+export function measuredWholeHomeTrimSuggestedFill(
+  itemId: string,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  notes: string | null | undefined
+): { material: number; labor: number; total: number; quantity: number | null } | null {
+  if (itemId !== 'trim' && itemId !== 'baseboard_install') return null;
+  if (!notesDescribeMeasuredWholeHomeRemodel(notes)) return null;
+  const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+    templateKey,
+    notes: notes || undefined,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    itemId,
+    measurements,
+    templateKey,
+    resolved,
+    null,
+    null,
+    notes
+  );
+  const total = Number(suggested.fill?.total);
+  if (!(total > 0)) return null;
+  const material = Number(suggested.fill?.material || 0);
+  const labor = Number(suggested.fill?.labor || 0);
+  const quantity = Number(suggested.fill?.basis?.quantity);
+  return {
+    material: Number.isFinite(material) ? material : 0,
+    labor: Number.isFinite(labor) ? labor : 0,
+    total,
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
   };
 }
 
@@ -17000,10 +17169,160 @@ export function resolveScopeItemSuggestedPricing(
       const measured = parseScopeMeasurementInput(
         (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
       );
-      const trusted =
+      // The note's LVP area is not a shower measurement. A number already on
+      // the shower field is: either the note stated it, or Confirm scope
+      // filled the typical one-bath wall allowance. That allowance is 80 sqft,
+      // the same figure as this note's LVP, so matching the floor qty is not
+      // a reason to leave the shower unpriced.
+      const sqft = areas.showerWallTileSqft || measured;
+      const rates = sqft ? NATIONAL_AVERAGE_BUDGET_SPLITS.shower_wall_tile : null;
+      if (!sqft || !rates) return empty;
+      const material = round2(sqft * rates.material);
+      const labor = round2(sqft * rates.labor);
+      const perSqft = round2(rates.material + rates.labor);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      const fromNotes = Boolean(areas.showerWallTileSqft);
+      const typicalAllowance =
+        !fromNotes && sqft === TYPICAL_SHOWER_WALL_SQFT_PER_BATH;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: fromNotes
+            ? `${sqft.toLocaleString()} sqft of shower wall tile from the job notes.`
+            : typicalAllowance
+              ? `${sqft.toLocaleString()} sqft typical shower wall allowance. National average until you measure this shower.`
+              : `${sqft.toLocaleString()} sqft of shower wall tile.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'shower_wall_tile',
+        },
+        comparison: null,
+      };
+    }
+    if (itemId === 'demo' && notesReplaceShowerTile(notesText)) {
+      const areas = showerTileWithFlooringAreas(notesText);
+      const measured = parseScopeMeasurementInput(
+        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+      );
+      const resolvedSqft =
+        String(resolved.dualCount?.unit || resolved.unit || '').toLowerCase() ===
+          'sqft'
+          ? Number(resolved.dualCount?.quantity ?? resolved.quantity)
+          : null;
+      const sqft =
         areas.showerWallTileSqft ||
-        (measured && measured !== areas.flooringSqft ? measured : null);
-      if (!trusted) return empty;
+        measured ||
+        (resolvedSqft && resolvedSqft !== areas.flooringSqft ? resolvedSqft : null);
+      if (!sqft) return empty;
+      const material = round2(sqft * TILE_DEMO_MATERIAL_RATE);
+      const labor = round2(sqft * TILE_DEMO_LABOR_RATE);
+      const perSqft = round2(TILE_DEMO_MATERIAL_RATE + TILE_DEMO_LABOR_RATE);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            'Suggested budget split · National Average · shower tile demo',
+          helper: `${sqft.toLocaleString()} sqft of existing shower tile coming out. Replace includes tear-out.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'tile_demo',
+        },
+        comparison: null,
+      };
+    }
+    if (itemId === 'waterproofing') {
+      const areas = showerTileWithFlooringAreas(notesText);
+      const measured = parseScopeMeasurementInput(
+        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+      );
+      const sqft = areas.showerWallTileSqft || measured;
+      const rates = sqft ? NATIONAL_AVERAGE_BUDGET_SPLITS.waterproofing : null;
+      if (!sqft || !rates) return empty;
+      const material = round2(sqft * rates.material);
+      const labor = round2(sqft * rates.labor);
+      const perSqft = round2(rates.material + rates.labor);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${sqft.toLocaleString()} sqft of backer and membrane for the new shower tile.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'waterproofing',
+        },
+        comparison: null,
+      };
+    }
+    if (itemId === 'floor_demo') {
+      const areas = showerTileWithFlooringAreas(notesText);
+      const sqft =
+        parseScopeMeasurementInput(
+          (measurementsInput as { floorDemoSqft?: unknown }).floorDemoSqft
+        ) ||
+        parseScopeMeasurementInput(
+          (measurementsInput as { flooringLvpSqft?: unknown }).flooringLvpSqft
+        ) ||
+        areas.flooringSqft;
+      const rates = sqft ? NATIONAL_AVERAGE_BUDGET_SPLITS.floor_demo : null;
+      if (!sqft || !rates) return empty;
+      const material = round2(sqft * rates.material);
+      const labor = round2(sqft * rates.labor);
+      const perSqft = round2(rates.material + rates.labor);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${sqft.toLocaleString()} sqft of existing bathroom floor coming out for the LVP.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'floor_demo',
+        },
+        comparison: null,
+      };
     }
     if (itemId === 'flooring_lvp' || itemId === 'flooring') {
       const areas = showerTileWithFlooringAreas(notesText);
@@ -17503,6 +17822,29 @@ export function resolveScopeItemSuggestedPricing(
   }
   const allowExplicitCrossTradeInsulationSurface =
     String(templateKey || '').toLowerCase() !== 'ground_up';
+  const statedWholeHomeInsulationSqft = (() => {
+    if (
+      itemId !== 'insulation' ||
+      !notesDescribeMeasuredWholeHomeRemodel(notesText)
+    ) {
+      return null;
+    }
+    const parsedAreas = parseScopeMeasurementsFromNotes(notesText, {
+      templateKey: templateKey ?? undefined,
+    });
+    const wall =
+      parseScopeMeasurementInput(
+        measurementsInput.exteriorWallInsulationSqft
+      ) ||
+      parsedAreas.exteriorWallInsulationSqft ||
+      0;
+    const attic =
+      parseScopeMeasurementInput(measurementsInput.atticInsulationSqft) ||
+      parsedAreas.atticInsulationSqft ||
+      0;
+    const stated = wall + attic;
+    return stated > 0 ? stated : null;
+  })();
   const hasConfirmedInsulationBoundary =
     itemId === 'insulation' &&
     (Array.isArray(measurementsInput.insulationAssemblies)
@@ -17546,6 +17888,7 @@ export function resolveScopeItemSuggestedPricing(
     String(templateKey || '').toLowerCase() !== 'ground_up' &&
     !(
       hasConfirmedInsulationBoundary ||
+      statedWholeHomeInsulationSqft != null ||
       (['user_entered', 'manual_override'].includes(
         String(resolved.quantitySource)
       ) &&
@@ -17560,14 +17903,30 @@ export function resolveScopeItemSuggestedPricing(
   if (
     itemId === 'insulation' &&
     String(templateKey || '').toLowerCase() !== 'ground_up' &&
-    resolved.unit === 'sqft' &&
-    Number(resolved.quantity) > 0 &&
+    (resolved.unit === 'sqft' || statedWholeHomeInsulationSqft != null) &&
+    (Number(resolved.quantity) > 0 || statedWholeHomeInsulationSqft != null) &&
     !(
       Array.isArray(measurementsInput.insulationAssemblies) &&
       measurementsInput.insulationAssemblies.length > 0
     )
   ) {
-    const quantity = Number(resolved.quantity);
+    const resolvedInsulationQty = Number(resolved.quantity);
+    const livingForInsulation = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const userHeldInsulationQuantity =
+      ['user_entered', 'manual_override'].includes(
+        String(resolved.quantitySource)
+      ) &&
+      Number.isFinite(resolvedInsulationQty) &&
+      resolvedInsulationQty > 0 &&
+      statedWholeHomeInsulationSqft != null &&
+      Math.abs(resolvedInsulationQty - statedWholeHomeInsulationSqft) >= 0.51 &&
+      (livingForInsulation == null ||
+        Math.abs(resolvedInsulationQty - livingForInsulation) >= 0.51);
+    const quantity = userHeldInsulationQuantity
+      ? resolvedInsulationQty
+      : (statedWholeHomeInsulationSqft ?? resolvedInsulationQty);
     const material = round2(quantity * 1.25);
     const labor = round2(quantity * 1.75);
     return {
@@ -20130,6 +20489,14 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext
   );
   let average = averageInitial;
+  if (
+    itemId === 'stucco' &&
+    notesNameStuccoWithWindows(notesText) &&
+    !(Number(average?.material) > 0 || Number(average?.labor) > 0)
+  ) {
+    const national = getNationalAverageBudgetSplit('stucco', 'sqft');
+    if (national) average = national;
+  }
   if (
     (nationalDrywallHang && itemId === 'drywall') ||
     (crossTradeDrywallPatch && itemId === 'patch_repair') ||
@@ -26280,6 +26647,27 @@ export function resolveChecklistItemQuantity(
       };
     }
   }
+  if (itemId === 'floor_demo' && notesNameShowerTileWithFlooring(ctx.notes)) {
+    const areas = showerTileWithFlooringAreas(ctx.notes);
+    const stored = Number(String(measurements.floorDemoSqft ?? '').replace(/,/g, ''));
+    const lvp = Number(String(measurements.flooringLvpSqft ?? '').replace(/,/g, ''));
+    const sqft =
+      areas.flooringSqft ||
+      (Number.isFinite(stored) && stored > 0 ? stored : 0) ||
+      (Number.isFinite(lvp) && lvp > 0 ? lvp : 0);
+    if (sqft > 0) {
+      return {
+        quantity: sqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Existing bathroom floor coming out. Same area as the LVP.',
+        showInput: true,
+      };
+    }
+  }
   if (
     itemId === 'floor_demo' &&
     notesDescribeMeasuredWholeHomeRemodel(ctx.notes)
@@ -27801,6 +28189,13 @@ export function countScopePricingReadiness(
       ) &&
         Number(resolved.quantity || 0) > 0);
     if (alreadyPriced) continue;
+    if (
+      !resolved.pricingReady &&
+      notesNameShowerTileWithFlooring(notes) &&
+      (item.id === 'demo' || item.id === 'waterproofing')
+    ) {
+      continue;
+    }
     if (resolved.pricingReady) ready += 1;
     else needsMeasurement += 1;
   }

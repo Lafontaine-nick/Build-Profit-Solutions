@@ -17,6 +17,7 @@ import {
 import {
   syncPlumbingScopeItems,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { notesNameReceptaclesWithToilet } from '@/utils/electricalNoteScope';
 import {
   syncWindowsDoorsScopeItems,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
@@ -288,6 +289,7 @@ export function orchestrateMixedScopeItems(
   items: ScopeChecklistItem[],
   input: MixedScopeOrchestratorInput
 ): ScopeChecklistItem[] {
+  if (notesNameReceptaclesWithToilet(input.notes)) return items;
   if (!isCanonicalMixedScope(input)) return items;
   if (input.wholeHomeLayout) return items;
 

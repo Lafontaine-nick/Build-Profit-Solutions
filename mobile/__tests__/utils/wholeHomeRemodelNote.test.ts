@@ -127,13 +127,13 @@ describe('whole-home remodel note authority', () => {
         'fixture_demo',
         'floor_demo',
         'insulation',
-        'air_sealing',
         'trim',
         'plumbing',
         'electrical',
         'paint',
       ])
     );
+    expect(ids).not.toEqual(expect.arrayContaining(['air_sealing']));
     expect(ids).not.toEqual(
       expect.arrayContaining([
         'framing',
@@ -635,9 +635,21 @@ describe('whole-home remodel note authority', () => {
     expect(insulationFromNote.fill?.basis?.quantity).toBe(3050);
     expect(insulationFromNote.fill?.total).toBe(9150);
 
-    expect(flooringResolved.quantity).toBe(1100);
+    expect(Number(flooringResolved.quantity)).toBe(1100);
     expect(flooring.fill?.basis?.quantity).toBe(1100);
     expect(flooring.fill?.total).toBe(9427);
+
+    const trim = resolveScopeItemSuggestedPricing(
+      'trim',
+      { floorAreaSqft: '1650', baseboardLf: '80' } as never,
+      'room_remodel',
+      { quantity: 80, unit: 'lf', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(trim.fill?.basis?.quantity).toBe(80);
+    expect(trim.fill?.total).toBe(680);
 
     const keys = quickMeasurementRowsForInput(
       'room_remodel',
@@ -654,5 +666,71 @@ describe('whole-home remodel note authority', () => {
     expect(keys).toContain('plumbingRoughPointCount');
     expect(keys).not.toContain('kitchenFloorSqft');
     expect(keys).not.toContain('ceilingPaintSqft');
+  });
+
+  it('prices stated flooring and insulation areas instead of a stuck package', () => {
+    const notes =
+      'Remodel a 2,100 sqft home. Kitchen and two bathroom updates. Remove 16 linear feet of existing cabinets and install 28 linear feet of new cabinets. Remove 800 sqft of existing flooring and install 1,250 sqft of flooring. Repair 410 sqft of drywall. Replace 7 windows, 1 exterior door, and 6 interior doors. Insulate 1,750 sqft of walls and 900 sqft of attic. Air sealing, 95 linear feet of trim, 9 plumbing connections, electrical, and paint 1,600 sqft of interior walls.';
+    const {
+      measuredWholeHomeStatedScopeFill,
+    } = require('@/utils/scopeItemQuantities') as typeof import('@/utils/scopeItemQuantities');
+    const { listConfirmScopeAppliedPricingLines } =
+      require('@/utils/benchmarkReasonablenessContext') as typeof import('@/utils/benchmarkReasonablenessContext');
+    const measurements = {
+      floorAreaSqft: '2100',
+      flooringSqft: '1250',
+      exteriorWallInsulationSqft: '1750',
+      atticInsulationSqft: '900',
+      itemQuantities: {},
+    };
+    const flooring = measuredWholeHomeStatedScopeFill(
+      'flooring',
+      measurements as never,
+      'room_remodel',
+      notes,
+      null
+    );
+    const tilePackage = measuredWholeHomeStatedScopeFill(
+      'tile_flooring',
+      measurements as never,
+      'room_remodel',
+      notes,
+      null
+    );
+    const insulation = measuredWholeHomeStatedScopeFill(
+      'insulation',
+      { floorAreaSqft: '2100' } as never,
+      'room_remodel',
+      notes,
+      null
+    );
+    expect(flooring?.basis.quantity).toBe(1250);
+    expect(flooring?.total).not.toBe(20864);
+    expect(flooring?.total).toBe(10712.5);
+    expect(tilePackage?.basis.quantity).toBe(1250);
+    expect(tilePackage?.total).toBe(flooring?.total);
+    expect(insulation?.basis.quantity).toBe(2650);
+    expect(insulation?.total).not.toBe(8419);
+    expect(insulation?.total).toBe(5273.5);
+
+    const lines = listConfirmScopeAppliedPricingLines({
+      items: [
+        { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        { id: 'insulation', label: 'Insulation', state: 'included' },
+        {
+          id: 'air_sealing',
+          label: 'Standard air sealing',
+          state: 'included',
+        },
+      ] as never,
+      measurements: measurements as never,
+      templateKey: 'room_remodel',
+      notes,
+    });
+    expect(lines.find(line => line.itemId === 'flooring')?.total).toBe(
+      flooring?.total
+    );
+    expect(lines.find(line => line.itemId === 'insulation')?.total).toBe(5273.5);
+    expect(lines.find(line => line.itemId === 'air_sealing')).toBeUndefined();
   });
 });

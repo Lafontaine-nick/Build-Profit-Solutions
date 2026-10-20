@@ -2132,10 +2132,62 @@ export function parseScopeMeasurementsFromNotes(
       ) {
         continue;
       }
-      const q =
+      const wallAreaMatch =
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+of\s+walls?\b/i.exec(
+          clause
+        );
+      const wallAreaQty = wallAreaMatch?.[1]
+        ? Number(wallAreaMatch[1].replace(/,/g, ''))
+        : null;
+      const productAreaMatch =
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:of\s+)?(?:lvp|luxury\s+vinyl|laminate|vinyl|carpet|flooring)\b/i.exec(
+          clause
+        );
+      const productAreaQty = productAreaMatch?.[1]
+        ? Number(productAreaMatch[1].replace(/,/g, ''))
+        : null;
+      const otherTradeAreaMatch =
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+of\s+(?:the\s+)?(?:drywall|sheetrock|gypsum|walls?|insulation)\b/i.exec(
+          clause
+        );
+      const otherTradeAreaQty = otherTradeAreaMatch?.[1]
+        ? Number(otherTradeAreaMatch[1].replace(/,/g, ''))
+        : null;
+      let q =
         explicitlyScopedFlooringQty ||
         pickSqftNearPattern(clause, flooringPattern) ||
         (dedicatedFlooringTemplate ? firstQty(clause, SQFT_RE) : null);
+      // "Framing and flooring Frame 1,600 sqft of walls" puts the trade
+      // name next to the wall area. That number belongs to the walls.
+      if (
+        wallAreaQty &&
+        wallAreaQty > 0 &&
+        q === wallAreaQty &&
+        !(productAreaQty && productAreaQty > 0 && productAreaQty !== wallAreaQty)
+      ) {
+        q = null;
+      } else if (
+        wallAreaQty &&
+        q === wallAreaQty &&
+        productAreaQty &&
+        productAreaQty > 0
+      ) {
+        q = productAreaQty;
+      }
+      // "Drywall and flooring Hang 800 sqft of drywall" names flooring beside
+      // the drywall area. That number stays on drywall.
+      if (
+        otherTradeAreaQty &&
+        otherTradeAreaQty > 0 &&
+        q === otherTradeAreaQty &&
+        !(
+          productAreaQty &&
+          productAreaQty > 0 &&
+          productAreaQty !== otherTradeAreaQty
+        )
+      ) {
+        q = null;
+      }
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
@@ -2574,7 +2626,7 @@ export function parseScopeMeasurementsFromNotes(
         )
       )
         continue;
-      if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
+      if (/\bwalls?\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
       if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(c)) continue;
       if (/\bhang\s+and\s+finish\b/i.test(c)) continue;
       if (isExteriorFlatworkClause(c)) continue;

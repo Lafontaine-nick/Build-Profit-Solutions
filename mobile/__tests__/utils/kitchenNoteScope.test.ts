@@ -84,6 +84,25 @@ describe('filterDedicatedKitchenConfirmItems', () => {
     ]);
   });
 
+  it('drops unnamed counters and backsplash from a cabinet and LVP install', () => {
+    const notes = 'Install 12 LF of base cabinets and 40 sqft of LVP.';
+    const filtered = filterDedicatedKitchenConfirmItems(
+      [
+        { id: 'cabinets', label: '12 LF cabinets', state: 'included' },
+        { id: 'countertops', label: 'Countertops', state: 'unsure' },
+        { id: 'backsplash', label: 'Backsplash', state: 'unsure' },
+        { id: 'cabinet_demo', label: 'Cabinet demo', state: 'unsure' },
+        { id: 'countertop_demo', label: 'Countertop demo', state: 'unsure' },
+        { id: 'flooring', label: 'Kitchen flooring install', state: 'included' },
+      ],
+      { notes, templateKey: 'kitchen', projectType: 'kitchen' }
+    );
+    expect(filtered.map(item => item.id)).toEqual(['cabinets', 'flooring']);
+    expect(filtered.find(item => item.id === 'flooring')?.label).toBe(
+      'LVP flooring'
+    );
+  });
+
   it('leaves a bare kitchen remodel on the full questionnaire', () => {
     const items = [
       { id: 'drywall', label: 'Drywall / patching' },

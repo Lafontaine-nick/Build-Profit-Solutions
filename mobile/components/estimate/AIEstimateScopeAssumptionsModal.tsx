@@ -286,6 +286,7 @@ import {
   filterDedicatedBathroomConfirmItems,
   notesKeepExistingWetArea,
   notesNameShowerTileWithFlooring,
+  notesReplaceShowerTile,
   notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
   shouldLimitBathroomChecklistToNotes,
@@ -302,16 +303,24 @@ import {
   notesDescribeDedicatedElectricalDeviceJob,
   notesNameElectricalJobCondition,
   notesNameElectricalServiceAmperage,
+  notesNameReceptaclesWithToilet,
+  receptaclesWithToiletChecklistItems,
 } from '@/utils/electricalNoteScope';
 import { filterDedicatedWindowsDoorsConfirmItems } from '@/utils/windowsDoorsNoteScope';
 import {
+  applyAtticInsulationWithDrywallCards,
   filterDedicatedInsulationConfirmItems,
   insulationAssembliesMatchingNote,
   insulationNoteNamesAtticArea,
   insulationNoteNamesWallArea,
 } from '@/utils/insulationNoteScope';
-import { filterDedicatedStuccoConfirmItems } from '@/utils/stuccoNoteScope';
+import {
+  filterDedicatedStuccoConfirmItems,
+  filterStuccoWithWindowsConfirmItems,
+  notesNameStuccoWithWindows,
+} from '@/utils/stuccoNoteScope';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import { applyConcretePatioWithSodCards } from '@/utils/foundationPlanningMeasurements';
 import {
   AREA_ONLY_EXTERIOR_FINISHES,
   AREA_ONLY_STUCCO_SYSTEMS,
@@ -470,6 +479,7 @@ import {
   resolveChecklistItemQuantity,
   resolveCustomScopePricingUnit,
   resolveDualRatePricingDisplayFromNotes,
+  measuredWholeHomeStatedScopeFill,
   resolveScopeItemSuggestedPricing,
   resolveInsulationAssemblyPlanningRateLabel,
   resolveInsulationAssemblyPlanningRateTier,
@@ -516,6 +526,7 @@ import {
   quickMeasurementPlaceholder,
   quickMeasurementFieldDef,
   quickMeasurementFieldMeta,
+  noteBackedInsulationMeasurementKeys,
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   wholeProjectPlanQuickMeasurementRows,
@@ -6461,6 +6472,17 @@ function QuantitySection({
         suggestedBudgetSplit = formulaSuggested.fill;
         suggestedComparisonSplit = formulaSuggested.comparison;
       }
+      const statedWholeHomePrice = measuredWholeHomeStatedScopeFill(
+        itemId,
+        measurementsInput,
+        templateKey,
+        originalNotes,
+        pricingContext
+      );
+      if (statedWholeHomePrice) {
+        suggestedBudgetSplit = statedWholeHomePrice;
+        suggestedComparisonSplit = null;
+      }
       // Do not show two Apply choices when both the primary suggestion and
       // comparison are national-average versions of the same scope.
       if (
@@ -7924,6 +7946,17 @@ function QuantitySection({
       displayQuantityLine: undefined,
       helper: `${explicitInsulationNoteSqft.toLocaleString()} sqft · note-confirmed insulation area`,
     };
+  }
+  const statedWholeHomePrice = measuredWholeHomeStatedScopeFill(
+    itemId,
+    measurementsInput,
+    templateKey,
+    originalNotes,
+    pricingContext
+  );
+  if (statedWholeHomePrice) {
+    suggestedBudgetSplit = statedWholeHomePrice;
+    suggestedComparisonSplit = null;
   }
   // Countertop pricing already has one primary suggested price. Do not render
   // the older generic national-average comparison as a second Apply choice.
@@ -16163,7 +16196,9 @@ function CollapsibleQuickMeasurements({
               {
                 ...wall,
                 label: 'Shower wall tile',
-                helperText: 'New shower wall tile area — priced per sqft.',
+                helperText: notesReplaceShowerTile(notesTextForScopeFields)
+                  ? 'Shower wall area. Tear-out uses this same sqft.'
+                  : 'New shower wall tile area — priced per sqft.',
                 placeholder: 'Enter',
               },
             ]]
@@ -16315,34 +16350,17 @@ function CollapsibleQuickMeasurements({
       // The assembly card owns insulation location, area, material, and
       // R-value when insulation is an embedded scope. Keep those fields out
       // of the generic Quick Measurements card so the old format remains the
-      // single editable source. A measured whole-home note has no takeoff on
-      // that card, so the named wall and attic areas stay here.
-      const wholeHomeInsulationTakeoff = new Set<QuickMeasurementFieldKey>();
-      if (notesDescribeMeasuredWholeHomeRemodel(notes)) {
-        const insulationNotes = String(notes || '');
-        // Commas inside "1,400" must not end the match, and "sqft of attic"
-        // can sit further along the same sentence than a 40-character window.
-        if (
-          /\b(?:wall|walls)\b[^.;\n]{0,120}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;\n]{0,120}\b(?:wall|walls)\b/i.test(
-            insulationNotes
-          )
-        ) {
-          wholeHomeInsulationTakeoff.add('exteriorWallInsulationSqft');
-        }
-        if (
-          /\battic\b[^.;\n]{0,120}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;\n]{0,120}\battic\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?attic\b/i.test(
-            insulationNotes
-          )
-        ) {
-          wholeHomeInsulationTakeoff.add('atticInsulationSqft');
-        }
-      }
+      // single editable source. A named wall or attic area still needs its
+      // own field here, including mixed drywall and attic notes.
+      const namedInsulationTakeoff = new Set<QuickMeasurementFieldKey>(
+        noteBackedInsulationMeasurementKeys(notes)
+      );
       return baseRows
         .map(row =>
           row.filter(
             field =>
               !insulationAssemblyMeasurementKeys.has(field.key) ||
-              wholeHomeInsulationTakeoff.has(field.key)
+              namedInsulationTakeoff.has(field.key)
           )
         )
         .filter(row => row.length > 0);
@@ -16408,6 +16426,9 @@ function CollapsibleQuickMeasurements({
         .filter(row => row.length > 0);
     }
     if (singleTradeImport) {
+      if (notesNameStuccoWithWindows(notes)) {
+        return baseRows;
+      }
       const allowed = new Set<QuickMeasurementFieldKey>(
         tradeQuickMeasurementFieldKeys(tradeKey) as QuickMeasurementFieldKey[]
       );
@@ -16545,6 +16566,13 @@ function CollapsibleQuickMeasurements({
         .map(row =>
           row.filter(field => {
             const noteText = String(notes || '');
+            if (
+              notesNameStuccoWithWindows(noteText) &&
+              (field.key === 'stuccoGrossWallSqft' ||
+                field.key === 'windowCount')
+            ) {
+              return true;
+            }
             const noteKeys = noteQuickMeasurements?.keys;
             const noteHasField =
               noteKeys instanceof Set
@@ -17312,6 +17340,7 @@ function CollapsibleQuickMeasurements({
         mixedTradeSet.has('concrete') &&
         (!compactMixedScope || explicitConcreteScopeInNotes)));
   const stuccoQmJob =
+    !notesNameStuccoWithWindows(notes) &&
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
@@ -17376,6 +17405,7 @@ function CollapsibleQuickMeasurements({
         'electrical');
   const bathroomFixturesQmJob =
     !notesNameShowerTileWithFlooring(notes) &&
+    !notesNameReceptaclesWithToilet(notes) &&
     !selectedElectricalTrade &&
     !paintingPlanMeasurements &&
     !notesTradeFlow &&
@@ -20300,9 +20330,11 @@ function CollapsibleQuickMeasurements({
         : {}),
       ...(field.key === 'windowCount'
         ? {
-            label: notesDescribeAreaOnlyAddition(notes)
-              ? 'Windows'
-              : 'Window replacement',
+            label:
+              notesNameStuccoWithWindows(notes) ||
+              notesDescribeAreaOnlyAddition(notes)
+                ? 'Windows'
+                : 'Window replacement',
           }
         : field.key === 'drywallSqft' &&
             drywallSqftLabel &&
@@ -23349,6 +23381,7 @@ export default function AIEstimateScopeAssumptionsModal({
     [draft]
   );
   const dedicatedElectricalChecklist = useMemo(() => {
+    if (notesNameReceptaclesWithToilet(scopeNotes)) return false;
     const checklistKey = String(checklist?.templateKey || '').toLowerCase();
     if (['electrical', 'electrical_rough'].includes(checklistKey)) return true;
     const noteText = String(scopeNotes || '');
@@ -24010,7 +24043,11 @@ export default function AIEstimateScopeAssumptionsModal({
       },
       scopeNotes
     );
+  const stuccoAndWindowsNote = notesNameStuccoWithWindows(scopeNotes);
+  const receptaclesAndToiletNote = notesNameReceptaclesWithToilet(scopeNotes);
   const collapsedScopeGroupSummary =
+    !stuccoAndWindowsNote &&
+    !receptaclesAndToiletNote &&
     !areaOnlyAdditionNote &&
     !concretePlanExport &&
     !plumbingPlanExport &&
@@ -24054,6 +24091,8 @@ export default function AIEstimateScopeAssumptionsModal({
   // summary. Fill framing, drywall, HVAC, insulation, and paint there unless
   // this is a selected trade or a room remodel without a whole-house plan.
   const showGroundUpPlanShell =
+    !stuccoAndWindowsNote &&
+    !receptaclesAndToiletNote &&
     !areaOnlyAdditionNote &&
     !singleTradePlanImport &&
     !concretePlanExport &&
@@ -24114,6 +24153,12 @@ export default function AIEstimateScopeAssumptionsModal({
     );
 
   const displayItems = useMemo(() => {
+    const receptacleToiletNote =
+      String(scopeNotes || '').trim() ||
+      String(draft?.originalNotes || '').trim();
+    if (notesNameReceptaclesWithToilet(receptacleToiletNote)) {
+      return receptaclesWithToiletChecklistItems();
+    }
     let expanded = buildConfirmScopeDisplayItems(
       items,
       measurements as Record<string, unknown>,
@@ -24267,6 +24312,10 @@ export default function AIEstimateScopeAssumptionsModal({
         ];
       }
     }
+    expanded = applyConcretePatioWithSodCards(
+      applyAtticInsulationWithDrywallCards(expanded, currentUserNote),
+      currentUserNote
+    );
     if (!explicitInteriorTrimMention && !areaOnlyAdditionNote) {
       expanded = expanded.filter(item => item.id !== 'interior_trim');
     }
@@ -24794,7 +24843,8 @@ export default function AIEstimateScopeAssumptionsModal({
       notes: collectRoofingInferenceNotes(draft, noteScopeParams.notes),
       selectedIds: measurements.tradeScopeSelections?.roofing,
     };
-    const filtered = filterDedicatedStuccoConfirmItems(
+    const filtered = filterStuccoWithWindowsConfirmItems(
+      filterDedicatedStuccoConfirmItems(
       filterDedicatedInsulationConfirmItems(
       filterDedicatedWindowsDoorsConfirmItems(
       filterDedicatedElectricalConfirmItems(
@@ -24817,6 +24867,9 @@ export default function AIEstimateScopeAssumptionsModal({
       noteScopeParams.notes,
       { planBacked: noteScopeParams.planBacked }
       ),
+      noteScopeParams.notes,
+      { planBacked: noteScopeParams.planBacked }
+    ),
       noteScopeParams.notes,
       { planBacked: noteScopeParams.planBacked }
     ),
@@ -24952,12 +25005,14 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
         notes: scopeNotes,
+        pricingContext: enrichedPricingContext,
       }),
     [
       appliedPricingItems,
       measurementsForAppliedPricing,
       scopeNotes,
       scopePricingTemplateKey,
+      enrichedPricingContext,
     ]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
@@ -24968,12 +25023,14 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
         notes: scopeNotes,
+        pricingContext: enrichedPricingContext,
       }),
     [
       appliedPricingItems,
       measurementsForAppliedPricing,
       scopeNotes,
       scopePricingTemplateKey,
+      enrichedPricingContext,
     ]
   );
   const step2AppliedBuildCostPerLivingSf = useMemo(() => {
@@ -25884,7 +25941,8 @@ export default function AIEstimateScopeAssumptionsModal({
           state: 'included',
           noteBacked: true,
         },
-        ...(parsedInsulationNotes.airSealingIncluded
+        ...(parsedInsulationNotes.airSealingIncluded &&
+        !notesDescribeMeasuredWholeHomeRemodel(measurementNotes)
           ? [
               {
                 id: 'air_sealing',
@@ -27019,7 +27077,13 @@ export default function AIEstimateScopeAssumptionsModal({
         return true;
       });
     }
-    normalized = filterRoomRemodelNoteScopeItems(normalized, scopeNotes);
+    normalized = applyConcretePatioWithSodCards(
+      applyAtticInsulationWithDrywallCards(
+        filterRoomRemodelNoteScopeItems(normalized, scopeNotes),
+        scopeNotes
+      ),
+      scopeNotes
+    );
     const explicitWallLayoutWork =
       /\b(?:remove|removing|demo|demolish|tear[\s-]?out|add|adding|move|moving|relocat(?:e|ed|ing)|reframe|frame|framing)\b[^.;\n]{0,60}\bwalls?\b|\bwalls?\b[^.;\n]{0,60}\b(?:remove|removing|demo|demolish|tear[\s-]?out|add|adding|move|moving|relocat(?:e|ed|ing)|reframe|frame|framing)\b|\bwall\s+layout\s+changes?\b/i.test(
         scopeNotes
@@ -27143,6 +27207,9 @@ export default function AIEstimateScopeAssumptionsModal({
         nextMeasurements as Record<string, unknown>,
         scopeNotes
       ) as typeof nextMeasurements;
+    }
+    if (notesNameReceptaclesWithToilet(scopeNotes)) {
+      normalized = receptaclesWithToiletChecklistItems();
     }
     baseItemsRef.current = normalized;
     setItems(normalized);
@@ -29564,6 +29631,17 @@ export default function AIEstimateScopeAssumptionsModal({
         suggested: initialSuggested,
         choiceId: item.choiceId,
       });
+      const statedWholeHomePrice = measuredWholeHomeStatedScopeFill(
+        item.id,
+        measurements,
+        cardTemplateKey,
+        pricingNotes,
+        enrichedPricingContext
+      );
+      if (statedWholeHomePrice) {
+        suggested.fill = statedWholeHomePrice;
+        suggested.comparison = null;
+      }
       if (includeUnconfirmedSuggestedPricingFill(suggested.fill)) {
         const row = {
           itemId: item.id,
@@ -32802,7 +32880,9 @@ export default function AIEstimateScopeAssumptionsModal({
                   onPress={scrollToFirstMissingMeasurement}
                   style={{ color: '#fbbf24', fontWeight: '700' }}
                 >
-                  {summary.needsMeasurement} need measurements
+                  {summary.needsMeasurement === 1
+                    ? '1 needs a measurement'
+                    : `${summary.needsMeasurement} need measurements`}
                 </Text>
               </>
             ) : null}
@@ -33292,7 +33372,8 @@ export default function AIEstimateScopeAssumptionsModal({
           (singleTradePlanImport && singleTradeKey === 'painting') ||
           String(checklist?.templateKey || '').toLowerCase() === 'painting' ||
           ((singleTradePlanImport || stuccoTradeFlow) &&
-            !notesContainStructuralMixedScope)
+            !notesContainStructuralMixedScope &&
+            !notesNameStuccoWithWindows(scopeNotes))
         }
             tradeKey={
               notesPlumbingFlow

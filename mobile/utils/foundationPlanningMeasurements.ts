@@ -125,7 +125,7 @@ export function computeExcavationCyFromFootingTrench(
 }
 
 const EXTERIOR_FLATWORK_RE =
-  /\b(?:driveway|sidewalk|walkway|patio\s+slab|rv\s+pad|porch\s+slab)\b/i;
+  /\b(?:driveway|sidewalk|walkway|patio\s+slab|rv\s+pad|porch\s+slab)\b|\bconcrete\s+patios?\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:concrete\s+)?patios?\b(?!\s+doors?\b)/i;
 
 /** "Paver walkway" is landscape pavers. Leave a real concrete walkway in place. */
 export function notesIgnoringPaverSurfaces(
@@ -175,6 +175,97 @@ export function notesImplyExteriorFlatwork(
     EXTERIOR_FLATWORK_RE.test(n) ||
     /\bpour\s+new\s+(?:driveway|sidewalk|walkway|patio)\b/i.test(n)
   );
+}
+
+const PATIO_SOD_OTHER_WORK =
+  /\b(?:pavers?|shrubs?|plants?|irrigation|rock|mulch|edging|retaining\s+walls?|exterior\s+doors?|driveway|sidewalk|walkway|trees?|footings?|foundation|house\s+slab|garage\s+slab)\b/i;
+
+/** A concrete patio and sod, with no other hardscape or landscape work named. */
+export function notesNameConcretePatioWithSod(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (PATIO_SOD_OTHER_WORK.test(text)) return false;
+  const namesPatio =
+    /\bconcrete\s+patios?\b/i.test(text) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:concrete\s+)?patios?\b(?!\s+doors?\b)/i.test(
+      text
+    );
+  const namesSod = /\bsod\b|\bturf\b/i.test(text);
+  return namesPatio && namesSod;
+}
+
+export function concretePatioWithSodAreas(notes: string | null | undefined): {
+  patioSqft: number | null;
+  sodSqft: number | null;
+} {
+  const text = String(notes || '');
+  const amount = (raw?: string) => {
+    const value = Number(String(raw || '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  const patio = text.match(
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:concrete\s+)?patios?\b(?!\s+doors?\b)/i
+  );
+  const sod = text.match(
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:sod|turf)\b/i
+  );
+  return {
+    patioSqft: amount(patio?.[1]),
+    sodSqft: amount(sod?.[1]),
+  };
+}
+
+export function concretePatioWithSodHelpers(notes: string | null | undefined): {
+  patio: string;
+  sod: string;
+} {
+  const areas = concretePatioWithSodAreas(notes);
+  return {
+    patio: areas.patioSqft
+      ? 'Concrete patio slab. Uses the patio area from the notes.'
+      : 'Concrete patio slab. Enter the patio area.',
+    sod: areas.sodSqft
+      ? 'Sod install. Uses the sod area from the notes.'
+      : 'Sod install. Enter the sod area.',
+  };
+}
+
+export function applyConcretePatioWithSodCards<
+  T extends {
+    id?: string | null;
+    label?: string | null;
+    helperText?: string | null;
+    noteBacked?: boolean | null;
+  },
+>(items: T[], notes: string | null | undefined): T[] {
+  if (!notesNameConcretePatioWithSod(notes)) return items;
+  const helpers = concretePatioWithSodHelpers(notes);
+  const hasPourFlatwork = items.some(item => item.id === 'pour_flatwork');
+  return items
+    .filter(item => {
+      if (item.id === 'concrete_patio') return false;
+      if (hasPourFlatwork && item.id === 'concrete') return false;
+      return true;
+    })
+    .map(item => {
+      if (item.id === 'pour_flatwork' || item.id === 'concrete') {
+        return {
+          ...item,
+          label: 'Concrete patio',
+          helperText: helpers.patio,
+          noteBacked: true,
+        };
+      }
+      if (item.id === 'sod_turf' || item.id === 'sod') {
+        return {
+          ...item,
+          helperText: helpers.sod,
+          noteBacked: true,
+        };
+      }
+      return item;
+    });
 }
 
 export function notesImplyMixedConcreteJob(

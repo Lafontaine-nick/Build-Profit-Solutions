@@ -10,6 +10,7 @@ import {
   notesDescribeSheetrockFinishJob,
   notesNameDrywallBesideFlooring,
   notesNameDrywallFlooringPatchOnly,
+  drywallBesideFlooringLineLabel,
 } from '@/utils/drywallNoteScope';
 
 type ExplicitScopeItem = {
@@ -66,16 +67,19 @@ export function explicitCrossTradeScopeItems(
           item.id === 'demo_removal' ||
           item.id === 'patch_repair'
       );
+  const flooringLabel = drywallBesideFlooringLineLabel(text);
   const flooringPricedInNotes = /\$\s*\d/.test(text);
   return [
     ...drywallItems,
     {
       id: 'flooring',
       inputType: 'yes_no',
-      label: 'Flooring',
+      label: flooringLabel,
       helperText: flooringPricedInNotes
         ? 'Install the flooring area at the rates in the notes.'
-        : 'Install the flooring area named in the notes.',
+        : flooringLabel === 'LVP'
+          ? 'Install the LVP area named in the notes.'
+          : 'Install the flooring area named in the notes.',
       category: 'Flooring',
       state: 'included',
       noteBacked: true,

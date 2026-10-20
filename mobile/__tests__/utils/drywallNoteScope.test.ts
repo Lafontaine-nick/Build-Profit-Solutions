@@ -806,7 +806,7 @@ describe('dedicated drywall note', () => {
       groupScopeChecklistItems(items, 'room_remodel', { notes }).map(
         group => group.title
       )
-    ).toEqual(['Drywall hang / finish · Flooring']);
+    ).toEqual(['Drywall hang / finish', 'Flooring']);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
   });
 
@@ -832,6 +832,84 @@ describe('dedicated drywall note', () => {
     expect(repaired.stillNeededReview).toEqual([]);
     expect(repaired.needsReviewItems).toEqual([]);
     expect(repaired.missingInfo).toEqual([]);
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
+  });
+
+  it('keeps hang and LVP on their own areas', () => {
+    const notes = 'Hang 800 sqft of drywall and install 400 sqft of LVP.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        projectTitle: 'Drywall and Flooring',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        scopeMode: 'mixed',
+        scopeChecklist: {
+          templateKey: 'room_remodel',
+          items: [
+            { id: 'drywall', label: 'Drywall', state: 'included', inputType: 'yes_no' },
+            { id: 'flooring', label: 'Flooring', state: 'included', inputType: 'yes_no' },
+          ],
+        },
+        scopeMeasurements: {
+          drywallSqft: 800,
+          flooringSqft: 800,
+        },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    const items = repaired.scopeChecklist?.items || [];
+    const measurements = normalizeScopeMeasurements(repaired.scopeMeasurements);
+    const flooringQuantity = resolveChecklistItemQuantity('flooring', measurements, {
+      templateKey: 'room_remodel',
+      notes,
+    });
+    const flooringPrice = resolveScopeItemSuggestedPricing(
+      'flooring',
+      measurements,
+      'room_remodel',
+      flooringQuantity,
+      null,
+      null,
+      notes
+    );
+    const rows = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      measurements,
+      undefined,
+      { scopeNotes: notes }
+    );
+
+    expect(measurements.drywallSqft).toBe(800);
+    expect(measurements.flooringSqft).toBe(400);
+    expect(measurements.flooringLvpSqft).toBe(400);
+    expect(items.map(item => item.label)).toEqual([
+      'Drywall hang / finish',
+      'LVP',
+    ]);
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual(['Drywall hang / finish · 800 sqft', 'LVP · 400 sqft']);
+    expect(getInitialRevealChecklistScopePreview(repaired).every(row => row.amount === 0)).toBe(
+      true
+    );
+    expect(
+      groupScopeChecklistItems(items, 'room_remodel', { notes }).map(
+        group => group.title
+      )
+    ).toEqual(['Drywall hang / finish', 'LVP']);
+    expect(rows.flat().map(row => row.label)).toEqual([
+      'Drywall hang / finish',
+      'LVP',
+    ]);
+    expect(flooringPrice.fill).toMatchObject({
+      material: 1400,
+      labor: 1400,
+      total: 2800,
+    });
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
   });
 });

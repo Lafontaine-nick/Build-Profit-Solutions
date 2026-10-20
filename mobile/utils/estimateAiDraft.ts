@@ -21,6 +21,16 @@ import {
   kitchenConfirmScopeSeedItems,
   notesDescribeDedicatedKitchenRemodel,
 } from '@/utils/kitchenNoteScope';
+import {
+  notesNameReceptaclesWithToilet,
+  receptaclesWithToiletChecklistItems,
+  receptaclesWithToiletRevealRows,
+} from '@/utils/electricalNoteScope';
+import {
+  dedicatedStuccoWallSqft,
+  notesNameStuccoWithWindows,
+  stuccoWithWindowsCount,
+} from '@/utils/stuccoNoteScope';
 import { explicitCrossTradeScopeItems } from '@/utils/noteScopeLines';
 import {
   dedicatedDeckConfirmScopeItems,
@@ -42,6 +52,7 @@ import {
   notesDescribeNoteRatedDrywallJob,
   notesDescribeSheetrockFinishJob,
   notesUseDedicatedDrywallScope,
+  drywallBesideFlooringAreas,
 } from '@/utils/drywallNoteScope';
 import { isContingencyScopePackage, isSoftCostScopePackage } from '@/utils/softCostScope';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
@@ -147,7 +158,9 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   notesNameShowerTileWithFlooring,
+  notesReplaceShowerTile,
   showerTileWithFlooringAreas,
+  showerTileWithFlooringChecklistItems,
 } from '@/utils/bathroomNoteScope';
 import {
   FRAMING_CARDS,
@@ -1463,6 +1476,85 @@ export function repairDraftRatePricingFromNotes(
   if (notesNameLinearFootStudWall(text)) {
     Object.assign(parsed, parseFramingMeasurementsFromNotes(text));
   }
+  if (
+    notesNameReceptaclesWithToilet(text) &&
+    !draft.scopeAssumptionsConfirmed
+  ) {
+    const rows = receptaclesWithToiletRevealRows(text);
+    const receptacleCount = Number(String(rows[0]?.quantity || '').replace(/[^\d.]/g, ''));
+    const toiletCount = Number(String(rows[1]?.quantity || '').replace(/[^\d.]/g, ''));
+    const measurements = {
+      ...(draft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    delete measurements.floorAreaSqft;
+    delete measurements.patchRepairSqft;
+    delete measurements.drywallSqft;
+    delete measurements.flooringSqft;
+    delete measurements.plumbingWorkflowMode;
+    delete measurements.plumbingRoomContext;
+    if (receptacleCount > 0) {
+      measurements.standardReceptacleCount = receptacleCount;
+    }
+    if (toiletCount > 0) measurements.bathroomInstallToiletCount = toiletCount;
+    const itemQuantities = {
+      ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+    };
+    if (receptacleCount > 0) {
+      itemQuantities.electrical_standard_receptacle = {
+        quantity: receptacleCount,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+    }
+    if (toiletCount > 0) {
+      itemQuantities.toilet = {
+        quantity: toiletCount,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+    }
+    measurements.itemQuantities =
+      itemQuantities as ScopeMeasurements['itemQuantities'];
+    return {
+      ...draft,
+      originalNotes: text,
+      projectType: 'other',
+      projectTitle: 'Receptacles and toilet',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(draft.classification || {}),
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades: ['electrical', 'plumbing'],
+        scopeSummary: 'Receptacles and toilet',
+      },
+      scopeSummary: 'Receptacles and toilet',
+      scopeTradeLabels: ['Receptacles', 'Toilet'],
+      detectedTrades: ['electrical', 'plumbing'],
+      whatAiDid: ['Detected receptacles and a toilet.'],
+      scopeChecklist: {
+        ...(draft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'room_remodel',
+        title: 'Receptacles and toilet — confirm project scope',
+        intro: 'Confirm the receptacles and toilet before pricing.',
+        items: receptaclesWithToiletChecklistItems(),
+        scopeFacts: [],
+        canonicalMixedScope: null,
+        suggestedMeasurements:
+          draft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
   if (!Object.keys(parsed).length && !explicitCrossTradeScopeItems(text)) {
     return { ...draft, originalNotes: draft.originalNotes || text };
   }
@@ -1761,7 +1853,10 @@ export function repairDraftRatePricingFromNotes(
     if (areas.flooringSqft) {
       measurements.flooringSqft = areas.flooringSqft;
       measurements.flooringLvpSqft = areas.flooringSqft;
+      measurements.floorDemoSqft = areas.flooringSqft;
       measurements.flooringProductScope = ['lvp'];
+    } else {
+      delete measurements.floorDemoSqft;
     }
     const itemQuantities = {
       ...((measurements.itemQuantities as Record<string, unknown>) || {}),
@@ -1769,13 +1864,28 @@ export function repairDraftRatePricingFromNotes(
     if (!areas.showerWallTileSqft) {
       delete itemQuantities.shower_tile;
       delete itemQuantities.wet_area_install;
+      delete itemQuantities.demo;
+    }
+    if (areas.showerWallTileSqft && notesReplaceShowerTile(text)) {
+      itemQuantities.demo = {
+        quantity: areas.showerWallTileSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
     }
     if (areas.flooringSqft) {
+      itemQuantities.floor_demo = {
+        quantity: areas.flooringSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
       itemQuantities.flooring_lvp = {
         quantity: areas.flooringSqft,
         unit: 'sqft',
         quantitySource: 'notes',
       };
+    } else {
+      delete itemQuantities.floor_demo;
     }
     measurements.itemQuantities =
       itemQuantities as ScopeMeasurements['itemQuantities'];
@@ -1796,34 +1906,20 @@ export function repairDraftRatePricingFromNotes(
       scopeSummary: 'Bathroom tile and LVP',
       scopeTradeLabels: ['Bathroom', 'Flooring'],
       detectedTrades: ['bathroom', 'flooring'],
-      whatAiDid: ['Detected bathroom tile and LVP flooring.'],
+      whatAiDid: [
+        notesReplaceShowerTile(text)
+          ? 'Detected bathroom tile and LVP flooring. Replace includes tear-out.'
+          : 'Detected bathroom tile and LVP flooring.',
+      ],
       scopeChecklist: {
         ...(repairedDraft.scopeChecklist || {}),
         estimateTier: 'room_remodel',
         templateKey: 'room_remodel',
         title: 'Confirm the work named in the notes',
-        intro: 'Confirm shower tile and LVP before pricing.',
-        items: [
-          {
-            id: 'shower_tile',
-            inputType: 'yes_no',
-            label: 'Shower wall tile',
-            helperText:
-              'New shower wall tile area — enter sqft for pricing.',
-            category: 'wet_area',
-            state: 'included',
-            noteBacked: true,
-          },
-          {
-            id: 'flooring_lvp',
-            inputType: 'yes_no',
-            label: 'LVP flooring',
-            helperText: 'Install the LVP area named in the notes.',
-            category: 'flooring',
-            state: 'included',
-            noteBacked: true,
-          },
-        ],
+        intro: notesReplaceShowerTile(text)
+          ? 'Confirm shower tile tear-out, new tile, and LVP before pricing.'
+          : 'Confirm shower tile and LVP before pricing.',
+        items: showerTileWithFlooringChecklistItems(text),
         suggestedMeasurements:
           repairedDraft.scopeChecklist?.suggestedMeasurements || null,
         requiresConfirmation: true,
@@ -1988,14 +2084,142 @@ export function repairDraftRatePricingFromNotes(
     };
   }
   if (
+    notesNameStuccoWithWindows(text) &&
+    !repairedDraft.scopeAssumptionsConfirmed
+  ) {
+    const wallSqft = dedicatedStuccoWallSqft(text);
+    const windowCount = stuccoWithWindowsCount(text);
+    const measurements = {
+      ...(draft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    delete measurements.floorAreaSqft;
+    delete measurements.patchRepairSqft;
+    delete measurements.drywallSqft;
+    delete measurements.flooringSqft;
+    if (wallSqft) {
+      measurements.stuccoGrossWallSqft = wallSqft;
+      measurements.stuccoNetWallSqft = wallSqft;
+    }
+    if (windowCount) measurements.windowCount = windowCount;
+    const itemQuantities = {
+      ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+    };
+    if (wallSqft) {
+      itemQuantities.stucco = {
+        quantity: wallSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    if (windowCount) {
+      itemQuantities.windows = {
+        quantity: windowCount,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+    }
+    delete itemQuantities.window_install;
+    measurements.itemQuantities =
+      itemQuantities as ScopeMeasurements['itemQuantities'];
+    return {
+      ...repairedDraft,
+      projectType: 'other',
+      projectTitle: 'Stucco and windows',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades: ['stucco', 'windows'],
+        scopeSummary: 'Stucco and windows',
+      },
+      scopeSummary: 'Stucco and windows',
+      scopeTradeLabels: ['Stucco', 'Windows'],
+      detectedTrades: ['stucco', 'windows'],
+      whatAiDid: ['Detected stucco and windows.'],
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'room_remodel',
+        title: 'Stucco and windows — confirm project scope',
+        intro: 'Confirm stucco and windows before pricing.',
+        items: [
+          {
+            id: 'stucco',
+            inputType: 'yes_no',
+            label: 'Stucco / exterior wall finish',
+            helperText: 'Exterior wall area from the job notes.',
+            category: 'exterior',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'windows',
+            inputType: 'yes_no',
+            label: 'Windows',
+            helperText: 'Window count from the job notes.',
+            category: 'exterior',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+        scopeFacts: [],
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (
     notesNameWallAreaFramingWithFlooring(text) &&
     !repairedDraft.scopeAssumptionsConfirmed
   ) {
     const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(text);
+    const scopeSummary = lvp
+      ? 'Wall framing and LVP'
+      : 'Wall framing and flooring';
+    const framingParsed = parseFramingMeasurementsFromNotes(text);
+    const floorMatch =
+      /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:lvp|luxury\s+vinyl|laminate|vinyl|carpet|hardwood|flooring)\b/i.exec(
+        text
+      );
+    const floorQty = floorMatch?.[1]
+      ? Number(floorMatch[1].replace(/,/g, ''))
+      : null;
+    const measurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    const wallSqft = framingParsed.wallFramingSqft;
+    if (wallSqft) measurements.wallFramingSqft = wallSqft;
+    if (floorQty && floorQty > 0) {
+      measurements.flooringSqft = floorQty;
+      if (lvp) measurements.flooringLvpSqft = floorQty;
+    }
+    const floorArea = Number(measurements.floorAreaSqft);
+    if (
+      Number.isFinite(floorArea) &&
+      (floorArea === wallSqft || floorArea === floorQty)
+    ) {
+      delete measurements.floorAreaSqft;
+    }
+    if (
+      wallSqft &&
+      Number(measurements.framedAreaSqft) === wallSqft
+    ) {
+      delete measurements.framedAreaSqft;
+    }
     return {
       ...repairedDraft,
       projectType: 'other',
-      projectTitle: 'Mixed-scope construction',
+      projectTitle: scopeSummary,
       estimateTier: 'room_remodel',
       scopeMode: 'mixed',
       requiresScopeConfirmation: true,
@@ -2004,9 +2228,9 @@ export function repairDraftRatePricingFromNotes(
         scopeMode: 'mixed',
         primaryTrade: null,
         detectedTrades: ['framing', 'flooring'],
-        scopeSummary: 'Mixed-scope construction',
+        scopeSummary,
       },
-      scopeSummary: 'Mixed-scope construction',
+      scopeSummary,
       scopeTradeLabels: ['Framing', 'Flooring'],
       detectedTrades: ['framing', 'flooring'],
       whatAiDid: ['Detected mixed-scope construction.'],
@@ -2040,6 +2264,7 @@ export function repairDraftRatePricingFromNotes(
           repairedDraft.scopeChecklist?.suggestedMeasurements || null,
         requiresConfirmation: true,
       },
+      scopeMeasurements: measurements,
       scopePackages: [],
       rooms: [],
       missingInfo: [],
@@ -2152,6 +2377,36 @@ export function repairDraftRatePricingFromNotes(
     if (!/\b(?:home|living\s+area|floor\s+area)\b/i.test(text)) {
       delete measurements.floorAreaSqft;
     }
+    const areas = drywallBesideFlooringAreas(text);
+    const flooringLabel = /\b(?:lvp|luxury\s+vinyl)\b/i.test(text)
+      ? 'LVP'
+      : 'Flooring';
+    if (areas.drywallSqft) measurements.drywallSqft = areas.drywallSqft;
+    if (areas.flooringSqft) {
+      measurements.flooringSqft = areas.flooringSqft;
+      if (flooringLabel === 'LVP') {
+        measurements.flooringLvpSqft = areas.flooringSqft;
+      }
+    }
+    const itemQuantities = {
+      ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+    };
+    if (areas.drywallSqft) {
+      itemQuantities.drywall = {
+        quantity: areas.drywallSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    if (areas.flooringSqft) {
+      itemQuantities.flooring = {
+        quantity: areas.flooringSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    measurements.itemQuantities =
+      itemQuantities as ScopeMeasurements['itemQuantities'];
     return {
       ...repairedDraft,
       projectType: 'other',
@@ -2178,7 +2433,7 @@ export function repairDraftRatePricingFromNotes(
       scopePackages: [],
       rooms: [],
       detectedTrades: ['drywall', 'flooring'],
-      scopeTradeLabels: ['Drywall', 'Flooring'],
+      scopeTradeLabels: ['Drywall', flooringLabel],
       whatAiDid: ['Detected the work named in the notes.'],
       missingInfo: [],
       needsReviewItems: [],

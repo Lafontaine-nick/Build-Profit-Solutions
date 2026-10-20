@@ -42,10 +42,13 @@ import {
   resolveChecklistItemQuantity,
   resolveEnteredGroundUpFlatworkFill,
   resolveGroundUpHvacPlanningFill,
+  measuredWholeHomeStatedScopeFill,
+  measuredWholeHomeTrimSuggestedFill,
   resolveScopeItemSuggestedPricing,
   roughAllowanceSubKey,
   type NormalizedScopeMeasurements,
   type ScopeMeasurementsInputExtended,
+  type ScopePricingContext,
 } from '@/utils/scopeItemQuantities';
 import {
   APPLIED_PRICING_MATERIAL_LABOR_SCOPE_KEYS,
@@ -764,11 +767,59 @@ export function listConfirmScopeAppliedPricingLines(params: {
   measurements: ScopeMeasurementsInputExtended;
   templateKey?: string | null;
   notes?: string | null;
+  pricingContext?: ScopePricingContext | null;
 }): ConfirmScopeAppliedPricingLine[] {
   const lines: ConfirmScopeAppliedPricingLine[] = [];
   const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
+  let statedTrimListed = false;
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
+    const statedScope = measuredWholeHomeStatedScopeFill(
+      item.id,
+      params.measurements,
+      params.templateKey,
+      params.notes,
+      params.pricingContext
+    );
+    if (statedScope) {
+      lines.push({
+        itemId: item.id,
+        label: item.label || item.id,
+        total: statedScope.total,
+        material: statedScope.material,
+        labor: statedScope.labor,
+        allowance: 0,
+      });
+      continue;
+    }
+    if (
+      !statedTrimListed &&
+      !hasAcceptedScopePricing(
+        item.id,
+        params.measurements.itemQuantities,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      const statedTrim = measuredWholeHomeTrimSuggestedFill(
+        item.id,
+        params.measurements,
+        params.templateKey,
+        params.notes
+      );
+      if (statedTrim) {
+        statedTrimListed = true;
+        lines.push({
+          itemId: item.id,
+          label: item.label || item.id,
+          total: statedTrim.total,
+          material: statedTrim.material,
+          labor: statedTrim.labor,
+          allowance:
+            statedTrim.material + statedTrim.labor > 0 ? 0 : statedTrim.total,
+        });
+      }
+      continue;
+    }
     if (
       !hasAcceptedScopePricing(
         item.id,
@@ -908,6 +959,7 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
   measurements: ScopeMeasurementsInputExtended;
   templateKey?: string | null;
   notes?: string | null;
+  pricingContext?: ScopePricingContext | null;
 }): ConfirmScopeAppliedPricingBreakdown {
   const out: ConfirmScopeAppliedPricingBreakdown = {
     total: 0,
@@ -916,8 +968,47 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
     allowance: 0,
   };
   const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
+  let statedTrimListed = false;
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
+    const statedScope = measuredWholeHomeStatedScopeFill(
+      item.id,
+      params.measurements,
+      params.templateKey,
+      params.notes,
+      params.pricingContext
+    );
+    if (statedScope) {
+      out.material += statedScope.material;
+      out.labor += statedScope.labor;
+      out.total += statedScope.total;
+      continue;
+    }
+    if (
+      !statedTrimListed &&
+      !hasAcceptedScopePricing(
+        item.id,
+        params.measurements.itemQuantities,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      const statedTrim = measuredWholeHomeTrimSuggestedFill(
+        item.id,
+        params.measurements,
+        params.templateKey,
+        params.notes
+      );
+      if (statedTrim) {
+        statedTrimListed = true;
+        const allowance =
+          statedTrim.material + statedTrim.labor > 0 ? 0 : statedTrim.total;
+        out.material += statedTrim.material;
+        out.labor += statedTrim.labor;
+        out.allowance += allowance;
+        out.total += statedTrim.total;
+      }
+      continue;
+    }
     if (
       !hasAcceptedScopePricing(
         item.id,

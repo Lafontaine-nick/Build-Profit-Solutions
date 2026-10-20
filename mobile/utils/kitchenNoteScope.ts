@@ -419,6 +419,12 @@ export function filterDedicatedKitchenConfirmItems<
     ) {
       return false;
     }
+    if (id === 'countertops' || id === 'counters') {
+      return kitchenNoteNamesCounterWork(notes);
+    }
+    if (id === 'backsplash') {
+      return kitchenNoteNamesBacksplash(notes);
+    }
     if (
       id === 'paint' ||
       id === 'interior_paint' ||

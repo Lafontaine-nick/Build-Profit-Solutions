@@ -14,6 +14,7 @@ import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { notesImplyMixedConcreteJob } from '@/utils/foundationPlanningMeasurements';
+import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
 
 export type MeasurementRelevance = {
   relevant: boolean;
@@ -636,6 +637,31 @@ export function getMeasurementRelevance(params: {
         reason: relevant
           ? undefined
           : 'Not needed unless the kitchen notes explicitly include this work.',
+      };
+    }
+  }
+  if (notesNameStuccoWithWindows(params.notes)) {
+    if (
+      measurementKey === 'stuccoGrossWallSqft' ||
+      measurementKey === 'windowCount'
+    ) {
+      return {
+        relevant: true,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason: undefined,
+      };
+    }
+    if (
+      STUCCO_CORE_MEASUREMENT_KEYS.has(measurementKey) ||
+      measurementKey === 'stuccoNetWallSqft'
+    ) {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason:
+          'The note states one exterior wall area and a window count. Opening sizes are not given.',
       };
     }
   }

@@ -1,15 +1,35 @@
-import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
+import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import {
+  groupScopeChecklistItems,
+  shouldSeedWholeProjectShellChecklist,
+} from '@/utils/estimateScopeChecklistUi';
 import {
   getInitialRevealChecklistScopePreview,
+  getInitialRevealConfirmItems,
+  getInitialRevealDisplayTitle,
+  getInitialRevealHeroDisplay,
+  getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
+  quickMeasurementRowsForInput,
+  quickMeasurementRowsForTemplate,
+} from '@/utils/scopeQuickMeasurements';
+import {
+  quickMeasurementPlanningEstimateNote,
+  quickMeasurementSummaryLine,
+  resolveQuickMeasurementFields,
+  summarizeQuickMeasurementFieldStates,
+} from '@/utils/quickMeasurementProvenance';
+import {
   dedicatedStuccoRevealLines,
   filterDedicatedStuccoConfirmItems,
+  filterStuccoWithWindowsConfirmItems,
   notesDescribeDedicatedStuccoJob,
+  notesNameStuccoWithWindows,
 } from '@/utils/stuccoNoteScope';
 
 const NOTE =
@@ -102,5 +122,148 @@ describe('dedicated stucco note', () => {
       )
     ).toEqual(dedicatedStuccoRevealLines(NOTE));
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+  });
+});
+
+const STUCCO_AND_WINDOWS =
+  'Stucco 1,200 sqft of exterior walls and replace 8 windows.';
+
+describe('stucco and windows', () => {
+  it('keeps the note on stucco and the window count', () => {
+    expect(notesNameStuccoWithWindows(STUCCO_AND_WINDOWS)).toBe(true);
+    expect(notesDescribeDedicatedStuccoJob(STUCCO_AND_WINDOWS)).toBe(false);
+    expect(
+      notesNameStuccoWithWindows(
+        'Stucco 1,200 sqft of exterior walls, replace 8 windows, and hang drywall.'
+      )
+    ).toBe(false);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        notes: STUCCO_AND_WINDOWS,
+        floorAreaSqft: 1200,
+        windowCount: 8,
+        templateKey: 'ground_up',
+      })
+    ).toBe(false);
+
+    const filtered = filterStuccoWithWindowsConfirmItems(
+      [
+        { id: 'framing', label: 'Framing', state: 'included' },
+        { id: 'drywall', label: 'Drywall', state: 'included' },
+        { id: 'flooring', label: 'Flooring', state: 'included' },
+        { id: 'stucco', label: 'Stucco', state: 'unsure' },
+        { id: 'permits', label: 'Permits', state: 'included' },
+      ],
+      STUCCO_AND_WINDOWS
+    );
+    expect(filtered.map(item => item.id)).toEqual(['stucco', 'windows']);
+    expect(
+      groupScopeChecklistItems(filtered as ScopeChecklistItem[], 'ground_up', {
+        notes: STUCCO_AND_WINDOWS,
+      }).map(group => group.title)
+    ).toEqual(['Stucco', 'Windows']);
+
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: STUCCO_AND_WINDOWS,
+        projectType: 'ground_up',
+        projectTitle: 'New build',
+        estimateTier: 'ground_up',
+        scopeMode: 'dedicated',
+        scopeChecklist: {
+          templateKey: 'ground_up',
+          items: [
+            { id: 'framing', label: 'Framing', state: 'included', inputType: 'yes_no' },
+            { id: 'drywall', label: 'Drywall', state: 'included', inputType: 'yes_no' },
+            { id: 'flooring', label: 'Flooring', state: 'included', inputType: 'yes_no' },
+            { id: 'windows', label: 'Windows', state: 'included', inputType: 'yes_no' },
+            {
+              id: 'window_install',
+              label: 'Window install',
+              state: 'included',
+              inputType: 'yes_no',
+            },
+            { id: 'permits', label: 'Permits', state: 'included', inputType: 'yes_no' },
+          ],
+          scopeFacts: [
+            {
+              scopeId: 'window_install',
+              status: 'included',
+              catalogEntry: { displayName: 'Window install' },
+            },
+          ],
+        },
+        scopeMeasurements: { floorAreaSqft: 1200, windowCount: 8 },
+        scopePackages: [{ name: 'Framing' }],
+      } as EstimateAiDraft,
+      STUCCO_AND_WINDOWS
+    );
+    expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'stucco',
+      'windows',
+    ]);
+    expect(repaired.scopeMeasurements?.floorAreaSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.stuccoNetWallSqft).toBe(1200);
+    expect(repaired.scopeMeasurements?.windowCount).toBe(8);
+    const preview = getInitialRevealChecklistScopePreview(repaired);
+    expect(preview.every(row => row.amount === 0)).toBe(true);
+    expect(repaired.scopeChecklist?.scopeFacts).toEqual([]);
+    expect(
+      preview.map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual([
+      'Stucco / exterior wall finish · 1200 sqft',
+      'Windows · 8 each',
+    ]);
+    expect(getInitialRevealTotals(repaired).scopeItemCount).toBe(2);
+    expect(getInitialRevealDisplayTitle(repaired)).toBe('Stucco and windows');
+    expect(getInitialRevealTagline(repaired)).toBe('Stucco · Windows');
+
+    const rows = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: STUCCO_AND_WINDOWS }
+    );
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: {
+        stuccoGrossWallSqft: '1200',
+        stuccoNetWallSqft: '1200',
+        windowCount: '8',
+      },
+      includedScopeKeys: ['stucco', 'windows'],
+      templateKey: 'room_remodel',
+      notes: STUCCO_AND_WINDOWS,
+    });
+    expect(results.map(result => result.key)).toEqual([
+      'stuccoGrossWallSqft',
+      'windowCount',
+    ]);
+    expect(results.every(result => result.state === 'confirmed')).toBe(true);
+    expect(
+      results.every(
+        result => quickMeasurementPlanningEstimateNote(result) == null
+      )
+    ).toBe(true);
+    expect(
+      quickMeasurementSummaryLine(summarizeQuickMeasurementFieldStates(results))
+    ).toBe('2 measurements confirmed');
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
+    expect(
+      getInitialRevealHeroDisplay(getInitialRevealTotals(repaired), true).hasAmount
+    ).toBe(false);
+    expect(
+      quickMeasurementRowsForTemplate('ground_up', 'ground_up', STUCCO_AND_WINDOWS)
+        .flat()
+        .map(field => field.key)
+    ).toEqual(['stuccoGrossWallSqft', 'windowCount']);
+    expect(
+      quickMeasurementRowsForTemplate('ground_up', 'ground_up', STUCCO_AND_WINDOWS)
+        .flat()
+        .map(field => field.label)
+    ).toEqual(['Stucco wall area', 'Windows']);
   });
 });

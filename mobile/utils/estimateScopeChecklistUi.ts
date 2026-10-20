@@ -11,6 +11,7 @@ import {
   notesAskForSeparateHaulOff,
   notesNameShowerTileWithFlooring,
   notesReuseExistingShowerDoor,
+  showerTileWithFlooringChecklistItems,
 } from '@/utils/bathroomNoteScope';
 import {
   areaOnlyExteriorFinishFromNotes,
@@ -80,8 +81,11 @@ import {
 } from '@/utils/deckNoteScope';
 import {
   filterDedicatedStuccoConfirmItems,
+  filterStuccoWithWindowsConfirmItems,
   notesDescribeDedicatedStuccoJob,
+  notesNameStuccoWithWindows,
 } from '@/utils/stuccoNoteScope';
+import { notesNameReceptaclesWithToilet } from '@/utils/electricalNoteScope';
 import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringNoteText,
@@ -1015,7 +1019,10 @@ export function applyAdditionConversionScopeDefaults(
   ) {
     defaultIncluded.add('plumbing_rough');
   }
-  if (/\b(?:air\s*sealing|air\s*seal(?:ing)?|gap\s+sealing)\b/i.test(n)) {
+  if (
+    /\b(?:air\s*sealing|air\s*seal(?:ing)?|gap\s+sealing)\b/i.test(n) &&
+    !notesDescribeMeasuredWholeHomeRemodel(n)
+  ) {
     defaultIncluded.add('air_sealing');
   }
   const foundationOnlyNote =
@@ -2203,6 +2210,14 @@ export function shouldSeedWholeProjectShellChecklist(input: {
   garageDoorCount?: number | null;
   singleTradePlan?: boolean;
 }): boolean {
+  if (
+    notesNameStuccoWithWindows(input.notes) ||
+    notesNameStuccoWithWindows(input.originalNotes) ||
+    notesNameReceptaclesWithToilet(input.notes) ||
+    notesNameReceptaclesWithToilet(input.originalNotes)
+  ) {
+    return false;
+  }
   const living = Number(input.floorAreaSqft);
   const garageSqft = Number(input.garageSqft);
   const windowCount = Number(input.windowCount);
@@ -4634,11 +4649,30 @@ function suppressExistingShellConversionSinglePaintCard(
   return changed ? next : items;
 }
 
+/** "Hang N sqft of drywall" is the drywall hang/finish line. A second catalog Hang card bills it twice. */
+function dropCatalogHangCoveredByDrywall(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  const text = String(notes || '');
+  const hangIsTheDrywallLine =
+    /\bhang\b[^.;\n]{0,80}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,40}\bhang\b/i.test(
+      text
+    );
+  if (!hangIsTheDrywallLine) return items;
+  const drywallLine = items.some(
+    item => item.id === 'drywall' && item.state !== 'excluded'
+  );
+  if (!drywallLine) return items;
+  return items.filter(item => item.id !== 'hang');
+}
+
 /** Keep a mixed kitchen/bath remodel limited to work explicitly supported by notes. */
 export function filterRoomRemodelNoteScopeItems(
   items: ScopeChecklistItem[],
   notes?: string | null
 ): ScopeChecklistItem[] {
+  items = dropCatalogHangCoveredByDrywall(items, notes);
   if (notesAreImportedPlanSummary(notes)) return items;
   // A whole-house opening package is a general-contractor plan. Do not drop
   // framing, drywall, HVAC, or paint because the plan notes also mention
@@ -4711,26 +4745,7 @@ export function filterRoomRemodelNoteScopeItems(
       );
   }
   if (notesNameShowerTileWithFlooring(notes || text)) {
-    return [
-      {
-        id: 'shower_tile',
-        inputType: 'yes_no',
-        label: 'Shower wall tile',
-        helperText: 'New shower wall tile area — enter sqft for pricing.',
-        category: 'wet_area',
-        state: 'included',
-        noteBacked: true,
-      },
-      {
-        id: 'flooring_lvp',
-        inputType: 'yes_no',
-        label: 'LVP flooring',
-        helperText: 'Install the LVP area named in the notes.',
-        category: 'flooring',
-        state: 'included',
-        noteBacked: true,
-      },
-    ];
+    return showerTileWithFlooringChecklistItems(notes || text);
   }
   if (notesNameWallAreaFramingWithFlooring(notes || text)) {
     const flooring = items.find(item => item.id === 'flooring');
@@ -4877,7 +4892,12 @@ export function filterRoomRemodelNoteScopeItems(
       return has(/\binterior\s+doors?\b/i);
     if (id === 'insulation' || id === 'wall_insulation' || id === 'attic_insulation')
       return has(/\binsulat(?:e|ed|ion)\b/i);
-    if (id === 'air_sealing') return has(/\bair[\s-]?sealing\b/i);
+    if (id === 'air_sealing') {
+      return (
+        !notesDescribeMeasuredWholeHomeRemodel(text) &&
+        has(/\bair[\s-]?sealing\b/i)
+      );
+    }
     if (id === 'drywall_repair' || id === 'drywall_patch')
       return has(/\b(?:drywall|sheetrock|gypsum)\b/i);
     if (id.startsWith('electrical_')) {
@@ -5277,8 +5297,12 @@ export function hydrateScopeChecklistFromNotes(
         if (id === 'fixture_demo') return hasFixtureRemoval;
         if (id === 'cabinet_demo') return hasCabinetRemoval;
         if (id === 'drywall_demo') return hasDrywallDemo;
-        if (id === 'air_sealing')
-          return has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i);
+        if (id === 'air_sealing') {
+          return (
+            !notesDescribeMeasuredWholeHomeRemodel(noteText) &&
+            has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i)
+          );
+        }
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'stucco')
           return has(/\bstucco\b|\b(?:foam|control)\s+(?:trim|joints?)\b/i);
@@ -6922,10 +6946,24 @@ export function checklistDisplayHelper(
   if (
     item.noteBacked &&
     item.helperText &&
-    (item.id === 'drywall' ||
+    (      item.id === 'drywall' ||
+      item.id === 'insulation' ||
+      item.id === 'pour_flatwork' ||
+      item.id === 'concrete' ||
+      item.id === 'sod_turf' ||
       item.id === 'flooring' ||
       item.id === 'patch_repair' ||
       item.id === 'demo_removal')
+  ) {
+    return item.helperText;
+  }
+  if (
+    item.noteBacked &&
+    item.helperText &&
+    ((item.id === 'demo' && item.label === 'Shower tile demo') ||
+      (item.id === 'floor_demo' && item.label === 'Bathroom floor demo') ||
+      (item.id === 'waterproofing' && item.label === 'Shower waterproofing') ||
+      item.id === 'flooring_lvp')
   ) {
     return item.helperText;
   }
@@ -7809,17 +7847,30 @@ export function groupScopeChecklistItems(
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
   if (notesDescribeDrywallAndFlooringJob(context.notes)) {
     const named = items.filter(item => item.state !== 'excluded');
-    if (named.length) {
-      return [
-        {
-          title: named
-            .map(item => String(item.label || '').trim())
-            .filter(Boolean)
-            .join(' · '),
-          items: named,
-        },
-      ];
-    }
+    const flooringIds = new Set([
+      'flooring',
+      'flooring_lvp',
+      'flooring_laminate',
+      'flooring_engineered_hardwood',
+      'flooring_solid_hardwood',
+      'flooring_carpet',
+      'flooring_sheet_vinyl',
+      'tile_flooring',
+    ]);
+    const drywall = named.filter(item => !flooringIds.has(item.id));
+    const flooring = named.filter(item => flooringIds.has(item.id));
+    const titleFor = (group: ScopeChecklistItem[]) =>
+      group
+        .map(item => String(item.label || '').trim())
+        .filter(Boolean)
+        .join(' · ');
+    const groups = [
+      drywall.length ? { title: titleFor(drywall), items: drywall } : null,
+      flooring.length ? { title: titleFor(flooring), items: flooring } : null,
+    ].filter((group): group is { title: string; items: ScopeChecklistItem[] } =>
+      Boolean(group)
+    );
+    if (groups.length) return groups;
   }
   if (notesDescribeAreaOnlyAddition(context.notes)) {
     const packageIds = new Set(areaOnlyAdditionScopeIds());
@@ -7832,6 +7883,36 @@ export function groupScopeChecklistItems(
   if (notesDescribeDedicatedStuccoJob(context.notes)) {
     const named = filterDedicatedStuccoConfirmItems(items, context.notes);
     if (named.length) return [{ title: 'Stucco', items: named }];
+  }
+  if (notesNameStuccoWithWindows(context.notes)) {
+    const named = filterStuccoWithWindowsConfirmItems(items, context.notes);
+    const stucco = named.filter(item => item.id === 'stucco');
+    const windows = named.filter(item => item.id === 'windows');
+    const groups = [
+      stucco.length ? { title: 'Stucco', items: stucco } : null,
+      windows.length ? { title: 'Windows', items: windows } : null,
+    ].filter((group): group is { title: string; items: ScopeChecklistItem[] } =>
+      Boolean(group)
+    );
+    if (groups.length) return groups;
+  }
+  if (notesNameReceptaclesWithToilet(context.notes)) {
+    const receptacles = items.filter(
+      item =>
+        item.state !== 'excluded' && item.id === 'electrical_standard_receptacle'
+    );
+    const toilets = items.filter(
+      item => item.state !== 'excluded' && item.id === 'toilet'
+    );
+    const groups = [
+      receptacles.length
+        ? { title: 'Receptacles', items: receptacles }
+        : null,
+      toilets.length ? { title: 'Toilet', items: toilets } : null,
+    ].filter((group): group is { title: string; items: ScopeChecklistItem[] } =>
+      Boolean(group)
+    );
+    if (groups.length) return groups;
   }
   if (notesDescribeDedicatedDeckJob(context.notes)) {
     const allowed = new Set(
@@ -7996,6 +8077,12 @@ function itemNeedsMeasurement(
   notes?: string | null
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  if (
+    notesNameShowerTileWithFlooring(notes) &&
+    (item.id === 'demo' || item.id === 'waterproofing')
+  ) {
+    return false;
+  }
   if (!getChecklistItemQuantityRule(item.id, templateKey)) return false;
   const resolved = resolveChecklistItemQuantity(item.id, measurements, {
     choiceId: item.choiceId,

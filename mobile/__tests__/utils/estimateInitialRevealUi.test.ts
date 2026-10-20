@@ -37,6 +37,17 @@ import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
+import {
+  primaryIntelligenceNotice,
+  resolveScopeItemIntelligence,
+} from '@/utils/scopeIntelligence';
+import { checklistDisplayHelper } from '@/utils/estimateScopeChecklistUi';
+import { applyAtticInsulationWithDrywallCards } from '@/utils/insulationNoteScope';
+import {
+  applyConcretePatioWithSodCards,
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
 
 const classificationFixtures =
   require('../../../test-fixtures/scopeClassificationFixtures.json') as {
@@ -810,6 +821,91 @@ describe('estimateInitialRevealUi', () => {
     ]);
   });
 
+  it('prices wall framing and LVP from their own areas', () => {
+    const notes =
+      'Framing and flooring Frame 1,600 sqft of walls and install 180 sqft of LVP.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'flooring',
+        projectTitle: 'Flooring',
+        scopeMode: 'dedicated',
+        scopeChecklist: {
+          templateKey: 'flooring',
+          items: [
+            { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          ],
+        },
+        scopeMeasurements: {
+          floorAreaSqft: 1600,
+          flooringSqft: 1600,
+        },
+      } as EstimateAiDraft,
+      notes
+    );
+
+    expect(repaired.projectTitle).toBe('Wall framing and LVP');
+    expect(getInitialRevealDisplayTitle(repaired)).toBe('Wall framing and LVP');
+    expect(getInitialRevealTagline(repaired)).toBe('Framing · Flooring');
+    expect(repaired.scopeMeasurements?.wallFramingSqft).toBe(1600);
+    expect(repaired.scopeMeasurements?.flooringSqft).toBe(180);
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(180);
+    expect(repaired.scopeMeasurements?.floorAreaSqft).toBeUndefined();
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '1600 sqft' },
+      { name: 'LVP flooring', quantity: '180 sqft' },
+    ]);
+
+    const measurements = repaired.scopeMeasurements || {};
+    const framingQuantity = resolveChecklistItemQuantity(
+      'wall_framing',
+      measurements,
+      { templateKey: 'room_remodel', notes }
+    );
+    const flooringQuantity = resolveChecklistItemQuantity(
+      'flooring',
+      measurements,
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'wall_framing',
+        measurements,
+        'room_remodel',
+        framingQuantity,
+        null,
+        null,
+        notes
+      ).fill?.total
+    ).toBe(2400);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'flooring',
+        measurements,
+        'room_remodel',
+        flooringQuantity,
+        null,
+        null,
+        notes
+      ).fill?.total
+    ).toBe(1260);
+    const intelligence = resolveScopeItemIntelligence({
+      scopeKey: 'wall_framing',
+      templateKey: 'room_remodel',
+      notes,
+      measurements: measurements as never,
+      resolved: framingQuantity,
+    });
+    expect(primaryIntelligenceNotice(intelligence) || '').not.toMatch(
+      /building floor area/i
+    );
+  });
+
   it('keeps Scope found to wall framing and LVP for a mixed note', () => {
     const notes = 'Frame 400 sqft of walls and install 180 sqft of LVP.';
     const draft = {
@@ -859,6 +955,220 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealStatusLabel(mixedDraft, 0).label).toBe('Mostly ready');
   });
 
+  it('does not call cabinet and LVP suggestions missing prices on Scope found', () => {
+    const notes = 'Install 12 LF of base cabinets and 40 sqft of LVP.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'kitchen',
+      projectTitle: 'Kitchen and Flooring Installation',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [
+          { id: 'cabinets', label: 'Stock cabinet supply & installation', state: 'included' },
+          { id: 'countertops', label: 'Countertop fabrication & install', state: 'unsure' },
+          { id: 'backsplash', label: 'Backsplash tile install', state: 'unsure' },
+          { id: 'flooring', label: 'Kitchen flooring install', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview.map(row => row.name)).toEqual([
+      '12 LF cabinets',
+      'Kitchen flooring install',
+    ]);
+    expect(preview.every(row => row.amount === 0)).toBe(true);
+    expect(getInitialRevealHeroDisplay(getInitialRevealTotals(draft), true).hasAmount).toBe(
+      false
+    );
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(
+      getInitialRevealStatusLabel(
+        draft,
+        getInitialRevealConfirmItems(draft).pricingScope.length
+      ).label
+    ).toBe('Mostly ready');
+  });
+
+  it('prices attic insulation and drywall hang from the named areas', () => {
+    const notes =
+      'Insulation and drywall Install R-38 insulation in 1,000 sqft of attic and hang 800 sqft of drywall.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      projectTitle: 'Mixed-scope remodel',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['drywall', 'insulation'],
+        scopeSummary: null,
+      },
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'drywall',
+            label: 'Drywall hang / finish',
+            state: 'included',
+            helperText:
+              'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
+          },
+          {
+            id: 'insulation',
+            label: 'Insulation',
+            state: 'included',
+            helperText:
+              'Insulation surface area from notes; enter the missing sqft.',
+          },
+          { id: 'hang', label: 'Hang drywall', state: 'included' },
+        ],
+        scopeFacts: [
+          {
+            scopeId: 'hang',
+            status: 'included',
+            catalogEntry: { displayName: 'Hang drywall' },
+          },
+        ],
+      },
+      scopeMeasurements: {
+        drywallSqft: 800,
+        atticInsulationSqft: 1000,
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Attic insulation', quantity: '1000 sqft' },
+      { name: 'Drywall hang / finish', quantity: '800 sqft' },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealDisplayTitle(draft)).toBe(
+      'Attic insulation and drywall'
+    );
+    expect(getInitialRevealTagline(draft)).toBe('Drywall · Insulation');
+    expect(
+      getInitialRevealStatusLabel(
+        draft,
+        getInitialRevealConfirmItems(draft).pricingScope.length
+      ).label
+    ).toBe('Mostly ready');
+    expect(getInitialRevealScopeMetaLabel(2)).toBe('2 scope items');
+
+    const cards = applyAtticInsulationWithDrywallCards(
+      draft.scopeChecklist?.items || [],
+      notes
+    );
+    expect(cards.map(item => item.id)).toEqual(['drywall', 'insulation']);
+    expect(
+      checklistDisplayHelper(
+        cards.find(item => item.id === 'insulation')!,
+        'room_remodel'
+      )
+    ).toBe('R-38 attic insulation. Uses the attic area from the notes.');
+    expect(
+      checklistDisplayHelper(
+        cards.find(item => item.id === 'drywall')!,
+        'room_remodel'
+      )
+    ).toBe('Hang and finish the drywall named in the notes.');
+  });
+
+  it('prices a concrete patio and sod without a second blank flatwork line', () => {
+    const notes =
+      'Concrete and landscaping Pour a 400 sqft concrete patio and install 600 sqft of sod.';
+    expect(notesImplyExteriorFlatwork(notes)).toBe(true);
+    expect(notesImplyStructuralFoundation(notes)).toBe(false);
+    expect(
+      notesImplyExteriorFlatwork(
+        'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio.'
+      )
+    ).toBe(false);
+
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      projectTitle: 'Mixed exterior hardscape',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['concrete', 'landscaping'],
+        scopeSummary: 'Mixed exterior hardscape',
+      },
+      scopeChecklist: {
+        templateKey: 'concrete',
+        items: [
+          {
+            id: 'pour_flatwork',
+            label: 'Concrete patio installation',
+            state: 'included',
+            helperText:
+              'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.',
+          },
+          {
+            id: 'concrete_patio',
+            label: 'Concrete patio / flatwork',
+            state: 'included',
+            helperText:
+              'Work detected in notes and mapped to the existing pricing catalog.',
+          },
+          { id: 'sod_turf', label: 'Sod', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        concretePatioSqft: 400,
+        concreteSqft: 400,
+        sodSqft: 600,
+        concreteAreaByType: { patios: 400 },
+        concreteThicknessByType: { patios: 4 },
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Concrete patio', quantity: '400 sqft' },
+      { name: 'Sod', quantity: '600 sqft' },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Concrete patio and sod');
+    expect(getInitialRevealTagline(draft)).toBe('Concrete · Landscaping');
+
+    const cards = applyConcretePatioWithSodCards(
+      draft.scopeChecklist?.items || [],
+      notes
+    );
+    expect(cards.map(item => item.id)).toEqual(['pour_flatwork', 'sod_turf']);
+    expect(
+      checklistDisplayHelper(
+        cards.find(item => item.id === 'pour_flatwork')!,
+        'concrete'
+      )
+    ).toBe('Concrete patio slab. Uses the patio area from the notes.');
+    expect(
+      checklistDisplayHelper(
+        cards.find(item => item.id === 'sod_turf')!,
+        'concrete'
+      )
+    ).toBe('Sod install. Uses the sod area from the notes.');
+  });
+
   it('keeps shower tile and 80 sqft of LVP as two jobs', () => {
     const notes =
       'Bathroom and flooring Replace the shower tile and install 80 sqft of LVP in the bathroom.';
@@ -888,7 +1198,10 @@ describe('estimateInitialRevealUi', () => {
     expect(repaired.scopeMode).toBe('mixed');
     expect(repaired.scopeChecklist?.templateKey).toBe('room_remodel');
     expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'demo',
       'shower_tile',
+      'waterproofing',
+      'floor_demo',
       'flooring_lvp',
     ]);
     expect(repaired.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
@@ -899,7 +1212,10 @@ describe('estimateInitialRevealUi', () => {
         quantity: row.quantity,
       }))
     ).toEqual([
+      { name: 'Shower tile demo', quantity: undefined },
       { name: 'Shower wall tile', quantity: undefined },
+      { name: 'Shower waterproofing', quantity: undefined },
+      { name: 'Bathroom floor demo', quantity: '80 sqft' },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
@@ -934,6 +1250,27 @@ describe('estimateInitialRevealUi', () => {
       labor: 280,
       total: 560,
     });
+    const floorDemoQuantity = resolveChecklistItemQuantity(
+      'floor_demo',
+      repaired.scopeMeasurements || {},
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(floorDemoQuantity.quantity).toBe(80);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'floor_demo',
+        repaired.scopeMeasurements || {},
+        'room_remodel',
+        floorDemoQuantity,
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 40,
+      labor: 400,
+      total: 440,
+    });
     const showerQuantity = resolveChecklistItemQuantity(
       'shower_tile',
       repaired.scopeMeasurements || {},
@@ -950,6 +1287,62 @@ describe('estimateInitialRevealUi', () => {
         notes
       ).fill
     ).toBeNull();
+    // Confirm scope fills the typical one-bath wall allowance (80 sqft).
+    // That figure matches the LVP area and still prices on the shower rate.
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'shower_tile',
+        {
+          ...(repaired.scopeMeasurements || {}),
+          showerWallTileSqft: 80,
+        },
+        'room_remodel',
+        { quantity: 80, unit: 'sqft', quantitySource: 'inferred' },
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 640,
+      labor: 1440,
+      total: 2080,
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'demo',
+        {
+          ...(repaired.scopeMeasurements || {}),
+          showerWallTileSqft: 90,
+        },
+        'room_remodel',
+        { quantity: 90, unit: 'sqft', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 45,
+      labor: 450,
+      total: 495,
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'waterproofing',
+        {
+          ...(repaired.scopeMeasurements || {}),
+          showerWallTileSqft: 90,
+        },
+        'room_remodel',
+        { quantity: 90, unit: 'sqft', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 450,
+      labor: 630,
+      total: 1080,
+    });
   });
 
   it('keeps Scope found to the framing shell for a framing-only addition', () => {
@@ -1975,7 +2368,6 @@ describe('estimateInitialRevealUi', () => {
         'Cabinet removal',
         'Fixture removal',
         'Flooring demo / removal',
-        'Air sealing',
         'Trim & baseboard installation',
         'Plumbing',
         'Electrical',
@@ -1989,6 +2381,8 @@ describe('estimateInitialRevealUi', () => {
     expect(names).not.toContain('Door casing / trim painting');
     expect(names).not.toContain('Exterior trim, windows & doors');
     expect(names).not.toContain('Baseboard and trim painting');
+    expect(names).not.toContain('Air sealing');
+    expect(names).not.toContain('Standard air sealing');
   });
 
   it('shows the applied window price on the initial estimate, not a price that was never applied', () => {
@@ -2434,12 +2828,8 @@ describe('estimateInitialRevealUi', () => {
       getInitialRevealChecklistScopePreview({
         ...draft,
         scopePackages: [],
-      }).find(row => /insulation/i.test(row.name))
-    ).toEqual(
-      expect.objectContaining({
-        name: 'Wall insulation · R-21 · Attic insulation · R-38',
-      })
-    );
+      }).some(row => /insulation/i.test(row.name))
+    ).toBe(false);
     expect(preview).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'Sod', quantity: '1,000 sqft' }),

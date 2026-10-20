@@ -5,6 +5,7 @@
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   notesNameShowerTileWithFlooring,
+  notesReplaceShowerTile,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
 import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
@@ -36,6 +37,10 @@ import {
   notesOwnerHandlesScopeCategory,
 } from '@/utils/scopeItemNoteHints';
 import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+import {
+  notesNameStuccoWithWindows,
+} from '@/utils/stuccoNoteScope';
+import { notesNameReceptaclesWithToilet } from '@/utils/electricalNoteScope';
 import {
   notesFrameExplicitWallArea,
   notesMentionAffirmativeWallFraming,
@@ -2658,7 +2663,7 @@ export function isWholeHomeQuickMeasurementTemplate(
   return key === 'ground_up' || key === 'addition';
 }
 
-function showerTileWithFlooringRows(): QuickMeasurementRow[] {
+function showerTileWithFlooringRows(notes?: string | null): QuickMeasurementRow[] {
   const wall = QUICK_MEASUREMENT_FIELD_DEFS.showerWallTileSqft;
   const lvp = QUICK_MEASUREMENT_FIELD_DEFS.flooringLvpSqft;
   const rows: QuickMeasurementRow[] = [];
@@ -2667,7 +2672,9 @@ function showerTileWithFlooringRows(): QuickMeasurementRow[] {
       {
         ...wall,
         label: 'Shower wall tile',
-        helperText: 'New shower wall tile area — priced per sqft.',
+        helperText: notesReplaceShowerTile(notes)
+          ? 'Shower wall area. Tear-out uses this same sqft.'
+          : 'New shower wall tile area — priced per sqft.',
         placeholder: 'Enter',
       },
     ]);
@@ -2678,6 +2685,45 @@ function showerTileWithFlooringRows(): QuickMeasurementRow[] {
         ...lvp,
         label: 'LVP flooring',
         helperText: 'LVP area from the job notes.',
+      },
+    ]);
+  }
+  return rows;
+}
+
+function receptaclesWithToiletRows(): QuickMeasurementRow[] {
+  const receptacles = QUICK_MEASUREMENT_FIELD_DEFS.standardReceptacleCount;
+  const rows: QuickMeasurementRow[] = [];
+  if (receptacles) {
+    rows.push([
+      {
+        ...receptacles,
+        helperText: 'Receptacle count from the job notes.',
+      },
+    ]);
+  }
+  return rows;
+}
+
+function stuccoWithWindowsRows(): QuickMeasurementRow[] {
+  const wall = QUICK_MEASUREMENT_FIELD_DEFS.stuccoGrossWallSqft;
+  const windows = QUICK_MEASUREMENT_FIELD_DEFS.windowCount;
+  const rows: QuickMeasurementRow[] = [];
+  if (wall) {
+    rows.push([
+      {
+        ...wall,
+        label: 'Stucco wall area',
+        helperText: 'Exterior wall area from the job notes.',
+      },
+    ]);
+  }
+  if (windows) {
+    rows.push([
+      {
+        ...windows,
+        label: 'Windows',
+        helperText: 'Window count from the job notes.',
       },
     ]);
   }
@@ -2826,6 +2872,12 @@ export function quickMeasurementRowsForTemplate(
     projectType
   );
   const framingNoteText = String(notes || '');
+  if (notesNameStuccoWithWindows(framingNoteText)) {
+    return stuccoWithWindowsRows();
+  }
+  if (notesNameReceptaclesWithToilet(framingNoteText)) {
+    return receptaclesWithToiletRows();
+  }
   const key =
     resolvedKey === 'addition' &&
     /\b(?:room\s+)?addition\b/i.test(framingNoteText) &&
@@ -2997,7 +3049,7 @@ export function quickMeasurementRowsForTemplate(
     return linearFootStudWallRows(framingNoteText);
   }
   if (notesNameShowerTileWithFlooring(framingNoteText)) {
-    return showerTileWithFlooringRows();
+    return showerTileWithFlooringRows(framingNoteText);
   }
   if (notesNameWallAreaFramingWithFlooring(framingNoteText)) {
     return wallAreaFramingWithFlooringRows(framingNoteText);
@@ -3510,6 +3562,29 @@ function roomAdditionPackageMeasurementRows(): QuickMeasurementRow[] {
   ];
 }
 
+/** Attic or wall insulation the notes name, so Quick measurements can keep the area. */
+export function noteBackedInsulationMeasurementKeys(
+  notes?: string | null
+): QuickMeasurementFieldKey[] {
+  const text = String(notes || '');
+  const keys: QuickMeasurementFieldKey[] = [];
+  if (
+    /\b(?:wall|walls)\b[^.;\n]{0,120}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;\n]{0,120}\b(?:wall|walls)\b/i.test(
+      text
+    )
+  ) {
+    keys.push('exteriorWallInsulationSqft');
+  }
+  if (
+    /\battic\b[^.;\n]{0,120}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;\n]{0,120}\battic\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?attic\b/i.test(
+      text
+    )
+  ) {
+    keys.push('atticInsulationSqft');
+  }
+  return keys;
+}
+
 export function quickMeasurementRowsForInput(
   templateKey: string | null | undefined,
   projectType: string | null | undefined,
@@ -3528,6 +3603,12 @@ export function quickMeasurementRowsForInput(
     scopeNotes?: string | null;
   }
 ): QuickMeasurementRow[] {
+  if (notesNameStuccoWithWindows(options?.scopeNotes)) {
+    return stuccoWithWindowsRows();
+  }
+  if (notesNameReceptaclesWithToilet(options?.scopeNotes)) {
+    return receptaclesWithToiletRows();
+  }
   if (notesDescribeAreaOnlyAddition(options?.scopeNotes)) {
     return roomAdditionPackageMeasurementRows();
   }
@@ -3558,8 +3639,16 @@ export function quickMeasurementRowsForInput(
       [
         {
           ...QUICK_MEASUREMENT_FIELD_DEFS.flooringSqft,
-          label: 'Flooring',
-          helperText: 'Flooring area from the notes.',
+          label: /\b(?:lvp|luxury\s+vinyl)\b/i.test(
+            String(options?.scopeNotes || '')
+          )
+            ? 'LVP'
+            : 'Flooring',
+          helperText: /\b(?:lvp|luxury\s+vinyl)\b/i.test(
+            String(options?.scopeNotes || '')
+          )
+            ? 'LVP area from the notes.'
+            : 'Flooring area from the notes.',
           placeholder: '200',
         },
       ],
@@ -3593,7 +3682,7 @@ export function quickMeasurementRowsForInput(
       String(templateKey || '').toLowerCase()
     );
   if (notesNameShowerTileWithFlooring(String(options?.scopeNotes || ''))) {
-    return showerTileWithFlooringRows();
+    return showerTileWithFlooringRows(String(options?.scopeNotes || ''));
   }
   if (notesNameWallAreaFramingWithFlooring(String(options?.scopeNotes || ''))) {
     return wallAreaFramingWithFlooringRows(String(options?.scopeNotes || ''));
@@ -3849,10 +3938,9 @@ export function quickMeasurementRowsForInput(
       );
     }
   }
-  const atticInsulationMentioned =
-    /\b(?:attic|roof\s+space|ceiling)\s+insulation\b|\bR[-\s]?\d{2,3}\b[^.;\n]{0,25}\battic\b/i.test(
-      scopeNotes
-    );
+  const atticInsulationMentioned = noteBackedInsulationMeasurementKeys(
+    scopeNotes
+  ).includes('atticInsulationSqft');
   if (
     atticInsulationMentioned &&
     !baseRows.some(row =>
@@ -3860,9 +3948,10 @@ export function quickMeasurementRowsForInput(
     ) &&
     QUICK_MEASUREMENT_FIELD_DEFS.atticInsulationSqft
   ) {
-    noteBackedFieldsToAppend.push(
-      QUICK_MEASUREMENT_FIELD_DEFS.atticInsulationSqft
-    );
+    noteBackedFieldsToAppend.push({
+      ...QUICK_MEASUREMENT_FIELD_DEFS.atticInsulationSqft,
+      label: 'Attic insulation',
+    });
   }
   if (
     /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(scopeNotes) &&
@@ -4720,6 +4809,7 @@ export function quickMeasurementDisplayLabel(
     field.key === 'flooringSqft' &&
     field.label !== 'Flooring installation' &&
     field.label !== 'Flooring' &&
+    field.label !== 'LVP' &&
     field.label !== 'LVP flooring'
   ) {
     return 'Total Flooring Area';
