@@ -9,6 +9,7 @@ import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelN
 import {
   bathroomAffirmativeNotes,
   notesAskForSeparateHaulOff,
+  notesNameShowerTileWithFlooring,
   notesReuseExistingShowerDoor,
 } from '@/utils/bathroomNoteScope';
 import {
@@ -16,6 +17,8 @@ import {
   areaOnlyExteriorFinishHelper,
   areaOnlyExteriorFinishLabel,
   areaOnlyStuccoSystemFromNotes,
+  groundUpWallFinishCardCopy,
+  type AreaOnlyExteriorFinish,
 } from '@/utils/areaOnlyExteriorFinish';
 import {
   detectAdditionConversionIntent,
@@ -738,7 +741,6 @@ const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'roofing',
   'windows',
   'exterior_doors',
-  'sliding_doors',
   'garage_doors',
   'pour_flatwork',
   'insulation',
@@ -755,7 +757,8 @@ const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'flooring',
   'cabinets',
   'countertops',
-  'appliances',
+  // A new house includes a tile shower and shower door. Patio sliders and
+  // appliance hookup stay off until the note names them.
   'shower_tile',
   'glass_door',
   'interior_trim',
@@ -1880,12 +1883,29 @@ export function applyGroundUpShellScopeDefaults(
   const text = String(notes || '');
   if (!GROUND_UP_NOTES_PATTERN.test(text)) return items;
 
-  return items.map(item => {
+  const withShell = items.map(item => {
     if (item.state !== 'unsure') return item;
     if (!GROUND_UP_SHELL_DEFAULT_INCLUDED.has(item.id)) return item;
     if (inferItemStateFromNotes(item.id, text) === 'excluded') return item;
     return { ...item, state: 'included' as const };
   });
+  return applyGroundUpNamedWallFinish(withShell, text);
+}
+
+/** Brick and siding reuse the wall card. Stucco keeps the stucco label. */
+export function applyGroundUpNamedWallFinish(
+  items: ScopeChecklistItem[],
+  notes?: string | null,
+  finish?: AreaOnlyExteriorFinish | null
+): ScopeChecklistItem[] {
+  const resolved = finish || areaOnlyExteriorFinishFromNotes(notes);
+  const copy = groundUpWallFinishCardCopy(resolved, notes);
+  if (!copy) return items;
+  return items.map(item =>
+    item.id === 'stucco'
+      ? { ...item, label: copy.label, helperText: copy.helperText }
+      : item
+  );
 }
 
 const WHOLE_PROJECT_PLAN_SCOPE_CARDS: Array<{
@@ -4689,6 +4709,28 @@ export function filterRoomRemodelNoteScopeItems(
             }
           : item
       );
+  }
+  if (notesNameShowerTileWithFlooring(notes || text)) {
+    return [
+      {
+        id: 'shower_tile',
+        inputType: 'yes_no',
+        label: 'Shower wall tile',
+        helperText: 'New shower wall tile area — enter sqft for pricing.',
+        category: 'wet_area',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'flooring_lvp',
+        inputType: 'yes_no',
+        label: 'LVP flooring',
+        helperText: 'Install the LVP area named in the notes.',
+        category: 'flooring',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
   }
   if (notesNameWallAreaFramingWithFlooring(notes || text)) {
     const flooring = items.find(item => item.id === 'flooring');

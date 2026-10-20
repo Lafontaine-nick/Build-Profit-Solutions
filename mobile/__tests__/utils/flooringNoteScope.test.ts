@@ -404,6 +404,14 @@ describe('dedicated flooring note', () => {
     });
   });
 
+  it('stays off a mixed wall-framing and LVP note', () => {
+    expect(
+      notesDescribeDedicatedFlooringJob(
+        'Frame 400 sqft of walls and install 180 sqft of LVP.'
+      )
+    ).toBe(false);
+  });
+
   it('stays off kitchen and drywall notes', () => {
     expect(
       notesDescribeDedicatedFlooringJob(

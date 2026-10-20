@@ -1,25 +1,15 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
-import {
-  getChecklistItemQuantityRuleOrDefault,
-  ruleKeysToTryForPackage,
-} from '@/utils/scopeItemQuantities';
-import { LUMP_SUM_RULE_TRADE_NOT_ALLOWANCE_KEYS } from '@/utils/appliedPricingBreakdownBuckets';
+import { ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
+import { APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS } from '@/utils/appliedPricingBreakdownBuckets';
 
-/** True soft-cost / fee allowances — never Materials/Labor on Step 3. */
-const SOFT_COST_RULE_KEYS = new Set([
-  'permits',
-  'cleanup',
-  'haul_off',
-  'contingency',
-  'plans_engineering',
-  'mobilization',
-  'emergency_fee',
-  'final_inspections',
-  'survey',
-  'general_conditions',
-  'supervision',
-  'overhead_profit',
-]);
+/**
+ * Fee allowances that belong on the bid Soft costs card.
+ * Same list as Confirm Scope. Cleanup, haul-off, and other trades stay
+ * material and labor even when their unit is stored as "allowance".
+ * Project overhead (insurance, facilities, admin) is a separate bid section
+ * and is never filled from these lines.
+ */
+const SOFT_COST_RULE_KEYS = APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS;
 
 /** Contingency is a bid buffer, not a soft-cost line. */
 export function isContingencyScopePackage(
@@ -37,10 +27,10 @@ export function isContingencyScopePackage(
   return /^contingency\b/i.test(String(pkg.name || '').trim());
 }
 
-/** Soft-cost scopes (permits, cleanup, mobilization, etc.) — flat allowance, not Materials/Labor. */
+/** Fee allowances — flat soft-cost lines, not Materials/Labor and not project overhead. */
 export function isSoftCostScopePackage(
   pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'materialPrice' | 'laborPrice' | 'checklistItemId'>,
-  draft?: Pick<EstimateAiDraft, 'scopeChecklist' | 'estimateTier'> | null
+  _draft?: Pick<EstimateAiDraft, 'scopeChecklist' | 'estimateTier'> | null
 ): boolean {
   // Applied trade splits (e.g. finish carpentry mat+lab) must stay expandable on Step 3
   // even if the checklist rule historically used an allowance unit.
@@ -48,7 +38,6 @@ export function isSoftCostScopePackage(
   const lab = Number(pkg.laborPrice || 0);
   if (mat > 0 && lab > 0) return false;
 
-  const templateKey = draft?.scopeChecklist?.templateKey || draft?.estimateTier || null;
   const candidates = [
     pkg.checklistItemId,
     ...ruleKeysToTryForPackage(pkg.name, pkg.scope || ''),
@@ -60,13 +49,6 @@ export function isSoftCostScopePackage(
     if (seen.has(ruleKey)) continue;
     seen.add(ruleKey);
     if (SOFT_COST_RULE_KEYS.has(ruleKey)) return true;
-    // Legacy: lumpSumOnly rules that are not trade packages (cleanup & fixture packages use mat/lab).
-    if (
-      getChecklistItemQuantityRuleOrDefault(ruleKey, templateKey).lumpSumOnly &&
-      !LUMP_SUM_RULE_TRADE_NOT_ALLOWANCE_KEYS.has(ruleKey)
-    ) {
-      return true;
-    }
   }
   return false;
 }

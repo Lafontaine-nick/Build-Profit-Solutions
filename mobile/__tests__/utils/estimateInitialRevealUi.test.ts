@@ -1,4 +1,8 @@
 import {
+  scopePackageNeedsManualPrice,
+  scopePackagePricedAmount,
+} from '@/utils/estimateDraftReviewUi';
+import {
   filterRoofingRevealAttentionItems,
   filterPlumbingRevealAttentionItems,
   getInitialRevealChecklistScopePreview,
@@ -13,6 +17,7 @@ import {
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  getScopeTotalCoverageLine,
   planRevealOmitsWhatWeFound,
   initialRevealPricingVisible,
   plainLanguageReviewItem,
@@ -28,6 +33,10 @@ import {
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
 } from '@/utils/scopeItemNoteHints';
+import {
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
 
 const classificationFixtures =
   require('../../../test-fixtures/scopeClassificationFixtures.json') as {
@@ -817,15 +826,130 @@ describe('estimateInitialRevealUi', () => {
       },
     } as EstimateAiDraft;
 
+    const preview = getInitialRevealChecklistScopePreview(draft);
     expect(
-      getInitialRevealChecklistScopePreview(draft).map(row => ({
+      preview.map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+        amount: row.amount,
+      }))
+    ).toEqual([
+      { name: 'Wall framing', quantity: '400 sqft', amount: 0 },
+      { name: 'LVP flooring', quantity: '180 sqft', amount: 0 },
+    ]);
+    expect(getInitialRevealHeroDisplay(getInitialRevealTotals(draft), true).hasAmount).toBe(
+      false
+    );
+    const mixedDraft = {
+      ...draft,
+      projectTitle: 'Mixed-scope construction',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'wall_framing', label: 'Wall framing', state: 'included' },
+          { id: 'flooring', label: 'LVP flooring', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+    expect(getInitialRevealConfirmItems(mixedDraft).pricingScope).toEqual([]);
+    expect(getInitialRevealStatusLabel(mixedDraft, 0).label).toBe('Mostly ready');
+  });
+
+  it('keeps shower tile and 80 sqft of LVP as two jobs', () => {
+    const notes =
+      'Bathroom and flooring Replace the shower tile and install 80 sqft of LVP in the bathroom.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        projectTitle: 'Bathroom Tile and LVP Flooring',
+        scopeMode: 'dedicated',
+        whatAiDid: ['Detected bathroom remodel.'],
+        classification: {
+          scopeMode: 'dedicated',
+          detectedTrades: ['bathroom'],
+        },
+        scopeChecklist: {
+          templateKey: 'bathroom',
+          items: [
+            { id: 'wet_area_install', label: 'Wet area install', state: 'included' },
+            { id: 'shower_tile', label: 'Shower wall tile', state: 'included' },
+          ],
+        },
+        scopeMeasurements: { showerWallTileSqft: 80 },
+      } as EstimateAiDraft,
+      notes
+    );
+
+    expect(repaired.scopeMode).toBe('mixed');
+    expect(repaired.scopeChecklist?.templateKey).toBe('room_remodel');
+    expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'shower_tile',
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(80);
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row => ({
         name: row.name,
         quantity: row.quantity,
       }))
     ).toEqual([
-      { name: 'Wall framing', quantity: '400 sqft' },
-      { name: 'LVP flooring', quantity: '180 sqft' },
+      { name: 'Shower wall tile', quantity: undefined },
+      { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
+      'Price needed for Shower wall tile',
+    ]);
+    expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
+    expect(getInitialRevealTagline(repaired)).toBe('Bathroom · Flooring');
+    expect(
+      getInitialRevealStatusLabel(
+        repaired,
+        getInitialRevealConfirmItems(repaired).pricingScope.length
+      ).label
+    ).toBe('Mostly ready · 1 to check');
+
+    const lvpQuantity = resolveChecklistItemQuantity(
+      'flooring_lvp',
+      repaired.scopeMeasurements || {},
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'flooring_lvp',
+        repaired.scopeMeasurements || {},
+        'room_remodel',
+        lvpQuantity,
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 280,
+      labor: 280,
+      total: 560,
+    });
+    const showerQuantity = resolveChecklistItemQuantity(
+      'shower_tile',
+      repaired.scopeMeasurements || {},
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'shower_tile',
+        repaired.scopeMeasurements || {},
+        'room_remodel',
+        showerQuantity,
+        null,
+        null,
+        notes
+      ).fill
+    ).toBeNull();
   });
 
   it('keeps Scope found to the framing shell for a framing-only addition', () => {
@@ -1062,6 +1186,48 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('drops price-needed lines after the selected cards are the bid', () => {
+    const draft = {
+      projectType: 'new_build',
+      estimateTier: 'ground_up',
+      originalNotes:
+        'New 1,840 sqft one-story home with an attached 440 sqft 2-car garage and a 12 by 16 covered patio. Brick exterior. Owner is taking care of sitework and utilities separate from us.',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'ground_up', items: [] },
+      scopePackages: [
+        {
+          checklistItemId: 'exterior_paint',
+          name: 'Exterior paint',
+          status: 'missing_price',
+          price: 0,
+        },
+        {
+          checklistItemId: 'permits',
+          name: 'Permits / fees (incl. impact)',
+          status: 'confirmed',
+          price: 32000,
+        },
+      ],
+      scopeMeasurements: {
+        pricingAcceptance: {
+          permits: { selectionStatus: 'accepted', totalAmount: 32000 },
+          brick: { selectionStatus: 'accepted', totalAmount: 26298 },
+        },
+      },
+      stillNeededReview: ['Pricing for Exterior paint'],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/price needed|pricing for/i)])
+    );
+    expect(
+      getScopeTotalCoverageLine(draft, {
+        missingPriceCount: 1,
+        scopeItemCount: 29,
+      })
+    ).toBeNull();
+  });
+
   it('shows placeholder hero when no total yet', () => {
     const display = getInitialRevealHeroDisplay(
       {
@@ -1123,9 +1289,7 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealDisplayTitle(draft)).toBe(
       'Mixed-scope construction'
     );
-    expect(getInitialRevealTagline(draft)).toBe(
-      'Mixed-scope construction · Framing · Flooring'
-    );
+    expect(getInitialRevealTagline(draft)).toBe('Framing · Flooring');
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
       'Framing',
       'Flooring',
@@ -1152,6 +1316,25 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealTagline(draft) || '').not.toContain(
       'Mixed exterior hardscape'
     );
+    expect(
+      getInitialRevealChecklistScopePreview({
+        ...draft,
+        scopeChecklist: {
+          templateKey: 'concrete',
+          items: [
+            {
+              id: 'pour_flatwork',
+              label: 'Exterior concrete flatwork',
+              state: 'included',
+            },
+          ],
+        },
+      } as EstimateAiDraft).map(row => row.name)
+    ).toEqual([
+      '1,960 sqft single-story home',
+      'Attached 3-car garage',
+      'Brick exterior',
+    ]);
   });
 
   it('drops grading that only came from builder-grade finishes', () => {
@@ -1179,7 +1362,12 @@ describe('estimateInitialRevealUi', () => {
     const names = getInitialRevealChecklistScopePreview(draft).map(
       row => row.name
     );
-    expect(names).toEqual(['1,960 sqft single-story home']);
+    expect(names).toEqual([
+      '1,960 sqft single-story home',
+      '720 sqft 3-car garage',
+      '240 sqft covered patio',
+      'Brick exterior',
+    ]);
   });
 
   it('labels mixed exterior hardscape instead of the concrete trade title', () => {
@@ -1720,7 +1908,7 @@ describe('estimateInitialRevealUi', () => {
             label: 'Interior door installation',
             state: 'included',
           },
-          { id: 'insulation', label: 'Insulation', state: 'included' },
+          { id: 'insulation', label: 'Attic insulation', state: 'included' },
           { id: 'air_sealing', label: 'Air sealing', state: 'included' },
           {
             id: 'trim',
@@ -1765,8 +1953,7 @@ describe('estimateInitialRevealUi', () => {
           quantity: '1800 sqft',
         }),
         expect.objectContaining({
-          name: 'Drywall patch / repair',
-          quantity: '500 sqft',
+          name: 'Drywall repair · 500 sqft',
         }),
         expect.objectContaining({ name: 'Window install', quantity: '6 each' }),
         expect.objectContaining({
@@ -1777,32 +1964,147 @@ describe('estimateInitialRevealUi', () => {
           name: 'Interior door installation',
           quantity: '4 each',
         }),
-        expect.objectContaining({ name: 'Insulation' }),
+        expect.objectContaining({ name: 'Wall & attic insulation' }),
       ])
     );
-    expect(preview.find(row => row.name === 'Insulation')).not.toHaveProperty(
-      'quantity'
-    );
+    expect(
+      preview.find(row => row.name === 'Wall & attic insulation')
+    ).not.toHaveProperty('quantity');
     expect(names).toEqual(
       expect.arrayContaining([
         'Cabinet removal',
         'Fixture removal',
         'Flooring demo / removal',
         'Air sealing',
+        'Trim & baseboard installation',
         'Plumbing',
         'Electrical',
         'Interior paint',
       ])
     );
     expect(names).not.toContain('Kitchen flooring demo / removal');
-    expect(names).not.toEqual(
-      expect.arrayContaining([
-        'Interior door painting',
-        'Door casing / trim painting',
-        'Exterior trim, windows & doors',
-        'Baseboard and trim painting',
-      ])
+    expect(names).not.toContain('Attic insulation');
+    expect(names).not.toContain('Insulation');
+    expect(names).not.toContain('Interior door painting');
+    expect(names).not.toContain('Door casing / trim painting');
+    expect(names).not.toContain('Exterior trim, windows & doors');
+    expect(names).not.toContain('Baseboard and trim painting');
+  });
+
+  it('shows the applied window price on the initial estimate, not a price that was never applied', () => {
+    const notes =
+      'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.';
+    const applied = {
+      projectType: 'other',
+      scopeAssumptionsConfirmed: true,
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'windows', label: 'Window install', state: 'excluded' },
+          { id: 'window_install', label: 'Window install', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        windowCount: 6,
+        itemQuantities: {
+          windows__material: {
+            quantity: '2790',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          windows__labor: {
+            quantity: '1650',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          windows: {
+            selectionStatus: 'accepted',
+            totalAmount: 4440,
+            materialAmount: 2790,
+            laborAmount: 1650,
+          },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Window install',
+          checklistItemId: 'window_install',
+          status: 'missing_price',
+          price: null,
+        },
+      ],
+    } as EstimateAiDraft;
+    const appliedRow = getInitialRevealChecklistScopePreview(applied).find(
+      item => item.name === 'Window install'
     );
+    expect(appliedRow?.quantity).toBe('6 each');
+    expect(appliedRow?.amount).toBe(4440);
+    const windowPkg = {
+      name: 'Window install',
+      checklistItemId: 'window_install',
+      status: 'missing_price' as const,
+      price: null,
+    };
+    expect(scopePackagePricedAmount(windowPkg, applied)).toBe(4440);
+    expect(scopePackageNeedsManualPrice(windowPkg, applied)).toBe(false);
+
+    const unapplied = {
+      ...applied,
+      scopeMeasurements: { windowCount: 6 },
+    } as EstimateAiDraft;
+    const unappliedRow = getInitialRevealChecklistScopePreview(unapplied).find(
+      item => item.name === 'Window install'
+    );
+    expect(unappliedRow?.amount).toBe(0);
+    expect(scopePackageNeedsManualPrice(windowPkg, unapplied)).toBe(true);
+  });
+
+  it('keeps door and trim painting when the note names them', () => {
+    const notes =
+      'Remodel a 2,000 sqft home. Paint the interior doors and paint the trim.';
+    const draft = {
+      projectType: 'other',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'door_paint',
+            label: 'Interior door painting',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'trim_paint',
+            label: 'Baseboard and trim painting',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+        scopeFacts: [
+          {
+            scopeId: 'door_paint',
+            status: 'included',
+            catalogEntry: { displayName: 'Interior door painting' },
+          },
+          {
+            scopeId: 'trim_paint',
+            status: 'included',
+            catalogEntry: { displayName: 'Baseboard and trim painting' },
+          },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(names).toContain('Interior door painting');
+    expect(names).toContain('Baseboard and trim painting');
   });
 
   it('normalizes mixed flooring scope rows from explicit flooring notes', () => {

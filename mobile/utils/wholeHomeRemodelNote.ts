@@ -15,11 +15,55 @@ export function notesDescribeMeasuredWholeHomeRemodel(
   );
 }
 
-function removalOf(notes: string, term: string): boolean {
+/**
+ * The removed noun is the object of the removal verb.
+ * A later install in the same sentence is a different trade.
+ */
+export function notesNameRemovalOf(
+  notes: string | null | undefined,
+  term: string
+): boolean {
+  const verb = String.raw`(?:demolition|demo|remove|removal|tear[\s-]?out)`;
+  const stop = String.raw`(?:install|update|repair|paint|replace)`;
+  const span = String.raw`(?:(?!\b${stop}\b)[^.;\n])`;
   return new RegExp(
-    `\\b(?:demolition|demo|remove|removal|tear[\\s-]?out)\\b[^.;\\n]{0,120}\\b(?:${term})\\b|\\b(?:${term})\\b[^.;\\n]{0,120}\\b(?:demolition|demo|remove|removal|tear[\\s-]?out)\\b`,
+    `\\b${verb}\\b${span}{0,80}\\b(?:${term})\\b|\\b(?:${term})\\b${span}{0,80}\\b${verb}\\b`,
     'i'
-  ).test(notes);
+  ).test(String(notes || ''));
+}
+
+function removalOf(notes: string, term: string): boolean {
+  return notesNameRemovalOf(notes, term);
+}
+
+/** A paint area the note actually stated. "Paint the interior" is not one. */
+export function notesStatePaintArea(notes: string | null | undefined): boolean {
+  return /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:paint(?:ing)?|repaint)\b|\b(?:paint(?:ing)?|repaint)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+    String(notes || '')
+  );
+}
+
+/** Install length next to cabinets. The removal length is a different number. */
+export function statedCabinetInstallLf(
+  notes: string | null | undefined
+): number | null {
+  const text = String(notes || '');
+  const re =
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:feet|foot))\b([^.;\n]{0,28})/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (!/\bcabinets?\b|\bcabs\b/i.test(match[2] || '')) continue;
+    const before = text.slice(Math.max(0, match.index - 40), match.index);
+    if (
+      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(before) ||
+      /\bexisting\b/i.test(match[2] || '')
+    ) {
+      continue;
+    }
+    const qty = Number(match[1].replace(/,/g, ''));
+    if (Number.isFinite(qty) && qty > 0) return qty;
+  }
+  return null;
 }
 
 function notesNameFraming(notes: string): boolean {
@@ -70,6 +114,22 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('paint');
   }
   if (removalOf(text, 'cabinets?')) ids.add('cabinet_demo');
+  if (
+    /\b(?:install|new|replace)\b[^.;\n]{0,60}\bcabinets?\b|\bcabinets?\b[^.;\n]{0,40}\b(?:install|new)\b/i.test(
+      text
+    )
+  ) {
+    ids.add('cabinets');
+  }
+  if (/\b(?:countertops?|quartz|granite)\b/i.test(text)) ids.add('countertops');
+  if (/\bbacksplash\b/i.test(text)) ids.add('backsplash');
+  if (/\bshower\s+walls?\b|\bshower\s+(?:wall\s+)?tile\b/i.test(text)) {
+    ids.add('shower_tile');
+  }
+  if (/\bfloor\s+tile\b|\bbath(?:room)?\s+floor\b/i.test(text)) {
+    ids.add('floor_tile');
+  }
+  if (/\bvanit(?:y|ies)\b/i.test(text)) ids.add('vanity');
   if (removalOf(text, 'fixtures?')) ids.add('fixture_demo');
   if (removalOf(text, 'floor(?:ing)?|lvp|vinyl|carpet|tile')) {
     ids.add('floor_demo');
@@ -115,6 +175,36 @@ const NAMED_CARDS: Record<
     helperText: 'Remove the existing cabinets named in the notes.',
     category: 'demo',
   },
+  cabinets: {
+    label: 'Cabinets',
+    helperText: 'New cabinet length named in the notes.',
+    category: 'cabinets',
+  },
+  countertops: {
+    label: 'Countertops',
+    helperText: 'Countertop area named in the notes.',
+    category: 'cabinets',
+  },
+  backsplash: {
+    label: 'Backsplash',
+    helperText: 'Backsplash area named in the notes.',
+    category: 'tile',
+  },
+  shower_tile: {
+    label: 'Shower wall tile',
+    helperText: 'Shower wall area named in the notes.',
+    category: 'tile',
+  },
+  floor_tile: {
+    label: 'Bathroom floor tile',
+    helperText: 'Bathroom floor tile area named in the notes.',
+    category: 'tile',
+  },
+  vanity: {
+    label: 'Vanities',
+    helperText: 'Vanities named in the notes.',
+    category: 'bath',
+  },
   fixture_demo: {
     label: 'Fixture removal',
     helperText: 'Remove the existing fixtures named in the notes.',
@@ -142,7 +232,7 @@ const NAMED_CARDS: Record<
   },
   insulation: {
     label: 'Insulation',
-    helperText: 'Wall and attic insulation named in the notes. Area was not stated.',
+    helperText: 'Insulation named in the notes. Area was not stated.',
     category: 'structure',
   },
   air_sealing: {
@@ -151,6 +241,22 @@ const NAMED_CARDS: Record<
     category: 'structure',
   },
 };
+
+/** Both wall and attic were named, with no area. */
+export function wholeHomeWallAndAtticInsulationLabel(
+  notes: string | null | undefined
+): string | null {
+  const text = String(notes || '');
+  const wall =
+    /\b(?:wall|walls)\b[^.;,\n]{0,40}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,40}\b(?:wall|walls)\b/i.test(
+      text
+    );
+  const attic =
+    /\battic\b[^.;,\n]{0,40}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,40}\battic\b/i.test(
+      text
+    );
+  return wall && attic ? 'Wall & attic insulation' : null;
+}
 
 export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
   items: T[],
@@ -202,6 +308,17 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
           'Plumbing work named in the notes. Fixture removal stays on its own line.',
       };
     }
+    if (id === 'insulation') {
+      const insulationLabel = wholeHomeWallAndAtticInsulationLabel(text);
+      if (insulationLabel) {
+        return {
+          ...included,
+          label: insulationLabel,
+          helperText:
+            'Wall and attic insulation named in the notes. Area was not stated.',
+        };
+      }
+    }
     return included;
   });
   for (const [id, card] of Object.entries(NAMED_CARDS)) {
@@ -216,11 +333,15 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
         )
     );
     if (aliasKept) continue;
+    const insulationLabel =
+      id === 'insulation' ? wholeHomeWallAndAtticInsulationLabel(text) : null;
     next.push({
       id,
       inputType: 'yes_no',
-      label: card.label,
-      helperText: card.helperText,
+      label: insulationLabel || card.label,
+      helperText: insulationLabel
+        ? 'Wall and attic insulation named in the notes. Area was not stated.'
+        : card.helperText,
       category: card.category,
       state: 'included',
       noteBacked: true,
@@ -271,16 +392,36 @@ export function wholeHomeRemodelSuppressesInventedPrice(
   const stored = measurements || {};
   if (userEnteredItemQuantity(stored, itemId)) return false;
   if (itemId === 'cabinet_demo') {
+    if (positiveMeasurement(stored.cabinetDemoLf) != null) return false;
+    const installNamed =
+      /\b(?:install|new|replace)\b[^.;\n]{0,60}\bcabinets?\b/i.test(
+        String(notes || '')
+      );
+    if (installNamed) return true;
     return positiveMeasurement(stored.cabinetLf) == null;
   }
+  if (
+    itemId === 'interior_paint' ||
+    itemId === 'paint' ||
+    itemId === 'ceiling_paint' ||
+    itemId === 'paint_trim'
+  ) {
+    return !notesStatePaintArea(notes);
+  }
   if (itemId === 'floor_demo') {
-    return !removalOf(String(notes || ''), 'floor(?:ing)?|lvp|vinyl|carpet|tile');
+    if (!removalOf(String(notes || ''), 'floor(?:ing)?|lvp|vinyl|carpet|tile')) {
+      return true;
+    }
+    return positiveMeasurement(stored.floorDemoSqft) == null;
   }
   if (
     itemId === 'plumbing' ||
     itemId === 'plumbing_rough' ||
     itemId === 'plumbing_trim'
   ) {
+    if (positiveMeasurement(stored.plumbingRoughPointCount) != null) {
+      return false;
+    }
     return !/\b\d[\d,]*(?:\.\d+)?\s*(?:fixtures?|connections?|rough[-\s]?ins?|lf)\b/i.test(
       String(notes || '')
     );
@@ -335,6 +476,13 @@ export function scrubWholeHomeRemodelMeasurements<
       changed = true;
     }
   };
+  if (!notesStatePaintArea(text)) {
+    drop('wallPaintSqft');
+    drop('ceilingPaintSqft');
+    drop('paintAreaSqft');
+    drop('combinedPaintableAreaSqft');
+    drop('originalPaintAreaReferenceSqft');
+  }
   if (!/\bkitchen\s+floor(?:ing)?\b/i.test(text)) drop('kitchenFloorSqft');
   if (!notesNameFraming(text)) {
     drop('wallFramingSqft');

@@ -50,6 +50,16 @@ describe('framing canonical architecture', () => {
     ).toBe(false);
   });
 
+  it('keeps wall framing in scope when the note gives wall area instead of linear feet', () => {
+    const synced = syncFramingScopeItems(
+      [{ id: 'wall_framing', state: 'included' }],
+      { quantities: { wallFramingSqft: 400 } as any }
+    );
+    expect(synced).toEqual([
+      expect.objectContaining({ id: 'wall_framing', state: 'included' }),
+    ]);
+  });
+
   it('hides plan shell component cards to prevent double counting', () => {
     const synced = syncFramingScopeItems(
       FRAMING_CARDS.map(card => ({ id: card.itemId, state: 'unsure' })),

@@ -677,6 +677,34 @@ describe('ground-up owner-handled scope exclusions', () => {
     expect(items.find(i => i.id === 'excavation')?.state).toBe('unsure');
   });
 
+  test('a new house includes the shower and leaves sliders and appliances off', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Brick veneer, concrete driveway and front walks, builder-grade interior. Owner is handling landscaping only.';
+    const rows = () =>
+      ['sliding_doors', 'appliances', 'shower_tile', 'glass_door', 'windows', 'framing'].map(id => ({
+        id,
+        label: id,
+        inputType: 'yes_no' as const,
+        state: 'unsure' as const,
+      }));
+    const plain = applyScopeInferencesFromNotes(rows(), notes, 'ground_up');
+    expect(plain.find(i => i.id === 'sliding_doors')?.state).toBe('unsure');
+    expect(plain.find(i => i.id === 'appliances')?.state).toBe('unsure');
+    expect(plain.find(i => i.id === 'shower_tile')?.state).toBe('included');
+    expect(plain.find(i => i.id === 'glass_door')?.state).toBe('included');
+    expect(plain.find(i => i.id === 'windows')?.state).toBe('included');
+    expect(plain.find(i => i.id === 'framing')?.state).toBe('included');
+
+    const named = applyScopeInferencesFromNotes(
+      rows(),
+      `${notes} Patio sliding door, appliance install, and shower wall tile.`,
+      'ground_up'
+    );
+    expect(named.find(i => i.id === 'sliding_doors')?.state).toBe('included');
+    expect(named.find(i => i.id === 'appliances')?.state).toBe('included');
+    expect(named.find(i => i.id === 'shower_tile')?.state).toBe('included');
+  });
+
   test('includes site trades on a general-contractor plan export', () => {
     const notes =
       'Ground-up new construction from imported architectural plans. --- Plan takeoff --- Living area: 2,571 sqft.';

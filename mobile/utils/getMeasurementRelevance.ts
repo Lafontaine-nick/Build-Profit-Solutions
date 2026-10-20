@@ -100,6 +100,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
       'insulation',
     ],
     cabinetLf: ['cabinets', 'cabinets_counters'],
+    cabinetDemoLf: ['cabinet_demo'],
     countertopSqft: ['countertops', 'cabinets_counters'],
     showerWallTileSqft: [
       'shower_tile',
@@ -132,7 +133,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     cabinetPaintSqft: ['cabinet_paint'],
     cabinetRunLf: ['cabinet_paint'],
     railingLf: ['railing', 'fencing'],
-    plumbingRoughPointCount: ['plumbing_rough'],
+    plumbingRoughPointCount: ['plumbing', 'plumbing_rough'],
     plumbingRerouteLf: [
       'plumbing',
       'plumbing_rough',
@@ -610,7 +611,7 @@ export function getMeasurementRelevance(params: {
         /\b(?:wall|exterior\s+wall|outside\s+wall)\s+insulation\b|\binsulation\b/i.test(
           notesText
         );
-      const explicitBaseboard = /\b(?:baseboards?|base\s*board)\b/i.test(
+      const explicitBaseboard = /\b(?:baseboards?|base\s*board|trim)\b/i.test(
         notesText
       );
       const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(

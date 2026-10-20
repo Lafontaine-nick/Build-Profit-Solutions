@@ -3,7 +3,7 @@
  * compare data for Chris, Nick, Jason — matches Projects page exactly.
  * Use in Assistant tab to send pre-computed compareProjectsData to AI.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { computeProjectsCompareData, type CompareProjectItem } from '@/src/lib/projectsCompareData';
@@ -31,12 +31,30 @@ export function useProjectsCompareData(
   const [compareData, setCompareData] = useState<CompareProjectItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const load = useCallback(async () => {
-    // IMPORTANT: reset at the start of every reload so UI doesn't use stale readiness
-    // from a previous (possibly empty) project list.
-    setIsLoaded(false);
+  const sourceProjects =
+    allProjects && allProjects.length > 0 ? allProjects : [...activeProjects, ...estimates];
+  const sourceProjectsRef = useRef(sourceProjects);
+  sourceProjectsRef.current = sourceProjects;
+  // Array identity changes every render when the caller builds the list inline.
+  // Key the reload on project ids so an empty portfolio does not restart the read forever.
+  const projectIdentity = sourceProjects
+    .map((project) => String(project?.id ?? '').trim())
+    .filter(Boolean)
+    .sort()
+    .join('\n');
+  const loadedIdentityRef = useRef<string | null>(null);
+  const loadSeqRef = useRef(0);
 
-    const all = (allProjects && allProjects.length > 0) ? allProjects : [...activeProjects, ...estimates];
+  const load = useCallback(async () => {
+    const identity = projectIdentity;
+    const seq = ++loadSeqRef.current;
+    // Only drop the ready flag when the project set actually changed.
+    // Resetting it on every call left Central Command on "Syncing project data…".
+    if (loadedIdentityRef.current !== identity) {
+      setIsLoaded(false);
+    }
+
+    const all = sourceProjectsRef.current;
     const next: Record<string, any> = {};
     const progressMap: Record<string, number> = {};
 
@@ -146,15 +164,18 @@ export function useProjectsCompareData(
         if (override) next[pid] = override;
       }
 
+      if (seq !== loadSeqRef.current) return;
       setOverrides(next);
       setTimelineProgress(progressMap);
       setTimelineMilestonesByProjectId(milestonesByPid);
     } catch {
       /* keep existing */
     } finally {
+      if (seq !== loadSeqRef.current) return;
+      loadedIdentityRef.current = identity;
       setIsLoaded(true);
     }
-  }, [activeProjects, estimates, allProjects]);
+  }, [projectIdentity]);
 
   useEffect(() => {
     load();

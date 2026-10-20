@@ -839,6 +839,16 @@ describe('scopeQuickMeasurements', () => {
 
     expect(keys).toContain('flooringSqft');
     expect(keys).toContain('drywallSqft');
+    expect(keys).toContain('cabinetDemoLf');
+    expect(keys).toContain('baseboardLf');
+    expect(keys).toContain('exteriorWallInsulationSqft');
+    expect(keys).toContain('atticInsulationSqft');
+    expect(keys).toContain('plumbingRoughPointCount');
+    expect(keys).toContain('wallPaintSqft');
+    expect(keys).toContain('standardReceptacleCount');
+    expect(keys).toContain('gfciReceptacleCount');
+    expect(keys).toContain('dedicated20aCircuitCount');
+    expect(keys).not.toContain('floorInsulationSqft');
     expect(keys).not.toContain('bathroomFloorSqft');
     expect(keys).not.toContain('kitchenFloorSqft');
     expect(keys).not.toContain('cabinetLf');

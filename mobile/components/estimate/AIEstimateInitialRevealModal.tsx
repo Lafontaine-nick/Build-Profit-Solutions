@@ -43,6 +43,7 @@ import {
   shouldDefaultExpandInitialRevealScope,
   planRevealOmitsWhatWeFound,
   shouldShowInitialRevealWhatWeFound,
+  understoodRepeatsScopePreview,
 } from '@/utils/estimateInitialRevealUi';
 import { estimateFlowCardStyle, estimateFlowDividerColor, aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
 import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
@@ -158,6 +159,7 @@ function AIEstimateInitialRevealModal({
     const confirmBuckets = getInitialRevealConfirmItems(draft);
     const tagline = getInitialRevealTagline(draft);
     const bathroomRemodelNote = String(draft.originalNotes || '');
+    const scopePreview = getInitialRevealChecklistScopePreview(draft);
     const understood = getInitialRevealUnderstoodBullets(
       draft,
       draft.projectType === 'plumbing' || draft.projectType === 'plumbing_service'
@@ -181,7 +183,8 @@ function AIEstimateInitialRevealModal({
       confirmBuckets,
       showWhatWeFound:
         !planRevealOmitsWhatWeFound(draft) &&
-        shouldShowInitialRevealWhatWeFound(understood, tagline),
+        shouldShowInitialRevealWhatWeFound(understood, tagline) &&
+        !understoodRepeatsScopePreview(understood, scopePreview),
       displayTitle: getInitialRevealDisplayTitle(draft),
       tagline,
       needsScopeConfirmation,
@@ -201,7 +204,7 @@ function AIEstimateInitialRevealModal({
         : getInitialRevealPlanningDisclaimer(totals, attentionCount),
       suppressRevealPricing,
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
-      scopePreview: getInitialRevealChecklistScopePreview(draft),
+      scopePreview,
     };
   }, [draft, markupPct]);
 
@@ -551,7 +554,12 @@ function AIEstimateInitialRevealModal({
                                 {quantity ? ` · ${quantity}` : ''}
                               </Text>
                             </View>
-                            {!viewModel.suppressRevealPricing ? (
+                            {!viewModel.suppressRevealPricing &&
+                            (amount > 0 ||
+                              !(
+                                viewModel.totals.heroTotal != null &&
+                                viewModel.totals.heroTotal > 0
+                              )) ? (
                               <View style={styles.scopeAmountWrap}>
                                 {amount <= 0 ? (
                                   <View style={styles.needsPricePill}>

@@ -512,6 +512,19 @@ describe('summarizeQuickMeasurementFieldStates', () => {
     );
   });
 
+  test('confirmed note quantities replace an all-zero provenance line', () => {
+    expect(
+      quickMeasurementSummaryLine({
+        detected: 0,
+        aiVerified: 0,
+        estimateAvailable: 0,
+        needsConfirmation: 0,
+        confirmed: 2,
+        relevantTotal: 2,
+      })
+    ).toBe('2 measurements confirmed');
+  });
+
   test('quickMeasurementSummaryLine renders the three-bucket summary format', () => {
     const line = quickMeasurementSummaryLine({
       detected: 12,

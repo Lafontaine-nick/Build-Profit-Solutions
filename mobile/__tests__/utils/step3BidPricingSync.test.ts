@@ -621,11 +621,76 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     }>;
 
     expect(laborLines.find((l) => l.name === 'HVAC')?.total).toBe(11200);
-    expect(laborLines.some((l) => /Permit|Cleanup/i.test(String(l.name || '')))).toBe(false);
-    expect(allowanceLines).toHaveLength(2);
+    expect(laborLines.find((l) => l.name === 'Cleanup / disposal')?.total).toBe(1000);
+    expect(laborLines.some((l) => /Permit/i.test(String(l.name || '')))).toBe(false);
+    expect(allowanceLines).toHaveLength(1);
     expect(allowanceLines.find((l) => l.name === 'Permits / fees')?.amount).toBe(3500);
-    expect(allowanceLines.find((l) => l.name === 'Cleanup / disposal')?.amount).toBe(1000);
     expect(allowanceLines.every((l) => l.category === 'Allowance')).toBe(true);
+  });
+
+  it('routes utility taps into soft costs and leaves project overhead alone', () => {
+    const fee = (
+      name: string,
+      scope: string,
+      price: number
+    ): EstimateAiDraft['scopePackages'][number] =>
+      ({
+        name,
+        scope,
+        checklistItemId: scope,
+        price,
+        laborPrice: null,
+        materialPrice: null,
+        pricingType: 'lump_sum',
+        includesLabor: true,
+        includesMaterials: true,
+        priceSource: 'user_provided',
+        status: 'user_provided',
+        knownSubtotal: price,
+        formula: null,
+        missingInfo: [],
+        missingPriceItems: [],
+        pricingItems: [],
+        applyEligible: true,
+        priceProvidedByUser: true,
+        splitIsSuggested: false,
+        priceIncludesLaborAndMaterials: true,
+      }) as EstimateAiDraft['scopePackages'][number];
+
+    const draft = {
+      projectType: 'ground_up',
+      estimateTier: 'ground_up',
+      originalNotes: 'New 1,960 sqft single-story home',
+      rooms: [],
+      applySuggestedSplits: false,
+      scopePackages: [
+        fee('Plans / engineering', 'plans_engineering', 3000),
+        fee('Permits / fees (incl. impact)', 'permits', 32000),
+        fee('Utility taps / connections', 'utility_taps', 7750),
+        fee('Framing', 'framing', 43837),
+      ],
+      scopeMeasurements: { itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+
+    const { bid } = applyDraftToEstimate(
+      { insuranceOverhead: 200, facilities: 50, adminOverhead: 25, overheadLineItems: [] },
+      draft,
+      { applyConfirmedOnly: true, applySuggestedSplits: false }
+    );
+
+    const laborLines = bid.laborLineItems as Array<{ name?: string; total?: number }>;
+    const allowanceLines = bid.allowanceLineItems as Array<{ name?: string; amount?: number }>;
+
+    expect(laborLines.map((l) => l.name)).toEqual(['Framing']);
+    expect(allowanceLines.map((l) => [l.name, l.amount])).toEqual([
+      ['Plans / engineering', 3000],
+      ['Permits / fees (incl. impact)', 32000],
+      ['Utility taps / connections', 7750],
+    ]);
+    expect(Number(bid.insuranceOverhead)).toBe(200);
+    expect(Number(bid.facilities)).toBe(50);
+    expect(Number(bid.adminOverhead)).toBe(25);
+    expect(bid.overheadLineItems).toEqual([]);
   });
 
   it('routes contingency and mobilization soft costs into allowanceLineItems by name/scope', () => {

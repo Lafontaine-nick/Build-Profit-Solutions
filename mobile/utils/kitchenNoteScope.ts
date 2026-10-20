@@ -500,10 +500,15 @@ export function filterDedicatedKitchenConfirmItems<
         ]
       : []
   );
-  if (!/\bcan\s+lights?\b/i.test(notes)) return kept;
-  return kept.map(item =>
-    String(item.id || '') === 'electrical_recessed_light'
-      ? { ...item, label: 'Can lights' }
-      : item
-  );
+  const lvp = /\b(?:lvp|luxury\s+vinyl)\b/i.test(notes);
+  const canLights = /\bcan\s+lights?\b/i.test(notes);
+  if (!lvp && !canLights) return kept;
+  return kept.map(item => {
+    const id = String(item.id || '');
+    if (canLights && id === 'electrical_recessed_light') {
+      return { ...item, label: 'Can lights' };
+    }
+    if (lvp && id === 'flooring') return { ...item, label: 'LVP flooring' };
+    return item;
+  });
 }

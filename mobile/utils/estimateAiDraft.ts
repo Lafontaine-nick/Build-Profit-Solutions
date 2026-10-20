@@ -146,6 +146,10 @@ import {
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
+  notesNameShowerTileWithFlooring,
+  showerTileWithFlooringAreas,
+} from '@/utils/bathroomNoteScope';
+import {
   FRAMING_CARDS,
   buildFramingStructuredMeasurements,
   normalizeFramingPlanMeasurements,
@@ -514,6 +518,7 @@ export type ScopeMeasurements = {
   /** Kitchen QM — island counter area rolled into countertops pricing when island install is on. */
   kitchenIslandCounterSqft?: number | null;
   cabinetLf?: number | null;
+  cabinetDemoLf?: number | null;
   wallDemoSqft?: number | null;
   wallDemoLf?: number | null;
   showerWallTileSqft?: number | null;
@@ -950,6 +955,9 @@ export type ScopeMeasurements = {
   sewerLineLf?: number | null;
   gasLineLf?: number | null;
   plumbingRoughPointCount?: number | null;
+  standardReceptacleCount?: number | null;
+  gfciReceptacleCount?: number | null;
+  dedicated20aCircuitCount?: number | null;
   plumbingTrimHookupCount?: number | null;
   plumbingFixturesHardwareCount?: number | null;
   waterHeaterCount?: number | null;
@@ -1734,6 +1742,100 @@ export function repairDraftRatePricingFromNotes(
     },
     text
   );
+  if (
+    notesNameShowerTileWithFlooring(text) &&
+    !repairedDraft.scopeAssumptionsConfirmed
+  ) {
+    const areas = showerTileWithFlooringAreas(text);
+    const measurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    if (!areas.showerWallTileSqft) delete measurements.showerWallTileSqft;
+    if (
+      areas.flooringSqft &&
+      Number(measurements.bathroomFloorSqft) === areas.flooringSqft &&
+      !/\bbath(?:room)?\s+floor(?:\s+tile)?\b|\bfloor\s+tile\b/i.test(text)
+    ) {
+      delete measurements.bathroomFloorSqft;
+    }
+    if (areas.flooringSqft) {
+      measurements.flooringSqft = areas.flooringSqft;
+      measurements.flooringLvpSqft = areas.flooringSqft;
+      measurements.flooringProductScope = ['lvp'];
+    }
+    const itemQuantities = {
+      ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+    };
+    if (!areas.showerWallTileSqft) {
+      delete itemQuantities.shower_tile;
+      delete itemQuantities.wet_area_install;
+    }
+    if (areas.flooringSqft) {
+      itemQuantities.flooring_lvp = {
+        quantity: areas.flooringSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    measurements.itemQuantities =
+      itemQuantities as ScopeMeasurements['itemQuantities'];
+    return {
+      ...repairedDraft,
+      projectType: 'other',
+      projectTitle: 'Bathroom tile and LVP',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades: ['bathroom', 'flooring'],
+        scopeSummary: 'Bathroom tile and LVP',
+      },
+      scopeSummary: 'Bathroom tile and LVP',
+      scopeTradeLabels: ['Bathroom', 'Flooring'],
+      detectedTrades: ['bathroom', 'flooring'],
+      whatAiDid: ['Detected bathroom tile and LVP flooring.'],
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'room_remodel',
+        title: 'Confirm the work named in the notes',
+        intro: 'Confirm shower tile and LVP before pricing.',
+        items: [
+          {
+            id: 'shower_tile',
+            inputType: 'yes_no',
+            label: 'Shower wall tile',
+            helperText:
+              'New shower wall tile area — enter sqft for pricing.',
+            category: 'wet_area',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'flooring_lvp',
+            inputType: 'yes_no',
+            label: 'LVP flooring',
+            helperText: 'Install the LVP area named in the notes.',
+            category: 'flooring',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
   // A stale server draft can retain a plumbing/kitchen checklist even when
   // the current notes explicitly describe a bathroom remodel. Force the
   // checklist to be regenerated from the corrected trade identity.

@@ -231,6 +231,30 @@ export function notesDescribeGroundUpHome(
   );
 }
 
+export function notesAskForExteriorPaint(notes?: string | null): boolean {
+  return /\bexterior\s+paint(?:ing)?\b|\bpaint(?:ing)?\s+(?:the\s+)?(?:brick\s+|stucco\s+|siding\s+)?exterior\b/i.test(
+    String(notes || '')
+  );
+}
+
+/**
+ * Brick, stucco, or siding on a new home prices that wall. Exterior paint
+ * stays only when the note asks for it.
+ */
+export function namedFinishReplacesExteriorPaint(
+  notes?: string | null,
+  templateKey?: string | null
+): boolean {
+  const text = String(notes || '');
+  const groundUp =
+    String(templateKey || '').toLowerCase() === 'ground_up' ||
+    notesDescribeGroundUpHome(text);
+  if (!groundUp || notesAskForExteriorPaint(text)) return false;
+  return /\bstucco\b|\beifs\b|\bsynthetic\s+stucco\b|\bbrick\b|\bsiding\b/i.test(
+    text
+  );
+}
+
 /** Explicitly excluded electrical service work must not become an HVAC add-on. */
 export function notesExcludeElectricalServiceUpgrade(
   notes: string | null | undefined
@@ -480,6 +504,12 @@ export function inferItemStateFromNotes(
     return hasDoorMention && !hasTypedDoorMention ? 'included' : 'unsure';
   }
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return 'included';
+  if (
+    itemId === 'exterior_paint' &&
+    namedFinishReplacesExteriorPaint(notes)
+  ) {
+    return 'excluded';
+  }
   if (concreteCatalogItemLeftUnnamed(itemId, notes)) return 'excluded';
   return 'unsure';
 }

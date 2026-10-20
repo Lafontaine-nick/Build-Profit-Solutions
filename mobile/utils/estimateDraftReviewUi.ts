@@ -18,6 +18,11 @@ import {
 } from '@/utils/appliedScopePackagePricing';
 import type { ScopePricingAcceptanceMetadata } from '@/utils/acceptedPricingSummaryUi';
 import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
+import {
+  notesNameWallAreaFramingWithFlooring,
+  parseFramingMeasurementsFromNotes,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
@@ -203,6 +208,105 @@ const NOTE_BOUND_LANDSCAPE_QUANTITY_KEYS = new Set([
   'mulch',
 ]);
 
+function draftIsGroundUpHome(draft?: EstimateAiDraft | null): boolean {
+  if (!draft) return false;
+  const template = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  return (
+    template === 'ground_up' ||
+    template === 'new_build' ||
+    notesDescribeGroundUpHome(draft.originalNotes)
+  );
+}
+
+/**
+ * Shower tile and shower doors on a new home are package allowances.
+ * A stored takeoff above one unit still shows that quantity.
+ */
+function groundUpPlaceholderAllowance(
+  draft: EstimateAiDraft | null | undefined,
+  ruleKey: string,
+  displayedQuantity: number | null
+): string | null {
+  if (!draftIsGroundUpHome(draft)) return null;
+  if (ruleKey !== 'shower_tile' && ruleKey !== 'glass_door') return null;
+  const measurements = (draft?.scopeMeasurements || {}) as Record<string, unknown>;
+  if (ruleKey === 'shower_tile') {
+    const wall = Number(String(measurements.showerWallTileSqft ?? '').replace(/,/g, ''));
+    if (Number.isFinite(wall) && wall > 1) {
+      return `${wall.toLocaleString()} sqft`;
+    }
+    if ((displayedQuantity ?? 1) <= 1) return 'Allowance';
+    return null;
+  }
+  const raw = measurements.showerDoorCount;
+  const doors = Number(String(raw ?? '').replace(/,/g, ''));
+  if (raw != null && String(raw).trim() !== '' && Number.isFinite(doors) && doors > 0) {
+    return `${doors.toLocaleString()} each`;
+  }
+  if ((displayedQuantity ?? 1) <= 1) return 'Allowance';
+  return null;
+}
+
+const REVIEW_COUNT_EACH_KEYS: Record<string, string> = {
+  window_install: 'windowCount',
+  windows: 'windowCount',
+  windows_doors: 'windowCount',
+  window_replacement: 'windowCount',
+  window_installation: 'windowCount',
+  interior_door_install: 'interiorDoorCount',
+  interior_doors: 'interiorDoorCount',
+  exterior_doors: 'exteriorDoorCount',
+  exterior_door_install: 'exteriorDoorCount',
+};
+
+/**
+ * Wall-area framing is priced per linear foot (sqft ÷ 8). Review draft keeps
+ * the note quantity, "400 sqft", instead of replacing it with the 50 LF basis.
+ */
+function reviewWallAreaFramingQuantity(
+  draft: EstimateAiDraft | null | undefined,
+  ruleKey: string,
+  pkg: EstimateDraftScopePackage,
+  stored?: { quantity: number; unit: string } | null
+): string | null {
+  if (!draft || !notesNameWallAreaFramingWithFlooring(draft.originalNotes)) return null;
+  const isWall =
+    ruleKey === 'wall_framing' || /wall framing/i.test(String(pkg.name || ''));
+  if (!isWall) return null;
+  if (stored && !/^(?:lf|lin(?:ear)?\s*f(?:ee)?t)$/i.test(String(stored.unit || ''))) {
+    return null;
+  }
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const fromMeasurement = Number(
+    String(measurements.wallFramingSqft ?? '').replace(/,/g, '')
+  );
+  const sqft =
+    Number.isFinite(fromMeasurement) && fromMeasurement > 0
+      ? fromMeasurement
+      : parseFramingMeasurementsFromNotes(String(draft.originalNotes || '')).wallFramingSqft;
+  if (!sqft || sqft <= 0) return null;
+  return `${sqft.toLocaleString()} ${formatDisplayUnit('sqft')}`;
+}
+
+/** Step 2 prices these by count. A leftover sqft on the package is not that count. */
+function reviewCountEachQuantity(
+  draft: EstimateAiDraft | null | undefined,
+  ruleKey: string,
+  stored?: { quantity: number; unit: string } | null
+): string | null {
+  const measurementKey = REVIEW_COUNT_EACH_KEYS[ruleKey];
+  if (!draft || !measurementKey) return null;
+  if (stored && /^(?:each|ea)$/i.test(String(stored.unit || ''))) return null;
+  const raw = (draft.scopeMeasurements as Record<string, unknown> | undefined)?.[
+    measurementKey
+  ];
+  const count = Number(String(raw ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return `${count.toLocaleString()} each`;
+}
+
 export function formatScopeQuantity(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
@@ -214,6 +318,14 @@ export function formatScopeQuantity(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       ''
     : '';
+  if (draft && (previewRuleKey === 'shower_tile' || previewRuleKey === 'glass_door')) {
+    const allowance = groundUpPlaceholderAllowance(
+      draft,
+      previewRuleKey,
+      q?.quantity ?? null
+    );
+    if (allowance) return allowance;
+  }
   // Sod, mulch, rock, and pavers only show a quantity the note attached to
   // that material. A shared sentence must not copy sod sqft onto mulch.
   if (
@@ -315,6 +427,10 @@ export function formatScopeQuantity(
       return String(measurements.insulationRValue);
     }
   }
+  const wallAreaSqft = reviewWallAreaFramingQuantity(draft, previewRuleKey, pkg, q);
+  if (wallAreaSqft) return wallAreaSqft;
+  const countedEach = reviewCountEachQuantity(draft, previewRuleKey, q);
+  if (countedEach) return countedEach;
   if (!q) return null;
   // Trade dollar lumps are not soft-cost allowances — show "lump sum" on Step 3.
   const unit =

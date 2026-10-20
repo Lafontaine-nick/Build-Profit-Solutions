@@ -172,7 +172,6 @@ import {
   estimateSummaryStepperIconColor,
   estimateSummaryStepperIconShellStyle,
   estimateSummaryStepperLabelStyle,
-  estimateSummaryStatusColors,
   ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_BLUE,
@@ -191,6 +190,7 @@ import {
   estimateFlowStepContentWrapStyle,
   estimateFlowStepperWrapStyle,
 } from '../../utils/estimateFlowCardStyle';
+import { resolveBidSummaryHeroStatus } from '../../utils/bidSummaryHeroStatus';
 import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
 import {
   ensureGroundUpPlanNotes,
@@ -13366,53 +13366,21 @@ export default function EstimateGeneratorScreen() {
         };
         const summaryLineItemCount =
           (bid.materialLineItems?.length || 0) + (bid.laborLineItems?.length || 0);
-        const summaryMissingCount = missingEstimateItems.length;
         const summaryHasPricing =
           summaryLineItemCount > 0 ||
           (calc?.total || 0) > 0 ||
           calc.materials > 0 ||
           calc.labor > 0;
-        const laborShareOfBid = calc.total > 0 ? calc.labor / calc.total : 0;
-        const summaryNeedsReview =
-          summaryMissingCount > 0 ||
-          setupProgressPct < 100 ||
-          (summaryHasPricing && healthScore < 75);
-        const summaryReviewReasons = [];
-        if (!hasClientInfo || !hasJobInfo) {
-          summaryReviewReasons.push('Client information is incomplete');
-        }
-        if (summaryMissingCount > 0) {
-          summaryReviewReasons.push(
-            summaryMissingCount === 1
-              ? '1 estimate item needs confirmation'
-              : `${summaryMissingCount} estimate items need confirmation`,
-          );
-        }
-        if (laborShareOfBid >= 0.55) {
-          summaryReviewReasons.push('Labor is a high share of the bid');
-        }
-        if (markupLow) {
-          summaryReviewReasons.push('Markup may be too thin for normal job friction');
-        }
-        let summaryStatusLabel;
-        let summaryStatusTone;
-        if (setupProgressPct >= 100 && healthScore >= 75 && summaryMissingCount === 0) {
-          summaryStatusLabel = 'Ready to send';
-          summaryStatusTone = 'ready';
-        } else if (summaryMissingCount > 0) {
-          summaryStatusLabel =
-            summaryMissingCount === 1
-              ? 'Needs review — 1 item to check'
-              : `Needs review — ${summaryMissingCount} items to check`;
-          summaryStatusTone = 'review';
-        } else if (setupProgressPct >= 100) {
-          summaryStatusLabel = 'Needs review';
-          summaryStatusTone = 'review';
-        } else {
-          summaryStatusLabel = `Setup ${setupProgressPct}%`;
-          summaryStatusTone = 'progress';
-        }
-        const summaryStatusColors = estimateSummaryStatusColors(summaryStatusTone);
+        const summaryHeroStatus = resolveBidSummaryHeroStatus({
+          missingLabels: missingEstimateItems,
+          setupProgressPct,
+          healthScore,
+          hasMaterials,
+          hasLabor,
+          total: calc?.total || 0,
+        });
+        const summaryNeedsReview = summaryHeroStatus.needsReview;
+        const summaryStatusLabel = summaryHeroStatus.label;
         const summaryOptionalSteps = [
           {
             done: Boolean(String(bid.customerName || bid.clientName || '').trim()),
@@ -13492,7 +13460,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                     <Text style={{ color: '#d7e1f0', fontSize: 13, fontWeight: '500', marginTop: 8, lineHeight: 18 }}>
                       {summaryStatusLabel}
-                      {summaryLineItemCount > 0
+                      {summaryHeroStatus.showLineCount && summaryLineItemCount > 0
                         ? summaryLineItemCount === 1
                           ? ' · 1 item'
                           : ` · ${summaryLineItemCount} items`

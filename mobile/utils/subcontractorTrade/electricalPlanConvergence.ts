@@ -14,6 +14,7 @@ import {
   isAdditionConversionJob,
   isNewStructureAdditionJob,
 } from '@/utils/additionConversionPlanning';
+import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 
 function existingShellConversionUsesPackageElectrical(
   templateKey?: string | null,
@@ -1093,6 +1094,17 @@ export function syncElectricalScopeItems<
     )
   ) {
     return items;
+  }
+  // A measured whole-home note prices outlets, GFCI, and dedicated circuits
+  // on the single Electrical work line. Do not split those counts into
+  // extra review rows that have no price of their own.
+  if (notesDescribeMeasuredWholeHomeRemodel(params.notes)) {
+    const pricedOnElectricalLine = new Set([
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+      'electrical_dedicated_20a',
+    ]);
+    return items.filter(item => !pricedOnElectricalLine.has(item.id));
   }
   const packageOnly = existingShellConversionUsesPackageElectrical(
     params.templateKey,

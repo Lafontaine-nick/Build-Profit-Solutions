@@ -69,7 +69,10 @@ import {
 import {
   finalizeWetAreaInstallScopeFromMeasurements,
 } from '@/utils/wetAreaInstallScopeGate';
-import { notesExcludeElectricalServiceUpgrade } from '@/utils/scopeItemNoteHints';
+import {
+  namedFinishReplacesExteriorPaint,
+  notesExcludeElectricalServiceUpgrade,
+} from '@/utils/scopeItemNoteHints';
 
 export type ConfirmScopeVisibleRowsContext = {
   templateKey?: string | null;
@@ -136,6 +139,13 @@ export function buildConfirmScopeDisplayItems(
     return row;
   });
   const noteText = String(notes || '');
+  if (namedFinishReplacesExteriorPaint(noteText, templateKey)) {
+    expanded = expanded.map(row =>
+      row.id === 'exterior_paint'
+        ? { ...row, state: 'excluded' as const, noteBacked: true }
+        : row
+    );
+  }
   const serviceUpgradeUserSelected =
     Number(String(measurements.serviceUpgradeCount ?? '').replace(/,/g, '')) > 0 ||
     (measurements.itemQuantities &&
@@ -828,6 +838,18 @@ export function flattenConfirmScopeVisibleRows(
       return false;
     }
 
+    if (
+      item.id === 'exterior_paint' &&
+      namedFinishReplacesExteriorPaint(
+        String(
+          ctx.measurements.originalNotes || ctx.measurements.scopeNotes || ''
+        ),
+        ctx.templateKey
+      )
+    ) {
+      return false;
+    }
+
     if (ctx.forStep3Review) {
       if (
         isDrywallCompletePackageScope({ templateKey: ctx.templateKey }) &&
@@ -1117,7 +1139,12 @@ export function reconcileScopePackagesForReview(
   if (!items.length) return base;
 
   const templateKey = draft.scopeChecklist?.templateKey;
-  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const measurements = {
+    ...((draft.scopeMeasurements || {}) as Record<string, unknown>),
+    originalNotes:
+      draft.originalNotes ||
+      (draft.scopeMeasurements as { scopeNotes?: string } | undefined)?.scopeNotes,
+  };
   const orderedItems = flattenConfirmScopeVisibleRows(items, {
     templateKey,
     projectType: draft.projectType,
@@ -1137,9 +1164,10 @@ export function reconcileScopePackagesForReview(
     const matchIdx = base.findIndex(
       (pkg, idx) => !usedPackageIndices.has(idx) && packageMatchesChecklistItem(pkg, item.id)
     );
-    if (matchIdx >= 0) {
+    const matched = matchIdx >= 0 ? base[matchIdx] : undefined;
+    if (matchIdx >= 0 && matched) {
       usedPackageIndices.add(matchIdx);
-      result.push(packageFromChecklistItem(item, base[matchIdx]));
+      result.push(packageFromChecklistItem(item, matched));
       continue;
     }
     result.push(stubPackageFromChecklistItem(item));

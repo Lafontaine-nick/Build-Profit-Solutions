@@ -474,6 +474,7 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
 }
 
 const LiveCameraScanner = memo(function LiveCameraScanner({ visible, isLocked, isLookingUp, onScanned }) {
+  const { darkMode } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const [lastScanHint, setLastScanHint] = useState('');
   const cameraReadyRef = useRef(false);
@@ -539,6 +540,10 @@ const LiveCameraScanner = memo(function LiveCameraScanner({ visible, isLocked, i
     setLastScanHint(`Detected ${event?.type || 'barcode'}: ${data}`);
     onScannedRef.current({ data, type: event?.type || 'barcode' });
   }, []);
+
+  if (!permission) {
+    return <View style={{ flex: 1, backgroundColor: SCANNER_SCREEN_BG }} />;
+  }
 
   if (!hasPermission) {
     return (

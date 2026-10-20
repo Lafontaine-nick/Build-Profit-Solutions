@@ -212,6 +212,27 @@ describe('kitchenRemodel QM', () => {
     expect(KITCHEN_QM_EMBEDDED_IDS.has('backsplash_demo')).toBe(true);
   });
 
+  it('does not turn an install-only cabinet and LVP note into cabinet removal', () => {
+    const notes = 'Install 12 LF of base cabinets and 40 sqft of LVP.';
+    const items = [
+      item('cabinets', 'included'),
+      item('cabinet_demo', 'unsure'),
+      item('countertop_demo', 'unsure'),
+      item('floor_demo', 'unsure'),
+      item('flooring', 'included'),
+    ];
+    const next = syncKitchenQmScopeItems(
+      items,
+      { cabinetLf: '12', kitchenFloorSqft: '40' },
+      notes
+    );
+    expect(next.find(row => row.id === 'cabinets')?.state).toBe('included');
+    expect(next.find(row => row.id === 'flooring')?.state).toBe('included');
+    expect(next.find(row => row.id === 'cabinet_demo')?.state).toBe('excluded');
+    expect(next.find(row => row.id === 'countertop_demo')?.state).toBe('excluded');
+    expect(next.find(row => row.id === 'floor_demo')?.state).toBe('excluded');
+  });
+
   it('syncs demo scope cards from measurement takeoffs without demo steppers', () => {
     const items = [
       item('cabinet_demo', 'unsure'),
@@ -649,11 +670,12 @@ describe('kitchenRemodel QM', () => {
       notes
     );
     expect(flooring.fill).toMatchObject({
-      total: 1199.8,
-      material: 533.4,
-      labor: 666.4,
+      total: 980,
+      material: 490,
+      labor: 490,
       mode: 'suggested_price',
     });
+    expect(flooring.fill?.displayUnitRateLabel).toBe('140 sqft × $7/sqft');
     expect(flooring.fill?.rateSourceLabel).toMatch(/national/i);
     expect(flooring.fill?.mode).not.toBe('note_total_split');
     const flooringDisplay = buildSuggestedPricingCardDisplay({

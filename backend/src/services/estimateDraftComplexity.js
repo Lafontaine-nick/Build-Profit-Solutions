@@ -1051,6 +1051,10 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     /\battic\b[^.;,\n]{0,35}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,35}\battic\b/i.test(
       notes,
     );
+  const hasWallInsulation =
+    /\b(?:wall|walls)\b[^.;,\n]{0,40}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,40}\b(?:wall|walls)\b/i.test(
+      notes,
+    );
   const hasWindowReplacement =
     /\b(?:replace|replacement|install|new)\b[^.;,\n]{0,45}\bwindows?\b|\bwindows?\b[^.;,\n]{0,45}\b(?:replace|replacement|install|new)\b/i.test(
       notes,
@@ -1080,9 +1084,11 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
         "Paint the note-specified ceilings; confirm the ceiling area before pricing.";
     }
     if (item.id === "insulation" && hasAtticInsulation) {
-      item.label = "Attic insulation";
-      item.helperText =
-        "Install the note-specified attic insulation and preserve the stated R-value.";
+      item.label =
+        hasWallInsulation ? "Wall & attic insulation" : "Attic insulation";
+      item.helperText = hasWallInsulation
+        ? "Wall and attic insulation named in the notes. Confirm the area before pricing."
+        : "Install the note-specified attic insulation and preserve the stated R-value.";
     }
     if (item.id === "window_install" && hasWindowReplacement) {
       item.label = "Window install";

@@ -357,6 +357,21 @@ describe("estimateDraftComplexity", () => {
     );
   });
 
+  test("names wall and attic insulation together when the note says both", () => {
+    const notes =
+      "Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const insulation = checklist.items.find((item) => item.id === "insulation");
+    expect(insulation?.label).toBe("Wall & attic insulation");
+    expect(checklist.items.map((item) => item.label)).not.toContain(
+      "Attic insulation",
+    );
+  });
+
   test("routes an interior paint quantity through Confirm Scope", () => {
     const notes = "Paint 1,800 sqft of the interior. Include prep.";
     const draft = {

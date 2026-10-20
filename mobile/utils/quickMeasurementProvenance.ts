@@ -749,6 +749,18 @@ export function quickMeasurementSummaryLine(
   const aiVerified = summary.aiVerified || 0;
   const fromPlan = summary.detected + (summary.planConfirmed || 0);
   const planningEstimates = summary.estimateAvailable;
+  const confirmed = summary.confirmed || 0;
+  if (
+    fromPlan === 0 &&
+    aiVerified === 0 &&
+    planningEstimates === 0 &&
+    summary.needsConfirmation === 0 &&
+    confirmed > 0
+  ) {
+    return confirmed === 1
+      ? '1 measurement confirmed'
+      : `${confirmed} measurements confirmed`;
+  }
   return `${fromPlan} from plan · ${aiVerified} AI verified · ${planningEstimates} planning estimate${planningEstimates === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
 }
 

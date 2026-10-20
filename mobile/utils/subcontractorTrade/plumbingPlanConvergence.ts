@@ -13,6 +13,7 @@ import {
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
 import { notesNameDedicatedHvacServiceVisit } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 
 export type PlumbingQuantityKey =
   | 'serviceCallCount'
@@ -1124,20 +1125,24 @@ export function parsePlumbingMeasurementsFromNotes(
           )
         )
   );
-  assign(
-    'plumbingTrimHookupCount',
-    notesExcludePlumbingScopePhrase(
-      text,
-      /\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i
-    )
-      ? null
-      : count(
-          new RegExp(
-            `${COUNT_TOKEN}\\s+(?:plumbing\\s+trim|trim\\s+hookups?|fixture\\s+hookups?|plumbing\\s+connections?)`,
-            'i'
-          )
+  const plumbingConnectionCount = notesExcludePlumbingScopePhrase(
+    text,
+    /\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i
+  )
+    ? null
+    : count(
+        new RegExp(
+          `${COUNT_TOKEN}\\s+(?:plumbing\\s+trim|trim\\s+hookups?|fixture\\s+hookups?|plumbing\\s+connections?)`,
+          'i'
         )
-  );
+      );
+  if (notesDescribeMeasuredWholeHomeRemodel(text)) {
+    if (out.plumbingRoughPointCount == null) {
+      assign('plumbingRoughPointCount', plumbingConnectionCount);
+    }
+  } else {
+    assign('plumbingTrimHookupCount', plumbingConnectionCount);
+  }
   assign(
     'partsMaterialsCount',
     count(new RegExp(`${COUNT_TOKEN}\\s+(?:plumbing\\s+)?parts?`, 'i')) ??

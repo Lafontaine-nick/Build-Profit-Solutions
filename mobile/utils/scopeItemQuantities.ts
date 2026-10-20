@@ -4,7 +4,11 @@
  */
 
 import { notesInferBathroomGlassDoorStyle } from '@/utils/bathroomGlassDoorPricing';
-import { notesWaterproofPanNotWalls } from '@/utils/bathroomNoteScope';
+import {
+  notesNameShowerTileWithFlooring,
+  notesWaterproofPanNotWalls,
+  showerTileWithFlooringAreas,
+} from '@/utils/bathroomNoteScope';
 import {
   TILE_DEMO_LABOR_RATE,
   TILE_PAN_DEMO_INSTALLED_RATE,
@@ -68,6 +72,7 @@ import {
   framingCardForItemId,
   isShellFramingPackageBid,
   notesNameLinearFootStudWall,
+  notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
   resolveCoveredFramedAreaSqft,
   resolveFramingSheathingSqft,
@@ -148,6 +153,7 @@ import {
 import {
   applyProjectComplexityToSuggestedPricing,
   hydrateProjectComplexityInputFields,
+  resolveSquareFootageMultiplier,
   type ProjectComplexitySettings,
   type SuggestedPricingComplexityMeta,
 } from '@/utils/projectComplexityAdjustments';
@@ -306,6 +312,7 @@ import {
   drywallFinishLaborBucketLabel,
   resolveDrywallPackageMaterialMultiplier,
   resolveDrywallPackageLaborMultiplier,
+  drywallAccessLaborMultiplier,
   drywallGypsumBarometerPackageDollars,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
@@ -335,6 +342,7 @@ import {
 import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
 import {
   areaOnlyStuccoSystemRate,
+  areaOnlySidingRateFromNotes,
   AREA_ONLY_BRICK_RATE,
   areaOnlyExteriorCladding,
   areaOnlyExteriorFinishFromNotes,
@@ -691,6 +699,7 @@ export type NormalizedScopeMeasurements = {
   countertopLf: number | null;
   kitchenIslandCounterSqft: number | null;
   cabinetLf: number | null;
+  cabinetDemoLf: number | null;
   landscapeSqft: number | null;
   artificialTurfSqft: number | null;
   demoClearingSqft: number | null;
@@ -7563,6 +7572,7 @@ export function normalizeScopeMeasurements(
     countertopLf: num(measurements?.countertopLf),
     kitchenIslandCounterSqft: num(measurements?.kitchenIslandCounterSqft),
     cabinetLf: num(measurements?.cabinetLf),
+    cabinetDemoLf: num(measurements?.cabinetDemoLf),
     landscapeSqft: num(measurements?.landscapeSqft),
     artificialTurfSqft: num(measurements?.artificialTurfSqft),
     demoClearingSqft: num(measurements?.demoClearingSqft),
@@ -7728,6 +7738,9 @@ export function normalizeScopeMeasurements(
     sewerLineLf: num(measurements?.sewerLineLf),
     gasLineLf: num(measurements?.gasLineLf),
     plumbingRoughPointCount: num(measurements?.plumbingRoughPointCount),
+    standardReceptacleCount: num(measurements?.standardReceptacleCount),
+    gfciReceptacleCount: num(measurements?.gfciReceptacleCount),
+    dedicated20aCircuitCount: num(measurements?.dedicated20aCircuitCount),
     plumbingTrimHookupCount: num(measurements?.plumbingTrimHookupCount),
     plumbingFixturesHardwareCount: num(
       measurements?.plumbingFixturesHardwareCount
@@ -12368,7 +12381,7 @@ function floorDemoPricingSqftCount(
   }
   const fromRule = firstMeasurementQuantityForRule(rule, measurementsInput);
   if (fromRule && fromRule > 0) return fromRule;
-  return parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+  return null;
 }
 
 function measurementUnitForKey(
@@ -12913,10 +12926,11 @@ function round2(n: number): number {
 }
 
 function formPlanningQuantity(
-  key: 'excavationCy' | 'drywallSqft' | 'exteriorPaintSqft',
+  key: 'excavationCy' | 'drywallSqft' | 'exteriorPaintSqft' | 'roofSquares',
   measurements: {
     floorAreaSqft?: unknown;
     garageSqft?: unknown;
+    deckSqft?: unknown;
     planFacts?: unknown;
     scopeNotes?: unknown;
   },
@@ -12935,7 +12949,8 @@ function formPlanningQuantity(
   );
   const value = Number(estimate?.value);
   if (!Number.isFinite(value) || value <= 0) return null;
-  return key === 'excavationCy' ? value : Math.round(value);
+  if (key === 'excavationCy' || key === 'roofSquares') return value;
+  return Math.round(value);
 }
 
 function volumeSensitiveExcavationPricing(quantityCy: number) {
@@ -15886,6 +15901,106 @@ function paintingPlanPackageShares(total: number): Record<
   };
 }
 
+function notedFlooringSqft(notes: string): number | null {
+  const match =
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:lvp|luxury\s+vinyl|laminate|vinyl|carpet|hardwood|flooring)\b/i.exec(
+      notes
+    );
+  return match ? parseScopeMeasurementInput(match[1]) : null;
+}
+
+/** National-average prices for "frame N sqft of walls and install N sqft of LVP". */
+export function wallAreaFramingWithFlooringPrices(
+  notes: string | null | undefined,
+  measurements?: {
+    wallFramingSqft?: unknown;
+    flooringSqft?: unknown;
+    flooringLvpSqft?: unknown;
+  } | null
+): {
+  framing: NonNullable<ScopeItemSuggestedPricing['fill']>;
+  flooring: NonNullable<ScopeItemSuggestedPricing['fill']>;
+  material: number;
+  labor: number;
+  total: number;
+} | null {
+  const notesText = String(notes || '');
+  if (!notesNameWallAreaFramingWithFlooring(notesText)) return null;
+  const wallSqft =
+    parseScopeMeasurementInput(measurements?.wallFramingSqft) ||
+    parseFramingMeasurementsFromNotes(notesText).wallFramingSqft;
+  const floorSqft =
+    parseScopeMeasurementInput(measurements?.flooringSqft) ||
+    parseScopeMeasurementInput(measurements?.flooringLvpSqft) ||
+    notedFlooringSqft(notesText);
+  if (!(wallSqft && wallSqft > 0) || !(floorSqft && floorSqft > 0)) return null;
+  const studWall = regionalAdjustedNationalAverage('wall_framing', 'lf', null)
+    .average;
+  const materialRate = Number(studWall?.material ?? 4);
+  const laborRate = Number(studWall?.labor ?? 8);
+  if (!(materialRate > 0) || !(laborRate > 0)) return null;
+  const wallHeightFt = 8;
+  const linearFeet = Math.round((wallSqft / wallHeightFt) * 10) / 10;
+  const framingMaterial = round2(linearFeet * materialRate);
+  const framingLabor = round2(linearFeet * laborRate);
+  const perLf = round2(materialRate + laborRate);
+  const lfLabel = Number.isInteger(linearFeet)
+    ? String(linearFeet)
+    : linearFeet.toFixed(1);
+  const perLfLabel = Number.isInteger(perLf) ? `$${perLf}` : `$${perLf.toFixed(2)}`;
+  const lvpRates = flooringInstallNationalAverage('flooring_lvp', {
+    ...(measurements || {}),
+  } as ScopeMeasurementsInputExtended);
+  if (!lvpRates) return null;
+  const flooringMaterial = round2(floorSqft * lvpRates.material);
+  const flooringLabor = round2(floorSqft * lvpRates.labor);
+  const perSqft = round2(lvpRates.material + lvpRates.labor);
+  const perSqftLabel = Number.isInteger(perSqft)
+    ? `$${perSqft}`
+    : `$${perSqft.toFixed(2)}`;
+  const framing = {
+    material: framingMaterial,
+    labor: framingLabor,
+    total: round2(framingMaterial + framingLabor),
+    materialSource: 'national_average' as const,
+    laborSource: 'national_average' as const,
+    rateSourceLabel:
+      studWall?.sourceLabel ||
+      'Suggested budget split · National Average · stud wall framing',
+    helper: `${wallSqft.toLocaleString()} sqft of wall at ${wallHeightFt} ft is ${lfLabel} LF of stud wall.`,
+    mode: 'suggested_price' as const,
+    basis: { quantity: linearFeet, unit: 'lf' as const },
+    displayUnitRateLabel: `${wallSqft.toLocaleString()} sqft at ${wallHeightFt} ft · ${lfLabel} LF × ${perLfLabel}/LF`,
+    benchmarkAction: 'price_ready' as const,
+    productionStatus: 'review_required' as const,
+    benchmarkLevel: 'component' as const,
+    benchmarkScopeKey: 'wall_framing',
+  };
+  const flooring = {
+    material: flooringMaterial,
+    labor: flooringLabor,
+    total: round2(flooringMaterial + flooringLabor),
+    materialSource: 'national_average' as const,
+    laborSource: 'national_average' as const,
+    rateSourceLabel: lvpRates.sourceLabel,
+    helper: `${floorSqft.toLocaleString()} sqft of LVP from the job notes.`,
+    mode: 'suggested_price' as const,
+    basis: { quantity: floorSqft, unit: 'sqft' as const },
+    displayUnitRateLabel: `${floorSqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+    benchmarkAction: 'price_ready' as const,
+    productionStatus: 'review_required' as const,
+    benchmarkLevel: 'component' as const,
+    benchmarkScopeKey: 'flooring',
+  };
+  return {
+    framing,
+    flooring,
+    material: round2(framingMaterial + flooringMaterial),
+    labor: round2(framingLabor + flooringLabor),
+    total: round2(framing.total + flooring.total),
+  };
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -16789,6 +16904,53 @@ export function resolveScopeItemSuggestedPricing(
       };
     }
   }
+  const flooringSentenceStatesRate = notesText.split(/[.\n]/).some(
+    sentence =>
+      /\b(?:lvp|luxury\s+vinyl|floor(?:ing)?)\b/i.test(sentence) &&
+      /\$\s*\d|\bper\s*(?:sq\.?\s*ft|sqft|sf)\b/i.test(sentence)
+  );
+  if (
+    itemId === 'flooring' &&
+    /\b(?:lvp|luxury\s+vinyl)\b/i.test(notesText) &&
+    !flooringSentenceStatesRate
+  ) {
+    const sqft =
+      parseScopeMeasurementInput(measurementsInput.kitchenFloorSqft) ||
+      parseScopeMeasurementInput(
+        (measurementsInput as { flooringLvpSqft?: unknown }).flooringLvpSqft
+      ) ||
+      parseScopeMeasurementInput(measurementsInput.flooringSqft);
+    const rates = sqft
+      ? flooringInstallNationalAverage('flooring_lvp', measurementsInput)
+      : null;
+    if (sqft && rates) {
+      const material = round2(sqft * rates.material);
+      const labor = round2(sqft * rates.labor);
+      const perSqft = round2(rates.material + rates.labor);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${sqft.toLocaleString()} sqft of LVP from the job notes.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'flooring_lvp',
+        },
+        comparison: null,
+      };
+    }
+  }
   if (
     (itemId === 'backsplash' || itemId === 'flooring') &&
     String(templateKey || '').toLowerCase() === 'kitchen'
@@ -16828,6 +16990,70 @@ export function resolveScopeItemSuggestedPricing(
           benchmarkAction: 'price_ready',
           productionStatus: 'review_required',
         },
+        comparison: null,
+      };
+    }
+  }
+  if (notesNameShowerTileWithFlooring(notesText)) {
+    if (itemId === 'shower_tile') {
+      const areas = showerTileWithFlooringAreas(notesText);
+      const measured = parseScopeMeasurementInput(
+        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+      );
+      const trusted =
+        areas.showerWallTileSqft ||
+        (measured && measured !== areas.flooringSqft ? measured : null);
+      if (!trusted) return empty;
+    }
+    if (itemId === 'flooring_lvp' || itemId === 'flooring') {
+      const areas = showerTileWithFlooringAreas(notesText);
+      const sqft =
+        parseScopeMeasurementInput(
+          (measurementsInput as { flooringLvpSqft?: unknown }).flooringLvpSqft
+        ) || areas.flooringSqft;
+      const rates = sqft
+        ? flooringInstallNationalAverage('flooring_lvp', measurementsInput)
+        : null;
+      if (sqft && rates) {
+        const material = round2(sqft * rates.material);
+        const labor = round2(sqft * rates.labor);
+        const perSqft = round2(rates.material + rates.labor);
+        const perSqftLabel = Number.isInteger(perSqft)
+          ? `$${perSqft}`
+          : `$${perSqft.toFixed(2)}`;
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: rates.sourceLabel,
+            helper: `${sqft.toLocaleString()} sqft of LVP from the job notes.`,
+            mode: 'suggested_price',
+            basis: { quantity: sqft, unit: 'sqft' },
+            displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'flooring_lvp',
+          },
+          comparison: null,
+        };
+      }
+    }
+  }
+  if (itemId === 'flooring' || itemId === 'wall_framing') {
+    const mixedPrices = wallAreaFramingWithFlooringPrices(notesText, {
+      wallFramingSqft: (measurementsInput as { wallFramingSqft?: unknown })
+        .wallFramingSqft,
+      flooringSqft: measurementsInput.flooringSqft,
+      flooringLvpSqft: (measurementsInput as { flooringLvpSqft?: unknown })
+        .flooringLvpSqft,
+    });
+    if (mixedPrices) {
+      return {
+        fill: itemId === 'wall_framing' ? mixedPrices.framing : mixedPrices.flooring,
         comparison: null,
       };
     }
@@ -18253,9 +18479,16 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (itemId === 'cabinet_demo') {
-    const measuredLf = Number(
+    const demoLf = Number(
+      String(
+        (measurementsInput as { cabinetDemoLf?: unknown }).cabinetDemoLf ?? ''
+      ).replace(/,/g, '')
+    );
+    const installLf = Number(
       String(measurementsInput.cabinetLf ?? '').replace(/,/g, '')
     );
+    const measuredLf =
+      Number.isFinite(demoLf) && demoLf > 0 ? demoLf : installLf;
     const count =
       Number.isFinite(measuredLf) && measuredLf > 0
         ? measuredLf
@@ -19352,6 +19585,63 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (itemId === 'electrical') {
+    if (notesDescribeMeasuredWholeHomeRemodel(notesText)) {
+      const deviceLines = [
+        {
+          quantity: Number(measurementsInput.standardReceptacleCount),
+          material: 15,
+          labor: 70,
+          label: 'outlet',
+        },
+        {
+          quantity: Number(measurementsInput.gfciReceptacleCount),
+          material: 30,
+          labor: 95,
+          label: 'GFCI outlet',
+        },
+        {
+          quantity: Number(measurementsInput.dedicated20aCircuitCount),
+          material: 175,
+          labor: 575,
+          label: 'dedicated 120V appliance circuit',
+        },
+      ].filter(line => Number.isFinite(line.quantity) && line.quantity > 0);
+      if (deviceLines.length) {
+        const material = round2(
+          deviceLines.reduce(
+            (sum, line) => sum + line.quantity * line.material,
+            0
+          )
+        );
+        const labor = round2(
+          deviceLines.reduce((sum, line) => sum + line.quantity * line.labor, 0)
+        );
+        const totalQuantity = deviceLines.reduce(
+          (sum, line) => sum + line.quantity,
+          0
+        );
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel:
+              'Suggested budget split · National Average · ' +
+              deviceLines.map(line => line.label).join(' + '),
+            helper: `${totalQuantity.toLocaleString()} electrical devices from Quick measurements`,
+            mode: 'suggested_price',
+            lumpSumOnly: false,
+            basis: { quantity: totalQuantity, unit: 'each' },
+            benchmarkAction: 'price_ready',
+            pricingRecordId: 'bps_national:electrical:whole_home:each',
+            productionStatus: 'review_required',
+          },
+          comparison: null,
+        };
+      }
+    }
     const rates: Record<
       string,
       { material: number; labor: number; label: string }
@@ -20540,6 +20830,55 @@ export function resolveScopeItemSuggestedPricing(
       : measurementMatch?.unit === unit
         ? measurementMatch.quantity
         : firstMeasurementQuantityForRule(rule, measurementsInput));
+  if (itemId === 'floor_demo' && unit === 'sqft') {
+    const explicitFloorDemo = parseScopeMeasurementInput(
+      String(measurementsInput.floorDemoSqft ?? '')
+    );
+    const livingForFloorDemo = parseScopeMeasurementInput(
+      String(measurementsInput.floorAreaSqft ?? '')
+    );
+    const resolvedQty = Number(resolved.quantity);
+    const resolvedIsHouseSize =
+      livingForFloorDemo != null &&
+      livingForFloorDemo > 0 &&
+      Number.isFinite(resolvedQty) &&
+      Math.abs(resolvedQty - livingForFloorDemo) < 0.51;
+    const userHeldDemoQuantity =
+      (resolved.quantitySource === 'user_entered' ||
+        resolved.quantitySource === 'manual_override') &&
+      Number.isFinite(resolvedQty) &&
+      resolvedQty > 0 &&
+      !resolvedIsHouseSize;
+    if (explicitFloorDemo && explicitFloorDemo > 0 && !userHeldDemoQuantity) {
+      count = explicitFloorDemo;
+    }
+  }
+  if (
+    (itemId === 'flooring' || itemId === 'tile_flooring') &&
+    unit === 'sqft' &&
+    notesDescribeMeasuredWholeHomeRemodel(notesText) &&
+    !/\btile\b/i.test(notesText)
+  ) {
+    const statedFlooring = parseScopeMeasurementInput(
+      measurementsInput.flooringSqft
+    );
+    const livingForFlooring = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const resolvedFloorQty = Number(resolved.quantity);
+    const userHeldFloorQuantity =
+      (resolved.quantitySource === 'user_entered' ||
+        resolved.quantitySource === 'manual_override') &&
+      Number.isFinite(resolvedFloorQty) &&
+      resolvedFloorQty > 0 &&
+      statedFlooring != null &&
+      Math.abs(resolvedFloorQty - statedFlooring) >= 0.51 &&
+      (livingForFlooring == null ||
+        Math.abs(resolvedFloorQty - livingForFlooring) >= 0.51);
+    if (statedFlooring && statedFlooring > 0 && !userHeldFloorQuantity) {
+      count = statedFlooring;
+    }
+  }
   if (
     itemId === 'drywall' &&
     String(templateKey || '').toLowerCase() === 'ground_up' &&
@@ -20677,12 +21016,104 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput.floorAreaSqft
     );
 
+    if (itemId === 'hvac') {
+      const tons = parseScopeMeasurementInput(measurementsInput.hvacSystemTons);
+      const systemCount = parseScopeMeasurementInput(
+        measurementsInput.hvacSystemCount
+      );
+      const storedCount = measurementsInput.itemQuantities?.hvac;
+      const storedCountUnit = String(storedCount?.unit || '').toLowerCase();
+      const storedCountSource = String(storedCount?.quantitySource || '');
+      const countSource = String(
+        (
+          measurementsInput.quickMeasurementSources as
+            | Record<string, string>
+            | undefined
+        )?.hvacSystemCount || ''
+      );
+      const enteredSystemCount =
+        storedCountUnit === 'each' &&
+        (storedCountSource === 'user_entered' ||
+          storedCountSource === 'manual_override');
+      const contractorSized =
+        (tons != null && tons > 0) ||
+        enteredSystemCount ||
+        countSource === 'user_entered' ||
+        countSource === 'manual_override' ||
+        countSource === 'plan_verified' ||
+        countSource === 'contractor_confirmed_from_plan_review' ||
+        (systemCount != null && systemCount > 1);
+      if (!contractorSized && livingSf && livingSf > 0) {
+        const { average } = regionalAdjustedNationalAverage(
+          'hvac',
+          'each',
+          pricingContext
+        );
+        if (average?.material != null && average?.labor != null) {
+          const band = resolveSquareFootageMultiplier(livingSf);
+          const material = round2(average.material * band);
+          const labor = round2(average.labor * band);
+          const total = round2(material + labor);
+          return {
+            fill: {
+              material,
+              labor,
+              total,
+              materialSource: 'national_average',
+              laborSource: 'national_average',
+              rateSourceLabel:
+                average.sourceLabel ||
+                'Suggested · National Average (builder-budget calibrated)',
+              helper: `Complete HVAC package for a ${Math.round(livingSf).toLocaleString('en-US')} sqft home.`,
+              mode: 'suggested_price',
+              lumpSumOnly: false,
+              basis: { quantity: 1, unit: 'each' },
+              costBuckets: [
+                {
+                  key: 'material',
+                  label: 'Material',
+                  amount: material,
+                  source: 'national_average',
+                },
+                {
+                  key: 'labor',
+                  label: 'Labor',
+                  amount: labor,
+                  source: 'national_average',
+                },
+              ],
+              pricingRecordId: 'bps_national:hvac:living_band',
+              productionStatus: 'review_required',
+              benchmarkLevel: 'component',
+              benchmarkScopeKey: 'hvac',
+              benchmarkAction: 'price_ready',
+              storedTotalExact: total,
+            },
+            comparison: null,
+          };
+        }
+      }
+    }
+
     if (itemId === 'roofing') {
       const squares = parseScopeMeasurementInput(measurementsInput.roofSquares);
       const userSquares =
         resolved.quantitySource === 'user_entered' &&
         Number(resolved.quantity) > 0;
-      if (!(squares && squares > 0) && !userSquares) {
+      const plannedSquares = userSquares
+        ? Number(resolved.quantity)
+        : squares && squares > 0
+          ? squares
+          : formPlanningQuantity(
+              'roofSquares',
+              measurementsInput,
+              templateKey,
+              String(measurementsInput.scopeNotes || originalNotes || '')
+            );
+      if (plannedSquares && plannedSquares > 0) {
+        count = plannedSquares;
+        unit = 'squares';
+      } else if (!userSquares) {
         const lump = resolveRoofingLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -20716,7 +21147,7 @@ export function resolveScopeItemSuggestedPricing(
         Number(resolved.quantity) > 0;
       if (itemId === 'shower_floor_tile') {
         if (!(floorSf && floorSf > 0) && !userTile) return empty;
-      } else if (!(wallSf && wallSf > 0) && !userTile) {
+      } else if (!(wallSf && wallSf > 1) && !userTile) {
         const lump = resolveShowerTileLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -20831,6 +21262,56 @@ export function resolveScopeItemSuggestedPricing(
           comparison: null,
         };
       }
+      if (
+        exteriorFinish === 'siding' &&
+        itemId === 'stucco' &&
+        pickedWallSf &&
+        pickedWallSf > 0
+      ) {
+        const sidingRate = areaOnlySidingRateFromNotes(originalNotes);
+        const material = round2(pickedWallSf * sidingRate.material);
+        const labor = round2(pickedWallSf * sidingRate.labor);
+        const average: NationalAverageBudgetSplit = {
+          unit: 'sqft',
+          material: sidingRate.material,
+          labor: sidingRate.labor,
+          sourceLabel: `BPS national planning rate · ${sidingRate.label}`,
+          pricingMethod: 'material_labor',
+          rateSource: 'bps_national_benchmark',
+          productionStatus: 'review_required',
+          geographicBasis: 'national',
+        };
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: average.sourceLabel,
+            helper: `${pickedWallSf.toLocaleString('en-US')} sqft of ${sidingRate.label}.`,
+            mode: 'suggested_price',
+            lumpSumOnly: false,
+            basis: { quantity: pickedWallSf, unit: 'sqft' },
+            costBuckets: buildSuggestedPricingCostBuckets({
+              itemId: 'stucco',
+              average,
+              material,
+              labor,
+              materialRate: sidingRate.material,
+              laborRate: sidingRate.labor,
+              materialSource: 'national_average',
+              laborSource: 'national_average',
+            }),
+            pricingRecordId: 'bps_national:siding:sqft',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'stucco',
+            benchmarkAction: 'price_ready',
+          },
+          comparison: null,
+        };
+      }
       if (itemId === 'brick') return empty;
       if (exteriorFinish === 'siding' || exteriorFinish === 'brick') return empty;
       if (
@@ -20934,15 +21415,40 @@ export function resolveScopeItemSuggestedPricing(
     }
 
     if (itemId === 'insulation') {
+      let insulationInput = measurementsInput;
+      if (notesDescribeMeasuredWholeHomeRemodel(notesText)) {
+        const parsedAreas = parseScopeMeasurementsFromNotes(notesText, {
+          templateKey: templateKey ?? undefined,
+        });
+        const statedWall =
+          parseScopeMeasurementInput(measurementsInput.exteriorWallInsulationSqft) ||
+          parsedAreas.exteriorWallInsulationSqft ||
+          null;
+        const statedAttic =
+          parseScopeMeasurementInput(measurementsInput.atticInsulationSqft) ||
+          parsedAreas.atticInsulationSqft ||
+          null;
+        if (statedWall || statedAttic) {
+          insulationInput = {
+            ...measurementsInput,
+            ...(statedWall
+              ? { exteriorWallInsulationSqft: String(statedWall) }
+              : {}),
+            ...(statedAttic
+              ? { atticInsulationSqft: String(statedAttic) }
+              : {}),
+          };
+        }
+      }
       const lump = resolveInsulationLumpSuggestedFill({
         livingSf,
         state: pricingContext?.state,
       });
-      const assemblyRows = resolvedInsulationAssemblies(measurementsInput);
+      const assemblyRows = resolvedInsulationAssemblies(insulationInput);
       const assembly =
-        insulationRateAdjustmentsForMeasurements(measurementsInput);
+        insulationRateAdjustmentsForMeasurements(insulationInput);
       const legacyAssembly =
-        insulationAssemblyRateAdjustments(measurementsInput);
+        insulationAssemblyRateAdjustments(insulationInput);
       const adjustedLegacyLump = {
         ...lump,
         material: round2(lump.material * legacyAssembly.materialMultiplier),
@@ -20963,14 +21469,14 @@ export function resolveScopeItemSuggestedPricing(
       };
       const envelope = resolveInsulationEnvelopePlanningQuantity(
         insulationEnvelopeInputsFromPlanFacts(
-          measurementsInput.planFacts,
+          insulationInput.planFacts,
           livingSf,
           {
-            ...(measurementsInput as unknown as Record<string, unknown>),
+            ...(insulationInput as unknown as Record<string, unknown>),
             suppressAtticPlanningFallback:
-              Number(measurementsInput.exteriorWallGrossSqft) > 0 ||
-              Number(measurementsInput.exteriorWallInsulationSqft) > 0 ||
-              Number(measurementsInput.openingDeductionSqft) > 0,
+              Number(insulationInput.exteriorWallGrossSqft) > 0 ||
+              Number(insulationInput.exteriorWallInsulationSqft) > 0 ||
+              Number(insulationInput.openingDeductionSqft) > 0,
           } as unknown as Partial<InsulationEnvelopeInputs>
         )
       );
@@ -20990,9 +21496,9 @@ export function resolveScopeItemSuggestedPricing(
         helper: [
           lump.helper,
           assembly.label ? `Assembly: ${assembly.label}.` : null,
-          String(measurementsInput.garageInsulationIncluded || '').trim()
+          String(insulationInput.garageInsulationIncluded || '').trim()
             ? `Garage: ${String(
-                measurementsInput.garageInsulationIncluded
+                insulationInput.garageInsulationIncluded
               ).trim()}.`
             : null,
         ]
@@ -21000,10 +21506,10 @@ export function resolveScopeItemSuggestedPricing(
           .join(' '),
       };
       const explicitInsulationSurface =
-        Number(measurementsInput.exteriorWallInsulationSqft) > 0 ||
-        Number(measurementsInput.atticInsulationSqft) > 0 ||
-        Number(measurementsInput.insulatedRoofDeckSqft) > 0 ||
-        Number(measurementsInput.floorInsulationSqft) > 0 ||
+        Number(insulationInput.exteriorWallInsulationSqft) > 0 ||
+        Number(insulationInput.atticInsulationSqft) > 0 ||
+        Number(insulationInput.insulatedRoofDeckSqft) > 0 ||
+        Number(insulationInput.floorInsulationSqft) > 0 ||
         assemblyRows.length > 0;
       if (
         !explicitInsulationSurface &&
@@ -21129,6 +21635,10 @@ export function resolveScopeItemSuggestedPricing(
     }
 
     if (itemId === 'tile_flooring' || itemId === 'flooring') {
+      const genericWholeHomeFlooring =
+        notesDescribeMeasuredWholeHomeRemodel(notesText) &&
+        !/\btile\b/i.test(notesText) &&
+        !/\blvp|luxury\s+vinyl|laminate|hardwood|carpet\b/i.test(notesText);
       const allocatedProductSqft = [
         'flooringLvpSqft',
         'flooringLaminateSqft',
@@ -21137,7 +21647,7 @@ export function resolveScopeItemSuggestedPricing(
         'flooringTileSqft',
         'flooringCarpetSqft',
         'flooringSheetVinylSqft',
-      ].reduce(
+      ].filter(key => !genericWholeHomeFlooring).reduce(
         (sum, key) =>
           sum +
           (parseScopeMeasurementInput(
@@ -22222,43 +22732,82 @@ export function resolveScopeItemSuggestedPricing(
   const dynamicFloorDemo =
     namedExistingFloor &&
     Number(average?.material || 0) + Number(average?.labor || 0) > 0;
+  const wholeHomeGenericFlooring =
+    (itemId === 'flooring' || itemId === 'tile_flooring') &&
+    unit === 'sqft' &&
+    notesDescribeMeasuredWholeHomeRemodel(notesText) &&
+    !/\btile\b/i.test(notesText) &&
+    !/\btile\b/i.test(String(choiceId || ''));
+  if (wholeHomeGenericFlooring) {
+    const statedFlooringRate = regionalAdjustedNationalAverage(
+      'flooring',
+      'sqft',
+      pricingContext
+    );
+    if (
+      statedFlooringRate.average?.material != null &&
+      statedFlooringRate.average?.labor != null
+    ) {
+      average = statedFlooringRate.average;
+    }
+  }
   let materialRate = decorativeFinish
     ? (template?.materialRate ?? decorativeFinish.material)
-    : dynamicFloorPrep || dynamicFlooringInstall || dynamicFloorDemo
+    : dynamicFloorPrep ||
+        dynamicFlooringInstall ||
+        dynamicFloorDemo ||
+        wholeHomeGenericFlooring
       ? (average?.material ?? null)
       : (template?.materialRate ?? average?.material ?? null);
   let laborRate = decorativeFinish
     ? (template?.laborRate ?? decorativeFinish.labor)
-    : dynamicFloorPrep || dynamicFlooringInstall || dynamicFloorDemo
+    : dynamicFloorPrep ||
+        dynamicFlooringInstall ||
+        dynamicFloorDemo ||
+        wholeHomeGenericFlooring
       ? (average?.labor ?? null)
       : (template?.laborRate ?? average?.labor ?? null);
   if (itemId === 'drywall' && count > 0 && !nationalDrywallHang) {
     const measurementRecord = measurementsInput as Record<string, unknown>;
-    const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
-      measurementRecord,
-      count,
-      {
-        planFacts: measurementRecord.planFacts as Record<
-          string,
-          unknown
-        > | null,
-        completePackage: true,
-      }
+    const livingForForm = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
     );
-    const laborMultiplier = resolveDrywallPackageLaborMultiplier(
-      measurementRecord,
-      count,
-      {
-        planFacts: measurementRecord.planFacts as Record<
-          string,
-          unknown
-        > | null,
-        completePackage: true,
-        checklistItems: pricingContext?.checklistItems,
-      }
-    );
-    if (materialRate != null) materialRate *= materialMultiplier;
-    if (laborRate != null) laborRate *= laborMultiplier;
+    const formSurface = drywallSurfacePlanningQuantity(livingForForm);
+    const pricingFormSurface =
+      String(templateKey || '').toLowerCase() === 'ground_up' &&
+      formSurface != null &&
+      formSurface > 0 &&
+      Math.abs(count - formSurface) / formSurface <= 0.02;
+    if (pricingFormSurface) {
+      const access = drywallAccessLaborMultiplier(measurementRecord, count);
+      if (laborRate != null) laborRate *= access;
+    } else {
+      const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
+        measurementRecord,
+        count,
+        {
+          planFacts: measurementRecord.planFacts as Record<
+            string,
+            unknown
+          > | null,
+          completePackage: true,
+        }
+      );
+      const laborMultiplier = resolveDrywallPackageLaborMultiplier(
+        measurementRecord,
+        count,
+        {
+          planFacts: measurementRecord.planFacts as Record<
+            string,
+            unknown
+          > | null,
+          completePackage: true,
+          checklistItems: pricingContext?.checklistItems,
+        }
+      );
+      if (materialRate != null) materialRate *= materialMultiplier;
+      if (laborRate != null) laborRate *= laborMultiplier;
+    }
   }
   if (
     drywallPlanExportCrewSplit &&
@@ -22811,7 +23360,25 @@ export function resolveScopeItemSuggestedPricing(
       livingSf,
       state: pricingContext?.state,
     });
-    if (flatworkLump.total > calculatedFlatworkTotal) {
+    const flatworkQuantityEntered =
+      resolved.quantitySource === 'user_entered' ||
+      resolved.quantitySource === 'manual_override' ||
+      measurementsInput.quickMeasurementSources?.concreteSqft ===
+        'user_entered' ||
+      measurementsInput.quickMeasurementSources?.concreteSqft ===
+        'manual_override' ||
+      measurementsInput.quickMeasurementUserOverrides?.concreteSqft === true ||
+      measurementsInput.itemQuantities?.pour_flatwork?.quantitySource ===
+        'user_entered' ||
+      measurementsInput.itemQuantities?.pour_flatwork?.quantitySource ===
+        'manual_override' ||
+      measurementsInput.itemQuantities?.concrete?.quantitySource ===
+        'user_entered' ||
+      measurementsInput.itemQuantities?.concrete?.quantitySource ===
+        'manual_override';
+    // An entered area prices that area. The driveway allowance stays only
+    // while the quantity is still the planning fill.
+    if (flatworkLump.total > calculatedFlatworkTotal && !flatworkQuantityEntered) {
       const scale = flatworkLump.total / calculatedFlatworkTotal;
       calculatedMaterial = round2(calculatedMaterial * scale);
       calculatedLabor = round2(calculatedLabor * scale);
@@ -25100,8 +25667,27 @@ function resolveChecklistItemQuantityCore(
 
   if (
     itemId === 'plumbing' &&
-    String(ctx.templateKey || '').toLowerCase() === 'room_remodel'
+    (notesDescribeMeasuredWholeHomeRemodel(ctx.notes) ||
+      String(ctx.templateKey || '').toLowerCase() === 'room_remodel')
   ) {
+    const connectionCount = Number(measurements.plumbingRoughPointCount);
+    if (Number.isFinite(connectionCount) && connectionCount > 0) {
+      const storedSource = measurements.itemQuantities?.plumbing?.quantitySource;
+      const quantitySource =
+        storedSource === 'user_entered' || storedSource === 'manual_override'
+          ? storedSource
+          : 'notes';
+      return {
+        quantity: connectionCount,
+        unit: 'each',
+        quantitySource,
+        sourceLabel: sourceLabel(quantitySource),
+        pricingReady: true,
+        quantityHelper:
+          'Plumbing was named in the notes. Enter the connection count before pricing.',
+        showInput: true,
+      };
+    }
     return {
       quantity: null,
       unit: rule.defaultUnit,
@@ -25113,6 +25699,52 @@ function resolveChecklistItemQuantityCore(
       missingMessage: 'Enter plumbing fixture quantity or pricing.',
       showInput: true,
     };
+  }
+  if (
+    itemId === 'electrical' &&
+    notesDescribeMeasuredWholeHomeRemodel(ctx.notes)
+  ) {
+    const outlets = Number(measurements.standardReceptacleCount);
+    const gfci = Number(measurements.gfciReceptacleCount);
+    const dedicated = Number(measurements.dedicated20aCircuitCount);
+    const deviceCount =
+      (Number.isFinite(outlets) && outlets > 0 ? outlets : 0) +
+      (Number.isFinite(gfci) && gfci > 0 ? gfci : 0) +
+      (Number.isFinite(dedicated) && dedicated > 0 ? dedicated : 0);
+    if (deviceCount > 0) {
+      return {
+        quantity: deviceCount,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: sourceLabel('user_entered'),
+        pricingReady: true,
+        quantityHelper:
+          'Electrical was named in the notes. Enter the device counts before pricing.',
+        showInput: true,
+      };
+    }
+  }
+  if (
+    itemId === 'insulation' &&
+    notesDescribeMeasuredWholeHomeRemodel(ctx.notes)
+  ) {
+    const walls = Number(measurements.exteriorWallInsulationSqft);
+    const attic = Number(measurements.atticInsulationSqft);
+    const surface =
+      (Number.isFinite(walls) && walls > 0 ? walls : 0) +
+      (Number.isFinite(attic) && attic > 0 ? attic : 0);
+    if (surface > 0) {
+      return {
+        quantity: surface,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+        sourceLabel: sourceLabel('user_entered'),
+        pricingReady: true,
+        quantityHelper:
+          'Wall and attic insulation named in the notes. Enter each area before pricing.',
+        showInput: true,
+      };
+    }
   }
 
   if (rule.aggregateMeasurementKeys?.length) {
@@ -25244,7 +25876,37 @@ function resolveChecklistItemQuantityCore(
     }
   }
 
-  if (rule.defaultQuantity != null && !rule.requiresUserQuantity) {
+  const wholeHomeNote = notesDescribeMeasuredWholeHomeRemodel(ctx.notes);
+  const statedCabinetDemoLf = Number(
+    String(measurements.cabinetDemoLf ?? '').replace(/,/g, '')
+  );
+  if (itemId === 'cabinet_demo' && statedCabinetDemoLf > 0) {
+    const storedSource = measurements.itemQuantities?.cabinet_demo?.quantitySource;
+    const quantitySource =
+      storedSource === 'user_entered' || storedSource === 'manual_override'
+        ? storedSource
+        : 'notes';
+    return {
+      quantity: statedCabinetDemoLf,
+      unit: 'lf',
+      quantitySource,
+      sourceLabel: sourceLabel(quantitySource),
+      pricingReady: true,
+      quantityHelper:
+        'Linear feet of existing cabinets named for removal.',
+      showInput: true,
+    };
+  }
+  const skipAssumedWholeHomeCount =
+    wholeHomeNote &&
+    ((itemId === 'cabinet_demo' &&
+      !(statedCabinetDemoLf > 0)) ||
+      itemId === 'plumbing');
+  if (
+    rule.defaultQuantity != null &&
+    !rule.requiresUserQuantity &&
+    !skipAssumedWholeHomeCount
+  ) {
     return {
       quantity: rule.defaultQuantity,
       unit: rule.defaultUnit,
@@ -25614,6 +26276,32 @@ export function resolveChecklistItemQuantity(
         quantityHelper:
           'Square feet of nonstructural walls identified for demolition.',
         missingMessage: 'Enter wall demolition area sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (
+    itemId === 'floor_demo' &&
+    notesDescribeMeasuredWholeHomeRemodel(ctx.notes)
+  ) {
+    const statedDemo = Number(
+      String(measurements.floorDemoSqft ?? '').replace(/,/g, '')
+    );
+    const storedDemo = measurements.itemQuantities?.floor_demo;
+    const userLocked =
+      (storedDemo?.quantitySource === 'user_entered' ||
+        storedDemo?.quantitySource === 'manual_override') &&
+      Number(storedDemo?.quantity) > 0;
+    if (!(statedDemo > 0) && !userLocked) {
+      return {
+        quantity: null,
+        unit: 'sqft',
+        quantitySource: 'missing',
+        sourceLabel: sourceLabel('missing'),
+        pricingReady: false,
+        quantityHelper:
+          'Flooring removal was named in the notes. Enter the area before pricing.',
+        missingMessage: 'Enter flooring removal sqft.',
         showInput: true,
       };
     }
@@ -28046,6 +28734,7 @@ export function scopeMeasurementsToPayload(
       sanitized.kitchenIslandCounterSqft
     ),
     cabinetLf: parseScopeMeasurementInput(sanitized.cabinetLf),
+    cabinetDemoLf: parseScopeMeasurementInput(sanitized.cabinetDemoLf),
     landscapeSqft: parseScopeMeasurementInput(sanitized.landscapeSqft),
     artificialTurfSqft: parseScopeMeasurementInput(
       sanitized.artificialTurfSqft
@@ -28256,6 +28945,18 @@ export function scopeMeasurementsToPayload(
     ...copyElectricalConditionFields(sanitized as Record<string, unknown>),
     cabinetMeasurementMethod: sanitized.cabinetMeasurementMethod ?? null,
     interiorDoorCount: parseScopeMeasurementInput(sanitized.interiorDoorCount),
+    plumbingRoughPointCount: parseScopeMeasurementInput(
+      sanitized.plumbingRoughPointCount
+    ),
+    standardReceptacleCount: parseScopeMeasurementInput(
+      sanitized.standardReceptacleCount
+    ),
+    gfciReceptacleCount: parseScopeMeasurementInput(
+      sanitized.gfciReceptacleCount
+    ),
+    dedicated20aCircuitCount: parseScopeMeasurementInput(
+      sanitized.dedicated20aCircuitCount
+    ),
     windowCount: parseScopeMeasurementInput(sanitized.windowCount),
     exteriorDoorCount: parseScopeMeasurementInput(sanitized.exteriorDoorCount),
     slidingDoorCount: parseScopeMeasurementInput(sanitized.slidingDoorCount),
@@ -28907,6 +29608,7 @@ export function scopeMeasurementsInputFromPayload(
       payload.kitchenIslandCounterSqft
     ),
     cabinetLf: measurementFieldString(payload.cabinetLf),
+    cabinetDemoLf: measurementFieldString(payload.cabinetDemoLf),
     landscapeSqft: measurementFieldString(payload.landscapeSqft),
     artificialTurfSqft: measurementFieldString(payload.artificialTurfSqft),
     demoClearingSqft: measurementFieldString(payload.demoClearingSqft),
@@ -29091,6 +29793,16 @@ export function scopeMeasurementsInputFromPayload(
       payload.paintApplicationMethodConfirmed ?? null,
     cabinetMeasurementMethod: payload.cabinetMeasurementMethod ?? null,
     interiorDoorCount: measurementFieldString(payload.interiorDoorCount),
+    plumbingRoughPointCount: measurementFieldString(
+      payload.plumbingRoughPointCount
+    ),
+    standardReceptacleCount: measurementFieldString(
+      payload.standardReceptacleCount
+    ),
+    gfciReceptacleCount: measurementFieldString(payload.gfciReceptacleCount),
+    dedicated20aCircuitCount: measurementFieldString(
+      payload.dedicated20aCircuitCount
+    ),
     windowCount: measurementFieldString(payload.windowCount),
     exteriorDoorCount: measurementFieldString(payload.exteriorDoorCount),
     slidingDoorCount: measurementFieldString(payload.slidingDoorCount),
@@ -31080,6 +31792,7 @@ export function initialScopeMeasurementInputExtended(
     countertopSqft: pick('countertopSqft'),
     kitchenIslandCounterSqft: pick('kitchenIslandCounterSqft'),
     cabinetLf: pick('cabinetLf'),
+    cabinetDemoLf: pick('cabinetDemoLf'),
     landscapeSqft: pick('landscapeSqft'),
     artificialTurfSqft: pick('artificialTurfSqft'),
     sodSqft: pick('sodSqft'),
@@ -31234,6 +31947,18 @@ export function initialScopeMeasurementInputExtended(
     baseboardLf: pickBaseboardLf(),
     showerWallTileSqft: pick('showerWallTileSqft'),
     showerFloorTileSqft: pick('showerFloorTileSqft'),
+    showerDoorCount: (() => {
+      const overrides = saved?.quickMeasurementUserOverrides as
+        | Record<string, boolean>
+        | undefined;
+      if (overrides?.showerDoorCount) return saved?.showerDoorCount ?? null;
+      return (
+        parsedFromNotes.showerDoorCount ??
+        saved?.showerDoorCount ??
+        suggested?.showerDoorCount ??
+        null
+      );
+    })(),
     wallDemoSqft: pick('wallDemoSqft'),
     wallPaintSqft: explicitCombinedPaintForRoomRemodel
       ? String(
@@ -31899,4 +32624,79 @@ export function initialScopeMeasurementInputExtended(
     draft?.scopeChecklist?.templateKey,
     scopeNotes
   );
+}
+
+/** Entered ground-up flatwork prices the typed area, not the driveway allowance. */
+export function resolveEnteredGroundUpFlatworkFill(
+  itemId: string,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): { material: number; labor: number; total: number } | null {
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return null;
+  if (itemId !== 'pour_flatwork' && itemId !== 'concrete') return null;
+  const source = measurements.quickMeasurementSources?.concreteSqft;
+  const qtySource =
+    measurements.itemQuantities?.pour_flatwork?.quantitySource ||
+    measurements.itemQuantities?.concrete?.quantitySource;
+  const entered =
+    source === 'user_entered' ||
+    source === 'manual_override' ||
+    measurements.quickMeasurementUserOverrides?.concreteSqft === true ||
+    qtySource === 'user_entered' ||
+    qtySource === 'manual_override';
+  if (!entered) return null;
+  const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+    templateKey,
+  });
+  const quantitySource =
+    resolved.quantitySource === 'user_entered' ||
+    resolved.quantitySource === 'manual_override'
+      ? resolved.quantitySource
+      : ('user_entered' as const);
+  const suggested = resolveScopeItemSuggestedPricing(
+    itemId,
+    measurements,
+    templateKey,
+    { ...resolved, quantitySource },
+    null,
+    null,
+    null
+  );
+  const fill = suggested.fill;
+  if (!fill || !(Number(fill.total) > 0) || fill.isComparison) return null;
+  return {
+    material: Number(fill.material) || 0,
+    labor: Number(fill.labor) || 0,
+    total: Number(fill.total) || 0,
+  };
+}
+
+/** Ground-up HVAC package stepped by living-area band. Skips a typed price. */
+export function resolveGroundUpHvacPlanningFill(
+  itemId: string,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): { material: number; labor: number; total: number } | null {
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return null;
+  if (itemId !== 'hvac') return null;
+  const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+    templateKey,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    itemId,
+    measurements,
+    templateKey,
+    resolved,
+    null,
+    null,
+    String(measurements.scopeNotes || measurements.originalNotes || '')
+  );
+  const fill = suggested.fill;
+  if (!fill || !(Number(fill.total) > 0) || fill.isComparison) return null;
+  if (fill.pricingRecordId !== 'bps_national:hvac:living_band') return null;
+  return {
+    material: Number(fill.material) || 0,
+    labor: Number(fill.labor) || 0,
+    total: Number(fill.total) || 0,
+  };
 }

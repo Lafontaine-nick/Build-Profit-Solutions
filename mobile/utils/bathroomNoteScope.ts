@@ -511,6 +511,51 @@ export function notesMentionStructuralFraming(
   return /\bfram(?:e|ing|ed)\b/i.test(notesWithoutWetAreaFraming(notes));
 }
 
+const LVP_PRODUCT_RE = /\b(?:lvp|luxury\s+vinyl|vinyl\s+plank)\b/i;
+const LVP_AREA_RE =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s+of\s+(?:lvp|luxury\s+vinyl|vinyl\s+plank)\b/i;
+const SHOWER_TILE_AREA_BEFORE_RE =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s+of\s+(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b/i;
+const SHOWER_TILE_AREA_AFTER_RE =
+  /(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\s*[:\-–]?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))/i;
+
+function positiveNoteQuantity(raw: string | undefined): number | null {
+  const value = Number(String(raw || '').replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * "Replace the shower tile and install 80 sqft of LVP" is two jobs.
+ * A bathroom remodel that also names a pan, vanity, toilet, or paint stays
+ * on that checklist.
+ */
+export function notesNameShowerTileWithFlooring(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomAffirmativeNotes(notes);
+  if (!SHOWER_WALL_TILE.test(text) || !LVP_PRODUCT_RE.test(text)) return false;
+  if (!/\b(?:install|replace|new)\b/i.test(text)) return false;
+  return !/\b(?:vanity|toilet|tub|bathtub|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
+    text
+  );
+}
+
+/** Shower sqft only when the note gives it. "80 sqft of LVP" stays on the floor. */
+export function showerTileWithFlooringAreas(notes: string | null | undefined): {
+  showerWallTileSqft: number | null;
+  flooringSqft: number | null;
+} {
+  const text = String(notes || '');
+  const floor = text.match(LVP_AREA_RE);
+  const shower =
+    text.match(SHOWER_TILE_AREA_BEFORE_RE) ||
+    text.match(SHOWER_TILE_AREA_AFTER_RE);
+  return {
+    showerWallTileSqft: positiveNoteQuantity(shower?.[1]),
+    flooringSqft: positiveNoteQuantity(floor?.[1]),
+  };
+}
+
 export function shouldLimitBathroomChecklistToNotes(params: {
   notes?: string | null;
   templateKey?: string | null;

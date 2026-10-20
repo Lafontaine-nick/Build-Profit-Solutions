@@ -40,6 +40,8 @@ import {
   initialScopeMeasurementInputExtended,
   lookupRuleKeyForPackage,
   resolveChecklistItemQuantity,
+  resolveEnteredGroundUpFlatworkFill,
+  resolveGroundUpHvacPlanningFill,
   resolveScopeItemSuggestedPricing,
   roughAllowanceSubKey,
   type NormalizedScopeMeasurements,
@@ -311,6 +313,30 @@ function splitAppliedScopeDollars(
           allowance: 0,
         };
       }
+    }
+    const enteredFlatwork = resolveEnteredGroundUpFlatworkFill(
+      itemId,
+      measurements,
+      templateKey
+    );
+    if (enteredFlatwork) {
+      return {
+        material: enteredFlatwork.material,
+        labor: enteredFlatwork.labor,
+        allowance: 0,
+      };
+    }
+    const hvacPackage = resolveGroundUpHvacPlanningFill(
+      itemId,
+      measurements,
+      templateKey
+    );
+    if (hvacPackage) {
+      return {
+        material: hvacPackage.material,
+        labor: hvacPackage.labor,
+        allowance: 0,
+      };
     }
   }
   const quantities = measurements.itemQuantities || {};

@@ -787,6 +787,12 @@ export function syncFramingScopeItems<T extends { id: string; state?: string }>(
       );
       if (framed != null && framed > 0) fromQuantity.add(card.itemId);
     }
+    if (card.itemId === 'wall_framing' && params.quantities) {
+      const wallSqft = positiveNumber(
+        (params.quantities as Record<string, unknown>).wallFramingSqft
+      );
+      if (wallSqft != null) fromQuantity.add(card.itemId);
+    }
     if (
       card.measurementKey === 'sheathingSqft' &&
       params.quantities &&

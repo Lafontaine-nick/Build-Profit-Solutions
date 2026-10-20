@@ -48,6 +48,59 @@ export const AREA_ONLY_BRICK_RATE = {
   label: 'Standard brick veneer',
 };
 
+/** Installed lap siding. Vinyl and fiber cement are named when the note says so. */
+export const AREA_ONLY_VINYL_SIDING_RATE = {
+  material: 3.5,
+  labor: 4.5,
+  label: 'Vinyl siding',
+};
+
+export const AREA_ONLY_FIBER_CEMENT_SIDING_RATE = {
+  material: 6,
+  labor: 7.5,
+  label: 'Fiber cement siding',
+};
+
+export const AREA_ONLY_SIDING_RATE = {
+  material: 4,
+  labor: 5,
+  label: 'Exterior siding',
+};
+
+export function areaOnlySidingRateFromNotes(notes?: string | null): {
+  material: number;
+  labor: number;
+  label: string;
+} {
+  const text = String(notes || '');
+  if (/\bfiber[\s-]*cement\b|\bhardie\b/i.test(text)) {
+    return AREA_ONLY_FIBER_CEMENT_SIDING_RATE;
+  }
+  if (/\bvinyl\b/i.test(text)) return AREA_ONLY_VINYL_SIDING_RATE;
+  return AREA_ONLY_SIDING_RATE;
+}
+
+/** Copy for the ground-up wall card. Stucco keeps its own label. */
+export function groundUpWallFinishCardCopy(
+  finish?: AreaOnlyExteriorFinish | null,
+  notes?: string | null
+): { label: string; helperText: string } | null {
+  if (finish === 'brick') {
+    return {
+      label: 'Brick',
+      helperText: 'Standard brick veneer on the exterior wall area.',
+    };
+  }
+  if (finish === 'siding') {
+    const rate = areaOnlySidingRateFromNotes(notes);
+    return {
+      label: rate.label,
+      helperText: `${rate.label} on the exterior wall area.`,
+    };
+  }
+  return null;
+}
+
 export function areaOnlyExteriorFinishFromNotes(
   notes?: string | null
 ): AreaOnlyExteriorFinish | null {

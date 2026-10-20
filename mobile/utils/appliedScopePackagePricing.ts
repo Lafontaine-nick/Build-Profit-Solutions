@@ -11,6 +11,8 @@ import {
   initialScopeMeasurementInputExtended,
   lookupRuleKeyForPackage,
   resolveChecklistItemQuantity,
+  resolveEnteredGroundUpFlatworkFill,
+  resolveGroundUpHvacPlanningFill,
   resolveScopeItemSuggestedPricing,
   ruleKeysToTryForPackage,
   type ScopeMeasurementsInputExtended,
@@ -75,6 +77,65 @@ function expandInteriorPaintSurfaceAliases(keys: string[]): string[] {
 }
 
 /** Keys that may hold Applied Confirm Scope dollars for a Step 3 package row. */
+/** Same trade, two checklist ids. Apply on either one is the price for that row. */
+const DUPLICATE_APPLIED_SCOPE_IDS: string[][] = [
+  ['windows', 'window_install'],
+  ['exterior_doors', 'exterior_door_install'],
+  ['interior_doors', 'interior_door_install'],
+  ['paint', 'interior_paint'],
+  ['drywall', 'patch_repair'],
+  ['trim', 'baseboard_install'],
+];
+
+function duplicateAppliedScopeIds(itemId: string | null | undefined): string[] {
+  if (!itemId) return [];
+  const group = DUPLICATE_APPLIED_SCOPE_IDS.find(ids => ids.includes(itemId));
+  if (!group) return [];
+  return group.filter(id => id !== itemId);
+}
+
+/** Row id plus the other checklist id for the same trade. */
+function appliedIdsForPackage(pkg: EstimateDraftScopePackage): string[] {
+  const primary =
+    pkg.checklistItemId ||
+    pkg.costCode ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
+  if (!primary) return [];
+  return [primary, ...duplicateAppliedScopeIds(primary)];
+}
+
+/**
+ * Applied Step 2 dollars for this row, including when the priced id was
+ * collapsed off the visible checklist. Only ids the user Applied are returned.
+ */
+function directAppliedPricing(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): AppliedConfirmScopePackagePricing | null {
+  const measurements = draftMeasurementsForAppliedPricing(draft);
+  const quantities = measurements.itemQuantities || {};
+  const acceptanceMap = measurements.pricingAcceptance || {};
+  for (const ruleKey of appliedIdsForPackage(pkg)) {
+    // Apply writes pricingAcceptance. A suggested or typed quantity alone stays price needed.
+    if (!acceptanceMap[ruleKey]) continue;
+    if (!hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap)) continue;
+    const total = resolveAppliedScopeMoneyTotal(
+      ruleKey,
+      quantities,
+      acceptanceMap[ruleKey]
+    );
+    if (!(total > 0)) continue;
+    const material = Number(quantities[`${ruleKey}__material`]?.quantity || 0) || 0;
+    const labor = Number(quantities[`${ruleKey}__labor`]?.quantity || 0) || 0;
+    if (material + labor > 0) {
+      return { ruleKey, total, material, labor, allowance: 0 };
+    }
+    return { ruleKey, total, material: 0, labor: total, allowance: 0 };
+  }
+  return null;
+}
+
 function appliedPricingRuleKeysForPackage(pkg: EstimateDraftScopePackage): string[] {
   const keys: string[] = [];
   addRuleKey(keys, pkg.checklistItemId);
@@ -94,6 +155,7 @@ function appliedPricingRuleKeysForPackage(pkg: EstimateDraftScopePackage): strin
   if (primary === 'ceiling_paint') {
     return expandInteriorPaintSurfaceAliases(['ceiling_paint', ...keys]);
   }
+  for (const alias of duplicateAppliedScopeIds(primary)) addRuleKey(keys, alias);
   return expandInteriorPaintSurfaceAliases(keys);
 }
 
@@ -103,7 +165,19 @@ function checklistItemAllowsAppliedRuleKey(
   items: ReturnType<typeof confirmScopeDisplayItemsFromDraft>
 ): boolean {
   const item = items.find((row) => row.id === ruleKey);
-  if (item) return checklistItemInScope(item);
+  if (item) {
+    if (checklistItemInScope(item)) return true;
+    // The other id was collapsed off the list. Apply on that id still
+    // belongs to the card that stayed.
+    if (
+      primaryId &&
+      duplicateAppliedScopeIds(primaryId).includes(ruleKey)
+    ) {
+      const primary = items.find((row) => row.id === primaryId);
+      return Boolean(primary && checklistItemInScope(primary));
+    }
+    return false;
+  }
   if (!primaryId) return false;
   const primary = items.find((row) => row.id === primaryId);
   return Boolean(primary && checklistItemInScope(primary));
@@ -160,9 +234,9 @@ export function resolveAppliedConfirmScopePackagePricing(
   draft: EstimateAiDraft | null | undefined
 ): AppliedConfirmScopePackagePricing | null {
   if (!draft) return null;
-  const items = confirmScopeDisplayItemsFromDraft(draft);
-  if (!items.length) return null;
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return directAppliedPricing(pkg, draft);
 
   const measurements = draftMeasurementsForAppliedPricing(draft);
   const quantities = measurements.itemQuantities || {};
@@ -172,6 +246,41 @@ export function resolveAppliedConfirmScopePackagePricing(
     const primaryId = pkg.checklistItemId || pkg.costCode || null;
     if (!checklistItemAllowsAppliedRuleKey(ruleKey, primaryId, items)) continue;
     if (!hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap)) continue;
+
+    const acceptance = acceptanceMap[ruleKey];
+    const manualPrice =
+      acceptance?.selectionStatus === 'manual_adjusted' ||
+      acceptance?.selectionStatus === 'user_entered';
+    if (!manualPrice) {
+      const enteredFlatwork = resolveEnteredGroundUpFlatworkFill(
+        ruleKey,
+        measurements,
+        draft.scopeChecklist?.templateKey
+      );
+      if (enteredFlatwork) {
+        return {
+          ruleKey,
+          total: enteredFlatwork.total,
+          material: enteredFlatwork.material,
+          labor: enteredFlatwork.labor,
+          allowance: 0,
+        };
+      }
+      const hvacPackage = resolveGroundUpHvacPlanningFill(
+        ruleKey,
+        measurements,
+        draft.scopeChecklist?.templateKey
+      );
+      if (hvacPackage) {
+        return {
+          ruleKey,
+          total: hvacPackage.total,
+          material: hvacPackage.material,
+          labor: hvacPackage.labor,
+          allowance: 0,
+        };
+      }
+    }
 
     const total = resolveAppliedScopeMoneyTotal(ruleKey, quantities, acceptanceMap[ruleKey]);
     if (!(total > 0)) continue;
@@ -194,7 +303,7 @@ export function resolveAppliedConfirmScopePackagePricing(
     return { ruleKey, total, material: 0, labor: total, allowance: 0 };
   }
 
-  return null;
+  return directAppliedPricing(pkg, draft);
 }
 
 export function resolveAppliedConfirmScopePackageAmount(

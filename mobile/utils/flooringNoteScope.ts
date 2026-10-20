@@ -6,6 +6,7 @@ import {
   inferExistingFlooringFromNotes,
   type FlooringExistingCounts,
 } from '@/utils/qmScopePanels/flooringRemodel';
+import { notesNameWallAreaFramingWithFlooring } from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 type ExplicitScopeItem = {
   id: string;
@@ -72,6 +73,9 @@ export function notesDescribeDedicatedFlooringJob(
   notes: string | null | undefined
 ): boolean {
   const text = String(notes || '');
+  // "Frame 400 sqft of walls and install 180 sqft of LVP" names two trades.
+  // The flooring filter must not drop the framing card.
+  if (notesNameWallAreaFramingWithFlooring(text)) return false;
   if (
     /\b(?:kitchen|bath(?:room)?)\s+(?:remodel|renovation|refresh|reno)\b/i.test(
       text
