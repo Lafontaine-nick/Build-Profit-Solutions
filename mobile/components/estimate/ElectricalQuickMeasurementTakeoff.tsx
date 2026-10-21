@@ -1808,6 +1808,11 @@ const ElectricalQmScopeOption = React.memo(
 
     const handleToggle = () => {
       if (applying) return;
+      if (active && field.confirmInput && Number(field.value) > 0) {
+        setQuantityEditing(false);
+        onCommitQuantityRef.current(fieldKey, String(field.value));
+        return;
+      }
       if (active && Number(field.value) > 0) {
         setQuantityEditing(false);
         onCommitQuantityRef.current(fieldKey, `release:${field.value}`);
@@ -1834,11 +1839,14 @@ const ElectricalQmScopeOption = React.memo(
       Boolean(field.confirmInput) &&
       !active &&
       !field.conflicted &&
-      Number.isFinite(planCount) &&
-      planCount > 0;
+      ((Number.isFinite(planCount) && planCount > 0) ||
+        (field.offerQuantity != null && field.offerQuantity > 0));
+    const hasMeasuredCount = Number.isFinite(planCount) && planCount > 0;
     const confirmedPlanCount =
-      active && !field.conflicted && Number.isFinite(planCount) && planCount > 0;
-    const countLabel = `${planCount.toLocaleString()} ${field.unit}`;
+      active && !field.conflicted && hasMeasuredCount;
+    const countLabel = hasMeasuredCount
+      ? `${planCount.toLocaleString()} ${field.unit}`
+      : 'Tap to confirm';
     const provenanceTone = field.provenanceLabel
       ? electricalQmProvenanceTone(field.provenanceLabel, darkMode)
       : null;
@@ -1907,10 +1915,14 @@ const ElectricalQmScopeOption = React.memo(
               selected={false}
               countButton
               label={countLabel}
-              subtitle='Tap to confirm'
+              subtitle={hasMeasuredCount ? 'Tap to confirm' : null}
               darkMode={darkMode}
               disabled={applying}
-              accessibilityLabel={`Confirm ${field.label}, ${countLabel}`}
+              accessibilityLabel={
+                hasMeasuredCount
+                  ? `Confirm ${field.label}, ${countLabel}`
+                  : `Confirm ${field.label}`
+              }
               onPress={handleToggle}
             />
             {editQuantityControl}
@@ -1921,13 +1933,20 @@ const ElectricalQmScopeOption = React.memo(
             <Text style={[styles.confirmItemTitle, { color: Colors.text }]}>
               {field.label}
             </Text>
+            {field.confirmInput ? (
+              <Text style={styles.confirmItemHint}>Needs manual confirmation</Text>
+            ) : null}
             <ConfirmScopeChip
               selected
               countButton
               label={countLabel}
               darkMode={darkMode}
               disabled={applying}
-              accessibilityLabel={`Remove ${field.label} from scope`}
+              accessibilityLabel={
+                field.confirmInput
+                  ? `Confirm ${field.label}, ${countLabel}`
+                  : `Remove ${field.label} from scope`
+              }
               onPress={handleToggle}
             />
             {editQuantityControl}

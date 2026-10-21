@@ -27,6 +27,7 @@ import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
   getInitialRevealHeaderCopy,
+  getInitialRevealAttentionTitle,
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
@@ -34,6 +35,7 @@ import {
   getInitialRevealPlanningDisclaimer,
   getInitialRevealPrimaryCtaLabel,
   getInitialRevealScopeMetaLabel,
+  initialRevealListsPlanLines,
   getInitialRevealStatusLabel,
   getInitialRevealTagline,
   getInitialRevealTotals,
@@ -188,6 +190,7 @@ function AIEstimateInitialRevealModal({
       displayTitle: getInitialRevealDisplayTitle(draft),
       tagline,
       needsScopeConfirmation,
+      attentionTitle: getInitialRevealAttentionTitle(draft, needsScopeConfirmation),
       primaryCta: getInitialRevealPrimaryCtaLabel(attentionCount, needsScopeConfirmation),
       hero: getInitialRevealHeroDisplay(totals, suppressRevealPricing),
       headerCopy: getInitialRevealHeaderCopy({
@@ -198,7 +201,10 @@ function AIEstimateInitialRevealModal({
         needsScopeConfirmation,
       }),
       totalCoverageLine: suppressRevealPricing ? null : getScopeTotalCoverageLine(draft),
-      scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
+      planLines: initialRevealListsPlanLines(draft),
+      scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount, {
+        planLines: initialRevealListsPlanLines(draft),
+      }),
       planningDisclaimer: suppressRevealPricing
         ? null
         : getInitialRevealPlanningDisclaimer(totals, attentionCount),
@@ -373,18 +379,25 @@ function AIEstimateInitialRevealModal({
                   </Text>
                 ) : null}
 
-                <AnimatedNumberText
+                {viewModel.hero.hasAmount ? (
+                  <AnimatedNumberText
+                    style={[
+                      styles.heroTotal,
+                      { color: brandAccent, fontSize: 44 },
+                    ]}
+                    duration={900}
+                    value={viewModel.hero.amountText}
+                  />
+                ) : null}
+                <Text
                   style={[
-                    styles.heroTotal,
-                    {
-                      color: viewModel.hero.hasAmount ? brandAccent : Colors.sub,
-                      fontSize: viewModel.hero.hasAmount ? 44 : 36,
-                    },
+                    styles.heroHint,
+                    { color: Colors.sub },
+                    !viewModel.hero.hasAmount && { marginTop: 14 },
                   ]}
-                  duration={900}
-                  value={viewModel.hero.amountText}
-                />
-                <Text style={[styles.heroHint, { color: Colors.sub }]}>{viewModel.hero.hint}</Text>
+                >
+                  {viewModel.hero.hint}
+                </Text>
                 {viewModel.hero.markupSubline ? (
                   <Text style={[styles.heroMarkupSubline, { color: Colors.sub }]}>
                     {viewModel.hero.markupSubline}
@@ -475,7 +488,7 @@ function AIEstimateInitialRevealModal({
                   >
                     <View style={styles.blockTitleRow}>
                       <Text style={[styles.blockTitle, { color: Colors.text }]}>
-                        {viewModel.needsScopeConfirmation ? 'Pricing needed' : 'Needs your attention'}
+                        {viewModel.attentionTitle}
                       </Text>
                       {viewModel.attentionCount > 0 ? (
                         <View style={[styles.countPill, { backgroundColor: 'rgba(251, 191, 36, 0.14)' }]}>
@@ -536,7 +549,14 @@ function AIEstimateInitialRevealModal({
                           const scopeCount =
                             viewModel.totals.scopeItemCount ||
                             viewModel.scopePreview.length;
-                          return `${scopeCount} ${scopeCount === 1 ? 'item' : 'items'}`;
+                          const noun = viewModel.planLines
+                            ? scopeCount === 1
+                              ? 'plan line'
+                              : 'plan lines'
+                            : scopeCount === 1
+                              ? 'item'
+                              : 'items';
+                          return `${scopeCount} ${noun}`;
                         })()}
                       </Text>
                       <MaterialIcons
@@ -549,7 +569,7 @@ function AIEstimateInitialRevealModal({
                       ? viewModel.scopePreview.map(({ name, amount, quantity }) => (
                         <View key={name} style={styles.scopeRow}>
                             <View style={styles.scopeNameWrap}>
-                              <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={1}>
+                              <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
                                 {name}
                                 {quantity ? ` · ${quantity}` : ''}
                               </Text>

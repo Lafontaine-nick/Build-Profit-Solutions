@@ -398,6 +398,11 @@ export function step2TierNeedsInlineTakeoffEntry(
     // Covered framed SF (living + garage) is a planning assumption on the Suggest card.
     return false;
   }
+  if (itemId === 'hvac') {
+    // The system count is the new-build assumption or a takeoff quantity.
+    // Do not add a second count box on the HVAC install price card.
+    return false;
+  }
   if (itemId === 'wall_framing') {
     // Wall area is entered in Quick measurements. The card prices that sqft as stud-wall LF.
     return false;

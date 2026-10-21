@@ -2,6 +2,8 @@ import {
   applyElectricalQuickMeasurementPatch,
   releaseElectricalQuickMeasurementSelection,
   buildElectricalQuickMeasurementGroups,
+  electricalQuickMeasurementSummaryLine,
+  summarizeElectricalQuickMeasurementGroups,
   electricalQuickMeasurementSourceFromProvenance,
   electricalConfirmScopeAttributesEqual,
   electricalConfirmScopeAttributesFromMeasurements,
@@ -256,7 +258,7 @@ describe('electricalQuickMeasurementUi', () => {
     expect(electricalQmShowsQuantity(field!, false)).toBe(true);
   });
 
-  it('keeps a needs-review fan count as an input instead of a confirmed chip', () => {
+  it('opens a needs-review fan count selected and still marked for confirmation', () => {
     const groups = buildElectricalQuickMeasurementGroups({
       measurements: {
         ceilingFanCount: 8,
@@ -277,7 +279,7 @@ describe('electricalQuickMeasurementUi', () => {
       groups.flatMap(group => group.fields).map(field => [field.key, field])
     );
     expect(byKey.ceilingFanCount).toMatchObject({
-      selected: false,
+      selected: true,
       value: 8,
       confirmInput: true,
       provenanceLabel: 'Needs confirmation',
@@ -288,7 +290,7 @@ describe('electricalQuickMeasurementUi', () => {
     });
   });
 
-  it('keeps a plan-review lock from confirming a symbol fan count', () => {
+  it('opens a symbol fan count selected while leaving the confirmation label', () => {
     const groups = buildElectricalQuickMeasurementGroups({
       measurements: {
         ceilingFanCount: 6,
@@ -308,7 +310,7 @@ describe('electricalQuickMeasurementUi', () => {
       .flatMap(group => group.fields)
       .find(field => field.key === 'ceilingFanCount');
     expect(fan).toMatchObject({
-      selected: false,
+      selected: true,
       value: 6,
       confirmInput: true,
       provenanceLabel: 'Needs confirmation',
@@ -320,7 +322,7 @@ describe('electricalQuickMeasurementUi', () => {
       ])
     ).toBe(false);
     expect(groups.find(group => group.id === 'lighting')?.selectedCount).toBe(
-      0
+      1
     );
   });
 
@@ -458,7 +460,7 @@ describe('electricalQuickMeasurementUi', () => {
       'needs_confirmation'
     );
     expect(next.quickMeasurementUserOverrides?.standardReceptacleCount).toBe(
-      undefined
+      false
     );
     expect(next.itemQuantities?.electrical_standard_receptacle).toBeUndefined();
     expect(next.electricalScope).toEqual([]);
@@ -554,6 +556,78 @@ describe('electricalQuickMeasurementUi', () => {
       restored.quickMeasurementUserOverrides?.ceilingFanCount
     ).toBeUndefined();
     expect(restored.measurementConflicts).toEqual([conflict]);
+  });
+
+  it('prices an electrical plan sheet count without a second confirmation', () => {
+    const groups = buildElectricalQuickMeasurementGroups({
+      measurements: {
+        planImportTradeKey: 'electrical',
+        standardReceptacleCount: 98,
+        ceilingFanCount: 7,
+        measurementProvenance: {
+          ceilingFanCount: { evidenceKind: 'symbols', status: 'from_plan_symbols' },
+        },
+      },
+      sources: {
+        standardReceptacleCount: 'needs_confirmation',
+        ceilingFanCount: 'needs_confirmation',
+      },
+    });
+    const byKey = Object.fromEntries(
+      groups.flatMap(group => group.fields).map(field => [field.key, field])
+    );
+    expect(byKey.standardReceptacleCount).toMatchObject({
+      selected: true,
+      confirmInput: false,
+      value: 98,
+      provenanceLabel: 'Detected from plan',
+    });
+    expect(byKey.ceilingFanCount).toMatchObject({
+      selected: true,
+      confirmInput: false,
+      value: 7,
+      provenanceLabel: 'Detected from plan',
+    });
+    const summary = summarizeElectricalQuickMeasurementGroups(groups);
+    expect(summary.detected).toBe(2);
+    expect(summary.needsConfirmation).toBe(0);
+    expect(electricalQuickMeasurementSummaryLine(summary)).toBe(
+      '2 detected from plan · 1 panel to confirm'
+    );
+  });
+
+  it('offers a new-build main panel with no invented count', () => {
+    const groups = buildElectricalQuickMeasurementGroups({
+      measurements: {
+        planImportTradeKey: 'electrical',
+        electricalProjectCondition: 'new_construction',
+        recessedLightCount: 31,
+      },
+      sources: { recessedLightCount: 'plan_verified' },
+      visibleMeasurementKeys: ['mainPanelCount', 'recessedLightCount'],
+    });
+    const panel = groups
+      .flatMap(group => group.fields)
+      .find(field => field.key === 'mainPanelCount');
+    expect(panel).toMatchObject({
+      value: null,
+      selected: false,
+      confirmInput: true,
+      offerQuantity: 1,
+      provenanceLabel: 'Needs confirmation',
+    });
+    expect(electricalQmTapQuantity(panel!)).toBe('1');
+    expect(summarizeElectricalQuickMeasurementGroups(groups)).toMatchObject({
+      detected: 1,
+      needsConfirmation: 0,
+      panelOffers: 1,
+      relevantTotal: 2,
+    });
+    expect(
+      electricalQuickMeasurementSummaryLine(
+        summarizeElectricalQuickMeasurementGroups(groups)
+      )
+    ).toBe('1 detected from plan · 1 panel to confirm');
   });
 
   it('offers one main panel to confirm on a new-build electrical plan', () => {

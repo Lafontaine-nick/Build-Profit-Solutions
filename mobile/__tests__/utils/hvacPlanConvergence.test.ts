@@ -8,6 +8,11 @@ import {
   buildHvacPlanReviewLowConfidenceReadings,
   filterHvacPlanReviewReadingsForTakeoff,
   hvacNewBuildSystemOffer,
+  hvacPlanImportAwaitingSystemConfirmation,
+  hvacPlanImportLacksPrintedTonnage,
+  hvacNewBuildScopeCaption,
+  hvacPlanImportStatesNewBuildSystem,
+  hvacTonnageEnteredByContractor,
   hvacTakeoffSkippedCanonicalReadings,
   isExplicitHvacVentilationEvidence,
   resolveHvacPlanReviewMeasurements,
@@ -432,6 +437,84 @@ describe('hvacPlanConvergence', () => {
         },
       }).map(row => row.field)
     ).toContain('hvacVentilationCount');
+  });
+
+  it('keeps an unconfirmed HVAC plan import from looking like a printed system', () => {
+    expect(
+      hvacPlanImportAwaitingSystemConfirmation({ planImportTradeKey: 'hvac' })
+    ).toBe(true);
+    expect(
+      hvacPlanImportLacksPrintedTonnage({ planImportTradeKey: 'hvac' })
+    ).toBe(true);
+    expect(
+      hvacPlanImportAwaitingSystemConfirmation({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 1,
+        quickMeasurementSources: {
+          hvacSystemCount: 'contractor_confirmed_from_plan_review',
+        },
+      })
+    ).toBe(false);
+    expect(
+      hvacPlanImportLacksPrintedTonnage({
+        planImportTradeKey: 'hvac',
+        hvacSystemTons: 4,
+      })
+    ).toBe(false);
+  });
+
+  it('names an entered size without calling it a plan reading', () => {
+    const assumed = {
+      planImportTradeKey: 'hvac',
+      hvacSystemCount: 1,
+      quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+      measurementProvenance: {
+        hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+      },
+    };
+    expect(hvacNewBuildScopeCaption(assumed)).toBe(
+      'New build · 1 system in this bid.'
+    );
+    expect(
+      hvacNewBuildScopeCaption({
+        ...assumed,
+        hvacSystemTons: 4,
+        quickMeasurementSources: {
+          hvacSystemCount: 'new_build_assumption',
+          hvacSystemTons: 'user_entered',
+        },
+      })
+    ).toBe('New build · 1 system · 4 ton.');
+    expect(
+      hvacTonnageEnteredByContractor({
+        planImportTradeKey: 'hvac',
+        hvacSystemTons: 4,
+        quickMeasurementSources: { hvacSystemTons: 'plan_verified' },
+      })
+    ).toBe(false);
+  });
+
+  it('states one HVAC system for a new build when the plan has no system count', () => {
+    expect(
+      hvacPlanImportStatesNewBuildSystem({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 1,
+        quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+        measurementProvenance: {
+          hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+        },
+      })
+    ).toBe(true);
+    expect(
+      hvacPlanImportStatesNewBuildSystem({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 1,
+        hvacSystemTons: 4,
+        measurementProvenance: {
+          hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+        },
+      })
+    ).toBe(false);
   });
 
   it('offers one HVAC system to confirm when an architectural plan has no system count', () => {

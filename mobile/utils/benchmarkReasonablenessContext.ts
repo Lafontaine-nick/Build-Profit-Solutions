@@ -32,6 +32,11 @@ import {
   scrubDedicatedFlooringMeasurements,
 } from '@/utils/flooringNoteScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import {
+  hasDetailedElectricalTrimDeviceQuantities,
+  isPlanElectricalDeviceCard,
+  lightingQuantityDuplicatesRecessedTakeoff,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { concreteFoundationPackageDollars } from '@/utils/subcontractorTrade/concretePlanConvergence';
 import { drywallGypsumBarometerPackageDollars } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
@@ -690,11 +695,31 @@ export function clearSupersededStageHostPricing<T extends ScopeMeasurementsInput
   measurements: T,
   templateKey?: string | null
 ): T {
-  if (String(templateKey || '').toLowerCase() !== 'ground_up') return measurements;
   const pricingAcceptance = { ...(measurements.pricingAcceptance || {}) };
   const itemQuantities = { ...(measurements.itemQuantities || {}) };
   let changed = false;
+  const dropPricedScope = (itemId: string, alsoQuantity: boolean) => {
+    if (pricingAcceptance[itemId]) {
+      delete pricingAcceptance[itemId];
+      changed = true;
+    }
+    const keys = [
+      alsoQuantity ? itemId : '',
+      allowanceSplitSubKey(itemId, 'allowance'),
+      allowanceSplitSubKey(itemId, 'sqft_basis'),
+      allowanceSplitSubKey(itemId, 'material'),
+      allowanceSplitSubKey(itemId, 'labor'),
+      roughAllowanceSubKey(itemId),
+    ].filter(Boolean);
+    for (const key of keys) {
+      if (itemQuantities[key] != null) {
+        delete itemQuantities[key];
+        changed = true;
+      }
+    }
+  };
 
+  if (String(templateKey || '').toLowerCase() === 'ground_up') {
   for (const stageKey of GROUND_UP_COMPARISON_ONLY_STAGE_KEYS) {
     const owner = STAGE_BENCHMARK_OWNERS[stageKey];
     if (!owner) continue;
@@ -723,6 +748,37 @@ export function clearSupersededStageHostPricing<T extends ScopeMeasurementsInput
       }
     }
     changed = true;
+  }
+  }
+
+  const pricingTemplate = String(templateKey || '').toLowerCase();
+  const recessedCardQty = Number(
+    itemQuantities.electrical_recessed_light?.quantity
+  );
+  if (
+    lightingQuantityDuplicatesRecessedTakeoff({
+      ...(measurements as Record<string, unknown>),
+      itemQuantities,
+    }) &&
+    (pricingTemplate === 'ground_up' ||
+      pricingTemplate === 'electrical' ||
+      recessedCardQty > 0)
+  ) {
+    dropPricedScope('lighting', false);
+  }
+  if (
+    pricingTemplate === 'ground_up' &&
+    hasDetailedElectricalTrimDeviceQuantities({
+      ...(measurements as Record<string, unknown>),
+      itemQuantities,
+    }) &&
+    String(itemQuantities.electrical_trim?.unit || '').toLowerCase() !== 'each'
+  ) {
+    const trimUnit = String(itemQuantities.electrical_trim?.unit || '').toLowerCase();
+    dropPricedScope(
+      'electrical_trim',
+      trimUnit === 'allowance' || trimUnit === 'lump_sum'
+    );
   }
 
   if (!changed) return measurements;
@@ -759,6 +815,56 @@ export function scopeShowsConfirmScopeAppliedPricing(
     templateKey,
     measurements.pricingAcceptance
   );
+}
+
+/**
+ * Confirmed plan device cards are already on the bid. Include their fixture
+ * price in Selected pricing before the contractor taps Apply, so Confirm Scope
+ * and Review total the same recessed lights, switches, and fans.
+ */
+function confirmedPlanDevicePricing(params: {
+  item: ScopeChecklistItem;
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+  pricingContext?: ScopePricingContext | null;
+  items: ScopeChecklistItem[];
+}): { total: number; material: number; labor: number } | null {
+  const raw = params.measurements as Record<string, unknown>;
+  if (!raw.planImportFingerprint || raw.planImportMode === 'selected_trade') return null;
+  if (!isPlanElectricalDeviceCard(params.item.id)) return null;
+  if (
+    hasAcceptedScopePricing(
+      params.item.id,
+      params.measurements.itemQuantities,
+      params.measurements.pricingAcceptance
+    )
+  ) {
+    return null;
+  }
+  const resolved = resolveChecklistItemQuantity(params.item.id, params.measurements, {
+    choiceId: params.item.choiceId,
+    templateKey: params.templateKey,
+    notes: params.notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    params.item.id,
+    params.measurements,
+    params.templateKey,
+    resolved,
+    params.pricingContext || { checklistItems: params.items },
+    params.item.choiceId,
+    params.notes
+  );
+  const fill = suggested.fill;
+  if (!fill || fill.isComparison) return null;
+  const total = Number(fill.total);
+  if (!(Number.isFinite(total) && total > 0)) return null;
+  return {
+    total,
+    material: Number(fill.material) || 0,
+    labor: Number(fill.labor) || 0,
+  };
 }
 
 /** Per-scope Applied lines for audit — matches card totals and summary buckets. */
@@ -816,6 +922,26 @@ export function listConfirmScopeAppliedPricingLines(params: {
           labor: statedTrim.labor,
           allowance:
             statedTrim.material + statedTrim.labor > 0 ? 0 : statedTrim.total,
+        });
+      }
+      const device = statedTrim
+        ? null
+        : confirmedPlanDevicePricing({
+            item,
+            measurements: params.measurements,
+            templateKey: params.templateKey,
+            notes: params.notes,
+            pricingContext: params.pricingContext,
+            items: params.items,
+          });
+      if (device) {
+        lines.push({
+          itemId: item.id,
+          label: item.label || item.id,
+          total: device.total,
+          material: device.material,
+          labor: device.labor,
+          allowance: 0,
         });
       }
       continue;
@@ -899,6 +1025,40 @@ function landscapingChoiceCountsInGroupTotal(item: {
   return checklistItemInScope(item);
 }
 
+function displayedTotalForGroupItem(
+  item: ScopeChecklistItem,
+  applied: Map<string, number>,
+  params: {
+    items: ScopeChecklistItem[];
+    measurements: ScopeMeasurementsInputExtended;
+    templateKey?: string | null;
+    notes?: string | null;
+  }
+): number {
+  if (!landscapingChoiceCountsInGroupTotal(item)) return 0;
+  const appliedTotal = applied.get(item.id);
+  if (appliedTotal != null && appliedTotal > 0) return appliedTotal;
+  if (!checklistItemInScope(item)) return 0;
+  const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
+    choiceId: item.choiceId,
+    templateKey: params.templateKey,
+    notes: params.notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    item.id,
+    params.measurements,
+    params.templateKey,
+    resolved,
+    { checklistItems: params.items },
+    item.choiceId,
+    params.notes
+  );
+  const suggestedTotal = Number(suggested.fill?.total);
+  if (suggested.fill?.isComparison) return 0;
+  if (Number.isFinite(suggestedTotal) && suggestedTotal > 0) return suggestedTotal;
+  return 0;
+}
+
 /**
  * Whole-home contractor group total. Applied dollars win; otherwise the same
  * suggested card total is included so a collapsed group still shows a price.
@@ -914,34 +1074,47 @@ export function wholeProjectGroupDisplayTotal(params: {
   );
   let total = 0;
   for (const item of params.items) {
-    if (!landscapingChoiceCountsInGroupTotal(item)) continue;
-    const appliedTotal = applied.get(item.id);
-    if (appliedTotal != null && appliedTotal > 0) {
-      total += appliedTotal;
-      continue;
-    }
-    if (!checklistItemInScope(item)) continue;
-    const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
-      choiceId: item.choiceId,
-      templateKey: params.templateKey,
-      notes: params.notes,
-    });
-    const suggested = resolveScopeItemSuggestedPricing(
-      item.id,
-      params.measurements,
-      params.templateKey,
-      resolved,
-      { checklistItems: params.items },
-      item.choiceId,
-      params.notes
-    );
-    const suggestedTotal = Number(suggested.fill?.total);
-    if (suggested.fill?.isComparison) continue;
-    if (Number.isFinite(suggestedTotal) && suggestedTotal > 0) {
-      total += suggestedTotal;
-    }
+    total += displayedTotalForGroupItem(item, applied, params);
   }
   return Math.round(total * 100) / 100;
+}
+
+/**
+ * Group Apply must commit the dollars already on the card. A second pricing
+ * pass can suggest a lower device total; writing that number drops MEP.
+ */
+export function groupApplyBlockMatchingDisplayedLine<
+  T extends {
+    total: number;
+    material: number;
+    labor: number;
+    basis?: { quantity: number; unit: string } | null;
+  }
+>(
+  block: T,
+  displayed: { total: number; material: number; labor: number } | null | undefined,
+  takeoffQuantity?: number | null
+): T {
+  if (!displayed || !(Number(displayed.total) > 0)) return block;
+  const sameMoney =
+    Math.abs(Number(displayed.total) - Number(block.total)) < 0.51;
+  const basisQuantity = Number(block.basis?.quantity);
+  const takeoff = Number(takeoffQuantity);
+  const basisMatchesTakeoff =
+    !(takeoff > 0) ||
+    !(basisQuantity > 0) ||
+    Math.abs(takeoff - basisQuantity) < 0.01;
+  if (sameMoney && basisMatchesTakeoff) return block;
+  return {
+    ...block,
+    total: displayed.total,
+    material: displayed.material,
+    labor: displayed.labor,
+    basis:
+      takeoff > 0
+        ? { quantity: takeoff, unit: block.basis?.unit || 'each' }
+        : block.basis,
+  };
 }
 
 /** Sum of Applied Confirm Scope dollars — excludes stage double-counts. */
@@ -1006,6 +1179,21 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
         out.labor += statedTrim.labor;
         out.allowance += allowance;
         out.total += statedTrim.total;
+      }
+      const device = statedTrim
+        ? null
+        : confirmedPlanDevicePricing({
+            item,
+            measurements: params.measurements,
+            templateKey: params.templateKey,
+            notes: params.notes,
+            pricingContext: params.pricingContext,
+            items: params.items,
+          });
+      if (device) {
+        out.material += device.material;
+        out.labor += device.labor;
+        out.total += device.total;
       }
       continue;
     }

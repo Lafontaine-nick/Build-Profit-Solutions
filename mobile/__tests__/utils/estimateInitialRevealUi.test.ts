@@ -3,8 +3,10 @@ import {
   scopePackagePricedAmount,
 } from '@/utils/estimateDraftReviewUi';
 import {
+  countInitialRevealAttentionItems,
   filterRoofingRevealAttentionItems,
   filterPlumbingRevealAttentionItems,
+  getInitialRevealAttentionTitle,
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
@@ -41,8 +43,14 @@ import {
   primaryIntelligenceNotice,
   resolveScopeItemIntelligence,
 } from '@/utils/scopeIntelligence';
-import { checklistDisplayHelper } from '@/utils/estimateScopeChecklistUi';
+import {
+  bucketWholeProjectScopeGroups,
+  checklistDisplayHelper,
+  groupScopeChecklistItems,
+} from '@/utils/estimateScopeChecklistUi';
 import { applyAtticInsulationWithDrywallCards } from '@/utils/insulationNoteScope';
+import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
+import { buildPlanScopeRecords } from '@/utils/planScopeRecords';
 import {
   applyConcretePatioWithSodCards,
   notesImplyExteriorFlatwork,
@@ -539,7 +547,6 @@ describe('estimateInitialRevealUi', () => {
       'Living area · 2,571 SF',
       'Garage · 1,427 SF',
       'Deck / patio · 322 SF',
-      '2 spaces detected on the plan',
     ]);
     expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
       'Price needed for Living area · 2,571 SF',
@@ -551,11 +558,146 @@ describe('estimateInitialRevealUi', () => {
         'Living area · 2,571 SF',
         'Garage · 1,427 SF',
         'Deck / patio · 322 SF',
-        '2 spaces detected on the plan',
       ]
     );
-    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(4);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(3);
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
+  });
+
+  it('lists a general contractor plan with every allowance trade and no rooms counted', () => {
+    const measurements = {
+      floorAreaSqft: '2571',
+      garageSqft: '1427',
+      windowCount: '35',
+      garageDoorDoubleCount: '1',
+      garageDoorRvCount: '1',
+      recessedLightCount: '31',
+      ceilingFanCount: '5',
+      threeWaySwitchCount: '8',
+      bathExhaustFanCount: '4',
+    };
+    const draft = {
+      projectTitle: 'Ground-Up New Construction Estimate Draft',
+      projectType: 'new_build',
+      originalNotes: 'New construction single family home from plans.',
+      estimateTier: 'complex_project',
+      requiresScopeConfirmation: true,
+      scopeAssumptionsConfirmed: false,
+      scopeChecklist: { templateKey: 'ground_up', items: [] },
+      scopeMeasurements: {
+        ...measurements,
+        quickMeasurementSources: {
+          windowCount: 'needs_confirmation',
+          garageDoorDoubleCount: 'plan_suggested',
+          garageDoorRvCount: 'detected_from_plan',
+          recessedLightCount: 'detected_from_plan',
+          ceilingFanCount: 'contractor_confirmed_from_plan_review',
+          threeWaySwitchCount: 'needs_confirmation',
+          bathExhaustFanCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          garageDoorRvCount: { normalizedSource: 'NEEDS_CONFIRMATION', pricingEligible: false },
+          recessedLightCount: { status: 'plan_verified', pricingEligible: true },
+        },
+        planImportFingerprint: 'lot-49',
+        planImportMode: 'whole_project',
+        planScopeRecords: buildPlanScopeRecords({
+          measurements,
+          sources: {},
+          rooms: [
+            { name: 'Primary Suite', areaSqft: 209 },
+            { name: 'Bed 2', areaSqft: 138 },
+          ],
+          wholeProject: true,
+        }),
+      },
+    } as unknown as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('New home · 2,571 sqft');
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Read from the plan. Unprinted trades are planning allowances.'
+    );
+    const rows = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        'Living area · 2,571 sqft',
+        'Windows · 35 · confirm count',
+        'Double garage doors · 1 · planning estimate',
+        'RV / oversized garage doors · 1 · planning estimate',
+        'Recessed lights · 31',
+        'Ceiling fans · 5',
+        '3-way switches · 8 · confirm count',
+        'Framing · planning allowance',
+        'Plumbing · planning allowance',
+        'HVAC · planning allowance',
+        'Electrical · planning allowance',
+        'Flooring · planning allowance',
+      ])
+    );
+    expect(rows.join('\n')).not.toMatch(/spaces detected/);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(rows.length);
+    expect(getInitialRevealChecklistScopePreview(draft).every(row => !row.amount)).toBe(
+      true
+    );
+    expect(getInitialRevealAttentionTitle(draft, true)).toBe('Counts to confirm');
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Windows · 35',
+      'Exhaust fans · 4',
+      '3-way switches · 8',
+    ]);
+    expect(getInitialRevealScopeMetaLabel(rows.length, { planLines: true })).toBe(
+      `${rows.length} plan lines`
+    );
+    expect(
+      getInitialRevealStatusLabel(draft, countInitialRevealAttentionItems(draft))
+        .label
+    ).toBe('Mostly ready · 3 to check');
+  });
+
+  it('after confirm, a whole-house plan lists accepted allowances with the counted scope', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      projectType: 'new_build',
+      originalNotes: 'Ground-up new construction plan imported.',
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        scopeFacts: [{ scopeId: 'windows', status: 'included' }],
+        items: [
+          { id: 'windows', label: 'Windows', inputType: 'yes_no', state: 'included' },
+          { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'unsure' },
+          { id: 'lighting', label: 'Lighting', inputType: 'yes_no', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'lot-49',
+        planImportMode: 'whole_project',
+        floorAreaSqft: '2571',
+        recessedLightCount: '31',
+        planScopeRecords: [
+          {
+            id: 'allowances',
+            findings: [{ id: 'allowance-framing', status: 'planning_allowance' }],
+          },
+        ],
+        itemQuantities: {
+          lighting: { quantity: 31, unit: 'each', quantitySource: 'notes' },
+          framing__allowance: {
+            quantity: 1000,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          framing: { status: 'accepted', totalAmount: 1000 },
+          lighting: { status: 'accepted', totalAmount: 14725 },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    expect(names).toEqual(expect.arrayContaining(['Windows', 'Framing']));
+    expect(names).not.toContain('Lighting');
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBeGreaterThan(1);
   });
 
   it('lists the framing package on Scope found instead of living area and garage', () => {
@@ -953,6 +1095,18 @@ describe('estimateInitialRevealUi', () => {
     } as EstimateAiDraft;
     expect(getInitialRevealConfirmItems(mixedDraft).pricingScope).toEqual([]);
     expect(getInitialRevealStatusLabel(mixedDraft, 0).label).toBe('Mostly ready');
+    const groups = groupScopeChecklistItems(
+      mixedDraft.scopeChecklist?.items || [],
+      'room_remodel',
+      { notes }
+    );
+    expect(groups.map(group => group.title)).toEqual([
+      'Wall framing',
+      'LVP flooring',
+    ]);
+    expect(
+      bucketWholeProjectScopeGroups(groups, { notes }).map(group => group.title)
+    ).toEqual(['Wall framing', 'LVP flooring']);
   });
 
   it('does not call cabinet and LVP suggestions missing prices on Scope found', () => {
@@ -1082,6 +1236,33 @@ describe('estimateInitialRevealUi', () => {
         'room_remodel'
       )
     ).toBe('Hang and finish the drywall named in the notes.');
+    expect(cards.find(item => item.id === 'insulation')?.label).toBe(
+      'Attic insulation'
+    );
+    expect(
+      groupScopeChecklistItems(cards, 'room_remodel', { notes }).map(
+        group => group.title
+      )
+    ).toEqual(['Attic insulation', 'Drywall hang / finish']);
+    const drywallQuantity = resolveChecklistItemQuantity(
+      'drywall',
+      draft.scopeMeasurements || {},
+      { templateKey: 'room_remodel', notes }
+    );
+    const drywallPrice = resolveScopeItemSuggestedPricing(
+      'drywall',
+      draft.scopeMeasurements || {},
+      'room_remodel',
+      drywallQuantity,
+      null,
+      null,
+      notes
+    );
+    expect(drywallPrice.fill).toMatchObject({
+      material: 680,
+      labor: 1000,
+      total: 1680,
+    });
   });
 
   it('prices a concrete patio and sod without a second blank flatwork line', () => {
@@ -1167,6 +1348,18 @@ describe('estimateInitialRevealUi', () => {
         'concrete'
       )
     ).toBe('Sod install. Uses the sod area from the notes.');
+    expect(
+      groupScopeChecklistItems(cards, 'concrete', { notes }).map(
+        group => group.title
+      )
+    ).toEqual(['Concrete patio', 'Sod']);
+    expect(
+      quickMeasurementRowsForInput('concrete', 'other', {}, [], {
+        scopeNotes: notes,
+      })
+        .flat()
+        .map(field => field.label)
+    ).toEqual(['Concrete patio', 'Sod']);
   });
 
   it('keeps shower tile and 80 sqft of LVP as two jobs', () => {
@@ -1201,11 +1394,11 @@ describe('estimateInitialRevealUi', () => {
       'demo',
       'shower_tile',
       'waterproofing',
-      'floor_demo',
       'flooring_lvp',
     ]);
     expect(repaired.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
     expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(80);
+    expect(repaired.scopeMeasurements?.floorDemoSqft).toBeUndefined();
     expect(
       getInitialRevealChecklistScopePreview(repaired).map(row => ({
         name: row.name,
@@ -1215,7 +1408,6 @@ describe('estimateInitialRevealUi', () => {
       { name: 'Shower tile demo', quantity: undefined },
       { name: 'Shower wall tile', quantity: undefined },
       { name: 'Shower waterproofing', quantity: undefined },
-      { name: 'Bathroom floor demo', quantity: '80 sqft' },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
@@ -1255,7 +1447,7 @@ describe('estimateInitialRevealUi', () => {
       repaired.scopeMeasurements || {},
       { templateKey: 'room_remodel', notes }
     );
-    expect(floorDemoQuantity.quantity).toBe(80);
+    expect(floorDemoQuantity.pricingReady).toBe(false);
     expect(
       resolveScopeItemSuggestedPricing(
         'floor_demo',
@@ -1266,11 +1458,7 @@ describe('estimateInitialRevealUi', () => {
         null,
         notes
       ).fill
-    ).toMatchObject({
-      material: 40,
-      labor: 400,
-      total: 440,
-    });
+    ).toBeNull();
     const showerQuantity = resolveChecklistItemQuantity(
       'shower_tile',
       repaired.scopeMeasurements || {},
@@ -1342,6 +1530,88 @@ describe('estimateInitialRevealUi', () => {
       material: 450,
       labor: 630,
       total: 1080,
+    });
+  });
+
+  it('prices stated shower walls and LVP without a floor tear-out', () => {
+    const notes =
+      'Replace the shower tile, 80 sqft of shower walls, and install 80 sqft of LVP in the bathroom.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        scopeMode: 'dedicated',
+        scopeChecklist: {
+          templateKey: 'bathroom',
+          items: [{ id: 'shower_tile', label: 'Shower wall tile', state: 'included' }],
+        },
+      } as EstimateAiDraft,
+      notes
+    );
+    const measurements = repaired.scopeMeasurements || {};
+    expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'demo',
+      'shower_tile',
+      'waterproofing',
+      'flooring_lvp',
+    ]);
+    expect(measurements.showerWallTileSqft).toBe(80);
+    expect(measurements.flooringLvpSqft).toBe(80);
+    expect(measurements.floorDemoSqft).toBeUndefined();
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+      }))
+    ).toEqual([
+      { name: 'Shower tile demo', quantity: '80 sqft' },
+      { name: 'Shower wall tile', quantity: '80 sqft' },
+      { name: 'Shower waterproofing', quantity: '80 sqft' },
+      { name: 'LVP flooring', quantity: '80 sqft' },
+    ]);
+    expect(
+      groupScopeChecklistItems(
+        repaired.scopeChecklist?.items || [],
+        'room_remodel',
+        { notes }
+      ).map(group => group.title)
+    ).toEqual([
+      'Shower tile demo',
+      'Shower wall tile',
+      'Shower waterproofing',
+      'LVP flooring',
+    ]);
+    const price = (id: string) => {
+      const quantity = resolveChecklistItemQuantity(id, measurements, {
+        templateKey: 'room_remodel',
+        notes,
+      });
+      expect(quantity.quantitySource).toBe('notes');
+      return resolveScopeItemSuggestedPricing(
+        id,
+        measurements,
+        'room_remodel',
+        quantity,
+        null,
+        null,
+        notes
+      ).fill;
+    };
+    expect(price('demo')).toMatchObject({ material: 40, labor: 400, total: 440 });
+    expect(price('shower_tile')).toMatchObject({
+      material: 640,
+      labor: 1440,
+      total: 2080,
+    });
+    expect(price('waterproofing')).toMatchObject({
+      material: 400,
+      labor: 560,
+      total: 960,
+    });
+    expect(price('flooring_lvp')).toMatchObject({
+      material: 280,
+      labor: 280,
+      total: 560,
     });
   });
 

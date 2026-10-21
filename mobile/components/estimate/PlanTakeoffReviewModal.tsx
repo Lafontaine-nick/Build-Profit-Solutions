@@ -75,8 +75,10 @@ import {
   electricalPlanDeviceStaysVisible,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewBlankQuantityProvenance,
   planReviewFieldHelperText,
   planReviewMeasurementDetailLine,
+  planReviewRowHasSelectableQuantity,
   formatPlumbingGasApplianceScope,
   formatPlumbingWaterHeaterDetail,
   PLUMBING_FIXTURE_INVENTORY_ORDER,
@@ -132,12 +134,12 @@ import {
   DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
   hydrateDrywallComponentMeasurementsFromPlanContext,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
-import { PlanTakeoffHvacOptionalAddOns } from '@/components/estimate/PlanTakeoffHvacOptionalAddOns';
 import {
   buildHvacPlanReviewLowConfidenceReadings,
   filterHvacPlanReviewReadingsForTakeoff,
-  hasDocumentedHvacVentilationCount,
   hvacNewBuildSystemOffer,
+  NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY,
+  NEW_BUILD_HVAC_TONNAGE_COPY,
   hvacTakeoffSkippedCanonicalReadings,
   resolveHvacPlanReviewMeasurements,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
@@ -1288,23 +1290,25 @@ export default function PlanTakeoffReviewModal({
                 : meta.unit,
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
-          provenance: windowsDoorsProvenance,
+          provenance: planReviewBlankQuantityProvenance(
+            windowsDoorsProvenance,
+            value
+          ),
           pricingEligible: windowsDoorsTier
             ? windowsDoorsTier === 'verified' ||
               (windowsDoorsTier === 'plan_derived' && Number(value) > 0)
             : rowState.pricingEligible,
           conflictValue,
           include:
+            planReviewRowHasSelectableQuantity(value) &&
             conflictValue == null &&
             !roofQuantityNeedsConfirmation &&
             !stuccoQuantityNeedsEntry &&
             (Number(value) > 0 ||
               (openingCountTrade
                 ? windowsDoorsTier != null && windowsDoorsTier !== 'not_found'
-                : effectiveTradeKey === 'hvac'
-                  ? Number(value) > 0
-                  : rowState.includeDefault ||
-                    keepInsulationSuggestionSelected)),
+                : rowState.includeDefault ||
+                  keepInsulationSuggestionSelected)),
         };
       })
       .sort((a, b) => {
@@ -1357,7 +1361,11 @@ export default function PlanTakeoffReviewModal({
             )
           )
       );
-    setRows(nextRows);
+    const reviewRows =
+      effectiveTradeKey === 'hvac'
+        ? nextRows.filter(row => planReviewRowHasSelectableQuantity(row.value))
+        : nextRows;
+    setRows(reviewRows);
 
     const duplicateRoomIndexes = duplicatePlanRoomIndexes(takeoff.rooms || []);
     const nextRooms: PlanReviewRoomRow[] = (
@@ -1614,6 +1622,9 @@ export default function PlanTakeoffReviewModal({
       conflicts: electricalConflictState.unresolved,
       unreadableFields: electricalUnreadable,
       unclassifiedFixtureCount: count ? Number(count) : null,
+      confirmedFields: rows
+        .filter(row => row.include && row.pricingEligible && Number(row.value) > 0)
+        .map(row => row.key),
       validation: takeoff?.electricalValidation,
     });
   }, [
@@ -1623,6 +1634,7 @@ export default function PlanTakeoffReviewModal({
     takeoff?.electricalValidation,
     electricalConflictState.unresolved,
     electricalUnreadable,
+    rows,
   ]);
 
   if (!visible || !takeoff) return null;
@@ -1719,15 +1731,17 @@ export default function PlanTakeoffReviewModal({
           hvacReadingOverrides
         )
       : [];
-  const showHvacVentilationNotIncluded =
-    effectiveTradeKey === 'hvac' &&
-    !hasDocumentedHvacVentilationCount({
-      ...hvacReadingOverrides,
-      measurementProvenance: takeoff?.measurementProvenance,
-      itemQuantities: takeoff?.itemQuantities,
-    }) &&
-    !hasDocumentedHvacVentilationCount(takeoff?.measurements || {});
   const hasMeasurements = rows.length > 0;
+  const hvacTypedSystemCount = rows.find(
+    row => row.key === 'hvacSystemCount'
+  )?.value;
+  const hvacSystemOfferAvailable =
+    effectiveTradeKey === 'hvac' &&
+    hvacNewBuildSystemOffer({
+      planImportTradeKey: 'hvac',
+      hvacSystemCount:
+        hvacTypedSystemCount ?? takeoff.measurements?.hvacSystemCount,
+    });
   const plumbingMissingItems =
     effectiveTradeKey === 'plumbing'
       ? unreadable
@@ -2089,8 +2103,6 @@ export default function PlanTakeoffReviewModal({
                 row.include &&
                 row.pricingEligible &&
                 row.provenance.status !== 'planning_estimate' &&
-                takeoff.electricalValidation?.fields?.[row.key]
-                  ?.pricingEligible !== false &&
                 !unconfirmedLowConfidence.some(
                   reading => String(reading.field || '') === row.key
                 )
@@ -2261,9 +2273,9 @@ export default function PlanTakeoffReviewModal({
         source: hvacQuickMeasurementSourcesFromReview?.hvacSystemCount,
       });
     if (offerHvacSystem && hvacQuickMeasurementSourcesFromReview) {
-      values.hvacSystemCount = '1';
       hvacQuickMeasurementSourcesFromReview.hvacSystemCount =
-        'needs_confirmation';
+        'new_build_assumption';
+      values.hvacSystemCount = '1';
     }
     onApply(
       values,
@@ -2690,14 +2702,7 @@ export default function PlanTakeoffReviewModal({
                 captionColor={Colors.sub}
               />
             ) : null}
-            {effectiveTradeKey === 'hvac' ? (
-              <PlanTakeoffHvacOptionalAddOns
-                showVentilationNotIncluded={showHvacVentilationNotIncluded}
-                darkMode={darkMode}
-                captionColor={Colors.sub}
-              />
-            ) : null}
-            {hasMeasurements ? (
+            {hasMeasurements || hvacSystemOfferAvailable ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Takeoff
@@ -2709,6 +2714,34 @@ export default function PlanTakeoffReviewModal({
                     ? 'Quantities'
                     : 'Measurements'}
                 </Text>
+                {effectiveTradeKey === 'hvac' && !hasMeasurements ? (
+                  <Text style={[styles.evidenceText, { color: Colors.sub }]}>
+                    No HVAC quantities on this plan.
+                  </Text>
+                ) : null}
+                {hvacSystemOfferAvailable ? (
+                  <ReviewPanel
+                    darkMode={darkMode}
+                    style={styles.hvacAssumptionCard}
+                  >
+                    <Text
+                      style={[
+                        styles.hvacAssumptionTitle,
+                        { color: Colors.text },
+                      ]}
+                    >
+                      {NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.hvacAssumptionNote,
+                        { color: Colors.sub },
+                      ]}
+                    >
+                      {NEW_BUILD_HVAC_TONNAGE_COPY}
+                    </Text>
+                  </ReviewPanel>
+                ) : null}
                 {electricalReadiness ? (
                   <ReviewPanel darkMode={darkMode}>
                     <Text style={[styles.summaryLabel, { color: Colors.sub }]}>
@@ -2816,7 +2849,8 @@ export default function PlanTakeoffReviewModal({
                         </>
                       ) : (
                         <View style={styles.quantityHeader}>
-                          {windowsDoorsTier === 'not_found' ? null : (
+                          {!planReviewRowHasSelectableQuantity(row.value) ||
+                          windowsDoorsTier === 'not_found' ? null : (
                           <TouchableOpacity
                             onPress={() => {
                               if (
@@ -3444,6 +3478,22 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   itemTitle: { fontSize: 16, fontWeight: '700' },
+  hvacAssumptionCard: {
+    marginTop: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  hvacAssumptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  hvacAssumptionNote: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   measurementTitle: { fontSize: 15, lineHeight: 20 },
   quantityHeader: {
     flexDirection: 'row',

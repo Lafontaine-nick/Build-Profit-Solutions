@@ -7,6 +7,7 @@ import { notesInferBathroomGlassDoorStyle } from '@/utils/bathroomGlassDoorPrici
 import { TYPICAL_SHOWER_WALL_SQFT_PER_BATH } from '@/utils/planBathRooms';
 import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
 import {
+  notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   notesWaterproofPanNotWalls,
@@ -30,9 +31,11 @@ import {
   copyElectricalQuantityFields,
   electricalQuantityRules,
   isCanonicalElectricalItemId,
+  lightingQuantityDuplicatesRecessedTakeoff,
   shouldAutoPriceElectricalRoughPackage,
   shouldAutoPriceElectricalTrimPackage,
   ELECTRICAL_CARDS,
+  electricalPlanSheetCountBelongsInBid,
   stripElectricalBleedFromMeasurements,
   type ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
@@ -60,6 +63,7 @@ import {
   HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS,
   copyHvacQuantityFields,
   hvacCardForItemId,
+  hvacPlanImportLacksPrintedTonnage,
   hvacSystemTierBudgetSplit,
   notesNameDedicatedHvacServiceVisit,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
@@ -10239,9 +10243,26 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
       // turn living area into a full hang/finish quantity.
       measurementKeys: ['drywallSqft'],
     },
+    wall_framing: {
+      unit: 'sqft',
+      measurementKeys: ['wallFramingSqft'],
+    },
+    insulation: {
+      unit: 'sqft',
+      measurementKeys: ['exteriorWallInsulationSqft', 'atticInsulationSqft'],
+      sumMeasurementKeys: true,
+    },
+    flooring_lvp: {
+      unit: 'sqft',
+      measurementKeys: ['flooringLvpSqft'],
+    },
     flooring: {
       unit: 'sqft',
       measurementKeys: ['flooringSqft', 'floorAreaSqft'],
+    },
+    interior_paint: {
+      unit: 'sqft',
+      measurementKeys: ['wallPaintSqft'],
     },
     paint: {
       unit: 'sqft',
@@ -11021,7 +11042,6 @@ export function getChecklistItemQuantityRule(
       missingMessage: `Enter ${hvacCard.label.toLowerCase()} quantity or pricing.`,
     };
   }
-  if (!rule) return undefined;
   if (
     ['plumbing', 'plumbing_service'].includes(
       String(templateKey || '').toLowerCase()
@@ -11063,6 +11083,25 @@ export function getChecklistItemQuantityRule(
       requiresUserQuantity: true,
     };
   }
+  const electricalQuantityRule = electricalQuantityRules()[resolvedId];
+  if (electricalQuantityRule) {
+    rule = {
+      ...(rule || {}),
+      defaultUnit:
+        electricalQuantityRule.defaultUnit as ScopeItemQuantityRule['defaultUnit'],
+      allowedUnits:
+        electricalQuantityRule.allowedUnits as ScopeItemQuantityRule['allowedUnits'],
+      measurementKey:
+        electricalQuantityRule.measurementKey as ScopeItemQuantityRule['measurementKey'],
+      measurementKeys: [
+        electricalQuantityRule.measurementKey,
+      ] as ScopeItemQuantityRule['measurementKeys'],
+      requiresUserQuantity: true,
+      quantityHelper: electricalQuantityRule.quantityHelper,
+      missingMessage: electricalQuantityRule.missingMessage,
+    };
+  }
+  if (!rule) return undefined;
 
   // Measurement-semantics: do not resolve primary takeoff from living SF for physical trades.
   if (
@@ -11560,6 +11599,47 @@ export function syncItemQuantitiesToMeasurementFields(
         (next as Record<string, unknown>)[card.measurementKey] ?? ''
       ).replace(/,/g, '')
     );
+    const quantitySource = String(entry.quantitySource || '');
+    const contractorEditedCount =
+      quantitySource === 'user_entered' ||
+      quantitySource === 'manual_override' ||
+      quantitySource === 'calculated_confirmed';
+    const planCopiedCount =
+      quantitySource === 'plan_detected' ||
+      quantitySource === 'plan_vision' ||
+      quantitySource === 'inferred' ||
+      quantitySource === '';
+    const sheetCount = Number.isFinite(existingMeasurement)
+      ? existingMeasurement
+      : NaN;
+    const sheetOwnsCount =
+      Number.isFinite(sheetCount) &&
+      sheetCount > 0 &&
+      (planCopiedCount ||
+        String(
+          (
+            next.quickMeasurementSources as Record<string, string> | undefined
+          )?.[card.measurementKey] || ''
+        ) === 'contractor_confirmed_from_plan_review' ||
+        electricalPlanSheetCountBelongsInBid(
+          card.measurementKey,
+          next as unknown as Record<string, unknown>
+        ));
+    if (
+      sheetOwnsCount &&
+      !contractorEditedCount &&
+      Math.abs(sheetCount - quantity) > 0.01
+    ) {
+      next.itemQuantities = {
+        ...(next.itemQuantities || {}),
+        [card.itemId]: {
+          ...entry,
+          quantity: String(sheetCount),
+          unit: entry.unit || 'each',
+        },
+      };
+      continue;
+    }
     if (
       quantity === 1 &&
       Number.isFinite(existingMeasurement) &&
@@ -14109,12 +14189,16 @@ function buildHvacInstalledPackageSuggestedPricing(
     totalTons > 0
       ? `${basisQuantity} ${basisQuantity === 1 ? 'system' : 'systems'} · ${totalTons.toLocaleString()} tons`
       : `${basisQuantity} ${basisQuantity === 1 ? 'system' : 'systems'}`;
+  const lacksPrintedTonnage =
+    hvacPlanImportLacksPrintedTonnage(measurementsInput);
   const displayUnitRateLabel =
     tier === 'plan_barometer'
       ? null
-      : `$${(total / basisQuantity).toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        })}/system`;
+      : lacksPrintedTonnage
+        ? 'Planning price until tonnage is entered.'
+        : `$${(total / basisQuantity).toLocaleString(undefined, {
+            maximumFractionDigits: 0,
+          })}/system`;
   const helper =
     tier === 'plan_barometer' && comparable
       ? `Complete builder package · ${hvacPackageComparableHelper(comparable)} · includes equipment, ductwork, registers, thermostat, startup`
@@ -14132,8 +14216,12 @@ function buildHvacInstalledPackageSuggestedPricing(
     rateSourceLabel:
       tier === 'plan_barometer' && comparable
         ? `${comparable.projectLabel} builder budget (H64)`
-        : 'Suggested · National Average (planning package)',
-    helper,
+        : lacksPrintedTonnage
+          ? 'Planning price — tonnage not on the plans'
+          : 'Suggested · National Average (planning package)',
+    helper: lacksPrintedTonnage
+      ? 'Planning price — tonnage not on the plans.'
+      : helper,
     mode: 'suggested_price',
     basis: { quantity: basisQuantity, unit: 'each' },
     comparisonRange,
@@ -16951,7 +17039,7 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (itemId === 'wall_framing') {
     const notedWallSqft = notesText.match(
-      /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?walls?\b/i
+      /(?:frame|framing|framed)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s*(?:of\s+)?(?:new\s+)?walls?\b/i
     );
     const notedSqft = notedWallSqft
       ? parseScopeMeasurementInput(notedWallSqft[1])
@@ -17287,6 +17375,7 @@ export function resolveScopeItemSuggestedPricing(
       };
     }
     if (itemId === 'floor_demo') {
+      if (!notesNameBathroomFloorRemoval(notesText)) return empty;
       const areas = showerTileWithFlooringAreas(notesText);
       const sqft =
         parseScopeMeasurementInput(
@@ -18227,7 +18316,6 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (isElectricalTrimItemId(itemId)) {
     if (
-      String(templateKey || '').toLowerCase() !== 'ground_up' &&
       !shouldAutoPriceElectricalTrimPackage(
         measurementsInput as unknown as Record<string, unknown>,
         templateKey
@@ -19191,6 +19279,20 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (itemId === 'lighting') {
+    const pricingTemplate = String(templateKey || '').toLowerCase();
+    const recessedCardQty = Number(
+      measurementsInput.itemQuantities?.electrical_recessed_light?.quantity
+    );
+    if (
+      lightingQuantityDuplicatesRecessedTakeoff(
+        measurementsInput as unknown as Record<string, unknown>
+      ) &&
+      (pricingTemplate === 'ground_up' ||
+        pricingTemplate === 'electrical' ||
+        recessedCardQty > 0)
+    ) {
+      return empty;
+    }
     const rates: Record<
       string,
       { material: number; labor: number; label: string }
@@ -21980,16 +22082,11 @@ export function resolveScopeItemSuggestedPricing(
         resolved.unit === 'sqft' && Number(resolved.quantity) > 0
           ? Number(resolved.quantity)
           : 0;
-      const plannedPaint =
-        (paintSf != null && paintSf > 0 ? paintSf : 0) ||
-        resolvedPaint ||
-        formPlanningQuantity(
-          'exteriorPaintSqft',
-          measurementsInput,
-          templateKey,
-          String(measurementsInput.scopeNotes || '')
-        );
-      if (!(plannedPaint && plannedPaint > 0)) {
+      // Only a quantity on the card prices per sqft. A formula estimate that
+      // never reached the form (plan imports) keeps the house budget.
+      const pricedPaint =
+        (paintSf != null && paintSf > 0 ? paintSf : 0) || resolvedPaint;
+      if (!(pricedPaint > 0)) {
         const lump = resolveExteriorPaintLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -25958,7 +26055,56 @@ function resolveChecklistItemQuantityCore(
     if (allowanceSplit) return allowanceSplit;
   }
 
+  const electricalDeviceCard = ELECTRICAL_CARDS.find(
+    entry => entry.itemId === itemId
+  );
+  const electricalDeviceCount = (() => {
+    if (
+      !electricalDeviceCard ||
+      electricalDeviceCard.measurementKey === 'serviceAmperage'
+    ) {
+      return null;
+    }
+    const count = Number(
+      (measurements as unknown as Record<string, unknown>)[
+        electricalDeviceCard.measurementKey
+      ]
+    );
+    return Number.isFinite(count) && count > 1 ? count : null;
+  })();
+  const storedElectricalOne =
+    electricalDeviceCount != null && Number(effectiveOverride?.quantity) === 1;
+  const overrideSource = String(effectiveOverride?.quantitySource || '');
+  const contractorEditedCount =
+    overrideSource === 'user_entered' ||
+    overrideSource === 'manual_override' ||
+    overrideSource === 'calculated_confirmed';
+  const planCopiedCount =
+    overrideSource === 'plan_detected' ||
+    overrideSource === 'plan_vision' ||
+    overrideSource === 'inferred' ||
+    overrideSource === '';
+  const sheetCountWins =
+    electricalDeviceCard != null &&
+    electricalDeviceCount != null &&
+    !contractorEditedCount &&
+    effectiveOverride?.quantity != null &&
+    Math.abs(Number(effectiveOverride.quantity) - electricalDeviceCount) > 0.01 &&
+    (planCopiedCount ||
+      String(
+        (
+          measurements.quickMeasurementSources as
+            | Record<string, string>
+            | undefined
+        )?.[electricalDeviceCard.measurementKey] || ''
+      ) === 'contractor_confirmed_from_plan_review' ||
+      electricalPlanSheetCountBelongsInBid(
+        electricalDeviceCard.measurementKey,
+        measurements as unknown as Record<string, unknown>
+      ));
   if (
+    !storedElectricalOne &&
+    !sheetCountWins &&
     effectiveOverride?.quantity != null &&
     effectiveOverride.quantity > 0 &&
     !isPlaceholderAllowancePricing(
@@ -26647,7 +26793,43 @@ export function resolveChecklistItemQuantity(
       };
     }
   }
+  if (
+    itemId === 'waterproofing' &&
+    notesNameShowerTileWithFlooring(ctx.notes)
+  ) {
+    const areas = showerTileWithFlooringAreas(ctx.notes);
+    const measured = Number(
+      String(measurements.showerWallTileSqft ?? '').replace(/,/g, '')
+    );
+    const sqft =
+      areas.showerWallTileSqft ||
+      (Number.isFinite(measured) && measured > 0 ? measured : 0);
+    if (sqft > 0) {
+      return {
+        quantity: sqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Backer and membrane for the new shower tile. Uses the shower wall area.',
+        showInput: true,
+      };
+    }
+  }
   if (itemId === 'floor_demo' && notesNameShowerTileWithFlooring(ctx.notes)) {
+    if (!notesNameBathroomFloorRemoval(ctx.notes)) {
+      return {
+        quantity: null,
+        unit: 'sqft',
+        quantitySource: 'missing',
+        sourceLabel: sourceLabel('missing'),
+        pricingReady: false,
+        quantityHelper: 'The note installs LVP. It does not name floor removal.',
+        missingMessage: 'Enter flooring removal sqft.',
+        showInput: false,
+      };
+    }
     const areas = showerTileWithFlooringAreas(ctx.notes);
     const stored = Number(String(measurements.floorDemoSqft ?? '').replace(/,/g, ''));
     const lvp = Number(String(measurements.flooringLvpSqft ?? '').replace(/,/g, ''));
@@ -28936,8 +29118,21 @@ function syncElectricalQuantitiesIntoItemQuantities(
       existing?.quantitySource === 'parsed_from_notes';
     const staleOne =
       existingQty === 1 && Math.abs(quantity - 1) > 0.01;
-    if (Number.isFinite(existingQty) && existingQty > 0 && !notesItem && !staleOne)
+    const contractorEdited =
+      existing?.quantitySource === 'user_entered' ||
+      existing?.quantitySource === 'manual_override' ||
+      existing?.quantitySource === 'calculated_confirmed';
+    const sheetDisagrees =
+      Number.isFinite(existingQty) && Math.abs(existingQty - quantity) > 0.01;
+    if (
+      Number.isFinite(existingQty) &&
+      existingQty > 0 &&
+      !notesItem &&
+      !staleOne &&
+      (contractorEdited || !sheetDisagrees)
+    ) {
       continue;
+    }
     if (notesItem && existingQty === quantity) continue;
     const sourceTag = String(
       extended.quickMeasurementSources?.[card.measurementKey] || ''

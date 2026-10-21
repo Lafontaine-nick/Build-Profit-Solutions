@@ -63,6 +63,11 @@ import {
 } from '@/utils/bathroomNoteScope';
 import { checklistItemInScope, lookupRuleKeyForPackage, ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
 import {
+  hasDetailedElectricalTrimDeviceQuantities,
+  lightingQuantityDuplicatesRecessedTakeoff,
+  syncElectricalScopeItems,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
   expandBathroomWetAreaDemoScopeDisplayItems,
   finalizeWetAreaDemoScopeFromMeasurements,
 } from '@/utils/wetAreaDemoScopeGate';
@@ -155,6 +160,29 @@ export function buildConfirmScopeDisplayItems(
         .electrical_service_upgrade?.quantitySource === 'user_entered');
   if (notesExcludeElectricalServiceUpgrade(noteText) && !serviceUpgradeUserSelected) {
     expanded = expanded.filter((row) => row.id !== 'electrical_service_upgrade');
+  }
+  const scopeTemplate = String(templateKey || '').toLowerCase();
+  const quantityRecord =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<string, { quantity?: unknown; unit?: unknown }>)
+      : {};
+  const recessedCardQty = Number(quantityRecord.electrical_recessed_light?.quantity);
+  if (
+    lightingQuantityDuplicatesRecessedTakeoff(measurements) &&
+    (scopeTemplate === 'ground_up' ||
+      scopeTemplate === 'electrical' ||
+      recessedCardQty > 0)
+  ) {
+    expanded = expanded.filter(row => row.id !== 'lighting');
+  }
+  if (
+    scopeTemplate === 'ground_up' &&
+    hasDetailedElectricalTrimDeviceQuantities(measurements) &&
+    String(quantityRecord.electrical_trim?.unit || '').toLowerCase() !== 'each'
+  ) {
+    expanded = expanded.filter(row => row.id !== 'electrical_trim');
   }
   expanded = ensureMixedExteriorScopeItems(expanded, templateKey, noteText);
   expanded = filterUnmentionedMixedExteriorConcreteItems(
@@ -663,12 +691,27 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
   const displayBase = wholeProjectPlan
     ? ensureWholeProjectGroundUpScopeItems(base, draft.originalNotes)
     : base;
-  return buildConfirmScopeDisplayItems(
+  const displayItems = buildConfirmScopeDisplayItems(
     displayBase,
     measurements,
     templateKey,
     draft.originalNotes
   );
+  const checklistTemplate = String(
+    draft.scopeChecklist?.templateKey || ''
+  ).toLowerCase();
+  // Confirm Scope hydrates through the same electrical sync. The estimate
+  // total has to price that list, including whole-house rough-in and excluding
+  // a rough package the electrical estimator already replaced with devices.
+  if (wholeProjectPlan || checklistTemplate === 'electrical' || checklistTemplate === 'ground_up') {
+    return syncElectricalScopeItems(displayItems, {
+      templateKey: wholeProjectPlan ? 'ground_up' : checklistTemplate || templateKey,
+      notes: draft.originalNotes,
+      quantities: measurements as never,
+      electricalScope: measurements.electricalScope as string[] | null | undefined,
+    });
+  }
+  return displayItems;
 }
 
 /** QM embed context — same template resolution as Confirm Scope Step 2. */

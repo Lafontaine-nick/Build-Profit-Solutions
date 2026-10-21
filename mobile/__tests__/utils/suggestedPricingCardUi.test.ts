@@ -688,5 +688,11 @@ describe('suggested card lines', () => {
     expect(
       suggestedCardSourceChip(block(), { ...ready, isFallbackPricing: true, pricingStatus: 'planning' })
     ).toEqual({ label: 'Needs measurement', tone: 'gold' });
+    expect(
+      suggestedCardSourceChip(
+        block({ rateSourceLabel: 'Planning price — tonnage not on the plans' }),
+        ready
+      )
+    ).toEqual({ label: 'Planning price', tone: 'gold' });
   });
 });

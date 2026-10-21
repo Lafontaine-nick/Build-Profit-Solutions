@@ -53,4 +53,65 @@ describe('formatScopeQuantity', () => {
 
     expect(formatScopeQuantity(pkg, mixed)).toBe('400 sqft');
   });
+
+  test('sliding doors show the door count, not the living area', () => {
+    const pkg = {
+      name: 'Sliding doors',
+      checklistItemId: 'sliding_doors',
+      scopeQuantities: [{ quantity: 2571, unit: 'sqft' }],
+    } as EstimateDraftScopePackage;
+    const plan = {
+      scopeChecklist: { templateKey: 'ground_up' },
+      scopeMeasurements: { slidingDoorCount: 1, floorAreaSqft: 2571 },
+    } as EstimateAiDraft;
+
+    expect(formatScopeQuantity(pkg, plan)).toBe('1 each');
+  });
+
+  test('a ground-up paint allowance is not labeled 1 sqft', () => {
+    const pkg = {
+      name: 'Interior paint',
+      checklistItemId: 'interior_paint',
+      scopeQuantities: [{ quantity: 1, unit: 'sqft' }],
+    } as EstimateDraftScopePackage;
+    const plan = {
+      scopeChecklist: { templateKey: 'ground_up' },
+      scopeMeasurements: { floorAreaSqft: 2571 },
+    } as EstimateAiDraft;
+
+    expect(formatScopeQuantity(pkg, plan)).toBe('Allowance');
+  });
+
+  test('ground-up lump trades are not labeled with a placeholder quantity', () => {
+    const plan = {
+      scopeChecklist: { templateKey: 'ground_up' },
+      scopeMeasurements: { floorAreaSqft: 2571, interiorDoorCount: 18 },
+    } as EstimateAiDraft;
+    const row = (id: string, quantity: number, unit: string) =>
+      ({
+        name: id,
+        checklistItemId: id,
+        scopeQuantities: [{ quantity, unit }],
+      }) as EstimateDraftScopePackage;
+
+    expect(formatScopeQuantity(row('stucco', 1, 'sqft'), plan)).toBe('Allowance');
+    expect(formatScopeQuantity(row('drywall', 1, 'sqft'), plan)).toBe('Allowance');
+    expect(formatScopeQuantity(row('plumbing_rough', 1, 'each'), plan)).toBe('Allowance');
+    expect(formatScopeQuantity(row('hvac', 1, 'each'), plan)).toBe('Allowance');
+    expect(formatScopeQuantity(row('pour_flatwork', 2571, 'sqft'), plan)).toBe(
+      'Allowance'
+    );
+    expect(formatScopeQuantity(row('interior_trim', 18, 'each'), plan)).toBe(
+      'Allowance'
+    );
+    expect(
+      formatScopeQuantity(
+        row('drywall', 1, 'sqft'),
+        {
+          ...plan,
+          scopeMeasurements: { drywallSqft: 6860 },
+        } as EstimateAiDraft
+      )
+    ).toBe('6,860 sqft');
+  });
 });

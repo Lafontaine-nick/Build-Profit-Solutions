@@ -231,6 +231,140 @@ export const fixSpacingBeforePunctuation = (text: string): string =>
     .replace(/\s+([)\]}»"'”])/g, "$1")
     .trim();
 
+const CHECKLIST_HELPER =
+  /\b(?:(?:identified|named) in the (?:job )?notes|from (?:your|the job) notes(?: or measurements)?)\b/i;
+
+const nameKey = (text: string): string =>
+  String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const stemWord = (word: string): string =>
+  word.endsWith("s") && word.length > 3 ? word.slice(0, -1) : word;
+
+/** "LVP" and "Walls" repeat "LVP flooring" and "Wall framing". */
+const isNameFragment = (short: string, long: string): boolean => {
+  const a = nameKey(short);
+  const b = nameKey(long);
+  if (!a || !b || a === b) return false;
+  if (b.includes(a) && a.length >= 3) return true;
+  const aWords = a.split(" ").map(stemWord);
+  const bWords = new Set(b.split(" ").map(stemWord));
+  return aWords.length === 1 && aWords[0].length >= 3 && bWords.has(aWords[0]);
+};
+
+const dedupeScopeNames = (names: string[]): string[] => {
+  const ordered = names
+    .map((name, index) => ({ name: name.trim(), index }))
+    .filter((entry) => entry.name);
+  const longerFirst = [...ordered].sort((a, b) => b.name.length - a.name.length);
+  const kept: Array<{ name: string; index: number }> = [];
+  for (const entry of longerFirst) {
+    if (kept.some((existing) => nameKey(existing.name) === nameKey(entry.name))) continue;
+    if (kept.some((existing) => isNameFragment(entry.name, existing.name))) continue;
+    kept.push(entry);
+  }
+  return kept.sort((a, b) => a.index - b.index).map((entry) => entry.name);
+};
+
+const oxfordJoin = (items: string[]): string => {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+};
+
+const isShortScopeTitle = (text: string): boolean => {
+  const trimmed = text.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= 48 &&
+    !/[.!?]$/.test(trimmed) &&
+    trimmed.split(/\s+/).length <= 6
+  );
+};
+
+/**
+ * Cover paragraph for every agreement. Keeps the job note and the named
+ * lines. Drops checklist helpers, the confirmation disclaimer already printed
+ * on the summary rail, and inclusion fragments that repeat those lines.
+ */
+export const clientFacingProjectSummary = (raw: string): string => {
+  let text = String(raw || "").replace(/\r/g, "").trim();
+  if (!text) return "";
+
+  const inclusionMatch = text.match(
+    /(?:^|\n+)\s*Inclusions\b[\s\S]*$|\s+Inclusions\s*•[\s\S]*$/i,
+  );
+  let inclusionItems: string[] = [];
+  if (inclusionMatch && inclusionMatch.index != null) {
+    text = text.slice(0, inclusionMatch.index).trim();
+    inclusionItems = inclusionMatch[0]
+      .replace(/^\s*Inclusions\b[:\s]*/i, "")
+      .split(/\n|•/)
+      .map((item) => item.replace(/^[-*]\s*/, "").trim())
+      .filter(Boolean);
+  }
+
+  const names: string[] = [];
+  text = text.replace(
+    /(?:^|\n)([A-Z][^\n.]{1,48})\n([^\n]*\b(?:identified|named) in the (?:job )?notes\b[^\n]*|\bfrom (?:your|the job) notes\b[^\n]*)/g,
+    (_match, title: string) => {
+      names.push(String(title).trim());
+      return "\n";
+    },
+  );
+  text = text.replace(
+    /([A-Z][\w /&()'’-]{1,48}?)\s+([A-Z][^.!?\n]*\b(?:identified|named) in the (?:job )?notes\b[^.!?\n]*[.]?|[A-Z][^.!?\n]*\bfrom (?:your|the job) notes\b[^.!?\n]*[.]?)/g,
+    (_match, title: string) => {
+      names.push(String(title).trim());
+      return " ";
+    },
+  );
+  text = text.replace(
+    /[^.!?\n]*\b(?:(?:identified|named) in the (?:job )?notes|from (?:your|the job) notes(?: or measurements)?)\b[^.!?\n]*[.]?/gi,
+    " ",
+  );
+
+  const sentences = text
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const narrative: string[] = [];
+  for (const sentence of sentences) {
+    if (CHECKLIST_HELPER.test(sentence)) continue;
+    if (/\bsubject to confirmation\b/i.test(sentence)) continue;
+    if (isShortScopeTitle(sentence)) {
+      names.push(sentence);
+      continue;
+    }
+    narrative.push(sentence);
+  }
+
+  const withoutRestatement = narrative.filter(
+    (sentence) => !/^provide labor and materials as specified\b/i.test(sentence),
+  );
+  const finalNarrative = withoutRestatement.length ? withoutRestatement : narrative;
+  const included = dedupeScopeNames([...names, ...inclusionItems]).filter(
+    (name) => !finalNarrative.some((sentence) => nameKey(sentence) === nameKey(name)),
+  );
+  const parts = [...finalNarrative];
+  if (included.length) parts.push(`Included: ${oxfordJoin(included)}.`);
+  const summary = parts.join(" ").replace(/\s{2,}/g, " ").trim();
+  return summary || String(raw || "").trim();
+};
+
+export const isInternalScopeBullet = (text: string): boolean => {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return true;
+  if (/^inclusions?$/i.test(trimmed)) return true;
+  if (CHECKLIST_HELPER.test(trimmed)) return true;
+  if (/\bsubject to confirmation\b/i.test(trimmed)) return true;
+  if (/^provide labor and materials as specified\b/i.test(trimmed)) return true;
+  return false;
+};
+
 export const sanitizeContractDoc = (
   doc: ContractDoc,
   options: ContractBuildOptions,
@@ -748,7 +882,9 @@ export const normalizeProjectContractCopy = (
       scopeSummary = getFallbackExecutiveSummaryForKind(kind);
     } else {
       d = normalizeIncludedWorkText(d, kind);
-      scopeSummary = fixSpacingBeforePunctuation(d.slice(0, 600));
+      scopeSummary = fixSpacingBeforePunctuation(
+        clientFacingProjectSummary(d).slice(0, 600),
+      );
     }
   } else if (includedWorkBullets.length) {
     scopeSummary = fixSpacingBeforePunctuation(includedWorkBullets.join(". ").trim().slice(0, 420));
@@ -765,9 +901,15 @@ export const normalizeProjectContractCopy = (
   );
 
   const normalizedScopeSummary = normalizeCopyForComparison(scopeSummary);
-  includedWorkBullets = includedWorkBullets.filter(
-    (bullet) => normalizeCopyForComparison(bullet) !== normalizedScopeSummary,
-  );
+  includedWorkBullets = includedWorkBullets.filter((bullet) => {
+    if (isInternalScopeBullet(bullet)) return false;
+    const key = nameKey(bullet);
+    if (!key || key === normalizedScopeSummary) return false;
+    if (normalizedScopeSummary.includes(key)) return false;
+    if (isNameFragment(bullet, scopeSummary)) return false;
+    if (includedWorkBullets.some((other) => isNameFragment(bullet, other))) return false;
+    return true;
+  });
 
   return {
     projectTypeLabel,

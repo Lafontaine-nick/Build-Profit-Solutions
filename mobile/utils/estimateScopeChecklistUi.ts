@@ -5,6 +5,10 @@ import type {
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import {
+  noteUsesSeparateJobReader,
+  readNoteWork,
+} from '@/utils/noteClauseReader';
 import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 import {
   bathroomAffirmativeNotes,
@@ -43,6 +47,7 @@ import {
 import {
   electricalChecklistGroups,
   syncElectricalScopeItems,
+  electricalCardForItemId,
   ELECTRICAL_ROUGH_CARD_HELPER,
   ELECTRICAL_ROUGH_CARD_LABEL,
   ELECTRICAL_TRIM_CARD_HELPER,
@@ -118,7 +123,7 @@ import {
   notesAreImportedPlanSummary,
   notesNameConcreteDecorativeFinish,
 } from '@/utils/concretePlanningMeasurements';
-import { notesIgnoringPaverSurfaces } from '@/utils/foundationPlanningMeasurements';
+import { notesIgnoringPaverSurfaces, notesNameConcretePatioWithSod } from '@/utils/foundationPlanningMeasurements';
 import { planScopeRecordsHaveGroundUpAllowances } from '@/utils/planScopeRecords';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
@@ -2135,7 +2140,13 @@ export function ensureWholeProjectGroundUpScopeItems(
   ) {
     next = next.filter(item => item.id !== 'flooring');
   }
-  const notesText = String(notes || '');
+  // The imported plan appendix lists areas and openings ("Deck / patio · 322
+  // SF", "Sliding / patio doors", a room named Covered Patio). That is not a
+  // deck package. A contractor note that names a covered patio still is.
+  const notesText = String(notes || '').replace(
+    /\n---\s*Plan takeoff\s*---[\s\S]*$/i,
+    ''
+  );
   const namesCoveredPatio =
     /\b(?:deck|patio|porch)\b/i.test(notesText) &&
     !/\bconcrete\s+patio\b/i.test(notesText);
@@ -3975,7 +3986,14 @@ function injectNoteBackedPricedItems(
       continue;
     }
 
-    const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
+    const electricalCard = electricalCardForItemId(itemId);
+    const copy = electricalCard
+      ? {
+          label: electricalCard.label,
+          helperText: electricalCard.helper,
+          category: electricalCard.groupId,
+        }
+      : NOTE_BACKED_SCOPE_COPY[itemId] || {
       label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
       helperText: 'Scope item found in notes.',
       category: 'from_notes',
@@ -4020,7 +4038,14 @@ function injectNoteBackedPricedItems(
     if (!identified || !getChecklistItemQuantityRule(itemId, templateKey))
       continue;
 
-    const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
+    const electricalCard = electricalCardForItemId(itemId);
+    const copy = electricalCard
+      ? {
+          label: electricalCard.label,
+          helperText: electricalCard.helper,
+          category: electricalCard.groupId,
+        }
+      : NOTE_BACKED_SCOPE_COPY[itemId] || {
       label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
       helperText: 'Scope item found in notes; enter the missing measurement.',
       category: 'from_notes',
@@ -5169,6 +5194,25 @@ export function hydrateScopeChecklistFromNotes(
     wholeHomeMixedRemodelNote ||
     crossTradeRemodelNote
   ) {
+    if (noteUsesSeparateJobReader(notes)) {
+      const readerLines = readNoteWork(notes).lines;
+      const byId = new Map(noteBackedFinal.map(item => [item.id, item]));
+      return readerLines.map(entry => {
+        const existing = byId.get(entry.id);
+        return {
+          ...(existing || {
+            id: entry.id,
+            inputType: 'yes_no' as const,
+            category: entry.category,
+          }),
+          id: entry.id,
+          label: entry.label,
+          helperText: entry.helperText,
+          state: 'included' as const,
+          noteBacked: true,
+        };
+      });
+    }
     if (notesDescribeDrywallAndFlooringJob(notes)) {
       const named = explicitCrossTradeScopeItems(notes);
       if (named?.length) return named as ScopeChecklistItem[];
@@ -5956,6 +6000,7 @@ export function syncInteriorPaintScopeItems(
   }
 ): ScopeChecklistItem[] {
   if (notesDescribeAreaOnlyAddition(params.notes)) return items;
+  if (noteUsesSeparateJobReader(params.notes)) return items;
   const measuredScopeIds = new Set<string>();
   const explicitScope = params.paintScope;
   const planSummary = notesAreImportedPlanSummary(params.notes);
@@ -7040,6 +7085,13 @@ export function checklistDisplayLabel(
     return 'Tile';
   }
   if (PAINT_LABEL_TEMPLATES.has(tk) && PAINT_SCOPE_LABEL_OVERRIDES[item.id]) {
+    if (
+      item.noteBacked &&
+      item.label &&
+      item.label !== PAINT_SCOPE_LABEL_OVERRIDES[item.id]
+    ) {
+      return item.label;
+    }
     return PAINT_SCOPE_LABEL_OVERRIDES[item.id];
   }
   return item.label;
@@ -7744,11 +7796,35 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
   },
 ];
 
+/**
+ * Cards a ground-up house bid keeps off the collapsed trade groups.
+ * Counted switches, lights, and fans stay. Those dollars are already in
+ * Selected pricing, so the MEP card has to include them.
+ */
+export function scopeItemHiddenOnGroundUpHouseBid(
+  itemId: string,
+  groundUp: boolean
+): boolean {
+  if (!groundUp) return false;
+  return (
+    itemId === 'concrete' ||
+    itemId === 'garage_door_openers' ||
+    itemId === 'concrete_sealer' ||
+    itemId === 'decorative_finish'
+  );
+}
+
 /** Collapse a whole-home contractor checklist into priced summary groups. */
 export function bucketWholeProjectScopeGroups(
   groups: Array<{ title: string; items: ScopeChecklistItem[] }>,
   options?: { seedGroundUpShell?: boolean; notes?: string | null }
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  if (notesNameConcretePatioWithSod(options?.notes)) return groups;
+  if (notesNameShowerTileWithFlooring(options?.notes)) return groups;
+  if (notesNameWallAreaFramingWithFlooring(String(options?.notes || ''))) {
+    return groups;
+  }
+  if (noteUsesSeparateJobReader(options?.notes)) return groups;
   const flat: ScopeChecklistItem[] = [];
   const seenIds = new Set<string>();
   for (const group of groups) {
@@ -7840,11 +7916,46 @@ export function bucketWindowsDoorsPriceGroups(
   return buckets.filter(group => group.items.length > 0);
 }
 
+/** Confirm Scope for an unseen mix is the jobs the note named. */
+export function readerConfirmScopeItems(
+  items: ScopeChecklistItem[],
+  notes: string | null | undefined
+): ScopeChecklistItem[] | null {
+  if (!noteUsesSeparateJobReader(notes)) return null;
+  const lines = readNoteWork(notes).lines;
+  const byId = new Map(items.map(item => [item.id, item]));
+  return lines.map(entry => {
+    const existing = byId.get(entry.id);
+    return {
+      ...(existing || {
+        id: entry.id,
+        inputType: 'yes_no' as const,
+        category: entry.category,
+        state: 'included' as const,
+      }),
+      id: entry.id,
+      label: entry.label,
+      helperText: entry.helperText,
+      state: 'included' as const,
+      noteBacked: true,
+    };
+  });
+}
+
 export function groupScopeChecklistItems(
   items: ScopeChecklistItem[],
   templateKey?: string,
   context: ScopeChecklistGroupingContext = {}
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  if (noteUsesSeparateJobReader(context.notes)) {
+    const lines = readNoteWork(context.notes).lines;
+    return lines.map(entry => ({
+      title: entry.label,
+      items: items.filter(
+        item => item.id === entry.id && item.state !== 'excluded'
+      ),
+    }));
+  }
   if (notesDescribeDrywallAndFlooringJob(context.notes)) {
     const named = items.filter(item => item.state !== 'excluded');
     const flooringIds = new Set([
@@ -7896,6 +8007,36 @@ export function groupScopeChecklistItems(
     );
     if (groups.length) return groups;
   }
+  if (notesNameWallAreaFramingWithFlooring(String(context.notes || ''))) {
+    const order = ['wall_framing', 'flooring', 'flooring_lvp'];
+    return order.flatMap(id => {
+      const item = items.find(entry => entry.id === id && entry.state !== 'excluded');
+      if (!item) return [];
+      return [{ title: item.label || id, items: [item] }];
+    });
+  }
+  if (notesNameShowerTileWithFlooring(context.notes)) {
+    const lines = showerTileWithFlooringChecklistItems(context.notes);
+    const byId = new Map(items.map(item => [item.id, item]));
+    return lines.flatMap(entry => {
+      const existing = byId.get(entry.id);
+      if (existing?.state === 'excluded') return [];
+      const item: ScopeChecklistItem = {
+        ...(existing || {
+          id: entry.id,
+          inputType: 'yes_no',
+          category: entry.category,
+          state: 'included',
+        }),
+        id: entry.id,
+        label: entry.label,
+        helperText: entry.helperText,
+        state: 'included',
+        noteBacked: true,
+      };
+      return [{ title: entry.label, items: [item] }];
+    });
+  }
   if (notesNameReceptaclesWithToilet(context.notes)) {
     const receptacles = items.filter(
       item =>
@@ -7942,6 +8083,9 @@ export function groupScopeChecklistItems(
       }
       seen.add(item.id);
       named.push(item);
+    }
+    if (named.length === 1) {
+      return [{ title: String(named[0].label || 'Flooring'), items: named }];
     }
     if (named.length) {
       return [{ title: '', items: named }];

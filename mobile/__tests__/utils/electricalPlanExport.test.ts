@@ -262,48 +262,42 @@ describe('electrical Phase 3A plan export adapter', () => {
     expect(summary.some(line => line.value.includes('2,500'))).toBe(false);
   });
 
-  it('keeps export readiness blocked by conflicts and unclassified fixtures', () => {
+  it('prices listed sheet counts and keeps a visible conflict unpriced', () => {
     const readiness = electricalPlanReadinessLine({
       measurements: {
         standardReceptacleCount: 50,
         gfciReceptacleCount: 8,
+        ceilingFanCount: 7,
         threeWaySwitchCount: 6,
         smokeDetectorCount: 10,
       },
       conflicts: [
-        { field: 'threeWaySwitchCount' },
+        { field: 'ceilingFanCount' },
         { field: 'smokeDetectorCount' },
       ],
-      unclassifiedFixtureCount: 3,
-      validation: {
-        fields: {
-          standardReceptacleCount: {
-            status: 'ai_verified',
-            pricingEligible: true,
-          },
-          gfciReceptacleCount: {
-            status: 'needs_review',
-            pricingEligible: false,
-          },
-          threeWaySwitchCount: {
-            status: 'conflict',
-            pricingEligible: false,
-          },
-          smokeDetectorCount: {
-            status: 'conflict',
-            pricingEligible: false,
-          },
+      provenance: {
+        standardReceptacleCount: {
+          evidenceKind: 'symbols',
+          status: 'needs_review',
+          pricingEligible: false,
         },
-        priceableFields: ['standardReceptacleCount'],
-        blockedFields: [
-          'gfciReceptacleCount',
-          'threeWaySwitchCount',
-          'smokeDetectorCount',
-        ],
+        gfciReceptacleCount: {
+          evidenceKind: 'symbols',
+          status: 'needs_review',
+          pricingEligible: false,
+        },
+        ceilingFanCount: {
+          evidenceKind: 'symbols',
+          status: 'needs_review',
+          pricingEligible: false,
+        },
       },
+      unclassifiedFixtureCount: 3,
     });
 
-    expect(readiness.value).toBe('1 prices ready · 4 to confirm');
+    expect(readiness.value).toBe('2 prices ready · 1 to confirm');
+    expect(readiness.note).toMatch(/2 detected from plan/);
+    expect(readiness.note).not.toMatch(/0 AI verified/);
     expect(readiness.note).toMatch(/conflicts and inferred quantities are not priced/);
   });
 
@@ -343,7 +337,39 @@ describe('electrical Phase 3A plan export adapter', () => {
     });
 
     expect(readiness.value).toBe('2 prices ready · 0 to confirm');
-    expect(readiness.note).toMatch(/1 Plan verified · 1 AI verified/);
+    expect(readiness.note).toMatch(/2 detected from plan · 1 AI verified/);
+    expect(readiness.note).not.toMatch(/0 AI verified/);
+  });
+
+  it('prices a symbol fan with the recessed count and ignores hidden guesses', () => {
+    const readiness = electricalPlanReadinessLine({
+      measurements: {
+        recessedLightCount: 31,
+        ceilingFanCount: 7,
+        smokeDetectorCount: 8,
+        floorAreaSqft: 2400,
+      },
+      provenance: {
+        recessedLightCount: {
+          status: 'plan_verified',
+          evidenceKind: 'instance_tags',
+          pricingEligible: true,
+        },
+        ceilingFanCount: {
+          status: 'needs_review',
+          evidenceKind: 'symbols',
+          pricingEligible: false,
+        },
+        smokeDetectorCount: {
+          status: 'needs_review',
+          evidenceKind: 'symbols',
+          pricingEligible: false,
+        },
+      },
+    });
+
+    expect(readiness.value).toBe('2 prices ready · 0 to confirm');
+    expect(readiness.note).toBe('2 detected from plan');
   });
 
   it('does not price a conflicted recessed count until the contractor confirms', () => {

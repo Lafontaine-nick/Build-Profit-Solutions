@@ -21,8 +21,10 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewBlankQuantityProvenance,
   planReviewFieldHelperText,
   planReviewMeasurementDetailLine,
+  planReviewRowHasSelectableQuantity,
   planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
   planReviewCheckboxBlockedMessage,
@@ -146,6 +148,7 @@ describe('plan takeoff review UI polish', () => {
         wholeProject: false,
       })
     ).toEqual([
+      'Exhaust fan · 5',
       'Ceiling fan · 5',
       'GFCI receptacles · 1',
       'Recessed / canless / wafer light · 31',
@@ -448,6 +451,55 @@ describe('plan takeoff review UI polish', () => {
         subtext: 'Conditioned wall surface',
       })
     ).toBe('Planning estimate');
+  });
+
+  it('hides a takeoff checkbox until the row has a quantity', () => {
+    expect(planReviewRowHasSelectableQuantity('')).toBe(false);
+    expect(planReviewRowHasSelectableQuantity('0')).toBe(false);
+    expect(planReviewRowHasSelectableQuantity('4')).toBe(true);
+    expect(planReviewRowHasSelectableQuantity('6/12')).toBe(true);
+    const blank = planReviewBlankQuantityProvenance(
+      {
+        status: 'planning_estimate',
+        label: 'Planning estimate',
+        confidence: 'medium',
+        reason: 'Based on a planning assumption.',
+      },
+      ''
+    );
+    expect(blank.label).toBe('Not found on plan');
+    const filled = planReviewBlankQuantityProvenance(
+      {
+        status: 'planning_estimate',
+        label: 'Planning estimate',
+        confidence: 'medium',
+        reason: 'Based on a planning assumption.',
+      },
+      '120'
+    );
+    expect(filled.label).toBe('Planning estimate');
+    expect(
+      planReviewBlankQuantityProvenance(
+        {
+          status: 'needs_review',
+          label: 'Needs review',
+          confidence: 'medium',
+          reason: 'The plan did not provide a roof area.',
+        },
+        ''
+      ).label
+    ).toBe('Not found on plan');
+    expect(
+      planReviewBlankQuantityProvenance(
+        {
+          status: 'needs_review',
+          label: 'Not found · Enter manually',
+          confidence: 'low',
+          reason: 'No opening count.',
+        },
+        ''
+      ).label
+    ).toBe('Not found · Enter manually');
   });
 
   it('filters internal quick measurement metadata from review rows', () => {
@@ -1180,7 +1232,7 @@ describe('plan takeoff review UI polish', () => {
         conflicts: [{ field: 'smokeDetectorCount' }],
       })
     ).toMatchObject({
-      value: '2 prices ready · 2 to confirm',
+      value: '2 prices ready · 0 to confirm',
     });
   });
 
@@ -1475,8 +1527,8 @@ describe('plan takeoff review UI polish', () => {
         },
         {
           label: 'GFCI receptacles',
-          value: 'Needs confirmation',
-          note: '6 EA visible — Confirm before pricing',
+          value: '6 EA',
+          note: 'From plan symbols',
         },
         {
           label: '3-way switch',
@@ -1517,7 +1569,7 @@ describe('plan takeoff review UI polish', () => {
     expect(row.includeDefault).toBe(false);
   });
 
-  it('selects an electrical plan symbol count by default', () => {
+  it('prices a listed electrical symbol count on the takeoff sheet', () => {
     const row = buildPlanReviewMeasurementRowState({
       key: 'singlePoleSwitchCount',
       tradeKey: 'electrical',
@@ -1533,8 +1585,8 @@ describe('plan takeoff review UI polish', () => {
     expect(row.pricingEligible).toBe(true);
     expect(row.includeDefault).toBe(true);
     expect(row.provenance).toMatchObject({
-      status: 'from_plan_symbols',
-      label: 'Needs confirmation',
+      status: 'plan_verified',
+      label: 'Detected from plan',
     });
   });
 
@@ -1647,6 +1699,46 @@ describe('plan takeoff review UI polish', () => {
         },
       }).includeDefault
     ).toBe(false);
+  });
+
+  it('labels bay-inferred garage doors as a planning estimate, matching scope found', () => {
+    const elevation = {
+      source: 'calculated_from_symbols',
+      evidenceKind: 'elevation_symbols',
+      normalizedSource: 'NEEDS_CONFIRMATION',
+      pricingEligible: false,
+    };
+    for (const key of [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ]) {
+      expect(
+        buildPlanReviewMeasurementRowState({
+          key,
+          value: 1,
+          provenanceEntry: elevation,
+        }).provenance
+      ).toMatchObject({
+        status: 'planning_estimate',
+        label: 'Planning estimate',
+      });
+    }
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'garageDoorDoubleCount',
+        value: 1,
+        userConfirmed: true,
+        provenanceEntry: elevation,
+      }).provenance.status
+    ).toBe('user_confirmed');
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'windowCount',
+        value: 34,
+        provenanceEntry: elevation,
+      }).provenance.label
+    ).toBe('From plan — confirm');
   });
 
   test('roof pitch and stories read from plan facts are detected from plan', () => {

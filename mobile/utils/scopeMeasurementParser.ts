@@ -3,6 +3,7 @@
  */
 
 import type { ScopeItemQuantity } from '@/utils/estimateAiDraft';
+import { applyNoteClauseReads } from '@/utils/noteClauseReader';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
 import { applyBathroomPlanningMeasurements } from '@/utils/bathroomPlanningMeasurements';
 import {
@@ -22,6 +23,7 @@ import {
   dedicatedDeckFootingCount,
   notesDescribeDedicatedDeckJob,
 } from '@/utils/deckNoteScope';
+import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
 
 const AIR_SEALING_SYNONYM_RE =
   /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i;
@@ -2645,7 +2647,11 @@ export function parseScopeMeasurementsFromNotes(
     }
     return max > 0 ? max : null;
   })();
-  if (floorAreaSqft && !notesDescribeDedicatedDeckJob(text)) {
+  if (
+    floorAreaSqft &&
+    !notesDescribeDedicatedDeckJob(text) &&
+    !notesDescribeDedicatedFlooringJob(text)
+  ) {
     out.floorAreaSqft = floorAreaSqft;
   }
   if (out.airSealingIncluded && floorAreaSqft) {
@@ -3337,7 +3343,13 @@ export function parseScopeMeasurementsFromNotes(
       quantitySource: 'notes',
     };
   }
-  if (Number(out.recessedLightCount) > 0 && !itemQuantities.lighting) {
+  if (
+    Number(out.recessedLightCount) > 0 &&
+    !itemQuantities.lighting &&
+    !itemQuantities.electrical_recessed_light &&
+    templateKey !== 'ground_up' &&
+    templateKey !== 'electrical'
+  ) {
     itemQuantities.lighting = {
       quantity: Number(out.recessedLightCount),
       unit: 'each',
@@ -3431,10 +3443,10 @@ export function parseScopeMeasurementsFromNotes(
       out.plumbingRoughPointCount = connectionCount;
     }
   }
-  if (Object.keys(itemQuantities).length) {
-    return { ...out, itemQuantities };
-  }
-  return out;
+  return applyNoteClauseReads(
+    Object.keys(itemQuantities).length ? { ...out, itemQuantities } : out,
+    text
+  );
 }
 
 const UNPRICED_NOTE_RE =

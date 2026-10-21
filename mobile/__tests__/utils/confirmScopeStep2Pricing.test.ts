@@ -97,6 +97,16 @@ describe('confirmScopeStep2Pricing tiers', () => {
     ).toBe(false);
   });
 
+  it('keeps the HVAC install card free of a system-count box', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('hvac', 'hvac', {
+        pricingReady: false,
+        unit: 'each',
+        quantity: 0,
+      })
+    ).toBe(false);
+  });
+
   it('keeps wall framing quantity on Quick measurements', () => {
     expect(
       step2TierNeedsInlineTakeoffEntry('wall_framing', 'room_remodel', {

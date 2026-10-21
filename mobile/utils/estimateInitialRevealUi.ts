@@ -8,6 +8,7 @@ import {
   alignDedicatedBathroomScopeRows,
   bathroomAffirmativeNotes,
   filterDedicatedBathroomConfirmItems,
+  notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   showerTileWithFlooringAreas,
@@ -30,6 +31,7 @@ import {
   drywallBesideFlooringRevealRows,
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
+import { separateJobRevealRows } from '@/utils/noteClauseReader';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameRemovalOf,
@@ -133,10 +135,18 @@ import {
 } from '@/utils/acceptedPricingSummaryUi';
 import { resolveAppliedConfirmScopePackageAmount } from '@/utils/appliedScopePackagePricing';
 import {
+  hasDetailedElectricalTrimDeviceQuantities,
+  lightingQuantityDuplicatesRecessedTakeoff,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
   getScopePackagesForReview,
   noteMentionsGeneralWallDemolition,
 } from '@/utils/scopePackagesForReview';
-import { planScopeRecordSummaryLines } from '@/utils/planScopeRecords';
+import {
+  PLAN_SCOPE_CONFIRM_COUNT_SUFFIX,
+  planScopeRecordSummaryLines,
+  planScopeRecordsHaveGroundUpAllowances,
+} from '@/utils/planScopeRecords';
 import { notesRequireInteriorPaintMeasurements } from '@/utils/scopeQuickMeasurements';
 import {
   getCompactProjectSummary,
@@ -162,6 +172,8 @@ import {
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import {
+  hvacPlanImportStatesNewBuildSystem,
+  NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY,
   notesNameDedicatedHvacEquipmentJob,
   notesNameDedicatedHvacServiceVisit,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
@@ -812,6 +824,15 @@ function collectInitialRevealConfirmItems(
       !/spaces detected on the plan/i.test(line) &&
       !/unclassified lighting fixtures/i.test(line)
   );
+  // Nothing is priced before Confirm scope, so a whole-house plan only asks
+  // for the drawing counts the takeoff left unconfirmed.
+  if (wholeHousePlanExport(draft) && draftNeedsScopeConfirmation(draft)) {
+    return splitInitialRevealConfirmItems(
+      planPriceLines
+        .filter(line => line.endsWith(PLAN_SCOPE_CONFIRM_COUNT_SUFFIX))
+        .map(line => line.slice(0, -PLAN_SCOPE_CONFIRM_COUNT_SUFFIX.length))
+    );
+  }
   // After Confirm scope, the applied cards are the scope. Leftover symbol
   // counts (GFCI, switches, ceiling fans) stay off this list.
   if (planTakeoffLinesOwnRevealScope(draft)) {
@@ -1012,7 +1033,9 @@ function collectInitialRevealConfirmItems(
     // missing measurement covers those lines.
     if (!showerSqft) attention.push('Pricing for Shower wall tile');
     if (!areas.flooringSqft) {
-      attention.push('Pricing for Bathroom floor demo');
+      if (notesNameBathroomFloorRemoval(draft.originalNotes)) {
+        attention.push('Pricing for Bathroom floor demo');
+      }
       attention.push('Pricing for LVP flooring');
     }
     return splitInitialRevealConfirmItems(attention);
@@ -1059,6 +1082,42 @@ function collectInitialRevealConfirmItems(
   if (
     draftNeedsScopeConfirmation(draft) &&
     notesNameAtticInsulationWithDrywallHang(draft.originalNotes)
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const missing = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(
+        row.id,
+        suggestedMeasurements,
+        {
+          templateKey,
+          notes,
+        }
+      );
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      missing.map(row => `Pricing for ${row.name}`)
+    );
+  }
+  // An unseen mix is one card per named job. A line with a national average
+  // is not a missing price. Scope found stays unpriced.
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    separateJobRevealRows(draft.originalNotes).length > 0
   ) {
     const suggestedMeasurements = initialScopeMeasurementInputExtended(
       draft,
@@ -1250,7 +1309,12 @@ function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
     Array.isArray(records) &&
     records.length
   ) {
-    return planScopeRecordSummaryLines(records);
+    return planScopeRecordSummaryLines(records, {
+      sources: measurements.quickMeasurementSources,
+      provenance: (
+        measurements as { measurementProvenance?: Record<string, unknown> | null }
+      ).measurementProvenance,
+    });
   }
   const rooms = measurements.planRooms?.length
     ? measurements.planRooms
@@ -1262,8 +1326,38 @@ function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
       | Record<string, string>
       | null
       | undefined,
+    provenance: (
+      measurements as { measurementProvenance?: Record<string, unknown> | null }
+    ).measurementProvenance,
     wholeProject: measurements.planImportMode !== 'selected_trade',
-  });
+  }).filter(line => !/spaces detected on the plan/i.test(line));
+}
+
+/** A general-contractor plan export: whole house, with unprinted trades as allowances. */
+function wholeHousePlanExport(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportFingerprint?: string | null;
+        planImportMode?: string | null;
+        planScopeRecords?: unknown[] | null;
+      }
+    | null
+    | undefined;
+  if (!measurements?.planImportFingerprint) return false;
+  if (measurements.planImportMode === 'selected_trade') return false;
+  return planScopeRecordsHaveGroundUpAllowances(
+    measurements.planScopeRecords as never
+  );
+}
+
+function wholeHousePlanTitle(draft: EstimateAiDraft): string | null {
+  if (!wholeHousePlanExport(draft)) return null;
+  const living = Number(
+    String(draft.scopeMeasurements?.floorAreaSqft ?? '').replace(/,/g, '')
+  );
+  return Number.isFinite(living) && living > 0
+    ? `New home · ${living.toLocaleString()} sqft`
+    : 'New home';
 }
 
 /** Plan export already lists these quantities under Pricing needed and Scope. */
@@ -1276,9 +1370,20 @@ export function planRevealOmitsWhatWeFound(draft: EstimateAiDraft): boolean {
   );
 }
 
-export function getInitialRevealScopeMetaLabel(count: number): string {
+export function getInitialRevealScopeMetaLabel(
+  count: number,
+  options?: { planLines?: boolean }
+): string {
   if (count <= 0) return '';
+  if (options?.planLines) {
+    return count === 1 ? '1 plan line' : `${count} plan lines`;
+  }
   return count === 1 ? '1 scope item' : `${count} scope items`;
+}
+
+/** Whole-house Scope found counts plan lines. Confirm Scope counts the bid. */
+export function initialRevealListsPlanLines(draft: EstimateAiDraft): boolean {
+  return wholeHousePlanExport(draft);
 }
 
 function isPlumbingTemplateDraft(draft: EstimateAiDraft): boolean {
@@ -1738,6 +1843,13 @@ function filterMixedScopeAttentionItems(
     .filter((item): item is string => Boolean(item));
 }
 
+function confirmedWholeHousePlan(draft: EstimateAiDraft): boolean {
+  return (
+    wholeHousePlanExport(draft) &&
+    Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length)
+  );
+}
+
 function revealChecklistItemVisible(
   draft: EstimateAiDraft,
   item: {
@@ -1748,7 +1860,38 @@ function revealChecklistItemVisible(
     choiceIds?: string[];
   }
 ): boolean {
-  if (!checklistItemInScope(item)) return false;
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const quantityRecord =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<string, { quantity?: unknown; unit?: unknown }>)
+      : {};
+  if (
+    item.id === 'lighting' &&
+    lightingQuantityDuplicatesRecessedTakeoff(measurements) &&
+    (String(draft.scopeChecklist?.templateKey || draft.projectType || '').toLowerCase() ===
+      'ground_up' ||
+      Number(quantityRecord.electrical_recessed_light?.quantity) > 0)
+  ) {
+    return false;
+  }
+  if (
+    item.id === 'electrical_trim' &&
+    String(draft.scopeChecklist?.templateKey || '').toLowerCase() === 'ground_up' &&
+    hasDetailedElectricalTrimDeviceQuantities(measurements) &&
+    String(quantityRecord.electrical_trim?.unit || '').toLowerCase() !== 'each'
+  ) {
+    return false;
+  }
+  const acceptedWholeHouseAllowance =
+    confirmedWholeHousePlan(draft) &&
+    hasAcceptedScopePricing(
+      item.id,
+      quantityRecord as never,
+      measurements.pricingAcceptance as never
+    );
+  if (!checklistItemInScope(item) && !acceptedWholeHouseAllowance) return false;
   if (
     item.id === 'grading' &&
     inferItemStateFromNotes('grading', draft.originalNotes) !== 'included'
@@ -2457,6 +2600,14 @@ function getInitialRevealScopeRows(
       ...(row.quantity ? { quantityOverride: row.quantity } : {}),
     }));
   }
+  const separateJobRows = separateJobRevealRows(notes);
+  if (separateJobRows.length > 0) {
+    return separateJobRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      ...(row.quantity ? { quantityOverride: row.quantity } : {}),
+    }));
+  }
   const wholeHomeMixedRemodelNote =
     /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
       notes
@@ -2840,6 +2991,7 @@ function getInitialRevealScopeRows(
       })
       .filter(
         item =>
+          confirmedWholeHousePlan(draft) ||
           !hasResolvedFacts ||
           item.noteBacked === true ||
           resolvedFactIds.has(String(item.id || '').trim()) ||
@@ -3995,13 +4147,17 @@ function getInitialRevealScopeRows(
         name: 'Shower waterproofing',
         ...showerQty,
       },
-      {
-        id: 'floor_demo',
-        name: 'Bathroom floor demo',
-        ...(areas.flooringSqft
-          ? { quantityOverride: `${areas.flooringSqft} sqft` }
-          : { quantityOverride: null }),
-      },
+      ...(notesNameBathroomFloorRemoval(notes)
+        ? [
+            {
+              id: 'floor_demo',
+              name: 'Bathroom floor demo',
+              ...(areas.flooringSqft
+                ? { quantityOverride: `${areas.flooringSqft} sqft` }
+                : { quantityOverride: null }),
+            },
+          ]
+        : []),
       {
         id: 'flooring_lvp',
         name: 'LVP flooring',
@@ -4328,6 +4484,14 @@ export function getInitialRevealChecklistScopePreview(
       ...(row.quantity ? { quantity: row.quantity } : {}),
     }));
   }
+  const separateJobPreview = separateJobRevealRows(draft.originalNotes);
+  if (separateJobPreview.length > 0) {
+    return separateJobPreview.map(row => ({
+      name: row.name,
+      amount: 0,
+      ...(row.quantity ? { quantity: row.quantity } : {}),
+    }));
+  }
   const areaOnlyPreview = areaOnlyAdditionRevealRows(draft);
   if (areaOnlyPreview) return areaOnlyPreview;
   if (roofingPlanOnlyExport(draft)) {
@@ -4624,6 +4788,13 @@ export function getInitialRevealStatusLabel(
 ): { label: string; tone: InitialRevealStatusTone } {
   const level = draft.estimateConfidence?.level as
     EstimateConfidenceLevel | undefined;
+  if (
+    hvacPlanImportStatesNewBuildSystem(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return { label: 'Tonnage needed', tone: 'review' };
+  }
   if (attentionCount === 0 && level === 'high') {
     return { label: 'Ready to send', tone: 'ready' };
   }
@@ -4634,6 +4805,14 @@ export function getInitialRevealStatusLabel(
     return { label: 'Mostly ready · 1 to check', tone: 'review' };
   }
   return { label: `Mostly ready · ${attentionCount} to check`, tone: 'review' };
+}
+
+export function getInitialRevealAttentionTitle(
+  draft: EstimateAiDraft,
+  needsScopeConfirmation: boolean
+): string {
+  if (!needsScopeConfirmation) return 'Needs your attention';
+  return wholeHousePlanExport(draft) ? 'Counts to confirm' : 'Pricing needed';
 }
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
@@ -4647,6 +4826,8 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   if (stuccoPlanExport(draft)) {
     return 'Stucco';
   }
+  const planHouseTitle = wholeHousePlanTitle(draft);
+  if (planHouseTitle) return planHouseTitle;
   if (classification.scopeMode === 'mixed') {
     return classification.scopeSummary?.trim() || 'Mixed-scope remodel';
   }
@@ -4961,6 +5142,9 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   const revealTemplateKey = String(
     draft.scopeChecklist?.templateKey || ''
   ).toLowerCase();
+  if (wholeHousePlanExport(draft)) {
+    return 'Read from the plan. Unprinted trades are planning allowances.';
+  }
   if (
     notesDescribeGroundUpHome(draft.originalNotes) &&
     (revealProjectType === 'new_build' ||
@@ -4969,6 +5153,13 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
       revealTemplateKey === 'stucco')
   ) {
     return 'Detected new build.';
+  }
+  if (
+    hvacPlanImportStatesNewBuildSystem(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY;
   }
   if (
     notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
@@ -5001,6 +5192,8 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     return null;
   }
   if (classification.scopeMode === 'mixed') {
+    // The scope list already names each job. A long tagline only repeats it.
+    if (separateJobRevealRows(draft.originalNotes).length > 2) return null;
     const summary =
       classification.scopeSummary?.trim() || 'Mixed-scope remodel';
     const trades = classification.scopeTradeLabels

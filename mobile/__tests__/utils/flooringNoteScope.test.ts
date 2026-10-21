@@ -1,4 +1,6 @@
 import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 import {
   groupScopeChecklistItems,
   hydrateScopeChecklistFromNotes,
@@ -401,6 +403,73 @@ describe('dedicated flooring note', () => {
       material: 175,
       labor: 700,
       total: 875,
+    });
+  });
+
+  it('prices an LVP install when the note only excludes framing', () => {
+    const notes = 'No structural framing. Install 600 sqft of LVP.';
+    expect(notesDescribeDedicatedFlooringJob(notes)).toBe(true);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        projectTitle: 'LVP Flooring Installation',
+        originalNotes: notes,
+        scopeChecklist: {
+          templateKey: 'flooring',
+          items: [
+            { id: 'framing', label: 'Framing', state: 'included', inputType: 'yes_no' },
+            { id: 'flooring', label: 'Flooring', state: 'included', inputType: 'yes_no' },
+          ],
+        },
+        scopeMeasurements: { wallFramingSqft: 800, flooringSqft: 800 },
+        stillNeededReview: ['Price needed for LVP material and installation labor'],
+        scopePackages: [],
+        whatAiDid: ['Detected flooring job.'],
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    expect(repaired.requiresScopeConfirmation).toBe(true);
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.wallFramingSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(600);
+    expect(repaired.scopeMeasurements?.floorAreaSqft).toBeUndefined();
+    expect(parseScopeMeasurementsFromNotes(notes).floorAreaSqft).toBeUndefined();
+    expect(repaired.stillNeededReview).toEqual([]);
+    expect(
+      groupScopeChecklistItems(repaired.scopeChecklist?.items || [], 'flooring', {
+        notes,
+      }).map(group => group.title)
+    ).toEqual(['LVP']);
+    expect(
+      quickMeasurementRowsForInput('room_remodel', 'flooring', {}, null, {
+        scopeNotes: notes,
+      })
+        .flat()
+        .map(field => field.label)
+    ).toEqual(['LVP']);
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const quantity = resolveChecklistItemQuantity('flooring_lvp', measurements, {
+      templateKey: 'flooring',
+      notes,
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'flooring_lvp',
+        repaired.scopeMeasurements || {},
+        'flooring',
+        quantity,
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      material: 2100,
+      labor: 2100,
+      total: 4200,
     });
   });
 

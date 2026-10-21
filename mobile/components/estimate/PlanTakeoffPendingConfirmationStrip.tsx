@@ -26,7 +26,11 @@ import {
   type PendingPlanConfirmationRead,
 } from '@/utils/planMeasurementConflictUi';
 import { applyHvacScopeSelectionForConfirmedField } from '@/utils/qmScopePanels/simpleTradeRemodel';
-import { HVAC_PLAN_REVIEW_CANONICAL_KEYS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  HVAC_PLAN_REVIEW_CANONICAL_KEYS,
+  NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY,
+  NEW_BUILD_HVAC_TONNAGE_COPY,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 const SELECTED_GREEN = '#34d399';
 
@@ -219,9 +223,7 @@ export function PlanTakeoffPendingConfirmationStrip({
           ? 'Unverified plan reads'
           : 'Measurements to confirm';
   const reviewDescription = offeredSystemOnly
-    ? offeredSystemConfirmed
-      ? '1 system is in this bid.'
-      : 'This plan does not print a system count. Confirm 1 system for the install.'
+    ? NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY
     : allFilledPlanBoxes || allPlanReadsConfirmed
       ? 'These quantities are confirmed from the plan takeoff.'
       : hasPlanContext
@@ -234,7 +236,10 @@ export function PlanTakeoffPendingConfirmationStrip({
 
   return (
     <View style={styles.wrap}>
-      {offeredSystemConfirmed || allPlanReadsConfirmed || allFilledPlanBoxes ? null : (
+      {offeredSystemOnly ||
+      offeredSystemConfirmed ||
+      allPlanReadsConfirmed ||
+      allFilledPlanBoxes ? null : (
         <Text style={styles.eyebrow}>Needs review</Text>
       )}
       <Text style={[styles.title, { color: titleColor }]}>
@@ -242,7 +247,10 @@ export function PlanTakeoffPendingConfirmationStrip({
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
         {reviewDescription}
-        {offeredSystemConfirmed || allPlanReadsConfirmed || allFilledPlanBoxes
+        {offeredSystemOnly ||
+        offeredSystemConfirmed ||
+        allPlanReadsConfirmed ||
+        allFilledPlanBoxes
           ? ''
           : ' Tap a count to confirm it, or edit it.'}
       </Text>
@@ -286,12 +294,12 @@ export function PlanTakeoffPendingConfirmationStrip({
               <Text style={[styles.itemTitle, { color: titleColor }]}>
                 {reading.label}
               </Text>
-              {shortPlanTakeoffHelper(reading.subtext) ? (
+              {!offeredSystem && shortPlanTakeoffHelper(reading.subtext) ? (
                 <Text style={[styles.itemSubtext, { color: captionColor }]}>
                   {shortPlanTakeoffHelper(reading.subtext)}
                 </Text>
               ) : null}
-              {filledPlanBox ? null : (
+              {filledPlanBox || offeredSystem ? null : (
                 <Text
                   style={[
                     styles.itemHint,
@@ -301,12 +309,36 @@ export function PlanTakeoffPendingConfirmationStrip({
                   {confirmed && hasQuantity
                     ? conflictChooserConfirmedLine(reading.field, selectedValue)
                     : hasQuantity
-                      ? offeredSystem
-                        ? 'Confirm this system'
-                        : 'Needs manual confirmation'
+                      ? 'Needs manual confirmation'
                       : emptyDisplay.statusLine}
                 </Text>
               )}
+              {offeredSystem && hasQuantity ? (
+                <View
+                  style={[
+                    styles.filledRow,
+                    { borderColor: panelBorder, backgroundColor: inputBg },
+                  ]}
+                >
+                  <Text style={[styles.filledValue, { color: titleColor }]}>
+                    {displayValue.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.filledUnit, { color: captionColor }]}>
+                    {planTakeoffUnit(reading.field)}
+                  </Text>
+                </View>
+              ) : null}
+              {offeredSystem && hasQuantity ? (
+                <Text
+                  style={[
+                    styles.itemHint,
+                    styles.offeredSystemPriceHint,
+                    { color: captionColor },
+                  ]}
+                >
+                  {NEW_BUILD_HVAC_TONNAGE_COPY}
+                </Text>
+              ) : null}
               {filledPlanBox ? (
                 <View
                   style={[
@@ -323,7 +355,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                       : planTakeoffUnit(reading.field)}
                   </Text>
                 </View>
-              ) : hasQuantity ? (
+              ) : offeredSystem ? null : hasQuantity ? (
                 <View style={styles.optionWrap}>
                   {candidateValues.map((value, index) => (
                     <ConfirmScopeChip
@@ -331,19 +363,15 @@ export function PlanTakeoffPendingConfirmationStrip({
                       selected={selectedValue === value}
                       label={formatPlanTakeoffQuantity(reading.field, value)}
                       subtitle={
-                        offeredSystem
-                          ? confirmed
-                            ? 'System in bid'
-                            : 'Tap to confirm'
-                          : confirmed
-                            ? hasPlanContext
-                              ? 'Plan quantity'
-                              : 'Derived from notes'
-                            : index === 0
-                              ? 'Tap to confirm'
-                              : hasPlanContext
-                                ? 'Alternate plan quantity'
-                                : 'Alternative estimate'
+                        confirmed
+                          ? hasPlanContext
+                            ? 'Plan quantity'
+                            : 'Derived from notes'
+                          : index === 0
+                            ? 'Tap to confirm'
+                            : hasPlanContext
+                              ? 'Alternate plan quantity'
+                              : 'Alternative estimate'
                       }
                       darkMode={darkMode}
                       onPress={() => {
@@ -371,6 +399,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                   }}
                 />
               )}
+              {offeredSystem ? null : (
               <TouchableOpacity
                 onPress={() => {
                   setEditingField(editing ? null : reading.field);
@@ -388,7 +417,8 @@ export function PlanTakeoffPendingConfirmationStrip({
                   {editing ? 'Done editing' : 'Edit quantity'}
                 </Text>
               </TouchableOpacity>
-              {editing ? (
+              )}
+              {!offeredSystem && editing ? (
                 <View
                   style={[
                     styles.editShell,
@@ -476,6 +506,10 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginBottom: 12,
     fontWeight: '600',
+  },
+  offeredSystemPriceHint: {
+    marginTop: 12,
+    marginBottom: 0,
   },
   editButton: {
     alignSelf: 'center',

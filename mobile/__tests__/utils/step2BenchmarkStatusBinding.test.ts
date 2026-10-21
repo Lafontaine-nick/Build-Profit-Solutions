@@ -6,6 +6,7 @@ import {
 import {
   canApplyStageBenchmarkFill,
   classifySuggestedPricingState,
+  confirmScopePricingScrollLabel,
   footerScrollToPricingButtonLabel,
   footerSuggestedPricingPendingHint,
   footerSuggestedPricingSummary,
@@ -354,6 +355,12 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       })
     ).toBeNull();
     expect(footerScrollToPricingButtonLabel(8)).toBe('Show 8 pricing cards');
+    expect(
+      confirmScopePricingScrollLabel({ readyCount: 29, selectedTotal: 483396 })
+    ).toBe('Review pricing cards');
+    expect(confirmScopePricingScrollLabel({ readyCount: 8, selectedTotal: 0 })).toBe(
+      'Show 8 pricing cards'
+    );
     expect(footerScrollToPricingButtonLabel(1)).toBe('Show 1 pricing card');
     expect(footerScrollToPricingButtonLabel(0)).toBeNull();
     expect(footerSuggestedPricingPendingHint({ needsMeasurementCount: 4 })).toBe(

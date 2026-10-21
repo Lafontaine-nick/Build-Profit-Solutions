@@ -65,7 +65,10 @@ import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  ELECTRICAL_CARDS,
+  electricalPlanSheetCountBelongsInBid,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import { electricalQuickMeasurementSourceFromProvenance } from '@/utils/electricalQuickMeasurementUi';
 import {
@@ -79,7 +82,10 @@ import {
   uniqueUnreadablePlanFields,
 } from '@/utils/planMeasurementConflictUi';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
-import { tagPlanReviewLockedQuickMeasurementSources } from '@/utils/planReviewMeasurementLock';
+import {
+  isPlanReviewLockedProvenance,
+  tagPlanReviewLockedQuickMeasurementSources,
+} from '@/utils/planReviewMeasurementLock';
 import {
   canonicalizeInsulationRepeatImportMeasurements,
   hasCompleteInsulationRepeatImportSnapshot,
@@ -1285,8 +1291,21 @@ export default function EstimatePlanImportStrip({
           metadata?.electricalValidation?.fields ||
           takeoff.electricalValidation?.fields ||
           {};
+        const provenanceRecord = appliedProvenance as Record<string, unknown>;
         for (const [key, field] of Object.entries(validationFields)) {
           if (field?.pricingEligible === false && tradeMeasurements[key] != null) {
+            const listedOnSheet =
+              isPlanReviewLockedProvenance(provenanceRecord?.[key]) ||
+              electricalPlanSheetCountBelongsInBid(key, {
+                ...tradeMeasurements,
+                planImportTradeKey: 'electrical',
+                measurementProvenance: provenanceRecord,
+              });
+            if (listedOnSheet) {
+              mergedQuickMeasurementSources[key] =
+                'contractor_confirmed_from_plan_review';
+              continue;
+            }
             mergedQuickMeasurementSources[key] = 'needs_confirmation';
           }
         }

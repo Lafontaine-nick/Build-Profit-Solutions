@@ -11,6 +11,8 @@ import {
   parseElectricalMeasurementsFromNotes,
   buildElectricalStructuredMeasurements,
   normalizeElectricalScalarMeasurements,
+  electricalFixturesCoveredByDeviceLines,
+  ELECTRICAL_FIXTURES_COVERED_STATUS,
   shouldAutoPriceElectricalRoughPackage,
   shouldAutoPriceElectricalTrimPackage,
   syncElectricalScopeItems,
@@ -173,6 +175,94 @@ describe('electrical canonical architecture', () => {
     expect(normalized.quickMeasurementSources?.recessedLightCount).toBe(
       'user_entered'
     );
+  });
+
+  it('keeps the takeoff sheet count when a saved plan line disagrees', () => {
+    const saved = scopeMeasurementsPayloadForPersist(
+      inputWith({
+        planImportTradeKey: 'electrical',
+        standardReceptacleCount: '118',
+        gfciReceptacleCount: '14',
+        singlePoleSwitchCount: '47',
+        recessedLightCount: '31',
+        ceilingFanCount: '8',
+        itemQuantities: {
+          electrical_standard_receptacle: {
+            quantity: '78',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+          electrical_gfci_receptacle: {
+            quantity: '10',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+          electrical_single_pole_switch: {
+            quantity: '48',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+          electrical_recessed_light: {
+            quantity: '31',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+          electrical_ceiling_fan: {
+            quantity: '5',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+        },
+      }),
+      { templateKey: 'electrical' }
+    );
+    expect(Number(saved.standardReceptacleCount)).toBe(118);
+    expect(Number(saved.gfciReceptacleCount)).toBe(14);
+    expect(Number(saved.singlePoleSwitchCount)).toBe(47);
+    expect(Number(saved.recessedLightCount)).toBe(31);
+    expect(Number(saved.ceilingFanCount)).toBe(8);
+    expect(
+      Number(saved.itemQuantities?.electrical_standard_receptacle?.quantity)
+    ).toBe(118);
+    expect(Number(saved.itemQuantities?.electrical_ceiling_fan?.quantity)).toBe(
+      8
+    );
+    const measurements = normalizeScopeMeasurements(saved);
+    expect(
+      resolveChecklistItemQuantity(
+        'electrical_standard_receptacle',
+        measurements,
+        { templateKey: 'electrical' }
+      ).quantity
+    ).toBe(118);
+    expect(
+      resolveChecklistItemQuantity('electrical_ceiling_fan', measurements, {
+        templateKey: 'electrical',
+      }).quantity
+    ).toBe(8);
+
+    const edited = scopeMeasurementsPayloadForPersist(
+      inputWith({
+        planImportTradeKey: 'electrical',
+        standardReceptacleCount: '118',
+        itemQuantities: {
+          electrical_standard_receptacle: {
+            quantity: '90',
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
+        },
+      }),
+      { templateKey: 'electrical' }
+    );
+    expect(Number(edited.standardReceptacleCount)).toBe(90);
+    expect(
+      resolveChecklistItemQuantity(
+        'electrical_standard_receptacle',
+        normalizeScopeMeasurements(edited),
+        { templateKey: 'electrical' }
+      ).quantity
+    ).toBe(90);
   });
 
   it('round-trips canonical keys, conditions, and item quantities', () => {
@@ -402,6 +492,15 @@ describe('electrical canonical architecture', () => {
         >,
         'electrical'
       )
+    ).toBe(false);
+    expect(
+      electricalFixturesCoveredByDeviceLines(
+        detailed as unknown as Record<string, unknown>
+      )
+    ).toBe(true);
+    expect(ELECTRICAL_FIXTURES_COVERED_STATUS).toMatch(/switch, light, and fan/i);
+    expect(
+      electricalFixturesCoveredByDeviceLines({ floorAreaSqft: '2571' })
     ).toBe(false);
     const roughQty = resolveChecklistItemQuantity(
       'electrical_rough',
@@ -678,6 +777,35 @@ describe('electrical canonical architecture', () => {
       /does not include lighting fixture/i
     );
     expect(byId.electrical_single_pole_switch.helper).toMatch(/relocation/i);
+  });
+
+  it('replaces title-cased device ids with the catalog names', () => {
+    const items = syncElectricalScopeItems(
+      [
+        {
+          id: 'electrical_single_pole_switch',
+          label: 'Electrical Single Pole Switch',
+          helperText: 'Scope item found in notes.',
+          state: 'included',
+        },
+        {
+          id: 'electrical_bath_exhaust_fan',
+          label: 'Electrical Bath Exhaust Fan',
+          helperText: 'Scope item found in notes.',
+          state: 'included',
+        },
+      ],
+      {
+        templateKey: 'ground_up',
+        quantities: { singlePoleSwitchCount: 42, bathExhaustFanCount: 4 },
+      }
+    );
+    expect(items.find(item => item.id === 'electrical_single_pole_switch')?.label).toBe(
+      'Single-pole switch'
+    );
+    expect(items.find(item => item.id === 'electrical_bath_exhaust_fan')?.label).toBe(
+      'Exhaust fan'
+    );
   });
 
   it('keeps lighting types distinct and maps vanity onto the standard fixture card', () => {
@@ -1086,6 +1214,55 @@ describe('electrical canonical architecture', () => {
     expect(
       next.find(item => item.id === 'electrical_recessed_light')?.state
     ).toBe('included');
+  });
+
+  it('prices electrical plan sheet counts and drops the unused catalog', () => {
+    const next = syncElectricalScopeItems(
+      [
+        { id: 'electrical_ceiling_fan', state: 'unsure' },
+        { id: 'electrical_standard_receptacle', state: 'unsure' },
+        { id: 'electrical_gfci_receptacle', state: 'unsure' },
+        { id: 'electrical_single_pole_switch', state: 'unsure' },
+        { id: 'electrical_recessed_light', state: 'unsure' },
+        { id: 'electrical_smoke_detector', state: 'unsure' },
+        { id: 'electrical_doorbell', state: 'unsure' },
+      ],
+      {
+        templateKey: 'electrical',
+        quantities: {
+          planImportTradeKey: 'electrical',
+          ceilingFanCount: 7,
+          standardReceptacleCount: 98,
+          gfciReceptacleCount: 12,
+          singlePoleSwitchCount: 41,
+          recessedLightCount: 31,
+          smokeDetectorCount: 8,
+          quickMeasurementSources: {
+            ceilingFanCount: 'needs_confirmation',
+            standardReceptacleCount: 'needs_confirmation',
+            gfciReceptacleCount: 'needs_confirmation',
+            singlePoleSwitchCount: 'needs_confirmation',
+            recessedLightCount: 'detected_from_plan',
+            smokeDetectorCount: 'needs_confirmation',
+          },
+        },
+      }
+    );
+    for (const id of [
+      'electrical_ceiling_fan',
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+      'electrical_single_pole_switch',
+      'electrical_recessed_light',
+    ]) {
+      expect(next.find(item => item.id === id)?.state).toBe('included');
+    }
+    expect(next.find(item => item.id === 'electrical_smoke_detector')?.state).toBe(
+      'excluded'
+    );
+    expect(next.find(item => item.id === 'electrical_doorbell')?.state).toBe(
+      'excluded'
+    );
   });
 
   it('promotes a previously excluded card when a positive quantity is entered', () => {

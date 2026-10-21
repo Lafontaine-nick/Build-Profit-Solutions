@@ -10,10 +10,15 @@
  */
 import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { notesImplyMixedConcreteJob } from '@/utils/foundationPlanningMeasurements';
+import {
+  noteUsesSeparateJobReader,
+  readNoteWork,
+} from '@/utils/noteClauseReader';
 import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
 
 export type MeasurementRelevance = {
@@ -264,6 +269,30 @@ export function getMeasurementRelevance(params: {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
   const notesText = String(params.notes || '');
+  if (
+    measurementKey === 'floorAreaSqft' &&
+    notesDescribeDedicatedFlooringJob(notesText)
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'The note gives a flooring area, not a living area.',
+    };
+  }
+  if (
+    noteUsesSeparateJobReader(notesText) &&
+    readNoteWork(notesText).lines.some(entry =>
+      entry.measurementKeys.includes(measurementKey)
+    )
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   const kitchenMeasurementContext =
     String(params.templateKey || '').toLowerCase() === 'kitchen' ||
     String(params.projectType || '').toLowerCase() === 'kitchen' ||

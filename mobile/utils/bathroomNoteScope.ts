@@ -542,6 +542,17 @@ export function notesNameShowerTileWithFlooring(
 }
 
 /**
+ * Install LVP is the new floor. Floor demo only when the note names that removal.
+ */
+export function notesNameBathroomFloorRemoval(
+  notes: string | null | undefined
+): boolean {
+  return /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,50}\b(?:existing\s+)?(?:bathroom\s+)?(?:floor(?:ing)?|lvp)\b|\breplac(?:e|ing)\b[^.;\n]{0,30}\b(?:the\s+)?(?:existing\s+)?(?:bathroom\s+)?(?:floor(?:ing)?|lvp)\b/i.test(
+    bathroomAffirmativeNotes(notes)
+  );
+}
+
+/**
  * "Replace the shower tile" is tear-out plus new tile.
  * "Install new shower tile" is the new tile only.
  */
@@ -608,16 +619,20 @@ export function showerTileWithFlooringChecklistItems(
       state: 'included',
       noteBacked: true,
     },
-    {
-      id: 'floor_demo',
-      inputType: 'yes_no',
-      label: 'Bathroom floor demo',
-      helperText:
-        'Tear out the existing bathroom floor so the new LVP can go down. Uses the LVP area.',
-      category: 'demo',
-      state: 'included',
-      noteBacked: true,
-    },
+    ...(notesNameBathroomFloorRemoval(notes)
+      ? [
+          {
+            id: 'floor_demo' as const,
+            inputType: 'yes_no' as const,
+            label: 'Bathroom floor demo',
+            helperText:
+              'Tear out the existing bathroom floor so the new LVP can go down. Uses the LVP area.',
+            category: 'demo',
+            state: 'included' as const,
+            noteBacked: true as const,
+          },
+        ]
+      : []),
     {
       id: 'flooring_lvp',
       inputType: 'yes_no',

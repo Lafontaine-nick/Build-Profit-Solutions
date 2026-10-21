@@ -5,6 +5,8 @@ import {
   applyHvacScopeSelectionForConfirmedField,
   expandHvacEquipmentScopeDisplayItems,
   formatHvacOptionalAddOnChipCaption,
+  releaseHvacVentilationSelection,
+  hvacWholeHouseVentilationButtonVisible,
   formatHvacOptionalAddOnIdleHint,
   formatHvacScopeChipQuantity,
   HVAC_VENTILATION_IDLE_HINT,
@@ -16,6 +18,7 @@ import {
   HVAC_SYSTEMS_OPTION_ID,
   isHvacQmScopeItemActive,
   hvacPlanInstallIncludesDistribution,
+  hvacDistributionFoldedIntoSystemPrice,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipReviewState,
   hvacScopeOptionHasExplicitQuantityInNotes,
@@ -1140,12 +1143,58 @@ describe('simple trade QM panels', () => {
     expect(seeded.hvacVentilationCount).toBeUndefined();
   });
 
+  it('hides whole-house ventilation until an ERV or HRV is named', () => {
+    const plan = {
+      planImportTradeKey: 'hvac',
+      hvacSystemCount: 1,
+      quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+      measurementProvenance: {
+        hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+      },
+    };
+    expect(hvacWholeHouseVentilationButtonVisible(plan)).toBe(false);
+    expect(
+      hvacWholeHouseVentilationButtonVisible({
+        ...plan,
+        hvacVentilationCount: 1,
+        quickMeasurementSources: {
+          hvacSystemCount: 'new_build_assumption',
+          hvacVentilationCount: 'pdf_text_instance_tags',
+        },
+        measurementProvenance: {
+          hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+          hvacVentilationCount: { source: 'pdf_text_instance_tags' },
+        },
+      })
+    ).toBe(true);
+    expect(
+      hvacWholeHouseVentilationButtonVisible(
+        plan,
+        'Install one ERV for whole-house ventilation.'
+      )
+    ).toBe(true);
+    expect(
+      summarizeHvacScopePanel(plan)
+    ).toEqual({ inBidCount: 1, needsConfirmationCount: 0 });
+    expect(
+      summarizeHvacScopePanel({
+        ...plan,
+        hvacSystemTons: 4,
+        quickMeasurementSources: {
+          hvacSystemCount: 'new_build_assumption',
+          hvacSystemTons: 'user_entered',
+        },
+        quickMeasurementUserOverrides: { hvacSystemTons: true },
+      })
+    ).toEqual({ inBidCount: 1, needsConfirmationCount: 0 });
+  });
+
   it('shows optional ventilation as not on plans until documented', () => {
     const option = SIMPLE_TRADE_SPECS.hvac.options.find(
       item => item.id === 'ventilation'
     )!;
     expect(formatHvacOptionalAddOnChipCaption({}, option)).toBe(
-      'Not on plans · $0'
+      'Not in this bid'
     );
     expect(
       formatHvacOptionalAddOnChipCaption({ hvacVentilationCount: 1 }, option)
@@ -1154,6 +1203,23 @@ describe('simple trade QM panels', () => {
       HVAC_VENTILATION_IDLE_HINT
     );
     expect(option.measurementHelper).toContain('1 ERV or HRV = 1 each');
+  });
+
+  it('removes whole-house ventilation and clears its count', () => {
+    const next = releaseHvacVentilationSelection({
+      hvacVentilationCount: 1,
+      hvacSystemCount: 1,
+      tradeScopeSelections: { hvac: ['hvac_systems', 'ventilation'] },
+      itemQuantities: { ventilation: { quantity: 1, unit: 'each' } },
+      quickMeasurementSources: { hvacVentilationCount: 'user_entered' },
+    });
+    expect(next.hvacVentilationCount).toBe('');
+    expect(next.tradeScopeSelections).toEqual({
+      hvac: ['hvac_systems'],
+    });
+    expect(next.itemQuantities).toEqual({});
+    expect(next.quickMeasurementSources).toEqual({});
+    expect(isHvacQmScopeItemActive('ventilation', next)).toBe(false);
   });
 
   it('creates a quantity row for every selected HVAC chip', () => {
@@ -1381,6 +1447,86 @@ describe('simple trade QM panels', () => {
     expect(
       hvacScopeOptionHasExplicitQuantityInNotes('ductwork', notes)
     ).toBe(true);
+  });
+
+  it('opens HVAC systems and capacity for a new-build plan assumption', () => {
+    expect(
+      resolveHvacTradeScopeSelections({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 1,
+        quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+        measurementProvenance: {
+          hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+        },
+      })
+    ).toEqual([HVAC_SYSTEMS_OPTION_ID, HVAC_CAPACITY_OPTION_ID]);
+    expect(
+      resolveHvacTradeScopeSelections({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 1,
+        hvacSystemTons: 4,
+        quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+        measurementProvenance: {
+          hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+        },
+        tradeScopeSelections: { hvac: [HVAC_CAPACITY_OPTION_ID] },
+      })
+    ).toEqual([HVAC_CAPACITY_OPTION_ID, HVAC_SYSTEMS_OPTION_ID]);
+  });
+
+  it('keeps distribution inside the system price out of the unsure count', () => {
+    const plan = {
+      planImportTradeKey: 'hvac',
+      hvacSystemCount: 1,
+      quickMeasurementSources: { hvacSystemCount: 'new_build_assumption' },
+      measurementProvenance: {
+        hvacSystemCount: { offer: 'new_build_hvac_system', value: 1 },
+      },
+    };
+    expect(hvacDistributionFoldedIntoSystemPrice('ductwork', plan)).toBe(true);
+    expect(hvacDistributionFoldedIntoSystemPrice('thermostat', plan)).toBe(
+      true
+    );
+    expect(
+      hvacDistributionFoldedIntoSystemPrice('supply_registers', plan)
+    ).toBe(true);
+    expect(hvacDistributionFoldedIntoSystemPrice('return_grilles', plan)).toBe(
+      true
+    );
+    expect(hvacDistributionFoldedIntoSystemPrice('hvac', plan)).toBe(false);
+    const synced = simpleTradePanelFor('hvac').syncScopeItems(
+      [
+        { id: 'hvac', state: 'included' as const },
+        { id: 'ductwork', state: 'unsure' as const },
+        { id: 'supply_registers', state: 'unsure' as const },
+        { id: 'return_grilles', state: 'unsure' as const },
+        { id: 'thermostat', state: 'unsure' as const },
+      ],
+      plan
+    );
+    expect(synced.find(item => item.id === 'hvac')?.state).toBe('included');
+    expect(synced.find(item => item.id === 'ductwork')?.state).toBe(
+      'excluded'
+    );
+    expect(synced.find(item => item.id === 'thermostat')?.state).toBe(
+      'excluded'
+    );
+    const separated = {
+      ...plan,
+      tradeScopeSelections: { hvac: ['hvac_systems', 'ductwork'] },
+      hvacDuctworkLf: 80,
+    };
+    expect(
+      hvacDistributionFoldedIntoSystemPrice('ductwork', separated)
+    ).toBe(false);
+    expect(
+      simpleTradePanelFor('hvac')
+        .syncScopeItems(
+          [{ id: 'ductwork', state: 'unsure' as const }],
+          separated
+        )
+        .find(item => item.id === 'ductwork')?.state
+    ).toBe('included');
   });
 
   it('includes distribution in a plan-import HVAC install so it is not priced again', () => {

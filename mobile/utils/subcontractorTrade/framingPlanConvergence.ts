@@ -563,7 +563,7 @@ export function parseFramingMeasurementsFromNotes(
   assign(
     'wallFramingSqft',
     count(
-      /(?:frame|framing|framed)\b[^.;\n]{0,48}?(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\.?\s*ft|sqft|square\s*feet)\s*(?:of\s+)?walls?\b/i
+      /(?:frame|framing|framed)\b[^.;\n]{0,48}?(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\.?\s*ft|sqft|square\s*feet)\s*(?:of\s+)?(?:new\s+)?walls?\b/i
     )
   );
   assign(

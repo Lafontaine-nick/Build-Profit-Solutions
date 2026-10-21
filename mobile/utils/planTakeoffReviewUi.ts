@@ -1,6 +1,7 @@
 import { WHOLE_PROJECT_DRAWING_COUNT_KEYS } from '@/utils/planScopeRecords';
 import { drywallReviewSurfaces } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
+  planProvenanceLabel,
   resolvePlanMeasurementProvenance,
   type PlanMeasurementProvenance,
 } from '@/utils/planMeasurementProvenance';
@@ -808,6 +809,28 @@ export function electricalPlanQuantityPricingEligible(
   );
 }
 
+/** A listed device count on the electrical sheet is the bid. */
+function electricalSheetCountIsBidReady(input: {
+  key: string;
+  value?: number | string | null;
+  hasConflict?: boolean;
+  provenanceEntry?: unknown;
+}): boolean {
+  if (input.hasConflict) return false;
+  if (!(Number(input.value) > 0)) return false;
+  if (
+    input.key === 'unclassifiedFixtureCount' ||
+    input.key === 'serviceAmperage' ||
+    ELECTRICAL_UNPRINTED_PLAN_KEYS.has(input.key)
+  ) {
+    return false;
+  }
+  if (!electricalPlanDeviceStaysVisible(input.key, input.provenanceEntry)) {
+    return false;
+  }
+  return ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
+}
+
 function provenanceSourceText(entry: unknown): string {
   if (entry == null) return '';
   if (typeof entry === 'string') return entry.toLowerCase();
@@ -1106,12 +1129,24 @@ export function buildPlanReviewMeasurementRowState(input: {
       pricingEligible: false,
       tradeKey: 'electrical',
     }).fromPlanSymbols;
-  if (electricalSymbolCount) {
+  const electricalSheetBid =
+    input.tradeKey === 'electrical' &&
+    electricalSheetCountIsBidReady({
+      key: input.key,
+      value: input.value,
+      hasConflict: input.hasConflict,
+      provenanceEntry: input.provenanceEntry,
+    });
+  // A listed sheet count is the bid. A legendless symbol guess stays gated.
+  if (electricalSheetBid) {
     pricingEligible = true;
+  } else if (electricalSymbolCount) {
+    pricingEligible = false;
   }
   if (
     !input.hasConflict &&
     !flooringLivingProxy &&
+    input.tradeKey !== 'electrical' &&
     Number(input.value) > 0
   ) {
     pricingEligible = true;
@@ -1138,11 +1173,26 @@ export function buildPlanReviewMeasurementRowState(input: {
     userConfirmed: input.userConfirmed,
     pricingEligible,
   });
+  // Bay-inferred garage doors are priced as a planning allowance. Scope found
+  // already says so. An elevation symbol count must not read as a plan takeoff.
+  const garageDoorTypePlanningEstimate =
+    (input.key === 'garageDoorSingleCount' ||
+      input.key === 'garageDoorDoubleCount' ||
+      input.key === 'garageDoorRvCount') &&
+    provenance.status !== 'user_confirmed';
   const roofingPlanFact =
     input.tradeKey === 'roofing' &&
     (input.key === 'roofPitch' || input.key === 'storyCount') &&
     provenance.status === 'plan_verified';
-  const displayProvenance = flooringPlanLiving
+  const displayProvenance = garageDoorTypePlanningEstimate
+    ? {
+        ...provenance,
+        status: 'planning_estimate' as const,
+        label: planProvenanceLabel('planning_estimate'),
+        reason:
+          'Door type is a planning estimate from the garage bays, not a schedule takeoff.',
+      }
+    : flooringPlanLiving
     ? {
         ...provenance,
         status: 'plan_verified' as const,
@@ -1154,6 +1204,12 @@ export function buildPlanReviewMeasurementRowState(input: {
         status: 'plan_verified' as const,
         label: 'Detected from plan',
       }
+    : electricalSheetBid
+      ? {
+          ...provenance,
+          status: 'plan_verified' as const,
+          label: 'Detected from plan',
+        }
     : electricalSymbolCount
       ? {
           ...provenance,
@@ -1192,6 +1248,7 @@ export function buildPlanReviewMeasurementRowState(input: {
     includeDefault:
       !flooringLivingProxy &&
       !input.hasConflict &&
+      (!electricalSymbolCount || electricalSheetBid) &&
       (Number(input.value) > 0 ||
         (input.tradeKey !== 'windows_doors' &&
           input.tradeKey !== 'garage_doors' &&
@@ -1498,63 +1555,74 @@ export function electricalPlanReadinessLine(input: {
   conflicts?: Array<{ field?: string | null } | null> | null;
   unreadableFields?: Array<{ field?: string | null } | null> | null;
   unclassifiedFixtureCount?: number | string | null;
+  /** Rows the contractor already accepted on this sheet. */
+  confirmedFields?: Array<string | null | undefined> | null;
   validation?: ElectricalPlanReviewOptions['electricalValidation'];
 }): { label: string; value: string; note: string } {
   const fields = input.validation?.fields || {};
-  const priceable = new Set(
-    input.validation?.priceableFields ||
-      Object.entries(fields)
-        .filter(([, field]) => field?.pricingEligible === true)
-        .map(([key]) => key)
+  const confirmed = new Set(
+    (input.confirmedFields || [])
+      .map(field => String(field || '').trim())
+      .filter(Boolean)
   );
-  if (!priceable.size) {
-    for (const key of Object.keys(input.measurements || {})) {
-      if (electricalPlanQuantityPricingEligible(key, input.provenance?.[key])) {
-        priceable.add(key);
-      }
-    }
-  }
-  const blocked = new Set(
-    input.validation?.blockedFields ||
-      Object.entries(fields)
-        .filter(([, field]) => field?.pricingEligible !== true)
-        .map(([key]) => key)
-  );
-  for (const key of Object.keys(input.measurements || {})) {
-    if (!priceable.has(key)) blocked.add(key);
-  }
   const conflicted = new Set(
     (input.conflicts || [])
       .map(conflict => String(conflict?.field || '').trim())
       .filter(Boolean)
   );
+  // The header counts the same quantity rows the sheet lists. Hidden
+  // legendless guesses, empty keys, and attributes do not add a confirmation.
+  const listed = new Set<string>();
   for (const key of Object.keys(input.measurements || {})) {
-    if (conflicted.has(key)) continue;
-    if (
-      !planReviewProvenanceFlags({
+    if (!ELECTRICAL_PLAN_REVIEW_KEYS.has(key) || key === 'serviceAmperage') {
+      continue;
+    }
+    if (!(Number(input.measurements?.[key]) > 0)) continue;
+    if (!electricalPlanDeviceStaysVisible(key, input.provenance?.[key])) {
+      continue;
+    }
+    if (conflicted.has(key) && !confirmed.has(key)) continue;
+    listed.add(key);
+  }
+  const priceable = new Set<string>();
+  const blocked = new Set<string>();
+  for (const key of listed) {
+    const validationField = fields[key];
+    const sheetBid = electricalSheetCountIsBidReady({
+      key,
+      value: input.measurements?.[key] as number | string | null,
+      provenanceEntry: input.provenance?.[key],
+    });
+    const symbolCount =
+      !confirmed.has(key) &&
+      !sheetBid &&
+      planReviewProvenanceFlags({
         key,
         provenanceEntry: input.provenance?.[key],
         hasConflict: false,
         pricingEligible: false,
         tradeKey: 'electrical',
-      }).fromPlanSymbols ||
-      !(Number(input.measurements?.[key]) > 0)
-    ) {
-      continue;
-    }
-    blocked.delete(key);
-    priceable.add(key);
+      }).fromPlanSymbols;
+    const eligible =
+      sheetBid ||
+      confirmed.has(key) ||
+      (!symbolCount &&
+        electricalPlanQuantityPricingEligible(
+          key,
+          input.provenance?.[key],
+          validationField
+        ));
+    if (eligible) priceable.add(key);
+    else blocked.add(key);
   }
   for (const conflict of input.conflicts || []) {
     const field = String(conflict?.field || '').trim();
-    if (field) blocked.add(field);
-  }
-  for (const unreadable of input.unreadableFields || []) {
-    const field = String(unreadable?.field || '').trim();
-    if (field) blocked.add(field);
-  }
-  if (positiveMeasurement(input.unclassifiedFixtureCount) != null) {
-    blocked.add('unclassifiedFixtureCount');
+    if (!field || confirmed.has(field) || priceable.has(field)) continue;
+    // Legendless conflicts are not on the sheet, so they stay out of the total.
+    if (!electricalPlanDeviceStaysVisible(field, input.provenance?.[field])) {
+      continue;
+    }
+    blocked.add(field);
   }
   const statusFor = (key: string): string => {
     const validationStatus = fields[key]?.status;
@@ -1578,21 +1646,21 @@ export function electricalPlanReadinessLine(input: {
     }
     return source === 'ai_verified' ? 'ai_verified' : '';
   };
-  const statusKeys = new Set(
-    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(
-      key => ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
-    )
-  );
-  const planVerified = [...statusKeys].filter(
-    key => statusFor(key) === 'plan_verified'
-  ).length;
-  const aiVerified = [...statusKeys].filter(
+  const aiVerified = [...priceable].filter(
     key => statusFor(key) === 'ai_verified'
   ).length;
+  const noteParts: string[] = [];
+  if (priceable.size > 0) {
+    noteParts.push(`${priceable.size} detected from plan`);
+  }
+  if (aiVerified > 0) noteParts.push(`${aiVerified} AI verified`);
+  if (blocked.size > 0) {
+    noteParts.push('conflicts and inferred quantities are not priced');
+  }
   return {
     label: 'Electrical readiness',
     value: `${priceable.size} prices ready · ${blocked.size} to confirm`,
-    note: `${planVerified} Plan verified · ${aiVerified} AI verified · conflicts and inferred quantities are not priced`,
+    note: noteParts.join(' · ') || 'No electrical quantities on this sheet',
   };
 }
 
@@ -1620,15 +1688,21 @@ export function buildElectricalPlanReviewSummary(
       shownKeys.add(card.measurementKey);
       const validation =
         options?.electricalValidation?.fields?.[card.measurementKey];
+      const sheetBid = electricalSheetCountIsBidReady({
+        key: card.measurementKey,
+        value: quantity,
+        provenanceEntry: provenance?.[card.measurementKey],
+      });
       const pricingEligible =
-        validation?.pricingEligible ??
-        (provenance?.[card.measurementKey] == null &&
-        options?.electricalValidation == null
-          ? true
-          : electricalPlanQuantityPricingEligible(
-              card.measurementKey,
-              provenance?.[card.measurementKey]
-            ));
+        sheetBid ||
+        (validation?.pricingEligible ??
+          (provenance?.[card.measurementKey] == null &&
+          options?.electricalValidation == null
+            ? true
+            : electricalPlanQuantityPricingEligible(
+                card.measurementKey,
+                provenance?.[card.measurementKey]
+              )));
       const note = pricingEligible
         ? electricalQuantityNote(card.measurementKey, provenance)
         : `${formatSfWithCommas(quantity)} EA visible — ${validation?.reason || 'Confirm before pricing'}`;
@@ -1930,6 +2004,34 @@ export function planReviewFieldHelperText(input: {
     return null;
   }
   return helper;
+}
+
+/**
+ * A checkbox only belongs on a row that already has a quantity to accept or
+ * leave out. Blank numbers are not estimates. Non-numeric readings such as
+ * roof pitch still count.
+ */
+export function planReviewRowHasSelectableQuantity(value: unknown): boolean {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return false;
+  const n = Number(trimmed.replace(/,/g, ''));
+  if (Number.isFinite(n)) return n > 0;
+  return true;
+}
+
+/** Blank rows are missing plan data, not a planning estimate waiting to be checked. */
+export function planReviewBlankQuantityProvenance(
+  provenance: PlanMeasurementProvenance,
+  value: unknown
+): PlanMeasurementProvenance {
+  if (planReviewRowHasSelectableQuantity(value)) return provenance;
+  if (
+    provenance.status !== 'planning_estimate' &&
+    provenance.label !== 'Needs review'
+  ) {
+    return provenance;
+  }
+  return { ...provenance, label: 'Not found on plan' };
 }
 
 /** Gray detail under the badge. Skip a source line that only repeats the badge. */
@@ -2647,6 +2749,7 @@ export function confirmedPlanTakeoffLines(input: {
   rooms?: Array<{ name?: string | null; areaSqft?: number | null }> | null;
   wholeProject?: boolean;
   sources?: Record<string, string | null | undefined> | null;
+  provenance?: Record<string, unknown> | null;
 }): string[] {
   const sources = input.sources || null;
   const planSources = new Set([
@@ -2671,6 +2774,8 @@ export function confirmedPlanTakeoffLines(input: {
       electricalPlan &&
       (ELECTRICAL_LEGENDLESS_SYMBOL_KEYS.has(key) ||
         key === 'unclassifiedFixtureCount');
+    // Scope found lists every electrical count the takeoff sheet showed.
+    // A symbol count still needs confirmation before it is priced.
     const pendingPlanCount =
       (source === 'needs_confirmation' || source === 'needs_review') &&
       !legendlessElectricalGuess;

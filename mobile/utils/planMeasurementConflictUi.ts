@@ -3,8 +3,14 @@ import type {
   PlanMeasurementConflict,
   PlanUnreadableField,
 } from '@/utils/estimateAiDraft';
-import { measurementDisplayLabel } from '@/utils/planTakeoffReviewUi';
-import { electricalCardForMeasurementKey } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  electricalPlanDeviceStaysVisible,
+  measurementDisplayLabel,
+} from '@/utils/planTakeoffReviewUi';
+import {
+  electricalCardForMeasurementKey,
+  electricalPlanSheetCountBelongsInBid,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
@@ -852,20 +858,22 @@ export function lowConfidenceConfirmationProvenance(
 
 export const NEW_BUILD_HVAC_SYSTEM_OFFER = 'new_build_hvac_system';
 
-/** Provenance for the 1-system confirmation when the plans do not print a count. */
+/** Provenance for the 1-system assumption when the plans do not print a count. */
 export function newBuildHvacSystemOfferProvenance(value = 1): {
   value: number;
-  status: 'needs_review';
-  normalizedSource: 'NEEDS_REVIEW';
+  status: 'assumed';
+  normalizedSource: 'NEW_BUILD_ASSUMPTION';
   pricingEligible: false;
   offer: typeof NEW_BUILD_HVAC_SYSTEM_OFFER;
   reason: string;
 } {
   return {
-    ...lowConfidenceNeedsReviewProvenance('hvacSystemCount', value),
+    value,
+    status: 'assumed',
+    normalizedSource: 'NEW_BUILD_ASSUMPTION',
+    pricingEligible: false,
     offer: NEW_BUILD_HVAC_SYSTEM_OFFER,
-    reason:
-      'This plan does not print an HVAC system count. Confirm 1 system for the install.',
+    reason: 'New build · 1 system in this bid.',
   };
 }
 
@@ -1027,6 +1035,8 @@ export function pendingPlanConfirmationReads(
   for (const [field, source] of Object.entries(sources)) {
     if (confirmedStuccoPlanFact(field)) continue;
     if (source !== 'needs_confirmation') continue;
+    if (!electricalPlanDeviceStaysVisible(field, provenance[field])) continue;
+    if (electricalPlanSheetCountBelongsInBid(field, measurements)) continue;
     if (allowedFields?.size && !allowedFields.has(field)) continue;
     if (isPendingPlanReadConfirmed(measurements, field)) continue;
     const value = Number(measurements?.[field]);
@@ -1053,6 +1063,8 @@ export function pendingPlanConfirmationReads(
       String(record.status || '').toLowerCase() === 'needs_review' ||
       String(record.normalizedSource || '').toUpperCase() === 'NEEDS_REVIEW';
     if (!needsReview) continue;
+    if (!electricalPlanDeviceStaysVisible(field, entry)) continue;
+    if (electricalPlanSheetCountBelongsInBid(field, measurements)) continue;
     const value = Number(
       (record as { value?: number }).value ?? measurements?.[field]
     );

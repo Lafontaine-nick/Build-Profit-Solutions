@@ -33,6 +33,13 @@ import {
 } from '@/utils/stuccoNoteScope';
 import { explicitCrossTradeScopeItems } from '@/utils/noteScopeLines';
 import {
+  applyNoteClauseReads,
+  noteKeepsItsOwnChecklist,
+  noteUsesSeparateJobReader,
+  readerHeroTitle,
+  readNoteWork,
+} from '@/utils/noteClauseReader';
+import {
   dedicatedDeckConfirmScopeItems,
   dedicatedDeckMeasurementSeed,
   notesDescribeDedicatedDeckJob,
@@ -157,6 +164,7 @@ import {
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
+  notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   showerTileWithFlooringAreas,
@@ -1853,8 +1861,10 @@ export function repairDraftRatePricingFromNotes(
     if (areas.flooringSqft) {
       measurements.flooringSqft = areas.flooringSqft;
       measurements.flooringLvpSqft = areas.flooringSqft;
-      measurements.floorDemoSqft = areas.flooringSqft;
       measurements.flooringProductScope = ['lvp'];
+    }
+    if (areas.flooringSqft && notesNameBathroomFloorRemoval(text)) {
+      measurements.floorDemoSqft = areas.flooringSqft;
     } else {
       delete measurements.floorDemoSqft;
     }
@@ -1873,12 +1883,23 @@ export function repairDraftRatePricingFromNotes(
         quantitySource: 'notes',
       };
     }
-    if (areas.flooringSqft) {
-      itemQuantities.floor_demo = {
-        quantity: areas.flooringSqft,
+    if (areas.showerWallTileSqft) {
+      itemQuantities.waterproofing = {
+        quantity: areas.showerWallTileSqft,
         unit: 'sqft',
         quantitySource: 'notes',
       };
+    }
+    if (areas.flooringSqft) {
+      if (notesNameBathroomFloorRemoval(text)) {
+        itemQuantities.floor_demo = {
+          quantity: areas.flooringSqft,
+          unit: 'sqft',
+          quantitySource: 'notes',
+        };
+      } else {
+        delete itemQuantities.floor_demo;
+      }
       itemQuantities.flooring_lvp = {
         quantity: areas.flooringSqft,
         unit: 'sqft',
@@ -2504,6 +2525,20 @@ export function repairDraftRatePricingFromNotes(
       text,
       measurements as Record<string, unknown>
     ) as ScopeMeasurements;
+    const excluded = new Set(readNoteWork(text).excludedIds);
+    if (excluded.has('framing') || excluded.has('wall_framing')) {
+      delete scrubbedMeasurements.wallFramingSqft;
+      delete scrubbedMeasurements.wallFramingLf;
+      delete scrubbedMeasurements.framedAreaSqft;
+      const quantities = {
+        ...((scrubbedMeasurements.itemQuantities as Record<string, unknown>) ||
+          {}),
+      };
+      delete quantities.framing;
+      delete quantities.wall_framing;
+      scrubbedMeasurements.itemQuantities =
+        quantities as ScopeMeasurements['itemQuantities'];
+    }
     return {
       ...repairedDraft,
       projectType: 'flooring',
@@ -2705,6 +2740,123 @@ export function repairDraftRatePricingFromNotes(
         line => !/stucco/i.test(String(line))
       ),
     };
+  }
+  if (
+    !repairedDraft.scopeAssumptionsConfirmed &&
+    noteUsesSeparateJobReader(text)
+  ) {
+    const read = readNoteWork(text);
+    const measurements = applyNoteClauseReads(
+      { ...(repairedDraft.scopeMeasurements || {}) } as Record<string, unknown>,
+      text
+    ) as ScopeMeasurements;
+    const ownedKeys = new Set(
+      read.lines.flatMap(entry => entry.measurementKeys)
+    );
+    for (const key of [
+      'floorAreaSqft',
+      'flooringSqft',
+      'flooringLvpSqft',
+      'drywallSqft',
+      'wallFramingSqft',
+      'wallFramingLf',
+      'framedAreaSqft',
+      'concreteSqft',
+      'sodSqft',
+      'atticInsulationSqft',
+      'stuccoGrossWallSqft',
+      'stuccoNetWallSqft',
+      'windowCount',
+      'standardReceptacleCount',
+      'bathroomInstallToiletCount',
+      'exteriorWallInsulationSqft',
+      'wallPaintSqft',
+      'wallDemoSqft',
+      'floorDemoSqft',
+      'combinedPaintableAreaSqft',
+    ] as const) {
+      if (!ownedKeys.has(key)) delete measurements[key];
+    }
+    if (
+      ownedKeys.has('exteriorWallInsulationSqft') &&
+      !ownedKeys.has('atticInsulationSqft')
+    ) {
+      delete measurements.insulationAssemblies;
+    }
+    const labels = read.lines.map(entry => entry.label);
+    const readerTitle =
+      labels.length > 2 ? readerHeroTitle(read.lines) : labels.join(' and ');
+    return {
+      ...repairedDraft,
+      originalNotes: text,
+      projectType: 'other',
+      projectTitle:
+        labels.length > 2
+          ? readerTitle
+          : repairedDraft.projectTitle || readerTitle,
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades: labels,
+        scopeSummary: readerTitle,
+      },
+      scopeSummary: readerTitle,
+      scopeTradeLabels: labels,
+      detectedTrades: labels,
+      whatAiDid: ['Read each job named in the notes.'],
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'room_remodel',
+        title: 'Confirm the work named in the notes',
+        intro: 'Confirm the named work before pricing.',
+        items: read.lines.map(entry => ({
+          id: entry.id,
+          inputType: 'yes_no' as const,
+          label: entry.label,
+          helperText: entry.helperText,
+          category: entry.category,
+          state: 'included' as const,
+          noteBacked: true as const,
+        })),
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (
+    !repairedDraft.scopeAssumptionsConfirmed &&
+    !noteKeepsItsOwnChecklist(text)
+  ) {
+    const read = readNoteWork(text);
+    if (read.excludedIds.length && read.lines.length) {
+      const measurements = applyNoteClauseReads(
+        { ...(repairedDraft.scopeMeasurements || {}) } as Record<string, unknown>,
+        text
+      ) as ScopeMeasurements;
+      const drop = new Set(read.excludedIds);
+      const items = (repairedDraft.scopeChecklist?.items || []).filter(
+        item => !drop.has(item.id)
+      );
+      return {
+        ...repairedDraft,
+        scopeChecklist: repairedDraft.scopeChecklist
+          ? { ...repairedDraft.scopeChecklist, items }
+          : repairedDraft.scopeChecklist,
+        scopeMeasurements: measurements,
+      };
+    }
   }
   return repairedDraft;
 }

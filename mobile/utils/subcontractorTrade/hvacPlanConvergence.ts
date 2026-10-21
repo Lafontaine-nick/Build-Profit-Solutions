@@ -74,7 +74,7 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
     'hvac',
     'hvacSystemCount',
     'HVAC system',
-    'Complete HVAC system package. Enter system count and labeled capacity (tons) separately when both are documented.',
+    'Complete HVAC system package. Tonnage sets the price.',
     'system'
   ),
   H(
@@ -295,9 +295,15 @@ const CONFIRMED_HVAC_COUNT_SOURCES = new Set([
   'user_confirmed_suggestion',
 ]);
 
+export const NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY =
+  'New build · 1 system in this bid.';
+
+export const NEW_BUILD_HVAC_TONNAGE_COPY =
+  'Planning price until tonnage is entered.';
+
 /**
  * A new-build HVAC plan includes one system even when the architectural set
- * has no mechanical schedule. The count is a confirmation, not a plan read.
+ * has no mechanical schedule. The count is the bid assumption, not a plan read.
  * Tonnage, registers, and duct length stay blank until they are printed or entered.
  */
 export function hvacNewBuildSystemOffer(input: {
@@ -309,10 +315,157 @@ export function hvacNewBuildSystemOffer(input: {
   if (String(input.planImportTradeKey || '') !== 'hvac') return false;
   if (input.userOverride) return false;
   const source = String(input.source || '');
+  if (source === 'new_build_assumption') {
+    const assumed = Number(String(input.hvacSystemCount ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(assumed) || assumed <= 0 || assumed === 1) return true;
+  }
   if (CONFIRMED_HVAC_COUNT_SOURCES.has(source)) return false;
   const count = Number(String(input.hvacSystemCount ?? '').replace(/,/g, ''));
   if (Number.isFinite(count) && count > 0) return false;
   return true;
+}
+
+function hvacMeasurementNumber(value: unknown): number | null {
+  const count = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+function hvacQuickMeasurementSource(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string
+): string {
+  const sources = measurements?.quickMeasurementSources;
+  if (!sources || typeof sources !== 'object') return '';
+  return String((sources as Record<string, unknown>)[field] || '');
+}
+
+/** A contractor picked this size. The plans did not print it. */
+export function hvacTonnageEnteredByContractor(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (hvacMeasurementNumber(measurements?.hvacSystemTons) == null) return false;
+  const source = hvacQuickMeasurementSource(measurements, 'hvacSystemTons');
+  if (
+    source === 'user_entered' ||
+    source === 'manual_override' ||
+    source === 'user_confirmed_suggestion'
+  ) {
+    return true;
+  }
+  const overrides = measurements?.quickMeasurementUserOverrides;
+  return Boolean(
+    overrides &&
+      typeof overrides === 'object' &&
+      (overrides as Record<string, unknown>).hvacSystemTons
+  );
+}
+
+/**
+ * Scope line for a new-build HVAC bid.
+ * Before a size: the one-system assumption. After the contractor picks a size: that tonnage.
+ */
+export function hvacNewBuildScopeCaption(
+  measurements: Record<string, unknown> | null | undefined
+): string | null {
+  if (!hvacPlanImportAssumesSystemScope(measurements)) return null;
+  const tons = hvacMeasurementNumber(measurements?.hvacSystemTons);
+  if (tons == null || !hvacTonnageEnteredByContractor(measurements)) {
+    return tons == null ? NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY : null;
+  }
+  const count = hvacMeasurementNumber(measurements?.hvacSystemCount) ?? 1;
+  const systemLabel = count === 1 ? '1 system' : `${count} systems`;
+  const tonLabel = Number.isInteger(tons) ? String(tons) : String(tons);
+  return `New build · ${systemLabel} · ${tonLabel} ton.`;
+}
+
+/** HVAC plan import with no printed tonnage. The package price is a planning allowance. */
+export function hvacPlanImportLacksPrintedTonnage(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (String(measurements?.planImportTradeKey || '') !== 'hvac') return false;
+  return hvacMeasurementNumber(measurements?.hvacSystemTons) == null;
+}
+
+function hvacProvenanceOffer(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string
+): string {
+  const provenance = measurements?.measurementProvenance;
+  if (!provenance || typeof provenance !== 'object') return '';
+  const entry = (provenance as Record<string, unknown>)[field];
+  if (!entry || typeof entry !== 'object') return '';
+  return String((entry as { offer?: unknown }).offer || '');
+}
+
+/**
+ * HVAC plan import that still needs a system confirmation. A contractor-entered
+ * count is a real quantity. The unconfirmed new-build offer is not.
+ */
+export function hvacPlanImportAwaitingSystemConfirmation(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (String(measurements?.planImportTradeKey || '') !== 'hvac') return false;
+  if (hvacMeasurementNumber(measurements?.hvacSystemTons) != null) return false;
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  const source = String(sources.hvacSystemCount || '');
+  if (
+    hvacMeasurementNumber(measurements?.hvacSystemCount) != null &&
+    source &&
+    source !== 'needs_confirmation'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * New-build HVAC plan import whose system count is the bid assumption.
+ * Tonnage is still the open question.
+ */
+export function hvacPlanImportStatesNewBuildSystem(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (String(measurements?.planImportTradeKey || '') !== 'hvac') return false;
+  if (hvacMeasurementNumber(measurements?.hvacSystemTons) != null) return false;
+  const assumedCount = hvacMeasurementNumber(measurements?.hvacSystemCount);
+  if (assumedCount != null && assumedCount !== 1) return false;
+  if (hvacProvenanceOffer(measurements, 'hvacSystemCount') === 'new_build_hvac_system') {
+    return true;
+  }
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  if (sources.hvacSystemCount === 'new_build_assumption') return true;
+  return hvacPlanImportAwaitingSystemConfirmation(measurements);
+}
+
+/**
+ * New-build HVAC plan whose system and capacity belong in the bid.
+ * Stays true after a size is chosen so the open cards do not collapse.
+ */
+export function hvacPlanImportAssumesSystemScope(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (String(measurements?.planImportTradeKey || '') !== 'hvac') return false;
+  if (
+    hvacProvenanceOffer(measurements, 'hvacSystemCount') ===
+    'new_build_hvac_system'
+  ) {
+    return true;
+  }
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  if (sources.hvacSystemCount === 'new_build_assumption') return true;
+  return hvacPlanImportStatesNewBuildSystem(measurements);
 }
 
 /** Whole-house ventilation is optional — only surface when plans document equipment. */

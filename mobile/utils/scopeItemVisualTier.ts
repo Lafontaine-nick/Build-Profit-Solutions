@@ -1,5 +1,10 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
+  ELECTRICAL_CARDS,
+  electricalPlanSheetCountBelongsInBid,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { hvacPlanImportLacksPrintedTonnage } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   inferItemStateFromNotes,
@@ -185,25 +190,67 @@ const PLAN_MEASUREMENT_KEYS_BY_SCOPE: Record<string, string[]> = {
   stucco_other_finish: ['stuccoOtherFinishDeductionSqft'],
 };
 
+const PLAN_QUANTITY_SOURCE_TAGS = new Set([
+  'plan_detected',
+  'plan_vision',
+  'plan_explicit',
+  'detected_from_plan',
+  'plan_verified',
+  'contractor_confirmed_from_plan_review',
+]);
+
+function planMeasurementKeysForItem(itemId: string): string[] {
+  const mapped = PLAN_MEASUREMENT_KEYS_BY_SCOPE[itemId] || [];
+  const electrical = ELECTRICAL_CARDS.find(card => card.itemId === itemId);
+  return electrical ? [...mapped, electrical.measurementKey] : mapped;
+}
+
+function provenanceIsPlanSheet(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const record = entry as {
+    status?: unknown;
+    normalizedSource?: unknown;
+    evidenceKind?: unknown;
+    pricingEligible?: unknown;
+  };
+  if (record.pricingEligible === false) return false;
+  const status = String(record.status || '').toLowerCase();
+  if (status === 'needs_review' || status === 'conflict' || status === 'needs_confirmation') {
+    return false;
+  }
+  const source = String(record.normalizedSource || '').toUpperCase();
+  return (
+    status === 'plan_verified' ||
+    source === 'FROM_PLAN' ||
+    record.evidenceKind === 'instance_tags' ||
+    record.evidenceKind === 'explicit_label'
+  );
+}
+
 function itemMeasuredFromPlan(
   item: ScopeChecklistItem,
   ctx: ScopeItemVisualContext
 ): boolean {
   const sourceMap = ctx.measurements.quickMeasurementSources || {};
-  const planTags = new Set([
-    'plan_detected',
-    'plan_vision',
-    'plan_explicit',
-    'detected_from_plan',
-  ]);
-  return (PLAN_MEASUREMENT_KEYS_BY_SCOPE[item.id] || []).some(key => {
+  const provenance = ctx.measurements.measurementProvenance || {};
+  return planMeasurementKeysForItem(item.id).some(key => {
     const value = Number(
       String((ctx.measurements as Record<string, unknown>)[key] ?? '').replace(
         /,/g,
         ''
       )
     );
-    return value > 0 && planTags.has(String(sourceMap[key] || ''));
+    if (!(value > 0)) return false;
+    if (
+      electricalPlanSheetCountBelongsInBid(
+        key,
+        ctx.measurements as Record<string, unknown>
+      )
+    ) {
+      return true;
+    }
+    if (PLAN_QUANTITY_SOURCE_TAGS.has(String(sourceMap[key] || ''))) return true;
+    return provenanceIsPlanSheet(provenance[key]);
   });
 }
 
@@ -236,6 +283,14 @@ export function scopeItemNoteBadge(
   const notes = ctx.notes;
   if (checklistItemInScope(item) && itemMeasuredFromPlan(item, ctx)) {
     return 'from_plan';
+  }
+  if (
+    item.id === 'hvac' &&
+    hvacPlanImportLacksPrintedTonnage(
+      ctx.measurements as Record<string, unknown> | null
+    )
+  ) {
+    return null;
   }
   if (!String(notes || '').trim() && !item.noteBacked) return null;
 

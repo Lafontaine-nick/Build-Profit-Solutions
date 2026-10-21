@@ -455,6 +455,20 @@ export function footerScrollToPricingButtonLabel(readyCount: number): string | n
     : `Show ${readyCount} pricing cards`;
 }
 
+/**
+ * Once Selected pricing is on screen, the scroll button must not publish a
+ * second count. "34 in scope" and "Show 29 pricing cards" read as two bids.
+ */
+export function confirmScopePricingScrollLabel(input: {
+  readyCount: number;
+  selectedTotal?: number | null;
+}): string | null {
+  if ((input.selectedTotal || 0) > 0 && input.readyCount > 0) {
+    return 'Review pricing cards';
+  }
+  return footerScrollToPricingButtonLabel(input.readyCount);
+}
+
 /** Muted hint under the scroll-to-pricing button when other scopes still need input. */
 export function footerSuggestedPricingPendingHint(input: {
   needsMeasurementCount?: number;

@@ -912,4 +912,15 @@ describe('dedicated drywall note', () => {
     });
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
   });
+
+  it('keeps hang / finish on the attic insulation measurement', () => {
+    const notes =
+      'Install R-38 insulation in 1,000 sqft of attic and hang 800 sqft of drywall.';
+    expect(
+      confirmScopeDrywallSqftLabel(notes, {
+        installNamed: true,
+        repairNamed: false,
+      })
+    ).toBe('Drywall hang / finish');
+  });
 });

@@ -3,6 +3,7 @@ import {
   scopeCardAccentForItem,
   scopeCardOpacityForItem,
   scopeItemHasMeasuredSelection,
+  scopeItemNoteBadge,
   SCOPE_ITEM_TIER_OPACITY,
   SCOPE_ITEM_UNSURE_OPACITY,
 } from '@/utils/scopeItemVisualTier';
@@ -111,5 +112,66 @@ describe('scopeCardAccentForItem', () => {
     } as any;
 
     expect(scopeItemHasMeasuredSelection(item, context)).toBe(true);
+  });
+});
+
+describe('scopeItemNoteBadge', () => {
+  test('plan-verified recessed lights are detected from the plan', () => {
+    const item = {
+      id: 'electrical_recessed_light',
+      label: 'Recessed / canless / wafer light',
+      state: 'included',
+      inputType: 'yes_no',
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'electrical',
+        notes: 'Detected electrical.',
+        measurements: {
+          recessedLightCount: 31,
+          itemQuantities: {},
+          quickMeasurementSources: {
+            recessedLightCount: 'detected_from_plan',
+          },
+          measurementProvenance: {
+            recessedLightCount: {
+              status: 'plan_verified',
+              evidenceKind: 'instance_tags',
+              pricingEligible: true,
+            },
+          },
+        },
+      })
+    ).toBe('from_plan');
+  });
+
+  test('an electrical plan symbol count badges detected from the plan', () => {
+    const item = {
+      id: 'electrical_standard_receptacle',
+      label: 'Standard receptacles',
+      state: 'included',
+      inputType: 'yes_no',
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'electrical',
+        notes: '',
+        measurements: {
+          planImportTradeKey: 'electrical',
+          standardReceptacleCount: 98,
+          itemQuantities: {},
+          quickMeasurementSources: {
+            standardReceptacleCount: 'needs_confirmation',
+          },
+          measurementProvenance: {
+            standardReceptacleCount: {
+              status: 'needs_review',
+              evidenceKind: 'symbols',
+              pricingEligible: false,
+            },
+          },
+        },
+      })
+    ).toBe('from_plan');
   });
 });

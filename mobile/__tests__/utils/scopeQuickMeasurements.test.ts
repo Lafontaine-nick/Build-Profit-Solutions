@@ -619,6 +619,16 @@ describe('scopeQuickMeasurements', () => {
     ).toBe('kitchen');
   });
 
+  it('keeps an LVP install on flooring when the note only excludes framing', () => {
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'flooring',
+        projectType: 'flooring',
+        notes: 'No structural framing. Install 600 sqft of LVP.',
+      })
+    ).toBe('flooring');
+  });
+
   it('keeps a standalone bathroom remodel on the bathroom measurement layout', () => {
     expect(
       resolveEffectiveQuickMeasurementTemplateKey({

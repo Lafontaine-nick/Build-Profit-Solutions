@@ -6,6 +6,9 @@
  * Demolition stays unpriced until Quick measurements has a demolition area.
  */
 
+import { notesNameAtticInsulationWithDrywallHang } from '@/utils/insulationNoteScope';
+import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
+
 const OTHER_TRADE_RE =
   /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i;
 
@@ -289,10 +292,17 @@ export function confirmScopeDrywallSqftLabel(
     return 'Drywall hang / finish';
   }
   if (notesDescribeNoteRatedDrywallJob(notes)) return 'Drywall hang / finish';
+  if (notesNameAtticInsulationWithDrywallHang(notes)) return 'Drywall hang / finish';
   if (notesNameDrywallBesideFlooring(notes)) {
     return notesNameDrywallFlooringPatchOnly(notes)
       ? 'Drywall patch / repair'
       : 'Drywall hang / finish';
+  }
+  if (
+    noteUsesSeparateJobReader(notes) &&
+    /\bhang\b/i.test(String(notes || ''))
+  ) {
+    return 'Drywall hang / finish';
   }
   if (options.installNamed && !options.repairNamed) return 'Drywall install';
   if (

@@ -100,17 +100,31 @@ const DRAWN_BUT_UNCOUNTED: Array<{ id: string; label: string; keys: string[] }> 
   { id: 'exhaust_fans', label: 'Exhaust fans', keys: ['bathExhaustFanCount'] },
 ];
 
-/** No printed quantity on a typical architectural set. Stay a planning allowance. */
+/**
+ * No printed quantity on a typical architectural set. Stay a planning allowance.
+ * Framing, plumbing, HVAC, electrical, and flooring are always priced as
+ * allowances on the whole-house checklist, so they are listed here too.
+ */
 const NOT_PRINTED: Array<{ id: string; label: string; keys: string[] }> = [
   { id: 'excavation', label: 'Excavation', keys: ['excavationCy'] },
   { id: 'foundation', label: 'Foundation', keys: ['concreteCy'] },
   { id: 'flatwork', label: 'Exterior flatwork', keys: ['concreteSqft'] },
-  { id: 'drywall', label: 'Drywall', keys: ['drywallSqft'] },
+  { id: 'framing', label: 'Framing', keys: [] },
+  { id: 'roofing', label: 'Roofing', keys: ['roofSquares'] },
+  { id: 'plumbing', label: 'Plumbing', keys: [] },
+  { id: 'hvac', label: 'HVAC', keys: [] },
+  { id: 'electrical', label: 'Electrical', keys: [] },
   { id: 'insulation', label: 'Insulation', keys: ['exteriorWallInsulationSqft', 'atticInsulationSqft'] },
+  { id: 'drywall', label: 'Drywall', keys: ['drywallSqft'] },
+  { id: 'flooring', label: 'Flooring', keys: [] },
   { id: 'interior_paint', label: 'Interior paint', keys: ['wallPaintSqft'] },
   { id: 'exterior_paint', label: 'Exterior paint', keys: ['exteriorPaintSqft'] },
-  { id: 'roofing', label: 'Roofing', keys: ['roofSquares'] },
 ];
+
+/** Listed on every whole-house plan, including records saved before they were added. */
+const ALWAYS_ALLOWANCE_IDS = new Set(
+  NOT_PRINTED.filter(row => row.keys.length === 0).map(row => row.id)
+);
 
 export const WHOLE_PROJECT_DRAWING_COUNT_KEYS = new Set([
   'windowCount',
@@ -241,9 +255,15 @@ export function withPlanScopeRecordMeasurements<
         changed = true;
       }
       const source = String(sources[finding.id] || '');
+      const verifiedOnPlan =
+        source !== 'needs_confirmation' &&
+        planVerifiedCount(
+          provenance[finding.id] as FindingReview['provenance']
+        );
       const isDrawingCount =
-        WHOLE_PROJECT_DRAWING_COUNT_KEYS.has(finding.id) ||
-        finding.status === 'counted_from_drawings';
+        !verifiedOnPlan &&
+        (WHOLE_PROJECT_DRAWING_COUNT_KEYS.has(finding.id) ||
+          finding.status === 'counted_from_drawings');
       if (isDrawingCount && source !== 'contractor_confirmed_from_plan_review') {
         // Scope found records are created before the contractor reviews the
         // drawing-count checklist. Keep these values visible, but do not let
@@ -303,44 +323,139 @@ export function withPlanScopeRecordMeasurements<
   return next as T;
 }
 
-/** Scope found lines. Room cards stay as one spaces count so they do not replace the cover sheet. */
+/** Saved allowance records, plus the always-allowance trades added since. */
+function allowanceFindingsInBuildOrder(
+  record: PlanScopeRecord
+): PlanScopeFinding[] {
+  const byId = new Map(
+    record.findings.map(item => [item.id.replace(/^allowance-/, ''), item])
+  );
+  const ordered = NOT_PRINTED.flatMap(row => {
+    const saved = byId.get(row.id);
+    if (saved) return [saved];
+    if (!ALWAYS_ALLOWANCE_IDS.has(row.id)) return [];
+    return [
+      finding({
+        id: `allowance-${row.id}`,
+        label: row.label,
+        quantity: null,
+        unit: null,
+        status: 'planning_allowance',
+      }),
+    ];
+  });
+  const known = new Set(NOT_PRINTED.map(row => row.id));
+  const extra = record.findings.filter(
+    item => !known.has(item.id.replace(/^allowance-/, ''))
+  );
+  return [...ordered, ...extra];
+}
+
+/** What the takeoff saved for each field: its source tag and plan provenance. */
+export type PlanScopeReview = {
+  sources?: Record<string, string | null | undefined> | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+type FindingReview = {
+  source?: string | null;
+  provenance?: { status?: string; pricingEligible?: boolean } | null;
+};
+
+function findingReview(
+  review: PlanScopeReview | null | undefined,
+  id: string
+): FindingReview {
+  const entry = review?.provenance?.[id];
+  return {
+    source: review?.sources?.[id] ?? null,
+    provenance:
+      entry && typeof entry === 'object'
+        ? (entry as FindingReview['provenance'])
+        : null,
+  };
+}
+
+/** A count the sheet reader verified, e.g. tier-1 instance tags. */
+function planVerifiedCount(
+  provenance: FindingReview['provenance']
+): boolean {
+  return (
+    (provenance?.status === 'plan_verified' ||
+      provenance?.status === 'user_confirmed') &&
+    provenance.pricingEligible !== false
+  );
+}
+
+/**
+ * Scope found lines. Room cards are not work, so they are not listed or
+ * counted. Each line is short enough for one row. Counts carry the same
+ * status the takeoff showed: verified counts have no tag, unverified counts
+ * say "confirm count", and planning estimates say so.
+ */
 export function planScopeRecordSummaryLines(
-  records: PlanScopeRecord[] | null | undefined
+  records: PlanScopeRecord[] | null | undefined,
+  review?: PlanScopeReview | null
 ): string[] {
   const lines: string[] = [];
-  let roomCount = 0;
   for (const record of records || []) {
-    if (record.id.startsWith('room-')) {
-      roomCount += 1;
-      continue;
+    if (record.id.startsWith('room-')) continue;
+    const findings =
+      record.id === 'allowances'
+        ? allowanceFindingsInBuildOrder(record)
+        : record.findings;
+    for (const item of findings) {
+      lines.push(formatPlanScopeFinding(item, findingReview(review, item.id)));
     }
-    for (const item of record.findings) {
-      lines.push(formatPlanScopeFinding(item));
-    }
-  }
-  if (roomCount > 0) {
-    lines.push(
-      `${roomCount} space${roomCount === 1 ? '' : 's'} detected on the plan`
-    );
   }
   return lines;
 }
 
-export function formatPlanScopeFinding(item: PlanScopeFinding): string {
+export const PLAN_SCOPE_CONFIRM_COUNT_SUFFIX = ' · confirm count';
+
+function planScopeFindingStatus(
+  item: PlanScopeFinding,
+  review: FindingReview
+): string | null {
+  if (item.status === 'planning_allowance') return 'planning allowance';
+  if (
+    review.source === 'plan_suggested' ||
+    review.provenance?.status === 'planning_estimate'
+  ) {
+    return 'planning estimate';
+  }
+  if (review.source === 'contractor_confirmed_from_plan_review') return null;
+  if (planVerifiedCount(review.provenance)) return null;
+  // Takeoff calls these Planning estimate. A bare count here looked verified.
+  if (
+    item.id === 'garageDoorSingleCount' ||
+    item.id === 'garageDoorDoubleCount' ||
+    item.id === 'garageDoorRvCount'
+  ) {
+    return 'planning estimate';
+  }
+  if (item.status === 'counted_from_drawings') return 'confirm count';
+  const unconfirmedCount =
+    item.unit === 'each' &&
+    PLAN_SCOPE_MEASUREMENT_KEYS.has(item.id) &&
+    (review.source === 'needs_confirmation' ||
+      review.provenance?.pricingEligible === false);
+  return unconfirmedCount ? 'confirm count' : null;
+}
+
+export function formatPlanScopeFinding(
+  item: PlanScopeFinding,
+  review: FindingReview = {}
+): string {
   const qty =
-    item.quantity != null && item.unit
-      ? `${item.quantity.toLocaleString()} ${item.unit} · `
-      : '';
-  const where = [item.sheet, item.page != null ? `p.${item.page}` : null]
+    item.quantity != null
+      ? item.unit && item.unit !== 'each'
+        ? `${item.quantity.toLocaleString()} ${item.unit}`
+        : item.quantity.toLocaleString()
+      : null;
+  return [item.label, qty, planScopeFindingStatus(item, review)]
     .filter(Boolean)
-    .join(' ');
-  const status =
-    item.status === 'read_from_plan'
-      ? 'Read from the plan'
-      : item.status === 'counted_from_drawings'
-        ? 'Counted from the drawings — confirm'
-        : 'Planning allowance';
-  return `${qty}${item.label} · ${status}${where ? ` · ${where}` : ''}`;
+    .join(' · ');
 }
 
 export function buildPlanScopeRecords(

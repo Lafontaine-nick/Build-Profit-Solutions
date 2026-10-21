@@ -11,6 +11,18 @@ import {
 import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import {
+  noteUsesSeparateJobReader,
+  readNoteWork,
+} from '@/utils/noteClauseReader';
+import { notesNameAtticInsulationWithDrywallHang } from '@/utils/insulationNoteScope';
+import { notesNameConcretePatioWithSod } from '@/utils/foundationPlanningMeasurements';
+import {
+  dedicatedFlooringProducts,
+  notesDescribeDedicatedFlooringJob,
+  notesRequestFlooringDemo,
+  notesRequestFloorPrep,
+} from '@/utils/flooringNoteScope';
+import {
   notesDescribeDedicatedDrywallPatchJob,
   notesDescribeNoteRatedDrywallJob,
   notesDescribeSheetrockFinishJob,
@@ -2594,12 +2606,21 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       notes
     );
   if (framingFocusedAddition) return 'framing';
+  const affirmativeNotes = notes
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map(sentence => sentence.trim())
+    .filter(
+      sentence =>
+        sentence &&
+        !/^(?:no|not|without|do not|don't|dont|never)\b/i.test(sentence)
+    )
+    .join(' ');
   const structuralMixedScope =
     /\b(?:frame|framing|framed|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
-      notes
+      affirmativeNotes
     ) &&
     /\b(?:drywall|sheetrock|flooring|lvp|paint(?:ing)?|insulation|windows?|doors?)\b/i.test(
-      notes
+      affirmativeNotes
     );
   if (
     structuralMixedScope &&
@@ -3429,13 +3450,15 @@ function applyDrywallNoteSemantics(
           if (field.key === 'drywallSqft') {
             return {
               ...field,
-              label: hasPatch
-                ? hasDrywallRepair && !hasTextureWork
-                  ? 'Drywall repair area'
-                  : 'Drywall patch & texture'
-                : shouldTreatAsDrywallInstall
-                  ? 'Drywall install'
-                  : 'Drywall',
+              label: notesNameAtticInsulationWithDrywallHang(text)
+                ? 'Drywall hang / finish'
+                : hasPatch
+                  ? hasDrywallRepair && !hasTextureWork
+                    ? 'Drywall repair area'
+                    : 'Drywall patch & texture'
+                  : shouldTreatAsDrywallInstall
+                    ? 'Drywall install'
+                    : 'Drywall',
             };
           }
           if (field.key === 'wallDemoSqft' && hasDrywallDemo) {
@@ -3690,6 +3713,92 @@ export function quickMeasurementRowsForInput(
   if (notesNameFramingOnlyAddition(String(options?.scopeNotes || ''))) {
     const framed = QUICK_MEASUREMENT_FIELD_DEFS.framedAreaSqft;
     return framed ? [[framed]] : [];
+  }
+  if (notesNameConcretePatioWithSod(String(options?.scopeNotes || ''))) {
+    const patio = QUICK_MEASUREMENT_FIELD_DEFS.concreteSqft;
+    const sod = QUICK_MEASUREMENT_FIELD_DEFS.sodSqft;
+    return [
+      [
+        patio ? { ...patio, label: 'Concrete patio', helperText: 'Patio area from the notes.' } : null,
+        sod ? { ...sod, label: 'Sod', helperText: 'Sod area from the notes.' } : null,
+      ].filter((field): field is QuickMeasurementFieldDef => Boolean(field)),
+    ];
+  }
+  if (notesDescribeDedicatedFlooringJob(String(options?.scopeNotes || ''))) {
+    const flooringNotes = String(options?.scopeNotes || '');
+    const productKey: Record<string, QuickMeasurementFieldKey> = {
+      lvp: 'flooringLvpSqft',
+      laminate: 'flooringLaminateSqft',
+      engineered_hardwood: 'flooringEngineeredHardwoodSqft',
+      solid_hardwood: 'flooringSolidHardwoodSqft',
+      tile: 'flooringTileSqft',
+      carpet: 'flooringCarpetSqft',
+      sheet_vinyl_vct: 'flooringSheetVinylSqft',
+    };
+    const fields: QuickMeasurementFieldDef[] = [];
+    if (notesRequestFlooringDemo(flooringNotes)) {
+      const demo = QUICK_MEASUREMENT_FIELD_DEFS.floorDemoSqft;
+      if (demo) {
+        fields.push({
+          ...demo,
+          label: 'Flooring demo',
+          helperText: 'Demo area from the notes.',
+        });
+      }
+    }
+    const products = dedicatedFlooringProducts(flooringNotes);
+    if (products.length) {
+      for (const product of products) {
+        const key = productKey[product.product];
+        const field = key ? QUICK_MEASUREMENT_FIELD_DEFS[key] : undefined;
+        if (!field) continue;
+        fields.push({
+          ...field,
+          label: product.label,
+          helperText: `${product.label} area from the notes.`,
+        });
+      }
+    } else {
+      const flooring = QUICK_MEASUREMENT_FIELD_DEFS.flooringSqft;
+      if (flooring) {
+        fields.push({
+          ...flooring,
+          label: 'Flooring',
+          helperText: 'Flooring area from the notes.',
+        });
+      }
+    }
+    if (notesRequestFloorPrep(flooringNotes)) {
+      const prep = QUICK_MEASUREMENT_FIELD_DEFS.floorPrepSqft;
+      if (prep) {
+        fields.push({
+          ...prep,
+          label: 'Floor prep',
+          helperText: 'Floor prep area from the notes.',
+        });
+      }
+    }
+    return fields.map(field => [field]);
+  }
+  if (
+    noteUsesSeparateJobReader(String(options?.scopeNotes || '')) &&
+    !notesNameAtticInsulationWithDrywallHang(String(options?.scopeNotes || ''))
+  ) {
+    const fields = readNoteWork(String(options?.scopeNotes || '')).lines.flatMap(
+      entry => {
+        const key = entry.measurementKeys[0] as QuickMeasurementFieldKey;
+        const field = key ? QUICK_MEASUREMENT_FIELD_DEFS[key] : undefined;
+        if (!field) return [];
+        return [
+          {
+            ...field,
+            label: entry.label,
+            helperText: entry.helperText,
+          },
+        ];
+      }
+    );
+    return fields.map(field => [field]);
   }
   let baseRows = options?.windowsDoorsNotesFlow
     ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
@@ -4779,7 +4888,7 @@ export function quickMeasurementFieldMeta(key: string): {
       }
     }
   }
-  return { label: key, unit: '' };
+  return { label: key, unit: /Count$/.test(key) ? 'each' : '' };
 }
 
 /**

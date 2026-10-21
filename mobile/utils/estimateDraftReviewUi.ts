@@ -17,7 +17,13 @@ import {
   resolveNationalAverageScopePackageAmount,
 } from '@/utils/appliedScopePackagePricing';
 import type { ScopePricingAcceptanceMetadata } from '@/utils/acceptedPricingSummaryUi';
-import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
+import {
+  initialScopeMeasurementInputExtended,
+  lookupRuleKeyForPackage,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
+import { isPlanElectricalDeviceCard } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
@@ -94,6 +100,38 @@ export function shouldShowStep3TemplateRatesCard(
   return options.roughSuggestionLineCount > 0 || options.hasRoughOnScope;
 }
 
+/**
+ * Plan device counts are part of the bid once the contractor confirms them.
+ * Show that fixture price on the review row even before a separate Apply tap.
+ */
+function planConfirmedElectricalDeviceAmount(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): number {
+  const itemId = String(pkg.checklistItemId || pkg.costCode || '').trim();
+  if (!isPlanElectricalDeviceCard(itemId)) return 0;
+  const saved = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  if (!saved.planImportFingerprint || saved.planImportMode === 'selected_trade') return 0;
+  const measurements = initialScopeMeasurementInputExtended(draft);
+  const templateKey = draft.scopeChecklist?.templateKey;
+  const notes = draft.originalNotes;
+  const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+    templateKey,
+    notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    itemId,
+    measurements,
+    templateKey,
+    resolved,
+    undefined,
+    null,
+    notes
+  );
+  const total = Number(suggested.fill?.total);
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
 /** Effective priced amount for a scope row — includes Confirm Scope budget splits. */
 export function scopePackagePricedAmount(
   pkg: EstimateDraftScopePackage,
@@ -122,6 +160,8 @@ export function scopePackagePricedAmount(
         return fromPkg;
       }
       if (applied > 0) return applied;
+      const planDevice = planConfirmedElectricalDeviceAmount(pkg, draft);
+      if (planDevice > 0) return planDevice;
       // After Confirm Scope, Step 3 hero totals are applied-only — do not show
       // national-average planning $ on rows that were never Applied (keeps row sum = hero).
       return 0;
@@ -221,17 +261,77 @@ function draftIsGroundUpHome(draft?: EstimateAiDraft | null): boolean {
 }
 
 /**
- * Shower tile and shower doors on a new home are package allowances.
- * A stored takeoff above one unit still shows that quantity.
+ * Whole-house package allowances. A stored takeoff above one unit still shows
+ * that quantity. A 1 sqft / 1 each placeholder, living area copied onto
+ * flatwork, or the interior-door count copied onto finish carpentry does not.
  */
 function groundUpPlaceholderAllowance(
   draft: EstimateAiDraft | null | undefined,
   ruleKey: string,
-  displayedQuantity: number | null
+  displayedQuantity: number | null,
+  displayedUnit?: string | null
 ): string | null {
   if (!draftIsGroundUpHome(draft)) return null;
-  if (ruleKey !== 'shower_tile' && ruleKey !== 'glass_door') return null;
   const measurements = (draft?.scopeMeasurements || {}) as Record<string, unknown>;
+  const unit = String(displayedUnit || '').toLowerCase();
+  const qty = displayedQuantity ?? 1;
+  if (ruleKey === 'pour_flatwork') {
+    const concrete = Number(String(measurements.concreteSqft ?? '').replace(/,/g, ''));
+    if (Number.isFinite(concrete) && concrete > 1) {
+      return `${concrete.toLocaleString()} sqft`;
+    }
+    const living = Number(String(measurements.floorAreaSqft ?? '').replace(/,/g, ''));
+    if (qty <= 1 || (living > 1 && Math.abs(qty - living) < 0.01)) return 'Allowance';
+    return null;
+  }
+  if (ruleKey === 'interior_trim') {
+    const trimLf = Number(
+      String(measurements.interiorTrimLf ?? measurements.trimLf ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(trimLf) && trimLf > 1 && unit !== 'each') {
+      return `${trimLf.toLocaleString()} lf`;
+    }
+    const doors = Number(String(measurements.interiorDoorCount ?? '').replace(/,/g, ''));
+    const copiedDoorCount =
+      doors > 0 &&
+      Math.abs(qty - doors) < 0.01 &&
+      unit !== 'lf' &&
+      unit !== 'lin ft';
+    if (qty <= 1 || copiedDoorCount) return 'Allowance';
+    return null;
+  }
+  if (
+    ruleKey === 'stucco' ||
+    ruleKey === 'drywall' ||
+    ruleKey === 'plumbing_rough' ||
+    ruleKey === 'hvac'
+  ) {
+    if (ruleKey === 'drywall') {
+      const area = Number(String(measurements.drywallSqft ?? '').replace(/,/g, ''));
+      if (Number.isFinite(area) && area > 1) {
+        return `${area.toLocaleString()} sqft`;
+      }
+    }
+    if (qty <= 1) return 'Allowance';
+    return null;
+  }
+  if (
+    ruleKey !== 'shower_tile' &&
+    ruleKey !== 'glass_door' &&
+    ruleKey !== 'interior_paint' &&
+    ruleKey !== 'exterior_paint'
+  ) {
+    return null;
+  }
+  if (ruleKey === 'interior_paint' || ruleKey === 'exterior_paint') {
+    const areaKey = ruleKey === 'interior_paint' ? 'wallPaintSqft' : 'exteriorPaintSqft';
+    const area = Number(String(measurements[areaKey] ?? '').replace(/,/g, ''));
+    if (Number.isFinite(area) && area > 1) {
+      return `${area.toLocaleString()} sqft`;
+    }
+    if ((displayedQuantity ?? 1) <= 1) return 'Allowance';
+    return null;
+  }
   if (ruleKey === 'shower_tile') {
     const wall = Number(String(measurements.showerWallTileSqft ?? '').replace(/,/g, ''));
     if (Number.isFinite(wall) && wall > 1) {
@@ -259,6 +359,8 @@ const REVIEW_COUNT_EACH_KEYS: Record<string, string> = {
   interior_doors: 'interiorDoorCount',
   exterior_doors: 'exteriorDoorCount',
   exterior_door_install: 'exteriorDoorCount',
+  sliding_doors: 'slidingDoorCount',
+  sliding_door_install: 'slidingDoorCount',
 };
 
 /**
@@ -318,11 +420,24 @@ export function formatScopeQuantity(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       ''
     : '';
-  if (draft && (previewRuleKey === 'shower_tile' || previewRuleKey === 'glass_door')) {
+  if (
+    draft &&
+    (previewRuleKey === 'shower_tile' ||
+      previewRuleKey === 'glass_door' ||
+      previewRuleKey === 'interior_paint' ||
+      previewRuleKey === 'exterior_paint' ||
+      previewRuleKey === 'stucco' ||
+      previewRuleKey === 'drywall' ||
+      previewRuleKey === 'plumbing_rough' ||
+      previewRuleKey === 'hvac' ||
+      previewRuleKey === 'pour_flatwork' ||
+      previewRuleKey === 'interior_trim')
+  ) {
     const allowance = groundUpPlaceholderAllowance(
       draft,
       previewRuleKey,
-      q?.quantity ?? null
+      q?.quantity ?? null,
+      q?.unit
     );
     if (allowance) return allowance;
   }

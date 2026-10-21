@@ -577,6 +577,12 @@ export function isLivingAreaFallbackPricing(input: {
       return false;
     }
   }
+  if (
+    id === 'hvac' &&
+    String(input.block.basis?.unit || '').toLowerCase() === 'each'
+  ) {
+    return false;
+  }
   if (input.hasPrimaryTakeoff === false) return true;
   if (qs === 'unknown' || qs === 'fallback' || qs === 'assumption') return true;
   const unit = String(input.block.basis?.unit || '').toLowerCase();
@@ -899,6 +905,9 @@ export function suggestedCardSourceChip(
   }
   if (block.installedBudgetBenchmark) {
     return { label: 'Installed budget', tone: 'slate' };
+  }
+  if (/tonnage not on the plans/i.test(String(block.rateSourceLabel || ''))) {
+    return { label: 'Planning price', tone: 'gold' };
   }
   if (
     /national/i.test(source) ||

@@ -1069,8 +1069,80 @@ function isExplicitlyClearedQuantity(value: unknown): boolean {
   return value === 0 || value === '0';
 }
 
+const ELECTRICAL_PLAN_HIDDEN_SYMBOL_KEYS = new Set([
+  'smokeDetectorCount',
+  'coDetectorCount',
+  'threeWaySwitchCount',
+  'exteriorLightCount',
+  'exteriorReceptacleCount',
+  'unclassifiedFixtureCount',
+]);
+
+/**
+ * A count the electrical takeoff sheet already listed belongs in the bid.
+ * Hidden symbol guesses and a panel with no callout stay out.
+ */
+export function electricalPlanSheetCountBelongsInBid(
+  key: string,
+  measurements: Record<string, unknown> | null | undefined,
+  options?: { conflicted?: boolean; declined?: boolean }
+): boolean {
+  if (String(measurements?.planImportTradeKey || '') !== 'electrical') return false;
+  if (options?.conflicted || options?.declined) return false;
+  if (ELECTRICAL_PLAN_HIDDEN_SYMBOL_KEYS.has(key) || key === 'mainPanelCount') {
+    return false;
+  }
+  const overrides = measurements?.quickMeasurementUserOverrides;
+  if (
+    overrides &&
+    typeof overrides === 'object' &&
+    !Array.isArray(overrides) &&
+    (overrides as Record<string, boolean>)[key] === false
+  ) {
+    return false;
+  }
+  if (positiveNumber(measurements?.[key]) == null) return false;
+  if (key === 'bathExhaustFanCount') {
+    const provenance =
+      measurements?.measurementProvenance &&
+      typeof measurements.measurementProvenance === 'object'
+        ? (
+            measurements.measurementProvenance as Record<
+              string,
+              { evidenceKind?: string }
+            >
+          )[key]
+        : null;
+    const kind = String(provenance?.evidenceKind || '');
+    const exhaust = positiveNumber(measurements?.bathExhaustFanCount);
+    const ceiling = positiveNumber(measurements?.ceilingFanCount);
+    if (
+      kind !== 'explicit_label' &&
+      kind !== 'instance_tags' &&
+      exhaust != null &&
+      ceiling != null &&
+      exhaust === ceiling
+    ) {
+      return false;
+    }
+  }
+  const conflicts = measurements?.measurementConflicts;
+  if (
+    Array.isArray(conflicts) &&
+    conflicts.some(
+      conflict =>
+        String((conflict as { field?: string } | null)?.field || '') === key &&
+        (conflict as { requiresConfirmation?: boolean } | null)
+          ?.requiresConfirmation !== false
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function syncElectricalScopeItems<
-  T extends { id: string; state?: string },
+  T extends { id: string; state?: string; label?: string; helperText?: string },
 >(
   items: T[],
   params: {
@@ -1217,6 +1289,7 @@ export function syncElectricalScopeItems<
     ) {
       return false;
     }
+    if (electricalPlanSheetCountBelongsInBid(key, quantityRecord)) return false;
     if (quantitySources[key] === 'needs_confirmation') return true;
     if (!entry) return false;
     const status = String(entry.status || '').toLowerCase();
@@ -1255,13 +1328,25 @@ export function syncElectricalScopeItems<
       !quantityOverrides[card.measurementKey]
     ) {
       included.delete(card.itemId);
-      heldForConfirmation.add(card.itemId);
+      const hiddenPlanGuess =
+        String((quantities as { planImportTradeKey?: string }).planImportTradeKey || '') ===
+          'electrical' &&
+        ELECTRICAL_PLAN_HIDDEN_SYMBOL_KEYS.has(card.measurementKey);
+      if (!hiddenPlanGuess) heldForConfirmation.add(card.itemId);
     } else if (
       QUANTITY_OWNED_ITEM_IDS.has(card.itemId) &&
       isExplicitlyClearedQuantity(raw)
     ) {
       clearedQuantity.add(card.itemId);
     }
+  }
+  const groundUpPlan =
+    String(params.templateKey || '').toLowerCase() === 'ground_up';
+  // Device counts on a whole-house plan are not a circuit takeoff. The
+  // rough-in allowance stays on the card and in the total. The electrical
+  // estimator still lets those counts own rough-in.
+  if (groundUpPlan && !noteExcludedIds.has('electrical_rough')) {
+    included.add('electrical_rough');
   }
   if (
     params.electricalIncludeRough === true ||
@@ -1278,11 +1363,12 @@ export function syncElectricalScopeItems<
     }
   }
   const materializedItems = items.filter(item => {
-    // Detailed device/circuit counts own the rough-in work. Do not leave the
-    // whole-project package in Confirm Scope as a duplicate, especially when
-    // an older draft carried living-area pricing on that package.
+    // On the electrical estimator, device counts own rough-in. A whole-house
+    // plan keeps the rough-in allowance: those counts are devices, not a
+    // circuit and box takeoff.
     if (
       detailedTakeoff &&
+      !groundUpPlan &&
       item.id === 'electrical_rough' &&
       !noteExcludedIds.has(item.id)
     ) {
@@ -1318,7 +1404,15 @@ export function syncElectricalScopeItems<
     } as T);
     existingIds.add(card.itemId);
   }
-  return materializedItems.map(item => {
+  const electricalPlan =
+    String((quantities as { planImportTradeKey?: string }).planImportTradeKey || '') ===
+    'electrical';
+  const labeledItems = materializedItems.map(item => {
+    const card = electricalCardForItemId(item.id);
+    if (!card || item.label === card.label) return item;
+    return { ...item, label: card.label, helperText: card.helper };
+  });
+  return labeledItems.map(item => {
     if (packageOnly) {
       if (
         ELECTRICAL_ITEM_IDS.includes(item.id) &&
@@ -1343,6 +1437,16 @@ export function syncElectricalScopeItems<
     }
     if (heldForConfirmation.has(item.id) && item.state === 'included') {
       return { ...item, state: 'unsure' as const };
+    }
+    if (
+      electricalPlan &&
+      !included.has(item.id) &&
+      !heldForConfirmation.has(item.id) &&
+      !fromQuantity.has(item.id) &&
+      item.state !== 'included' &&
+      item.state !== 'excluded'
+    ) {
+      return { ...item, state: 'excluded' as const };
     }
     if (!included.has(item.id)) return item;
     return item.state === 'included' ? item : { ...item, state: 'included' };
@@ -2406,6 +2510,34 @@ const ELECTRICAL_TRIM_OWNED_GROUPS = new Set<ElectricalCardGroupId>([
   'fans',
 ]);
 
+/** Receptacles, switches, fixtures, and fans counted on a plan. */
+export function isPlanElectricalDeviceCard(
+  itemId: string | null | undefined
+): boolean {
+  const card = electricalCardForItemId(itemId);
+  return Boolean(card && ELECTRICAL_TRIM_OWNED_GROUPS.has(card.groupId));
+}
+
+/**
+ * The generic Lighting card was copied from the recessed count.
+ * The recessed / canless card already owns that quantity.
+ */
+export function lightingQuantityDuplicatesRecessedTakeoff(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  const itemQuantities = (input.itemQuantities || {}) as Record<
+    string,
+    { quantity?: unknown }
+  >;
+  const lighting = readPositiveQuantity(itemQuantities.lighting?.quantity);
+  const recessed =
+    readPositiveQuantity(itemQuantities.electrical_recessed_light?.quantity) ??
+    readPositiveQuantity(input.recessedLightCount);
+  if (lighting == null || recessed == null) return false;
+  return Math.abs(lighting - recessed) < 0.01;
+}
+
 /**
  * True when 2C/2D/2E device or fixture counts already own trim-out work.
  */
@@ -2470,6 +2602,16 @@ export function shouldAutoPriceElectricalTrimPackage(
     return electricalTrimPackageRequestedFromInput(input);
   }
   return true;
+}
+
+/** Shown on Electrical fixtures when the counted devices already own that money. */
+export const ELECTRICAL_FIXTURES_COVERED_STATUS =
+  'Priced on the switch, light, and fan lines';
+
+export function electricalFixturesCoveredByDeviceLines(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  return hasDetailedElectricalTrimDeviceQuantities(input);
 }
 
 function electricalRoughPackageRequestedFromInput(

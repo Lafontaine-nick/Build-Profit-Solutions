@@ -2,6 +2,8 @@
  * A note that names more than one trade is one bid.
  * The checklist is the named lines. Unnamed trades stay off.
  */
+import { notesNameAtticInsulationWithDrywallHang } from '@/utils/insulationNoteScope';
+import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
 import {
   dedicatedDrywallConfirmScopeItems,
   notesDescribeDedicatedDrywallJob,
@@ -30,7 +32,7 @@ export function notesDescribeDrywallAndFlooringJob(
   return notesNameDrywallBesideFlooring(notes);
 }
 
-/** National hang rate: a drywall-only hang, sheetrock finish, or hang beside flooring. */
+/** National hang rate: a drywall hang, including hang beside flooring or attic insulation. */
 export function notesPriceNationalDrywallHang(
   notes: string | null | undefined
 ): boolean {
@@ -40,7 +42,10 @@ export function notesPriceNationalDrywallHang(
   return (
     notesDescribeDedicatedDrywallJob(text) ||
     notesDescribeSheetrockFinishJob(text) ||
-    notesDescribeDrywallAndFlooringJob(text)
+    notesDescribeDrywallAndFlooringJob(text) ||
+    notesNameAtticInsulationWithDrywallHang(text) ||
+    (noteUsesSeparateJobReader(text) &&
+      /\bhang\b[^.;\n]{0,40}\b(?:drywall|sheetrock|gypsum)\b/i.test(text))
   );
 }
 

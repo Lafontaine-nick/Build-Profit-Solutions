@@ -1137,7 +1137,7 @@ describe('planMeasurementConflictUi', () => {
     expect(pending.map(read => read.field)).toEqual([]);
   });
 
-  it('treats the new-build HVAC system as a confirmation, not a plan quantity', () => {
+  it('treats the new-build HVAC system as an assumption, not a plan quantity', () => {
     const offered = {
       planImportTradeKey: 'hvac',
       hvacSystemCount: 1,
@@ -1149,12 +1149,19 @@ describe('planMeasurementConflictUi', () => {
     expect(isNewBuildHvacSystemOfferRead(offered, 'hvacSystemCount')).toBe(
       true
     );
+    expect(isPendingPlanReadConfirmed(offered, 'hvacSystemCount')).toBe(false);
+    expect(
+      pendingPlanConfirmationSelectedValue(offered, 'hvacSystemCount')
+    ).toBe(null);
     const confirmed = confirmPendingPlanConfirmationRead(
       offered,
       'hvacSystemCount',
       1
     );
     expect(isNewBuildHvacSystemOfferRead(confirmed, 'hvacSystemCount')).toBe(
+      true
+    );
+    expect(isPendingPlanReadConfirmed(confirmed, 'hvacSystemCount')).toBe(
       true
     );
     expect(
@@ -1193,6 +1200,32 @@ describe('planMeasurementConflictUi', () => {
         'hvacSystemCount'
       )
     ).toBe(false);
+  });
+
+  it('leaves an electrical plan sheet count out of the confirmation strip', () => {
+    const pending = pendingPlanConfirmationReads({
+      planImportTradeKey: 'electrical',
+      standardReceptacleCount: 98,
+      ceilingFanCount: 7,
+      smokeDetectorCount: 8,
+      quickMeasurementSources: {
+        standardReceptacleCount: 'needs_confirmation',
+        ceilingFanCount: 'needs_confirmation',
+        smokeDetectorCount: 'needs_confirmation',
+      },
+      measurementProvenance: {
+        standardReceptacleCount: {
+          status: 'needs_review',
+          evidenceKind: 'symbols',
+          pricingEligible: false,
+        },
+        ceilingFanCount: {
+          status: 'needs_review',
+          evidenceKind: 'symbols',
+        },
+      },
+    });
+    expect(pending.map(read => read.field)).toEqual([]);
   });
 
   it('emptyPlanTakeoffReadingDisplay clarifies optional whole-house ventilation', () => {

@@ -85,7 +85,17 @@ export function notesDescribeDedicatedFlooringJob(
     return false;
   }
   if (!FLOORING_WORK_RE.test(text)) return false;
-  const stripped = text
+  // "No structural framing" names a trade only to keep it off the job.
+  const affirmative = text
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map(sentence => sentence.trim())
+    .filter(
+      sentence =>
+        sentence &&
+        !/^(?:no|not|without|do not|don't|dont|never)\b/i.test(sentence)
+    )
+    .join(' ');
+  const stripped = affirmative
     .replace(
       /\b(?:flooring|lvp|luxury\s+vinyl|vinyl\s+plank|laminate|carpet|hardwood|sheet\s+vinyl|vct|floor\s+prep|existing\s+floor|floor)\b/gi,
       ' '

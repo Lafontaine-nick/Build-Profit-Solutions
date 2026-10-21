@@ -133,6 +133,7 @@ export function atticInsulationWithDrywallHelpers(
 export function applyAtticInsulationWithDrywallCards<
   T extends {
     id?: string | null;
+    label?: string | null;
     helperText?: string | null;
     noteBacked?: boolean | null;
   },
@@ -145,6 +146,7 @@ export function applyAtticInsulationWithDrywallCards<
       if (item.id === 'insulation') {
         return {
           ...item,
+          label: 'Attic insulation',
           helperText: helpers.insulation,
           noteBacked: true,
         };
@@ -152,6 +154,7 @@ export function applyAtticInsulationWithDrywallCards<
       if (item.id === 'drywall') {
         return {
           ...item,
+          label: 'Drywall hang / finish',
           helperText: helpers.drywall,
           noteBacked: true,
         };

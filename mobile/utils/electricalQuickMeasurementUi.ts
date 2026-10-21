@@ -2,6 +2,7 @@ import {
   ELECTRICAL_CARD_GROUPS,
   ELECTRICAL_CARDS,
   electricalCardForMeasurementKey,
+  electricalPlanSheetCountBelongsInBid,
   type ElectricalCardGroupId,
   type ElectricalPanelLocation,
   type ElectricalProjectCondition,
@@ -19,6 +20,10 @@ export type ElectricalQmField = {
   conflicted: boolean;
   /** Visible quantity that is not in the bid until the contractor confirms it. */
   confirmInput?: boolean;
+  /** A highlighted count that still blocks its price card. */
+  blocksPrice?: boolean;
+  /** Confirmation with no sheet count. Tapping commits this quantity. */
+  offerQuantity?: number;
   provenanceLabel: string | null;
 };
 
@@ -204,12 +209,24 @@ export function electricalQmChipSelected(
 export function electricalQmTapQuantity(
   field: Pick<
     ElectricalQmField,
-    'unit' | 'selected' | 'conflicted' | 'value' | 'confirmInput'
+    | 'unit'
+    | 'selected'
+    | 'conflicted'
+    | 'value'
+    | 'confirmInput'
+    | 'offerQuantity'
   >
 ): string | null {
   if (field.conflicted) return null;
   if (field.selected) return '';
   if (field.confirmInput && Number(field.value) > 0) return String(field.value);
+  if (
+    field.confirmInput &&
+    field.offerQuantity != null &&
+    field.offerQuantity > 0
+  ) {
+    return String(field.offerQuantity);
+  }
   if (field.unit === 'EA') return '0';
   return null;
 }
@@ -408,6 +425,18 @@ export function buildElectricalQuickMeasurementGroups(input: {
         symbolFanNeedsConfirmation) &&
       positiveQuantity(measurements[card.measurementKey]) != null;
     const storedQuantity = positiveQuantity(measurements[card.measurementKey]);
+    const panelOffer =
+      card.measurementKey === 'mainPanelCount' &&
+      !userResolved &&
+      storedQuantity == null &&
+      electricalNewBuildMainPanelOffer({
+        planImportTradeKey: measurements.planImportTradeKey,
+        electricalProjectCondition: measurements.electricalProjectCondition,
+        mainPanelCount: measurements.mainPanelCount,
+        evidenceKind: provenanceEntry?.evidenceKind,
+        source,
+        userOverride: userResolved,
+      });
     const exhaustCopiesCeilingFans =
       card.measurementKey === 'bathExhaustFanCount' &&
       !userResolved &&
@@ -437,30 +466,53 @@ export function buildElectricalQuickMeasurementGroups(input: {
       conflicted.has(card.measurementKey) &&
       value != null;
     const exhaustEntry =
-      card.measurementKey === 'bathExhaustFanCount' && value == null;
+      card.measurementKey === 'bathExhaustFanCount' && value == null && !panelOffer;
+    // Turning a sheet count off is stored as `false`.
+    const planCountDeclined =
+      input.userOverrides?.[card.measurementKey] === false;
+    const planBidReady =
+      !planCountDeclined &&
+      !confirmDespiteConflict &&
+      !exhaustCopiesCeilingFans &&
+      electricalPlanSheetCountBelongsInBid(card.measurementKey, measurements, {
+        conflicted: conflicted.has(card.measurementKey),
+        declined: planCountDeclined,
+      });
+    const awaitingPlanCount = retainedForConfirmation && !planBidReady;
     const selected =
       value != null &&
-      !retainedForConfirmation &&
+      !panelOffer &&
       !confirmDespiteConflict &&
-      !exhaustEntry;
+      !exhaustEntry &&
+      !planCountDeclined;
     const field: ElectricalQmField = {
       key: card.measurementKey,
       itemId: card.itemId,
       label: card.label,
       unit: electricalQmUnit(card.unit),
-      value,
+      value: panelOffer ? null : value,
       selected,
       conflicted: conflictedField,
       confirmInput:
-        retainedForConfirmation || confirmDespiteConflict || exhaustEntry,
-      provenanceLabel:
-        retainedForConfirmation || confirmDespiteConflict
+        panelOffer ||
+        awaitingPlanCount ||
+        confirmDespiteConflict ||
+        exhaustEntry ||
+        (planCountDeclined && value != null),
+      blocksPrice:
+        !planCountDeclined &&
+        !panelOffer &&
+        (confirmDespiteConflict || awaitingPlanCount || conflictedField),
+      ...(panelOffer ? { offerQuantity: 1 } : {}),
+      provenanceLabel: planBidReady
+        ? 'Detected from plan'
+        : panelOffer || awaitingPlanCount || confirmDespiteConflict
           ? 'Needs confirmation'
           : selected
-          ? quantityProvenanceLabel(source || 'plan')
-          : conflictedField
-            ? 'Needs confirmation'
-            : null,
+            ? quantityProvenanceLabel(source || 'plan')
+            : conflictedField
+              ? 'Needs confirmation'
+              : null,
     };
     const list = byGroup.get(card.groupId) || [];
     list.push(field);
@@ -531,6 +583,89 @@ export function buildElectricalQuickMeasurementGroups(input: {
   }
 
   return [...merged.values()];
+}
+
+/** Header counts for the electrical groups actually on Confirm scope. */
+export function summarizeElectricalQuickMeasurementGroups(
+  groups: ElectricalQmGroup[]
+): {
+  detected: number;
+  aiVerified: number;
+  estimateAvailable: number;
+  needsConfirmation: number;
+  panelOffers: number;
+  confirmed: number;
+  planConfirmed: number;
+  relevantTotal: number;
+} {
+  const summary = {
+    detected: 0,
+    aiVerified: 0,
+    estimateAvailable: 0,
+    needsConfirmation: 0,
+    panelOffers: 0,
+    confirmed: 0,
+    planConfirmed: 0,
+    relevantTotal: 0,
+  };
+  for (const group of groups) {
+    for (const field of group.fields) {
+      const panelOffer = field.offerQuantity != null && field.value == null;
+      const emptyExhaust =
+        field.key === 'bathExhaustFanCount' &&
+        field.value == null &&
+        !field.selected;
+      if (panelOffer) {
+        summary.panelOffers += 1;
+        summary.relevantTotal += 1;
+        continue;
+      }
+      if (emptyExhaust) continue;
+      if (field.blocksPrice || field.conflicted) {
+        summary.needsConfirmation += 1;
+        summary.relevantTotal += 1;
+        continue;
+      }
+      if (!field.selected) continue;
+      const label = String(field.provenanceLabel || '');
+      summary.relevantTotal += 1;
+      if (/ai verified/i.test(label)) summary.aiVerified += 1;
+      else if (/contractor confirmed/i.test(label)) summary.planConfirmed += 1;
+      else if (/plan verified|from plan|detected from plan|counted from/i.test(label)) {
+        summary.detected += 1;
+      } else summary.confirmed += 1;
+    }
+  }
+  return summary;
+}
+
+/** Confirm scope header for an electrical plan. Zero buckets stay off the line. */
+export function electricalQuickMeasurementSummaryLine(summary: {
+  detected: number;
+  aiVerified?: number;
+  needsConfirmation: number;
+  panelOffers?: number;
+}): string {
+  const parts: string[] = [];
+  if (summary.detected > 0) {
+    parts.push(`${summary.detected} detected from plan`);
+  }
+  if ((summary.aiVerified || 0) > 0) {
+    parts.push(`${summary.aiVerified} AI verified`);
+  }
+  if (summary.needsConfirmation > 0) {
+    parts.push(
+      `${summary.needsConfirmation} to confirm`
+    );
+  }
+  if ((summary.panelOffers || 0) > 0) {
+    parts.push(
+      summary.panelOffers === 1
+        ? '1 panel to confirm'
+        : `${summary.panelOffers} panels to confirm`
+    );
+  }
+  return parts.join(' · ') || 'Measurements look complete';
 }
 
 export function applyElectricalQuickMeasurementPatch<
@@ -698,7 +833,8 @@ export function releaseElectricalQuickMeasurementSelection<
   const itemQuantities = { ...(prev.itemQuantities || {}) };
   if (card) delete itemQuantities[card.itemId];
   const overrides = { ...(prev.quickMeasurementUserOverrides || {}) };
-  delete overrides[field];
+  // `false` keeps a released plan count off. Deleting the key would select it again.
+  overrides[field] = false;
   const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
   if (card) delete pricingAcceptance[card.itemId];
   const next: T = {

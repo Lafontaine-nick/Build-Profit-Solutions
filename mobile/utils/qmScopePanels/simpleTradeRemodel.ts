@@ -12,7 +12,10 @@ import {
   inferRoofingTradeScopeSelectionsFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import {
+  hasDocumentedHvacVentilationCount,
   hvacCardForMeasurementKey,
+  hvacPlanImportAssumesSystemScope,
+  hvacTonnageEnteredByContractor,
   notesNameDedicatedHvacServiceVisit,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
@@ -472,9 +475,58 @@ export function isHvacQmScopeItemActive(
 export const HVAC_VENTILATION_IDLE_HINT =
   '1 each = one ERV, HRV, or whole-house fresh-air unit — not bath exhaust fans.';
 
+/**
+ * Whole-house ventilation is an ERV or HRV. The button stays off a new-build
+ * bid until the plans, the notes, or the contractor name one.
+ */
+export function hvacWholeHouseVentilationButtonVisible(
+  measurements: Record<string, unknown>,
+  notes?: string | null
+): boolean {
+  if (hasDocumentedHvacVentilationCount(measurements)) return true;
+  if (selectedScope(measurements, 'hvac').includes('ventilation')) return true;
+  return hvacScopeOptionMentionedInNotes('ventilation', notes);
+}
+
 /** Shown on the selected ventilation card quantity row in Confirm Scope. */
 export const HVAC_VENTILATION_QUANTITY_HELPER =
   'Enter how many units are in this bid. Price on the next step.';
+
+/** Take whole-house ventilation back out of the bid and drop its count. */
+export function releaseHvacVentilationSelection(
+  measurements: Record<string, unknown>
+): Record<string, unknown> {
+  const selections = selectedScope(measurements, 'hvac').filter(
+    id => id !== 'ventilation'
+  );
+  const itemQuantities = {
+    ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+  };
+  delete itemQuantities.ventilation;
+  const sources = {
+    ...((measurements.quickMeasurementSources as Record<string, string>) ||
+      {}),
+  };
+  delete sources.hvacVentilationCount;
+  return {
+    ...measurements,
+    hvacVentilationCount: '',
+    itemQuantities,
+    quickMeasurementSources: sources,
+    tradeScopeSelections: {
+      ...((measurements.tradeScopeSelections as Record<string, unknown>) ||
+        {}),
+      hvac: selections.length ? selections : null,
+    },
+    quickMeasurementUserOverrides: {
+      ...((measurements.quickMeasurementUserOverrides as Record<
+        string,
+        boolean
+      >) || {}),
+      hvacVentilationCount: true,
+    },
+  };
+}
 
 export const HVAC_SCOPE_DISTRIBUTION_OPTION_IDS = [
   'ductwork',
@@ -498,6 +550,39 @@ export function hvacPlanInstallIncludesDistribution(
     String(measurements.hvacSystemCount ?? '').replace(/,/g, '')
   );
   return Number.isFinite(count) && count > 0;
+}
+
+const HVAC_DISTRIBUTION_CHECKLIST_IDS = [
+  'ductwork',
+  'thermostat',
+  'supply_registers',
+  'return_grilles',
+] as const;
+
+/**
+ * Ductwork, registers, returns, and the thermostat are inside the new-build
+ * system price. They are not separate Confirm Scope questions.
+ */
+export function hvacDistributionFoldedIntoSystemPrice(
+  itemId: string,
+  measurements: Record<string, unknown>
+): boolean {
+  if (
+    !(HVAC_DISTRIBUTION_CHECKLIST_IDS as readonly string[]).includes(itemId)
+  ) {
+    return false;
+  }
+  const selections = resolveHvacTradeScopeSelections(measurements);
+  if (!hvacPlanInstallIncludesDistribution(measurements, selections)) {
+    return false;
+  }
+  const optionId =
+    itemId === 'supply_registers'
+      ? 'registers'
+      : itemId === 'return_grilles'
+        ? 'returns'
+        : itemId;
+  return !selections.includes(optionId) && !selections.includes(itemId);
 }
 
 export const HVAC_SCOPE_CORE_SECTIONS: Array<{
@@ -1142,6 +1227,22 @@ function hvacOptionPrimaryField(option: TradeOption): string | null {
   return option.measurementKey ?? null;
 }
 
+function unconfirmedNewBuildHvacSystemOffer(
+  measurements: Record<string, unknown>,
+  field: string
+): boolean {
+  if (field !== 'hvacSystemCount') return false;
+  if (String(measurements.planImportTradeKey || '') !== 'hvac') return false;
+  const provenance = measurements.measurementProvenance;
+  if (!provenance || typeof provenance !== 'object') return false;
+  const entry = (provenance as Record<string, unknown>).hvacSystemCount;
+  if (!entry || typeof entry !== 'object') return false;
+  return (
+    String((entry as { offer?: unknown }).offer || '') ===
+    'new_build_hvac_system'
+  );
+}
+
 function isHvacFieldConfirmed(
   measurements: Record<string, unknown>,
   field: string
@@ -1468,6 +1569,20 @@ export function resolveHvacTradeScopeSelections(
       id => id !== HVAC_SYSTEMS_OPTION_ID && id !== HVAC_CAPACITY_OPTION_ID
     );
   }
+  if (
+    !hvacNotesDropSystemPackage(notes) &&
+    hvacPlanImportAssumesSystemScope(measurements)
+  ) {
+    if (!next.includes(HVAC_SYSTEMS_OPTION_ID)) {
+      next = [...next, HVAC_SYSTEMS_OPTION_ID];
+    }
+    if (
+      !next.includes(HVAC_CAPACITY_OPTION_ID) &&
+      !measurements.quickMeasurementUserOverrides?.hvacSystemTons
+    ) {
+      next = [...next, HVAC_CAPACITY_OPTION_ID];
+    }
+  }
   return next;
 }
 
@@ -1538,8 +1653,16 @@ export function summarizeHvacScopePanel(
 } {
   const selections = resolveHvacTradeScopeSelections(measurements, notes);
   const spec = SIMPLE_TRADE_SPECS.hvac;
+  const capacityIsSystemSize =
+    selections.includes(HVAC_CAPACITY_OPTION_ID) &&
+    selections.includes(HVAC_SYSTEMS_OPTION_ID);
+  const tonnageIsPlanningPrice =
+    capacityIsSystemSize &&
+    hvacPlanImportAssumesSystemScope(measurements) &&
+    !hvacTonnageEnteredByContractor(measurements);
   let needsConfirmationCount = 0;
   for (const id of selections) {
+    if (id === HVAC_CAPACITY_OPTION_ID && tonnageIsPlanningPrice) continue;
     const option = spec.options.find(candidate => candidate.id === id);
     if (!option) continue;
     const needsReview =
@@ -1555,7 +1678,10 @@ export function summarizeHvacScopePanel(
       needsConfirmationCount += 1;
     }
   }
-  return { inBidCount: selections.length, needsConfirmationCount };
+  const inBidCount = selections.filter(
+    id => !(id === HVAC_CAPACITY_OPTION_ID && capacityIsSystemSize)
+  ).length;
+  return { inBidCount, needsConfirmationCount };
 }
 
 function finalizeHvacScopeSelections(
@@ -1659,6 +1785,12 @@ export function hvacScopeChipReviewState(
     return selections.includes(option.id) ? 'confirmed' : 'idle';
   }
   if (
+    unconfirmedNewBuildHvacSystemOffer(measurements, field) &&
+    !isHvacFieldConfirmed(measurements, field)
+  ) {
+    return selections.includes(option.id) ? 'confirmed' : 'idle';
+  }
+  if (
     notes &&
     hvacScopeOptionHasExplicitQuantityInNotes(option.id, notes) &&
     formatHvacScopeChipQuantity(measurements, option, selections) != null
@@ -1699,7 +1831,7 @@ export function formatHvacOptionalAddOnChipCaption(
   if (value != null) return formatHvacQuantityCaption(value, option.unit);
   const selected = selectedScope(measurements, 'hvac').includes(option.id);
   if (selected) return 'Included · enter quantity';
-  return 'Not on plans · $0';
+  return 'Not in this bid';
 }
 
 export function hvacScopeChipActive(
@@ -2031,6 +2163,14 @@ function syncSimpleTrade(
           : { ...item, state: 'included' as const, noteBacked: true };
       }
       return item.state === 'excluded' && !item.noteBacked
+        ? item
+        : { ...item, state: 'excluded' as const, noteBacked: false };
+    }
+    if (
+      spec.scopeKey === 'hvac' &&
+      hvacDistributionFoldedIntoSystemPrice(item.id, measurements)
+    ) {
+      return item.state === 'excluded'
         ? item
         : { ...item, state: 'excluded' as const, noteBacked: false };
     }

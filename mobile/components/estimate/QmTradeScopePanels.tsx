@@ -98,12 +98,19 @@ import {
 import {
   notesImplyExteriorFlatwork,
   notesImplyStructuralFoundation,
+  notesNameConcretePatioWithSod,
 } from '@/utils/foundationPlanningMeasurements';
 import {
   withConcreteGroundUpFlatworkPrompts,
   withConcreteGroundUpStructurePrompts,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
-import { HVAC_SYSTEM_TONNAGE_TIERS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  HVAC_SYSTEM_TONNAGE_TIERS,
+  hvacPlanImportAssumesSystemScope,
+  hvacPlanImportLacksPrintedTonnage,
+  hvacPlanImportStatesNewBuildSystem,
+  hvacNewBuildScopeCaption,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import { hvacNotesDropSystemPackage } from '@/utils/scopeItemNoteHints';
 import {
   applyHvacScopePanelMeasurementEdit,
@@ -118,6 +125,7 @@ import {
   hvacPlanInstallIncludesDistribution,
   HVAC_CAPACITY_OPTION_ID,
   HVAC_VENTILATION_QUANTITY_HELPER,
+  releaseHvacVentilationSelection,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipActive,
   hvacScopeChipNeedsQuantity,
@@ -127,6 +135,7 @@ import {
   hvacScopePanelMeasurementHelper,
   hvacScopePanelMeasurementValue,
   hvacScopeOptionMentionedInNotes,
+  hvacWholeHouseVentilationButtonVisible,
   roofingOptionsForIds,
   roofingDownspoutQuantityWarning,
   roofingQmOptionAllowanceAmount,
@@ -226,6 +235,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 22,
     flex: 1,
+  },
+  hvacVentilationRemove: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  hvacVentilationRemoveText: {
+    color: '#f87171',
+    fontSize: 14,
+    fontWeight: '700',
   },
   hvacScopeSelectedSubtext: {
     fontSize: 12,
@@ -4757,6 +4777,7 @@ export function QmLandscapingScopePanels({
   const updateMeasurement = (key: string, value: string) => {
     setMeasurements(prev => ({ ...prev, [key]: value }));
   };
+  if (notesNameConcretePatioWithSod(notes)) return null;
 
   return (
     <>
@@ -5577,6 +5598,7 @@ export function QmConcreteScopePanels({
     ? visibleOptionalOptionIds.size > 0
     : !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
   const panelStyle = qmPanelShellStyle(darkMode);
+  if (notesNameConcretePatioWithSod(notes)) return null;
 
   return (
     <View style={{ gap: 12 }}>
@@ -8113,7 +8135,7 @@ export function QmSimpleTradeScopePanels({
       },
       quickMeasurementUserOverrides,
     };
-    const updated =
+    const measured =
       scopeKey === 'hvac'
         ? (applyHvacScopeMeasurements(
             withSelections,
@@ -8128,6 +8150,12 @@ export function QmSimpleTradeScopePanels({
             }
           ) as ScopeMeasurementsInputExtended)
         : withSelections;
+    const updated =
+      scopeKey === 'hvac' && selected && id === 'ventilation'
+        ? (releaseHvacVentilationSelection(
+            measured as Record<string, unknown>
+          ) as ScopeMeasurementsInputExtended)
+        : measured;
     setMeasurements(updated);
     onScopeSelectionChange?.(updated);
   };
@@ -8280,7 +8308,9 @@ export function QmSimpleTradeScopePanels({
               { color: hvacPanelColors.captionColor },
             ]}
           >
-            {measurementHelper}
+            {option.id === 'ventilation'
+              ? '1 ERV or HRV = 1 each. Not a bath exhaust fan.'
+              : measurementHelper}
           </Text>
         ) : null}
         {active &&
@@ -8319,14 +8349,20 @@ export function QmSimpleTradeScopePanels({
               );
             })}
           </View>
-        ) : active && option.measurementKey ? (
+        ) : active &&
+          option.id === HVAC_SYSTEMS_OPTION_ID &&
+          hvacPlanImportAssumesSystemScope(
+            measurements as Record<string, unknown>
+          ) ? null : active && option.measurementKey ? (
           <QmSqftMeasurementRow
             label={
               option.id === HVAC_SYSTEMS_OPTION_ID
                 ? 'System count'
                 : option.id === HVAC_CAPACITY_OPTION_ID
                   ? 'System capacity'
-                  : `${option.label} quantity`
+                  : option.id === 'ventilation'
+                    ? 'Units'
+                    : `${option.label} quantity`
             }
             helperText={
               needsReview
@@ -8379,6 +8415,17 @@ export function QmSimpleTradeScopePanels({
               {quantityCaption}
             </Text>
           </View>
+        ) : null}
+        {option.id === 'ventilation' ? (
+          <TouchableOpacity
+            onPress={() => toggle(option.id, option.canonicalId)}
+            disabled={applying}
+            activeOpacity={0.75}
+            accessibilityLabel='Remove whole-house ventilation from bid'
+            style={styles.hvacVentilationRemove}
+          >
+            <Text style={styles.hvacVentilationRemoveText}>Remove from bid</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
     );
@@ -8446,6 +8493,15 @@ export function QmSimpleTradeScopePanels({
     ) {
       return false;
     }
+    if (
+      option.id === 'ventilation' &&
+      !hvacWholeHouseVentilationButtonVisible(
+        measurements as Record<string, unknown>,
+        notes
+      )
+    ) {
+      return false;
+    }
     return (
       !condensed ||
       hvacScopeOptionMentionedInNotes(option.id, notes) ||
@@ -8504,9 +8560,23 @@ export function QmSimpleTradeScopePanels({
       showSelectedButtons?: boolean;
     } = {}
   ) => {
-    const buttonOptions = showSelectedButtons
+    const seenOptionIds = new Set<string>();
+    const optionOrder = new Map(
+      spec.options.map((option, index) => [option.id, index])
+    );
+    const buttonOptions = (showSelectedButtons
       ? [...selectedOptions, ...idleOptions]
-      : idleOptions;
+      : idleOptions
+    )
+      .filter(option => {
+        if (seenOptionIds.has(option.id)) return false;
+        seenOptionIds.add(option.id);
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          (optionOrder.get(a.id) ?? 0) - (optionOrder.get(b.id) ?? 0)
+      );
     const showEquipmentToggle =
       equipmentCollapse && equipmentChipOptions.length > 0;
     const showGenericIdle = !equipmentCollapse && buttonOptions.length > 0;
@@ -8739,12 +8809,21 @@ export function QmSimpleTradeScopePanels({
               },
             ]}
           >
-            {hvacScopeSummary.inBidCount === 1
-              ? '1 item in bid'
-              : `${hvacScopeSummary.inBidCount} items in bid`}
+            {hvacScopeSummary.inBidCount === 1 &&
+            hvacPlanImportAssumesSystemScope(
+              measurements as Record<string, unknown>
+            )
+              ? '1 system in bid'
+              : hvacScopeSummary.inBidCount === 1
+                ? '1 item in bid'
+                : `${hvacScopeSummary.inBidCount} items in bid`}
             {hvacScopeSummary.needsConfirmationCount > 0
               ? ` · ${hvacScopeSummary.needsConfirmationCount} need confirmation`
-              : ' · ready for pricing'}
+              : hvacPlanImportStatesNewBuildSystem(
+                    measurements as Record<string, unknown>
+                  )
+                ? ' · planning price until tonnage is entered'
+                : ' · ready for pricing'}
           </Text>
         ) : null}
         {selectedCards.length ? (
@@ -8882,7 +8961,14 @@ export function QmSimpleTradeScopePanels({
               (measurements as { planImportTradeKey?: string })
                 .planImportTradeKey || ''
             ) === 'hvac'
-              ? 'System count and tonnage documented on the plans.'
+              ? hvacNewBuildScopeCaption(
+                  measurements as Record<string, unknown>
+                ) ||
+                (hvacPlanImportLacksPrintedTonnage(
+                  measurements as Record<string, unknown>
+                )
+                  ? 'Not printed on the plans.'
+                  : 'System count and tonnage documented on the plans.')
               : 'Named in the notes.',
           selectedOptions: hvacSelectedForIds([
             HVAC_SYSTEMS_OPTION_ID,
@@ -8898,7 +8984,7 @@ export function QmSimpleTradeScopePanels({
         {renderHvacScopeSubPanel({
           title: 'Distribution',
           caption: distributionIncludedInInstall
-            ? 'Included in the HVAC install price.'
+            ? 'Ductwork, registers, returns, and the thermostat are inside the system price until the plans list them separately.'
             : 'Ductwork, thermostats, and air devices in this bid.',
           selectedOptions: distributionIncludedInInstall
             ? []
@@ -8906,13 +8992,25 @@ export function QmSimpleTradeScopePanels({
           idleOptions: distributionIncludedInInstall
             ? []
             : hvacIdleForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
-          includedOptions: includedDistributionOptions,
+          includedOptions: distributionIncludedInInstall
+            ? []
+            : includedDistributionOptions,
           borderless: true,
           sectionSeparator: true,
         })}
         {renderHvacScopeSubPanel({
-          title: 'Equipment & add-ons',
-          caption: 'Equipment types and optional whole-house ventilation.',
+          title: hvacWholeHouseVentilationButtonVisible(
+            measurements as Record<string, unknown>,
+            notes
+          )
+            ? 'Equipment & add-ons'
+            : 'Equipment',
+          caption: hvacWholeHouseVentilationButtonVisible(
+            measurements as Record<string, unknown>,
+            notes
+          )
+            ? 'Equipment types and optional whole-house ventilation.'
+            : 'Equipment types.',
           selectedOptions: hvacSelectedForIds(HVAC_EQUIPMENT_OPTION_IDS),
           idleOptions: equipmentIdleOptions,
           equipmentCollapse: true,

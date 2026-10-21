@@ -62,17 +62,73 @@ describe('planScopeRecords', () => {
     expect(allowances?.findings.map(item => item.label)).toEqual(
       expect.arrayContaining(['Drywall', 'Foundation', 'Excavation'])
     );
-    expect(formatPlanScopeFinding(allowances!.findings[0])).toMatch(/Planning allowance/);
-    expect(planScopeRecordSummaryLines(records).join('\n')).toMatch(
-      /2,571 sqft · Living area · Read from the plan/
+    expect(formatPlanScopeFinding(allowances!.findings[0])).toBe(
+      'Excavation · planning allowance'
     );
-    expect(planScopeRecordSummaryLines(records).join('\n')).toMatch(
-      /Drywall · Planning allowance/
+    const lines = planScopeRecordSummaryLines(records);
+    expect(lines).toContain('Living area · 2,571 sqft');
+    expect(lines).toContain('Windows · 12 · confirm count');
+    expect(lines).toContain('Drywall · planning allowance');
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'Framing · planning allowance',
+        'Plumbing · planning allowance',
+        'HVAC · planning allowance',
+        'Electrical · planning allowance',
+        'Flooring · planning allowance',
+      ])
     );
-    expect(planScopeRecordSummaryLines(records).join('\n')).toMatch(
-      /3 spaces detected on the plan/
+    expect(lines.join('\n')).not.toMatch(/spaces detected on the plan/);
+    expect(lines.join('\n')).not.toMatch(/Toy Garage/);
+    expect(lines).toContain('Double garage doors · 1 · planning estimate');
+    expect(lines).toContain('RV / oversized garage doors · 1 · planning estimate');
+    expect(lines.every(line => line.length <= 56)).toBe(true);
+  });
+
+  test('lists the whole-house trades on a plan saved before they were allowances', () => {
+    const saved = [
+      {
+        id: 'allowances',
+        title: 'Not printed on these sheets',
+        findings: [
+          'excavation',
+          'foundation',
+          'flatwork',
+          'drywall',
+          'insulation',
+          'interior_paint',
+          'exterior_paint',
+          'roofing',
+        ].map(id => ({
+          id: `allowance-${id}`,
+          label: id,
+          quantity: null,
+          unit: null,
+          status: 'planning_allowance' as const,
+          sheet: null,
+          page: null,
+          sourceText: null,
+        })),
+      },
+    ];
+    const lines = planScopeRecordSummaryLines(saved).map(
+      line => line.split(' · ')[0]
     );
-    expect(planScopeRecordSummaryLines(records).join('\n')).not.toMatch(/513\.6 sqft · Toy Garage/);
+    expect(lines).toEqual([
+      'excavation',
+      'foundation',
+      'flatwork',
+      'Framing',
+      'roofing',
+      'Plumbing',
+      'HVAC',
+      'Electrical',
+      'insulation',
+      'drywall',
+      'Flooring',
+      'interior_paint',
+      'exterior_paint',
+    ]);
   });
 
   test('keeps unchecked drawing counts so Confirm Scope can ask for them', () => {

@@ -153,6 +153,38 @@ describe('electrical Phase 2E lighting/fan pricing', () => {
     ).toBe('auto_planning');
   });
 
+  it('keeps the plan recessed count when a placeholder quantity is inferred', () => {
+    const measurements = normalizeScopeMeasurements({
+      planImportTradeKey: 'electrical',
+      recessedLightCount: 31,
+      itemQuantities: {
+        electrical_recessed_light: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'inferred',
+        },
+      },
+    });
+    const resolved = resolveChecklistItemQuantity(
+      'electrical_recessed_light',
+      measurements,
+      { templateKey: 'electrical' }
+    );
+    expect(resolved.quantity).toBe(31);
+    const priced = resolveScopeItemSuggestedPricing(
+      'electrical_recessed_light',
+      inputWith({
+        planImportTradeKey: 'electrical',
+        recessedLightCount: 31,
+        itemQuantities: measurements.itemQuantities,
+      }),
+      'electrical',
+      resolved
+    );
+    expect(priced.fill?.total).toBe(4650);
+    expect(priced.fill?.basis?.quantity).toBe(31);
+  });
+
   it('shows the plan recessed count when a stored quantity is 1', () => {
     const measurements = normalizeScopeMeasurements({
       recessedLightCount: 31,
