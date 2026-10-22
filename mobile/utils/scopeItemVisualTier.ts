@@ -4,6 +4,11 @@ import {
   electricalPlanSheetCountBelongsInBid,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { hvacPlanImportLacksPrintedTonnage } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { dedicatedFlooringProducts } from '@/utils/flooringNoteScope';
+import { framingCoverSheetPackage } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { isGroundUpRoofingPlanImport } from '@/utils/qmScopePanels/simpleTradeRemodel';
+import { paintingPlanImport } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import { windowsDoorsPlanImport } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
   inferChoiceFromNotes,
   inferChoicesFromNotes,
@@ -27,6 +32,37 @@ export type ScopeItemNoteBadge =
 function notesIncludeSitePhotos(notes: string | null | undefined): boolean {
   const n = String(notes || '');
   return /---\s*Site photos\s*---|Detected from site photos/i.test(n);
+}
+
+const FLOORING_PLAN_PRODUCT_IDS = new Set([
+  'flooring_lvp',
+  'flooring_laminate',
+  'flooring_engineered_hardwood',
+  'flooring_solid_hardwood',
+  'tile_flooring',
+  'flooring_carpet',
+  'flooring_sheet_vinyl',
+]);
+
+/** A plan flooring product the contractor turned on. The sheet did not name it. */
+function flooringPlanProductTypedByContractor(
+  item: ScopeChecklistItem,
+  ctx: ScopeItemVisualContext
+): boolean {
+  const measurements = ctx.measurements as {
+    planImportMode?: string | null;
+    planImportTradeKey?: string | null;
+  };
+  if (
+    measurements.planImportMode !== 'selected_trade' ||
+    measurements.planImportTradeKey !== 'flooring' ||
+    !FLOORING_PLAN_PRODUCT_IDS.has(item.id)
+  ) {
+    return false;
+  }
+  return !dedicatedFlooringProducts(ctx.notes).some(
+    product => product.id === item.id
+  );
 }
 
 function maybePhotoBadge(
@@ -281,8 +317,43 @@ export function scopeItemNoteBadge(
   ctx: ScopeItemVisualContext
 ): ScopeItemNoteBadge | null {
   const notes = ctx.notes;
+  if (
+    item.id === 'framing' &&
+    framingCoverSheetPackage(
+      ctx.measurements as unknown as Record<string, unknown>
+    )
+  ) {
+    return null;
+  }
+  if (flooringPlanProductTypedByContractor(item, ctx)) {
+    return null;
+  }
   if (checklistItemInScope(item) && itemMeasuredFromPlan(item, ctx)) {
     return 'from_plan';
+  }
+  if (
+    isGroundUpRoofingPlanImport(
+      ctx.measurements as unknown as Record<string, unknown>,
+      notes
+    )
+  ) {
+    return null;
+  }
+  if (paintingPlanImport(ctx.measurements as unknown as Record<string, unknown>)) {
+    return null;
+  }
+  if (windowsDoorsPlanImport(ctx.measurements as unknown as Record<string, unknown>)) {
+    return null;
+  }
+  const planMeasurements = ctx.measurements as {
+    planImportMode?: string | null;
+    planImportTradeKey?: string | null;
+  };
+  if (
+    String(planMeasurements.planImportTradeKey || '') === 'plumbing' &&
+    planMeasurements.planImportMode === 'selected_trade'
+  ) {
+    return null;
   }
   if (
     item.id === 'hvac' &&

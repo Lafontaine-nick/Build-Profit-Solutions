@@ -4537,6 +4537,21 @@ export function quickMeasurementRowsForInput(
       /\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,45}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.;,\n]{0,45}\b(?:repair|replace|sheath|sheathing)\b/i.test(
         noteText
       );
+    // A windows or garage plan export already counted these openings.
+    // "Detected windows doors" must not drop the swing-door row.
+    if (
+      (options?.windowsDoorsPlanImport || options?.garageDoorsPlanImport) &&
+      (field.key === 'windowCount' ||
+        field.key === 'exteriorDoorCount' ||
+        field.key === 'slidingDoorCount' ||
+        field.key === 'interiorDoorCount' ||
+        field.key === 'garageDoorSingleCount' ||
+        field.key === 'garageDoorDoubleCount' ||
+        field.key === 'garageDoorRvCount' ||
+        field.key === 'garageDoorOpenerCount')
+    ) {
+      return true;
+    }
     if (field.key === 'windowCount') {
       return /\bwindows?\b/i.test(noteText);
     }

@@ -6,6 +6,7 @@ import {
   type SubcontractorTradeKey,
 } from '@/utils/subcontractorTrade';
 import {
+  filterPlumbingLabeledBathRooms,
   PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_PLAN_SCOPE_ALLOWLIST,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
@@ -563,6 +564,30 @@ export function stripScopeInputForSingleTrade<
       }
     : null;
   const allowedQm = new Set(tradeQuickMeasurementFieldKeys(tradeKey));
+  const plumbingBathRooms =
+    tradeKey === 'plumbing' && Array.isArray(input.planRooms)
+      ? filterPlumbingLabeledBathRooms(
+          input.planRooms as Array<{ name?: string | null }>
+        )
+      : [];
+  const stuccoStoryFacts =
+    tradeKey === 'stucco' &&
+    input.planFacts &&
+    typeof input.planFacts === 'object'
+      ? (() => {
+          const facts = input.planFacts as Record<string, unknown>;
+          const areas =
+            facts.buildingAreas && typeof facts.buildingAreas === 'object'
+              ? facts.buildingAreas
+              : input.buildingAreas && typeof input.buildingAreas === 'object'
+                ? input.buildingAreas
+                : null;
+          return {
+            ...(facts.storyCount != null ? { storyCount: facts.storyCount } : {}),
+            ...(areas ? { buildingAreas: areas } : {}),
+          };
+        })()
+      : null;
   const next = { ...input };
   for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {
     if (!allowedQm.has(key)) {
@@ -580,6 +605,10 @@ export function stripScopeInputForSingleTrade<
   ) {
     delete next.planRooms;
     delete next.planFacts;
+    if (plumbingBathRooms.length) next.planRooms = plumbingBathRooms;
+    if (stuccoStoryFacts && Object.keys(stuccoStoryFacts).length) {
+      next.planFacts = stuccoStoryFacts;
+    }
   }
   delete next.areaReconciliation;
   if (tradeKey !== 'garage_doors') {

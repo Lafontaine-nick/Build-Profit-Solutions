@@ -1,6 +1,8 @@
 import { keptAcceptedPlanSymbolCount } from '@/utils/acceptedPlanSymbolCounts';
 import { WHOLE_PROJECT_DRAWING_COUNT_KEYS } from '@/utils/planScopeRecords';
 import { drywallReviewSurfaces } from '@/utils/subcontractorTrade/drywallPlanConvergence';
+import { paintingPlanAssumesNewConstruction } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import { insulationPlanFootprintPackage } from '@/utils/insulationEnvelopeQuantity';
 import {
   planProvenanceLabel,
   resolvePlanMeasurementProvenance,
@@ -293,6 +295,11 @@ export function measurementDisplayLabel(
   const framingCard = framingCardForMeasurementKey(key);
   if (framingCard)
     return { label: framingCard.label, subtext: framingCard.helper };
+
+  if (key === 'roofPitch') return { label: 'Roof pitch' };
+  if (key === 'storyCount') return { label: 'Stories' };
+  if (key === 'roofSquares') return { label: 'Roof surface area / squares' };
+  if (key === 'roofAreaSqft') return { label: 'Roof surface area' };
 
   if (!measurementSemanticsV1Enabled()) {
     if (key === 'floorAreaSqft') return { label: 'Living area' };
@@ -1498,6 +1505,37 @@ export function reviewPackageTakeoffCaption(
   return parts.length ? parts.join(' · ') : null;
 }
 
+function paintingSurfaceReviewNote(
+  key: 'wallPaintSqft' | 'baseboardLf',
+  measurements: { wallPaintSqft?: unknown; baseboardLf?: unknown },
+  provenance?: Record<string, unknown> | null
+): string | undefined {
+  const stored = paintingQuantityNote(key, provenance);
+  if (
+    stored === 'Partial room geometry — confirm' ||
+    stored === 'Living area — confirm'
+  ) {
+    return stored;
+  }
+  return paintingWallTrimFormulaNote(key, measurements) || stored;
+}
+
+/** Wall SF that is just trim LF × plate height is a planning figure, not a finished takeoff. */
+export function paintingWallTrimFormulaNote(
+  key: 'wallPaintSqft' | 'baseboardLf',
+  measurements: { wallPaintSqft?: unknown; baseboardLf?: unknown }
+): string | null {
+  const walls = Number(String(measurements.wallPaintSqft ?? '').replace(/,/g, ''));
+  const trim = Number(String(measurements.baseboardLf ?? '').replace(/,/g, ''));
+  if (!(walls > 0) || !(trim > 0)) return null;
+  const height = Math.round((walls / trim) * 10) / 10;
+  if (!(height >= 7 && height <= 14)) return null;
+  if (Math.abs(Math.round(trim * height) - Math.round(walls)) > 1) return null;
+  if (key === 'baseboardLf') return 'Room perimeters — confirm';
+  const trimLabel = trim.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  return `${trimLabel} LF × ${height} ft plate height — confirm`;
+}
+
 function paintingQuantityNote(
   key: string,
   provenance?: Record<string, unknown> | null
@@ -1537,7 +1575,8 @@ function paintingQuantityNote(
 /** Grouped Painting summary for Plan Review before Confirm Scope. */
 export function buildPaintingPlanReviewSummary(
   measurements: Record<string, number | string | null | undefined>,
-  provenance?: Record<string, unknown> | null
+  provenance?: Record<string, unknown> | null,
+  options?: { assumeNewConstruction?: boolean }
 ): PaintingPlanReviewLine[] {
   const lines: PaintingPlanReviewLine[] = [];
   const walls = positiveMeasurement(measurements.wallPaintSqft);
@@ -1563,7 +1602,11 @@ export function buildPaintingPlanReviewSummary(
 
   if (hasInterior) {
     if (walls != null) {
-      const note = paintingQuantityNote('wallPaintSqft', provenance);
+      const note = paintingSurfaceReviewNote(
+        'wallPaintSqft',
+        measurements,
+        provenance
+      );
       lines.push({
         label: 'Walls',
         value: `${formatSfWithCommas(walls)} sqft`,
@@ -1602,7 +1645,11 @@ export function buildPaintingPlanReviewSummary(
       });
     }
     if (trim != null) {
-      const note = paintingQuantityNote('baseboardLf', provenance);
+      const note = paintingSurfaceReviewNote(
+        'baseboardLf',
+        measurements,
+        provenance
+      );
       lines.push({
         label: 'Baseboard / trim',
         value: `${formatSfWithCommas(trim)} LF`,
@@ -1633,14 +1680,23 @@ export function buildPaintingPlanReviewSummary(
   } else if (hasInterior) {
     lines.push({
       label: 'Exterior paint',
-      value: 'On this bid',
+      value: 'Needs SF',
       note: 'Elevation square footage was not printed — enter it before pricing',
     });
   }
 
+  const confirmedOccupancy =
+    measurements.paintOccupancyConfirmed === true
+      ? String(measurements.paintOccupancy || '')
+      : '';
+  const occupancy = confirmedOccupancy
+    ? confirmedOccupancy
+    : options?.assumeNewConstruction
+      ? 'new_construction'
+      : measurements.paintOccupancy;
   lines.push({
     label: 'Job condition',
-    value: occupancyLabel(measurements.paintOccupancy),
+    value: occupancyLabel(occupancy),
   });
   lines.push({
     label: 'Application method',
@@ -1648,7 +1704,10 @@ export function buildPaintingPlanReviewSummary(
   });
   lines.push({
     label: 'Prep / masking',
-    value: 'Needs confirmation',
+    value:
+      occupancy === 'new_construction'
+        ? 'Inside the paint package'
+        : 'Needs confirmation',
   });
 
   return lines;
@@ -2212,6 +2271,207 @@ export function planReviewFieldHelperText(input: {
     return null;
   }
   return helper;
+}
+
+/**
+ * Pitch and story count copied from the plan-facts sheet are plan readings.
+ * A measurement that merely repeats that fact keeps the plan source even when
+ * the takeoff row never received its own provenance.
+ */
+export function roofingPlanFactReviewProvenance(
+  key: string,
+  value: unknown,
+  planFacts: { roofPitch?: unknown; storyCount?: unknown } | null | undefined,
+  existing: unknown
+): unknown {
+  if (!planFacts) return existing;
+  const pitchFact = String(planFacts.roofPitch || '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  const pitchValue = String(value ?? '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  const storiesFact = Number(planFacts.storyCount);
+  const matches =
+    (key === 'roofPitch' && Boolean(pitchFact) && pitchFact === pitchValue) ||
+    (key === 'storyCount' &&
+      Number.isFinite(storiesFact) &&
+      storiesFact > 0 &&
+      Number(value) === storiesFact);
+  if (!matches) return existing;
+  const source = provenanceSourceText(existing);
+  if (
+    source.includes('plan_fact') ||
+    source === 'from_plan' ||
+    source.includes('detected_from_plan')
+  ) {
+    return existing;
+  }
+  const base =
+    existing && typeof existing === 'object'
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  return {
+    ...base,
+    source: 'plan_facts',
+    normalizedSource: 'FROM_PLAN',
+    pricingEligible: true,
+  };
+}
+
+/**
+ * A second story needs an upper floor or a printed second floor.
+ * A 2:12 pitch, or a story count with no upper floor, is one story.
+ * A number the contractor typed stays as they left it.
+ */
+export function roofingStoryCountForReview(input: {
+  measurements?: Record<string, unknown> | null;
+  planFacts?: Record<string, unknown> | null;
+  buildingAreas?: {
+    totalLivingSqft?: number | null;
+    mainFloorLivingSqft?: number | null;
+    upstairsLivingSqft?: number | null;
+  } | null;
+  provenanceEntry?: unknown;
+}): number | null {
+  const measurements = input.measurements || {};
+  const planFacts =
+    input.planFacts && typeof input.planFacts === 'object' ? input.planFacts : {};
+  const claimed = Number(measurements.storyCount ?? planFacts.storyCount);
+  if (!Number.isFinite(claimed) || claimed <= 0) return null;
+  const rounded = Math.max(1, Math.round(claimed));
+  const overrides = measurements.quickMeasurementUserOverrides;
+  const contractorTypedStory =
+    overrides &&
+    typeof overrides === 'object' &&
+    Boolean((overrides as Record<string, unknown>).storyCount);
+  const source = provenanceSourceText(input.provenanceEntry);
+  if (
+    contractorTypedStory ||
+    source.includes('user_entered') ||
+    source.includes('manual_override')
+  ) {
+    return rounded;
+  }
+  if (rounded <= 1) return 1;
+  const factsAreas =
+    planFacts.buildingAreas && typeof planFacts.buildingAreas === 'object'
+      ? (planFacts.buildingAreas as {
+          totalLivingSqft?: number | null;
+          mainFloorLivingSqft?: number | null;
+          upstairsLivingSqft?: number | null;
+        })
+      : null;
+  const areas = input.buildingAreas || factsAreas;
+  const positiveArea = (value: unknown): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const total = positiveArea(areas?.totalLivingSqft);
+  const main = positiveArea(areas?.mainFloorLivingSqft);
+  const upstairs = positiveArea(areas?.upstairsLivingSqft);
+  // A main floor that is the house is one story, even when a read also
+  // names an upstairs or a second floor.
+  if (
+    main != null &&
+    total != null &&
+    (total <= main + 1 || (total - main) / total < 0.15)
+  ) {
+    return 1;
+  }
+  if (upstairs != null && (total == null || upstairs / total >= 0.15)) {
+    return rounded;
+  }
+  if (
+    main != null &&
+    total != null &&
+    total > main + 1 &&
+    (total - main) / total >= 0.15
+  ) {
+    return rounded;
+  }
+  return 1;
+}
+
+/**
+ * Stucco uses the same story rule as roofing. A main floor that is the house
+ * is one story. A story the contractor typed stays.
+ */
+export function stuccoStoryCountForReview(input: {
+  measurements?: Record<string, unknown> | null;
+  planFacts?: Record<string, unknown> | null;
+  buildingAreas?: {
+    totalLivingSqft?: number | null;
+    mainFloorLivingSqft?: number | null;
+    upstairsLivingSqft?: number | null;
+  } | null;
+  provenanceEntry?: unknown;
+}): number | null {
+  const measurements = input.measurements || {};
+  const planFacts =
+    input.planFacts && typeof input.planFacts === 'object'
+      ? input.planFacts
+      : measurements.planFacts && typeof measurements.planFacts === 'object'
+        ? (measurements.planFacts as Record<string, unknown>)
+        : {};
+  const overrides = measurements.quickMeasurementUserOverrides;
+  const typedStuccoStory =
+    overrides &&
+    typeof overrides === 'object' &&
+    Boolean((overrides as Record<string, unknown>).stuccoStories);
+  return roofingStoryCountForReview({
+    measurements: {
+      ...measurements,
+      storyCount:
+        measurements.stuccoStories ??
+        measurements.storyCount ??
+        planFacts.storyCount,
+      quickMeasurementUserOverrides: {
+        ...(overrides && typeof overrides === 'object'
+          ? (overrides as Record<string, unknown>)
+          : {}),
+        ...(typedStuccoStory ? { storyCount: true } : {}),
+      },
+    },
+    planFacts,
+    buildingAreas: input.buildingAreas,
+    provenanceEntry: input.provenanceEntry,
+  });
+}
+
+function positiveStuccoArea(value: unknown): number | null {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The wall area Confirm Scope prices. A dropped gross field still carries
+ * when net is the same wall and nothing was deducted.
+ */
+export function stuccoWallAreaCarriedIntoConfirmScope(input: {
+  measurements?: Record<string, unknown> | null;
+  carriedGross?: unknown;
+  carriedNet?: unknown;
+}): { stuccoGrossWallSqft: string; stuccoNetWallSqft?: string } | null {
+  const measurements = input.measurements || {};
+  if (positiveStuccoArea(measurements.stuccoGrossWallSqft) != null) return null;
+  const openingInputs = [
+    'stuccoWindowDoorOpeningSqft',
+    'stuccoGarageOpeningSqft',
+    'stuccoOtherFinishDeductionSqft',
+  ].some(key => String(measurements[key] ?? '').trim() !== '');
+  const carriedGross = positiveStuccoArea(input.carriedGross);
+  const carriedNet = openingInputs
+    ? null
+    : positiveStuccoArea(input.carriedNet) ??
+      positiveStuccoArea(measurements.stuccoNetWallSqft);
+  const wall = carriedGross ?? carriedNet;
+  if (wall == null) return null;
+  const net = positiveStuccoArea(measurements.stuccoNetWallSqft);
+  return {
+    stuccoGrossWallSqft: String(wall),
+    ...(net == null && !openingInputs ? { stuccoNetWallSqft: String(wall) } : {}),
+  };
 }
 
 /**
@@ -2988,7 +3248,24 @@ export function confirmedPlanTakeoffLines(input: {
     const pendingPlanCount =
       (source === 'needs_confirmation' || source === 'needs_review') &&
       !legendlessElectricalGuess;
-    if (limitToPlanSources && !planSources.has(source) && !pendingPlanCount) {
+    const paintingSurfaceKey =
+      tradeKey === 'painting' &&
+      !wholeProject &&
+      [
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'baseboardLf',
+        'interiorDoorCount',
+        'cabinetRunLf',
+        'cabinetPaintSqft',
+        'exteriorPaintSqft',
+      ].includes(key);
+    if (
+      limitToPlanSources &&
+      !planSources.has(source) &&
+      !pendingPlanCount &&
+      !paintingSurfaceKey
+    ) {
       continue;
     }
     if (
@@ -3008,7 +3285,20 @@ export function confirmedPlanTakeoffLines(input: {
     if (!Number.isFinite(value) || value <= 0) continue;
     if (
       insulationPlan &&
-      (key === 'floorAreaSqft' || key === 'garageSqft' || key === 'deckSqft')
+      (key === 'floorAreaSqft' ||
+        key === 'garageSqft' ||
+        key === 'deckSqft' ||
+        key === 'storyCount')
+    ) {
+      continue;
+    }
+    if (tradeKey === 'roofing' && !wholeProject && key === 'storyCount') {
+      continue;
+    }
+    if (
+      tradeKey === 'stucco' &&
+      !wholeProject &&
+      key === 'stuccoNetWallSqft'
     ) {
       continue;
     }
@@ -3033,11 +3323,76 @@ export function confirmedPlanTakeoffLines(input: {
     if (isDerivedPlanTakeoffKey(key, value, measurements)) {
       continue;
     }
+    if (
+      tradeKey === 'painting' &&
+      !wholeProject &&
+      ![
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'baseboardLf',
+        'interiorDoorCount',
+        'cabinetRunLf',
+        'cabinetPaintSqft',
+        'exteriorPaintSqft',
+      ].includes(key)
+    ) {
+      continue;
+    }
     if (wholeProject) {
       if (/^(stucco|elevationFaces|soffit|parapet)/i.test(key)) continue;
       if (/elevation/i.test(key) && /width/i.test(key)) continue;
     }
     numeric.set(key, value);
+  }
+
+  if (tradeKey === 'painting' && !wholeProject) {
+    const lines: string[] = [];
+    const wall = numeric.get('wallPaintSqft');
+    const ceiling = numeric.get('ceilingPaintSqft');
+    if (wall) {
+      lines.push(
+        `Interior walls · ${planTakeoffQuantityText('wallPaintSqft', wall)}`
+      );
+    }
+    if (ceiling) {
+      lines.push(`Ceilings · ${planTakeoffQuantityText('ceilingPaintSqft', ceiling)}`);
+    }
+    const trim = numeric.get('baseboardLf');
+    if (trim) {
+      lines.push(`Trim paint · ${planTakeoffQuantityText('baseboardLf', trim)}`);
+    }
+    const doors = numeric.get('interiorDoorCount');
+    if (doors) {
+      lines.push(
+        `Interior door paint · ${planTakeoffQuantityText('interiorDoorCount', doors)}`
+      );
+    }
+    const cabinetLf = numeric.get('cabinetRunLf');
+    const cabinetSqft = numeric.get('cabinetPaintSqft');
+    if (cabinetLf) {
+      lines.push(
+        `Cabinet painting · ${planTakeoffQuantityText('cabinetRunLf', cabinetLf)}`
+      );
+    } else if (cabinetSqft) {
+      lines.push(
+        `Cabinet painting · ${planTakeoffQuantityText('cabinetPaintSqft', cabinetSqft)}`
+      );
+    }
+    if (
+      (wall || ceiling) &&
+      !paintingPlanAssumesNewConstruction(measurements)
+    ) {
+      lines.push('Interior masking');
+    }
+    const exterior = numeric.get('exteriorPaintSqft');
+    if (exterior) {
+      lines.push(
+        `Exterior paint · ${planTakeoffQuantityText('exteriorPaintSqft', exterior)}`
+      );
+    } else if (wall || ceiling || trim || doors) {
+      lines.push('Exterior paint · Needs SF');
+    }
+    return lines;
   }
 
   if (tradeKey === 'drywall' && !wholeProject) {
@@ -3054,6 +3409,22 @@ export function confirmedPlanTakeoffLines(input: {
       );
     }
     return lines;
+  }
+
+  if (insulationPlan && !wholeProject) {
+    const footprint = insulationPlanFootprintPackage(measurements);
+    if (footprint) {
+      return [
+        `Exterior wall insulation · ${planTakeoffQuantityText(
+          'exteriorWallInsulationSqft',
+          footprint.wallSqft
+        )}`,
+        `Attic / ceiling insulation · ${planTakeoffQuantityText(
+          'atticInsulationSqft',
+          footprint.atticSqft
+        )}`,
+      ];
+    }
   }
 
   const ordered = [
@@ -3247,7 +3618,9 @@ export function resolvePlumbingFixturesHardwareCount(
     if (scheduleCount > 0 && explicit > scheduleCount) return scheduleCount;
     return explicit;
   }
-  if (scheduleCount > 0) return scheduleCount;
+  if (scheduleCount > 0 && sumPlumbingFixturesHardwareCount(inventory) > 0) {
+    return scheduleCount;
+  }
 
   const fromInventory = sumPlumbingFixturesHardwareCount(inventory);
   const whCount = resolvePlumbingWaterHeaterCount(inventory, waterHeaterDetail);
@@ -3319,7 +3692,9 @@ export function resolvePlumbingWaterHeaterCount(
     return Math.round(fromInventory);
   }
   if (!waterHeaterDetail) return 0;
-  return Math.max(1, Number(waterHeaterDetail.count) || 1);
+  const count = Number(waterHeaterDetail.count);
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  return Math.round(count);
 }
 
 function hasGasAppliancesComplexityFactor(
@@ -3353,10 +3728,11 @@ export function expandResidentialGasApplianceScope(
   const count = countPlumbingGasApplianceConnections(normalized);
   if (count >= 3) return normalized;
 
+  const labeledAppliances = count > 0;
   const hasGasPiping =
     Boolean(normalized?.gasPipingRequired) ||
     (Number.isFinite(gasLf) && gasLf >= 20);
-  if (!hasGasPiping) return normalized;
+  if (!labeledAppliances || !hasGasPiping) return normalized;
 
   return {
     ...(normalized || {}),
@@ -3380,16 +3756,10 @@ function inferPlumbingWaterHeaterFromGasPiping(params: {
       ...(params.waterHeaterDetail || {}),
     };
   }
-  if (params.waterHeaterDetail) return params.waterHeaterDetail;
-  const gasLf = Number(params.measurements?.gasLineLf);
-  const gasScope = params.gasApplianceScope;
-  if (
-    !(Number.isFinite(gasLf) && gasLf >= 20) &&
-    !gasScope?.gasPipingRequired
-  ) {
-    return null;
+  if (params.waterHeaterDetail?.count && Number(params.waterHeaterDetail.count) > 0) {
+    return params.waterHeaterDetail;
   }
-  return { count: 1, fuel: 'gas' };
+  return params.waterHeaterDetail ?? null;
 }
 
 /** Fill rough/trim counts from fixture inventory when vision omitted canonical keys. */
@@ -3989,7 +4359,7 @@ export function tagFramingDerivedQuickMeasurementSources(
     (garage <= 0 || garageFromPlan) &&
     Math.abs(framed - (living + Math.max(0, garage))) < 1
   ) {
-    sources.framedAreaSqft = 'plan_detected';
+    sources.framedAreaSqft = 'plan_suggested';
   } else if (framed > 0 && !sources.framedAreaSqft) {
     sources.framedAreaSqft = 'plan_detected';
   }

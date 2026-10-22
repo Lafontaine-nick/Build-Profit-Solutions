@@ -1230,7 +1230,6 @@ describe("estimatePlanToMeasurements", () => {
       },
       { totalLivingSqft: 1879 },
     );
-    expect(facts.storyCount).toBe(2);
     expect(facts.roofPitch).toBe("5:12");
     expect(facts.wallHeightFt).toBeUndefined();
     expect(facts.exteriorPerimeterLf).toBe(214);
@@ -1251,6 +1250,7 @@ describe("estimatePlanToMeasurements", () => {
     });
     expect(facts.geometry).toHaveLength(1);
     expect(facts.geometry[0].id).toBe("supplied-plane");
+    expect(facts.storyCount).toBe(1);
   });
 
   test("a main floor that is the whole house is one story even when the read says two", () => {
@@ -1303,6 +1303,50 @@ describe("estimatePlanToMeasurements", () => {
         mainFloorLivingSqft: 2047,
         upstairsLivingSqft: 1613,
       },
+    );
+    expect(facts.storyCount).toBe(2);
+  });
+
+  test("a roof pitch of 2:12 is not a second story", () => {
+    const facts = sanitizePlanFacts(
+      {
+        storyCount: 2,
+        roofPitch: "2:12",
+        fieldEvidence: {
+          storyCount: {
+            value: 2,
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 8, sourceText: "ROOF PITCH 2:12" }],
+          },
+          roofPitch: {
+            value: "2:12",
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 8, sourceText: "ROOF PITCH 2:12" }],
+          },
+        },
+      },
+      { totalLivingSqft: 2571 },
+    );
+    expect(facts.storyCount).toBe(1);
+    expect(facts.roofPitch).toBe("2:12");
+  });
+
+  test("a printed second floor stays two stories", () => {
+    const facts = sanitizePlanFacts(
+      {
+        storyCount: 2,
+        fieldEvidence: {
+          storyCount: {
+            value: 2,
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 4, sourceText: "2ND FLOOR" }],
+          },
+        },
+      },
+      { totalLivingSqft: 1879 },
     );
     expect(facts.storyCount).toBe(2);
   });

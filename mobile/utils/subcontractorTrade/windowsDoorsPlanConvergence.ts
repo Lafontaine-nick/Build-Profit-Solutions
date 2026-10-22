@@ -1,3 +1,5 @@
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
+
 /**
  * Canonical Windows & doors (fenestration) plan-import contract.
  *
@@ -70,6 +72,117 @@ function positiveCount(value: unknown): number | null {
       .trim()
   );
   return Number.isFinite(count) && count > 0 ? Math.round(count) : null;
+}
+
+export function windowsDoorsPlanImport(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!measurements) return false;
+  return (
+    String(measurements.planImportMode || '') === 'selected_trade' &&
+    String(measurements.planImportTradeKey || '') === 'windows_doors' &&
+    Boolean(String(measurements.planImportFingerprint || '').trim())
+  );
+}
+
+const WINDOWS_DOORS_CARD_MEASUREMENT: Record<string, WindowsDoorsQuantityKey> =
+  {
+    windows: 'windowCount',
+    window_install: 'windowCount',
+    exterior_doors: 'exteriorDoorCount',
+    exterior_door_install: 'exteriorDoorCount',
+    sliding_doors: 'slidingDoorCount',
+    interior_doors: 'interiorDoorCount',
+    interior_door_install: 'interiorDoorCount',
+  };
+
+/** A plan count already put this opening on the bid. */
+export function windowsDoorsPlanOpeningSettled(
+  itemId: string,
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!windowsDoorsPlanImport(measurements)) return false;
+  const key = WINDOWS_DOORS_CARD_MEASUREMENT[itemId];
+  if (!key) return false;
+  return positiveCount(measurements?.[key]) != null;
+}
+
+export function windowsDoorsPlanFilledCounts(
+  measurements: Record<string, unknown> | null | undefined
+): Array<{ key: WindowsDoorsQuantityKey; count: number }> {
+  if (!windowsDoorsPlanImport(measurements)) return [];
+  return WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.flatMap(key => {
+    const count = positiveCount(measurements?.[key]);
+    return count == null ? [] : [{ key, count }];
+  });
+}
+
+/** Scope-found sentence for a windows and doors plan export. */
+export function windowsDoorsPlanTagline(
+  measurements: Record<string, unknown> | null | undefined
+): string | null {
+  const filled = windowsDoorsPlanFilledCounts(measurements);
+  if (!windowsDoorsPlanImport(measurements)) return null;
+  const label: Record<WindowsDoorsQuantityKey, (count: number) => string> = {
+    windowCount: count => `${count.toLocaleString('en-US')} windows`,
+    exteriorDoorCount: count => `${count.toLocaleString('en-US')} swing doors`,
+    slidingDoorCount: count => `${count.toLocaleString('en-US')} sliders`,
+    interiorDoorCount: count =>
+      `${count.toLocaleString('en-US')} interior doors`,
+  };
+  const parts = filled.map(row => label[row.key](row.count));
+  if (!parts.length) return 'Windows and doors from the plan.';
+  if (parts.length === 1) return `${parts[0]} from the plan.`;
+  const last = parts[parts.length - 1];
+  return `${parts.slice(0, -1).join(', ')}, and ${last} from the plan.`;
+}
+
+type WindowsDoorsSummaryCounts = {
+  detected: number;
+  aiVerified?: number;
+  estimateAvailable: number;
+  needsConfirmation: number;
+  confirmed: number;
+  planConfirmed?: number;
+  relevantTotal: number;
+};
+
+/** Every filled opening count is a plan quantity, including a confirmed one. */
+export function countWindowsDoorsPlanOpeningsAsFromPlan<
+  T extends WindowsDoorsSummaryCounts,
+>(
+  summary: T,
+  results: Array<{ key: string; state: string; sourceTag?: string | null }>,
+  measurements: Record<string, unknown> | null | undefined
+): T {
+  if (!windowsDoorsPlanImport(measurements)) return summary;
+  const keys = new Set<string>(WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS);
+  const next = { ...summary };
+  const seen = new Set<string>();
+  for (const result of results) {
+    if (!keys.has(result.key) || seen.has(result.key)) continue;
+    if (result.state === 'not_relevant') continue;
+    seen.add(result.key);
+    next.relevantTotal = Math.max(0, next.relevantTotal - 1);
+    if (result.state === 'detected') {
+      next.detected = Math.max(0, next.detected - 1);
+    } else if (result.state === 'ai_verified') {
+      next.aiVerified = Math.max(0, (next.aiVerified || 0) - 1);
+    } else if (result.state === 'estimate_available') {
+      next.estimateAvailable = Math.max(0, next.estimateAvailable - 1);
+    } else if (result.state === 'needs_confirmation') {
+      next.needsConfirmation = Math.max(0, next.needsConfirmation - 1);
+    } else if (result.state === 'confirmed') {
+      next.confirmed = Math.max(0, next.confirmed - 1);
+      if (result.sourceTag === 'contractor_confirmed_from_plan_review') {
+        next.planConfirmed = Math.max(0, (next.planConfirmed || 0) - 1);
+      }
+    }
+  }
+  const filled = windowsDoorsPlanFilledCounts(measurements).length;
+  next.detected += filled;
+  next.relevantTotal += filled;
+  return next;
 }
 
 /** Normalize common model aliases and keep counts bounded to a practical plan range. */
@@ -176,6 +289,11 @@ export function syncWindowsDoorsScopeItems<
   }
   return items.map(item => {
     if (!active.has(item.id)) return item;
+    if (contractorKeptScopeItemOut(item)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' };
+    }
     // A contractor-entered count is stronger evidence than a stale AI
     // exclusion. Promote the card whenever an explicit measurement exists.
     if (item.state === 'included') return item;
@@ -544,7 +662,8 @@ function titleCaseEvidenceToken(value: string): string {
 
 export function openingEvidenceSummaryLines(
   key: string,
-  planFacts?: unknown
+  planFacts?: unknown,
+  pricedCount?: number | null
 ): { lines: string[]; warning?: string } {
   const category =
     OPENING_EVIDENCE_KEY_BY_MEASUREMENT[key as WindowsDoorsQuantityKey];
@@ -553,18 +672,27 @@ export function openingEvidenceSummaryLines(
   const rows = entries.filter(entry => entry.category === category);
   if (!rows.length) return { lines: [] };
   const uniqueCount = reconciliation?.uniqueCounts?.[category] ?? rows.length;
-  const lines = [
-    `${uniqueCount} unique opening${uniqueCount === 1 ? '' : 's'} evidenced`,
-  ];
+  const priced = positiveCount(pricedCount);
+  const countsAgree = priced == null || uniqueCount === priced;
+  const lines: string[] = [];
+  if (countsAgree) {
+    lines.push(
+      `${uniqueCount} unique opening${uniqueCount === 1 ? '' : 's'} evidenced`
+    );
+  }
   const sheets = [...new Set(rows.map(row => row.sheet).filter(Boolean))];
   if (sheets.length) lines.push(`Sheets: ${sheets.join(', ')}`);
-  if (category === 'interior') {
+  if (category === 'interior' && countsAgree) {
     const breakdown = reconciliation?.interiorBreakdown || {};
     const parts = Object.entries(breakdown)
-      .filter(([, count]) => Number(count) > 0)
+      .filter(
+        ([subtype, count]) =>
+          Number(count) > 0 && String(subtype).toLowerCase() !== 'other'
+      )
       .map(([subtype, count]) => `${titleCaseEvidenceToken(subtype)} ${count}`);
     if (parts.length) lines.push(`Interior mix: ${parts.join(' · ')}`);
   }
+  if (!countsAgree) return { lines };
   const variance = reconciliation?.variance?.[category];
   if (variance && Object.keys(variance).length > 1) {
     const sourceValues = Object.entries(variance)

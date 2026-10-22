@@ -7,9 +7,14 @@ import {
 import {
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
+  getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
+import {
+  countWindowsDoorsPlanOpeningsAsFromPlan,
+  windowsDoorsPlanOpeningSettled,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 
 const NOTE = 'Replace 6 windows, 2 exterior doors, and 4 interior doors.';
@@ -91,10 +96,143 @@ describe('dedicated windows and doors note', () => {
       )
     ).toEqual(dedicatedWindowsDoorsRevealLines(NOTE));
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(3);
+    expect(getInitialRevealTagline(draft)).toBe('Detected windows doors.');
     expect(
       getInitialRevealConfirmItems(draft).pricingScope.filter(item =>
         /price needed|pricing for/i.test(item)
       )
     ).toEqual([]);
+  });
+
+  it('keeps every counted opening on a windows plan export', () => {
+    const measurements = {
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'windows_doors',
+      planImportFingerprint: 'lot-49',
+      windowCount: 33,
+      exteriorDoorCount: 5,
+      slidingDoorCount: 2,
+      interiorDoorCount: 20,
+    };
+    const draft = {
+      originalNotes: 'Detected windows doors.',
+      projectType: 'windows_doors',
+      whatAiDid: ['Detected windows doors.'],
+      scopeChecklist: { templateKey: 'windows_doors', items: [] },
+      scopeMeasurements: measurements,
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      '33 windows, 5 swing doors, 2 sliders, and 20 interior doors from the plan.'
+    );
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+        amount: row.amount,
+      }))
+    ).toEqual([
+      { name: 'Windows', quantity: '33 each', amount: 0 },
+      { name: 'Exterior swing doors', quantity: '5 each', amount: 0 },
+      { name: 'Sliding / patio doors', quantity: '2 each', amount: 0 },
+      { name: 'Interior doors', quantity: '20 each', amount: 0 },
+    ]);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(4);
+    expect(windowsDoorsPlanOpeningSettled('windows', measurements)).toBe(true);
+    expect(windowsDoorsPlanOpeningSettled('exterior_door_install', measurements)).toBe(
+      true
+    );
+    expect(windowsDoorsPlanOpeningSettled('sliding_doors', measurements)).toBe(true);
+    expect(windowsDoorsPlanOpeningSettled('interior_door_install', measurements)).toBe(
+      true
+    );
+    expect(windowsDoorsPlanOpeningSettled('prep', measurements)).toBe(false);
+
+    const confirmed = {
+      ...draft,
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'windows_doors',
+        items: [
+          { id: 'windows', label: 'Windows', state: 'included' },
+          {
+            id: 'exterior_door_install',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
+          { id: 'sliding_doors', label: 'Sliding / patio doors', state: 'included' },
+          {
+            id: 'interior_door_install',
+            label: 'Interior door installation',
+            state: 'included',
+          },
+        ],
+      },
+      scopePackages: [
+        {
+          checklistItemId: 'windows',
+          name: 'Windows',
+          price: 24420,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+        {
+          checklistItemId: 'exterior_door_install',
+          name: 'Exterior door installation',
+          price: 8250,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+        {
+          checklistItemId: 'sliding_doors',
+          name: 'Sliding / patio doors',
+          price: 6800,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+        {
+          checklistItemId: 'interior_door_install',
+          name: 'Interior door installation',
+          price: 7000,
+          priceProvidedByUser: true,
+          status: 'user_provided',
+        },
+      ],
+    } as EstimateAiDraft;
+    expect(
+      getInitialRevealChecklistScopePreview(confirmed).map(row => ({
+        name: row.name,
+        quantity: row.quantity,
+        amount: row.amount,
+      }))
+    ).toEqual([
+      { name: 'Windows', quantity: '33 each', amount: 24420 },
+      { name: 'Exterior swing doors', quantity: '5 each', amount: 8250 },
+      { name: 'Sliding / patio doors', quantity: '2 each', amount: 6800 },
+      { name: 'Interior doors', quantity: '20 each', amount: 7000 },
+    ]);
+    expect(getInitialRevealTotals(confirmed).scopeItemCount).toBe(4);
+
+    const summary = countWindowsDoorsPlanOpeningsAsFromPlan(
+      {
+        detected: 3,
+        aiVerified: 0,
+        estimateAvailable: 0,
+        needsConfirmation: 0,
+        confirmed: 1,
+        planConfirmed: 0,
+        relevantTotal: 4,
+      },
+      [
+        { key: 'windowCount', state: 'detected' },
+        { key: 'slidingDoorCount', state: 'detected' },
+        { key: 'interiorDoorCount', state: 'detected' },
+        { key: 'exteriorDoorCount', state: 'confirmed', sourceTag: 'user_entered' },
+      ],
+      measurements
+    );
+    expect(summary.detected).toBe(4);
+    expect(summary.confirmed).toBe(0);
+    expect(summary.relevantTotal).toBe(4);
   });
 });

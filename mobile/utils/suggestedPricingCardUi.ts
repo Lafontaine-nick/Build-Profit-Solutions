@@ -825,11 +825,18 @@ function formatSuggestedCardRateMoney(rate: number): string {
 export function formatSuggestedCardRateLine(
   block: Pick<
     SuggestedPricingBlock,
-    'basis' | 'total' | 'installedBudgetBenchmark' | 'needsServiceAmperage'
+    | 'basis'
+    | 'total'
+    | 'helper'
+    | 'installedBudgetBenchmark'
+    | 'needsServiceAmperage'
   >
 ): string | null {
   if (block.installedBudgetBenchmark || block.needsServiceAmperage) {
     return null;
+  }
+  if (/minimum applied/i.test(String(block.helper || ''))) {
+    return String(block.helper).trim();
   }
   const qty = Number(block.basis?.quantity);
   const rawUnit = String(block.basis?.unit || '').trim();

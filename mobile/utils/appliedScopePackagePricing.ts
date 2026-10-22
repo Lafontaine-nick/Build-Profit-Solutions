@@ -183,43 +183,57 @@ function checklistItemAllowsAppliedRuleKey(
   return Boolean(primary && checklistItemInScope(primary));
 }
 
+function paintingDraftUsesPaintSurfaces(draft: EstimateAiDraft): boolean {
+  const template = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+  const trade = String(
+    (draft.scopeMeasurements as { planImportTradeKey?: string | null } | null)
+      ?.planImportTradeKey || ''
+  ).toLowerCase();
+  return template === 'painting' || trade === 'painting';
+}
+
 /**
- * Painting prep / mask add-ons are included in standard interior or exterior paint
- * when those surfaces already have Applied pricing on Confirm Scope.
+ * A surface price is on the bid once Confirm Scope recorded it.
+ * Live material/labor fields count, and so does the acceptance total those
+ * review rows already display.
+ */
+function surfacePriceIsApplied(
+  itemId: string,
+  quantities: ScopeMeasurementsInputExtended['itemQuantities'],
+  acceptance: Record<string, ScopePricingAcceptanceMetadata>
+): boolean {
+  const recorded = acceptance[itemId];
+  if (!recorded) return false;
+  if (hasAcceptedScopePricing(itemId, quantities || {}, acceptance)) return true;
+  return resolveAppliedScopeMoneyTotal(itemId, quantities, recorded) > 0;
+}
+
+/**
+ * Combined ceiling paint is already inside the interior paint price.
+ * Masking is its own card and stays unpriced until that card is applied.
  */
 export function isPaintingAddonCoveredByAppliedSurfacePricing(
   itemId: string,
   draft: EstimateAiDraft | null | undefined
 ): boolean {
   if (!draft || !itemId) return false;
-  if (String(draft.scopeChecklist?.templateKey || '').toLowerCase() !== 'painting') {
-    return false;
-  }
+  if (!paintingDraftUsesPaintSurfaces(draft)) return false;
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
     return false;
   }
 
-  const items = confirmScopeDisplayItemsFromDraft(draft);
-  if (!items.length) return false;
+  const normalized =
+    itemId === 'paint_prep' || itemId === 'masking' || itemId === 'interior_masking'
+      ? 'prep'
+      : itemId;
   const measurements = draftMeasurementsForAppliedPricing(draft);
   const quantities = measurements.itemQuantities || {};
   const acceptance = measurements.pricingAcceptance || {};
-  const surfacePricingApplied = (ids: readonly string[]) => {
-    const inScope = ids.some((id) => {
-      const item = items.find((row) => row.id === id);
-      return item && checklistItemInScope(item);
-    });
-    if (!inScope) return false;
-    return ids.some((id) => hasAcceptedScopePricing(id, quantities, acceptance));
-  };
+  const surfacePricingApplied = (ids: readonly string[]) =>
+    ids.some((id) => surfacePriceIsApplied(id, quantities, acceptance));
 
-  if (itemId === 'prep') {
-    return surfacePricingApplied([...INTERIOR_PAINT_SURFACE_KEYS, 'ceiling_paint']);
-  }
-  if (itemId === 'exterior_prep') {
-    return surfacePricingApplied(['exterior_paint']);
-  }
-  if (itemId === 'ceiling_paint') {
+  if (normalized === 'prep' || normalized === 'exterior_prep') return false;
+  if (normalized === 'ceiling_paint') {
     const method = draft.scopeMeasurements?.paintPricingMethod;
     if (method === 'combined') {
       return surfacePricingApplied(INTERIOR_PAINT_SURFACE_KEYS);
@@ -284,6 +298,40 @@ export function resolveAppliedConfirmScopePackagePricing(
 
     const total = resolveAppliedScopeMoneyTotal(ruleKey, quantities, acceptanceMap[ruleKey]);
     if (!(total > 0)) continue;
+    if (
+      String(
+        draft.scopeChecklist?.templateKey ||
+          (measurements as { planImportTradeKey?: string | null }).planImportTradeKey ||
+          ''
+      ).toLowerCase() === 'painting' &&
+      !manualPrice
+    ) {
+      const suggested = resolveScopeItemSuggestedPricing(
+        ruleKey,
+        measurements,
+        draft.scopeChecklist?.templateKey || 'painting',
+        resolveChecklistItemQuantity(ruleKey, measurements, {
+          templateKey: draft.scopeChecklist?.templateKey,
+          notes: resolveDraftScopeNotes(draft),
+        }),
+        null,
+        null,
+        resolveDraftScopeNotes(draft)
+      );
+      const suggestedTotal = Number(suggested.fill?.total);
+      const acceptedTotal = Number(acceptance?.totalAmount);
+      const live = liveScopeMoneyFromQuantities(ruleKey, quantities) ?? 0;
+      const hasAcceptedTotal = Number.isFinite(acceptedTotal) && acceptedTotal > 0;
+      const committed = hasAcceptedTotal ? acceptedTotal : live;
+      if (
+        !(suggestedTotal > 0) ||
+        !(committed > 0) ||
+        Math.abs(committed - suggestedTotal) >= 1 ||
+        (hasAcceptedTotal && live > 0 && Math.abs(acceptedTotal - live) >= 1)
+      ) {
+        continue;
+      }
+    }
 
     const material = Number(quantities[`${ruleKey}__material`]?.quantity || 0) || 0;
     const labor = Number(quantities[`${ruleKey}__labor`]?.quantity || 0) || 0;

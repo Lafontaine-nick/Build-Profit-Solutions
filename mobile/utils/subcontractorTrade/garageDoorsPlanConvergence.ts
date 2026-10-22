@@ -1,3 +1,4 @@
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import {
   openingScheduleQuantityTotal,
   tallyGarageDoorTypesFromSchedule,
@@ -408,6 +409,11 @@ export function syncGarageDoorsScopeItems<
   }
   return items.map(item => {
     if (!active.has(item.id)) return item;
+    if (contractorKeptScopeItemOut(item)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' };
+    }
     if (item.state === 'included' || item.state === 'excluded') return item;
     return { ...item, state: 'included' };
   });

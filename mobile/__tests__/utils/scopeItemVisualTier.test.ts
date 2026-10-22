@@ -1,4 +1,5 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
+import { normalizeScopeMeasurements } from '@/utils/scopeItemQuantities';
 import {
   scopeCardAccentForItem,
   scopeCardOpacityForItem,
@@ -143,6 +144,150 @@ describe('scopeItemNoteBadge', () => {
         },
       })
     ).toBe('from_plan');
+  });
+
+  test('a new roof plan does not badge typed quantities as mentioned in notes', () => {
+    const item = {
+      id: 'shingles_roofing',
+      label: 'Shingles',
+      state: 'included',
+      inputType: 'yes_no',
+      noteBacked: false,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'roofing',
+        notes: 'Detected roofing. Shingles, ridge vent, and gutters.',
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'roofing',
+          planImportFingerprint: 'plan-1',
+          roofSquares: 22,
+          itemQuantities: {},
+          quickMeasurementSources: {
+            roofSquares: 'user_entered',
+          },
+        },
+      })
+    ).toBeNull();
+  });
+
+  test('a windows plan does not badge counted openings as mentioned in notes', () => {
+    const item = {
+      id: 'windows',
+      label: 'Windows',
+      state: 'included',
+      inputType: 'yes_no',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'windows_doors',
+        notes: 'Detected windows doors.',
+        measurements: {
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'windows_doors',
+          planImportFingerprint: 'lot-49',
+          windowCount: 33,
+          itemQuantities: {},
+        },
+      })
+    ).toBeNull();
+  });
+
+  test('a cover-sheet framing package does not wear a notes badge', () => {
+    const item = {
+      id: 'framing',
+      label: 'Framing (lumber + labor)',
+      state: 'included',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    const measurements = normalizeScopeMeasurements({
+      planImportTradeKey: 'framing',
+      planImportMode: 'selected_trade',
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+      framedAreaSqft: 3998,
+      quickMeasurementSources: {
+        framedAreaSqft: 'plan_suggested',
+      },
+    } as never);
+    expect(measurements.planImportMode).toBe('selected_trade');
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'framing',
+        notes: 'Detected framing. Frame the walls.',
+        measurements,
+      })
+    ).toBeNull();
+  });
+
+  test('a flooring plan does not badge contractor-typed products as mentioned in notes', () => {
+    const carpet = {
+      id: 'flooring_carpet',
+      label: 'Carpet installation',
+      state: 'included',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    const tile = {
+      id: 'tile_flooring',
+      label: 'Tile installation',
+      state: 'included',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    const measurements = {
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'flooring',
+      planImportFingerprint: 'lot-49',
+      floorAreaSqft: 2571,
+      flooringCarpetSqft: 571,
+      flooringTileSqft: 2000,
+      flooringProductScope: ['carpet', 'tile'],
+      itemQuantities: {},
+    };
+    const ctx = {
+      templateKey: 'flooring',
+      notes: 'Detected flooring job.',
+      measurements,
+    };
+    expect(scopeItemNoteBadge(carpet, ctx)).toBeNull();
+    expect(scopeItemNoteBadge(tile, ctx)).toBeNull();
+  });
+
+  test('a notes-only flooring product can still say it was mentioned', () => {
+    const item = {
+      id: 'flooring_carpet',
+      label: 'Carpet installation',
+      state: 'included',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'flooring',
+        notes: 'Install 571 sqft of carpet.',
+        measurements: normalizeScopeMeasurements({
+          flooringCarpetSqft: 571,
+        } as never),
+      })
+    ).toBe('mentioned');
+  });
+
+  test('a notes-only framing card can still say it was mentioned', () => {
+    const item = {
+      id: 'framing',
+      label: 'Framing (lumber + labor)',
+      state: 'included',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(item, {
+        templateKey: 'framing',
+        notes: 'Detected framing.',
+        measurements: normalizeScopeMeasurements({
+          framedAreaSqft: 300,
+        } as never),
+      })
+    ).toBe('mentioned');
   });
 
   test('an electrical plan symbol count badges detected from the plan', () => {

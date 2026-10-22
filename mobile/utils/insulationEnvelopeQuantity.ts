@@ -26,6 +26,28 @@ export const INSULATION_PERIMETER_FROM_LIVING_FACTOR = 4;
  */
 export const INSULATION_MIN_UPPER_FLOOR_SHARE = 0.15;
 
+/** Insulation plan export whose wall and attic quantities are already on the draft. */
+export function insulationPlanFootprintPackage(
+  measurements?: Record<string, unknown> | null
+): { wallSqft: number; atticSqft: number } | null {
+  if (String(measurements?.planImportTradeKey || '') !== 'insulation') return null;
+  if (String(measurements?.planImportMode || '') !== 'selected_trade') return null;
+  const wall = Number(
+    String(measurements?.exteriorWallInsulationSqft ?? '').replace(/,/g, '')
+  );
+  const attic = Number(
+    String(measurements?.atticInsulationSqft ?? '').replace(/,/g, '')
+  );
+  if (!(wall > 0) || !(attic > 0)) return null;
+  return { wallSqft: wall, atticSqft: attic };
+}
+
+export const INSULATION_PLAN_FOOTPRINT_TAGLINE =
+  'Wall and attic areas from the floor-plan footprint.';
+
+export const INSULATION_PLAN_FOOTPRINT_HELPER =
+  'Planning estimate from the floor-plan footprint.';
+
 /**
  * A story count above 1 needs an upper floor. A labeled main floor that is
  * the whole living area is one story, even when a read says otherwise.
@@ -49,11 +71,13 @@ export function storyCountSupportedByBuildingAreas(
   );
   if (upstairs != null) return stories;
   if (insulationUpperFloorGapSqft(main, total) != null) return stories;
+  // Two labeled living areas that nearly match are one floor. A main floor
+  // with no cover total, or a cover total with no main floor, keeps the read.
   if (
     main != null &&
-    (total == null ||
-      Math.abs(total - main) / Math.max(total, 1) <
-        INSULATION_MIN_UPPER_FLOOR_SHARE)
+    total != null &&
+    total > main + 1 &&
+    (total - main) / total < INSULATION_MIN_UPPER_FLOOR_SHARE
   ) {
     return 1;
   }

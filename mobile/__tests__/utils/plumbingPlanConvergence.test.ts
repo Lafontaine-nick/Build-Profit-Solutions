@@ -852,22 +852,8 @@ describe('plumbing canonical architecture', () => {
       'Plumbing fixtures & trim',
       'Water heater',
     ]);
-    expect(getInitialRevealChecklistScopePreview(next).map(row => row.name)).toEqual([
-      'Underground water service',
-      'Underground sewer',
-      'Plumbing rough-in',
-      'Gas piping',
-      'Plumbing fixtures & trim',
-      'Water heater',
-    ]);
-    expect(getInitialRevealConfirmItems(next).pricingScope).toEqual([
-      'Count needed for Underground water service',
-      'Count needed for Underground sewer',
-      'Count needed for Plumbing rough-in',
-      'Count needed for Gas piping',
-      'Count needed for Plumbing fixtures & trim',
-      'Count needed for Water heater',
-    ]);
+    expect(getInitialRevealChecklistScopePreview(next)).toEqual([]);
+    expect(getInitialRevealConfirmItems(next).pricingScope).toEqual([]);
   });
 
   it('preserves applied equipment pricing when API payload omits filtered measurement keys', () => {

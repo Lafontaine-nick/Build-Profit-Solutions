@@ -289,6 +289,29 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('prices clay tile from the roof material choice', () => {
+    const input = inputWith({
+      roofSquares: '22',
+      roofingSystemChoice: 'concrete_clay_tile',
+    });
+    const resolved = resolveChecklistItemQuantity('shingles_roofing', input, {
+      templateKey: 'roofing',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'shingles_roofing',
+      input,
+      'roofing',
+      resolved,
+      { checklistItems: [] }
+    );
+    expect(suggested.fill).toMatchObject({
+      material: 14300,
+      labor: 18700,
+      total: 33000,
+      basis: { quantity: 22, unit: 'squares' },
+    });
+  });
+
   it('prices the Roofing system card from the row choice when the context choice is still unsure', () => {
     const input = inputWith({
       roofSquares: '20',
@@ -532,6 +555,27 @@ describe('resolveScopeItemSuggestedPricing', () => {
       total: 400,
       helper: '$400 minimum applied',
     });
+    const onTheRoof = (
+      itemId: string,
+      quantity: number,
+      unit: string
+    ) =>
+      resolveScopeItemSuggestedPricing(
+        itemId,
+        inputWith({ roofSquares: '22' }),
+        'roofing',
+        { quantity, unit, quantitySource: 'user_entered' }
+      ).fill;
+    expect(onTheRoof('gutters', 2, 'lf')).toMatchObject({
+      total: 20,
+      material: 8,
+      labor: 12,
+    });
+    expect(onTheRoof('ridge_vent', 5, 'each')).toMatchObject({
+      total: 60,
+      material: 20,
+      labor: 40,
+    });
     expect(price('downspouts', 4, 'each')).toMatchObject({
       total: 500,
       material: 200,
@@ -769,7 +813,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     );
 
     expect(lvp.fill?.total).toBe(4200);
-    expect(tile.fill?.total).toBeGreaterThan(0);
+    expect(tile.fill).toMatchObject({ material: 2400, labor: 3200, total: 5600 });
     expect(tile.fill?.total).not.toBe(lvp.fill?.total);
     expect(transitions.fill).toMatchObject({
       material: 960,

@@ -2,6 +2,7 @@
  * Canonical Framing architecture — plan export, notes, and manual entry converge here.
  */
 
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import type { ScopePricingBehavior } from './scopePricingBehavior';
 
 export type FramingQuantityKey =
@@ -476,6 +477,30 @@ export function resolveCoveredFramedAreaSqft(
   return Math.round(living + Math.max(0, garage));
 }
 
+export const FRAMING_COVER_SHEET_TAGLINE =
+  'Living and garage areas from the cover sheet.';
+
+export const FRAMING_COVER_SHEET_HELPER =
+  'Cover-sheet living area plus the garage. Lumber, sheathing, trusses, decking, and framing labor stay in this one package.';
+
+/** Living plus garage on a framing plan import. The sum is the package, not a printed third area. */
+export function framingCoverSheetPackage(
+  measurements: Record<string, unknown> | null | undefined
+): { livingSqft: number; garageSqft: number; packageSqft: number } | null {
+  if (!measurements) return null;
+  if (String(measurements.planImportTradeKey || '') !== 'framing') return null;
+  if (String(measurements.planImportMode || '') !== 'selected_trade') {
+    return null;
+  }
+  const living = positiveNumber(measurements.floorAreaSqft);
+  const garage = positiveNumber(measurements.garageSqft);
+  if (living == null || garage == null) return null;
+  const packageSqft = Math.round(living + garage);
+  const framed = positiveNumber(measurements.framedAreaSqft);
+  if (framed != null && Math.abs(framed - packageSqft) >= 1) return null;
+  return { livingSqft: living, garageSqft: garage, packageSqft };
+}
+
 export function resolveFramingSheathingSqft(
   input: Record<string, unknown>
 ): number | null {
@@ -668,10 +693,20 @@ function buildItemQuantities(
       quantity = resolveFramingSheathingSqft(input);
     }
     if (quantity == null) continue;
+    const coverSum =
+      card.itemId === 'framing' &&
+      positiveNumber(input.floorAreaSqft) != null &&
+      Math.abs(
+        quantity -
+          Math.round(
+            (positiveNumber(input.floorAreaSqft) || 0) +
+              (positiveNumber(input.garageSqft) || 0)
+          )
+      ) < 1;
     out[card.itemId] = {
       quantity,
       unit: card.unit,
-      quantitySource: source,
+      quantitySource: coverSum ? 'inferred' : source,
     };
   }
   return out;
@@ -827,15 +862,32 @@ export function syncFramingScopeItems<T extends { id: string; state?: string }>(
       }
     }
   }
+  const coverSheet = framingCoverSheetPackage(quantities);
   return items
     .filter(item => !hiddenOnShell.has(item.id))
     .map(item => {
       if (!FRAMING_ITEM_IDS.includes(item.id)) return item;
-      if (!active.has(item.id)) {
-        if (item.state === 'included') return { ...item, state: 'review' };
-        return item;
+      if (contractorKeptScopeItemOut(item)) {
+        return item.state === 'excluded'
+          ? item
+          : { ...item, state: 'excluded' as const };
       }
-      if (item.state === 'included' || item.state === 'excluded') return item;
-      return { ...item, state: 'included' };
+      const coverHelper =
+        coverSheet && item.id === 'framing'
+          ? {
+              helperText: FRAMING_COVER_SHEET_HELPER,
+              noteBacked: false as const,
+            }
+          : null;
+      if (!active.has(item.id)) {
+        if (item.state === 'included') {
+          return { ...item, state: 'review' as const, ...coverHelper };
+        }
+        return coverHelper ? { ...item, ...coverHelper } : item;
+      }
+      if (item.state === 'included' || item.state === 'excluded') {
+        return coverHelper ? { ...item, ...coverHelper } : item;
+      }
+      return { ...item, state: 'included' as const, ...coverHelper };
     });
 }

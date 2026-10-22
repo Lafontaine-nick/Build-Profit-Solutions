@@ -6042,6 +6042,11 @@ export function syncInteriorPaintScopeItems(
       params.notes
     );
   const hasExplicitCeilingMeasurement = positiveSqft(params.ceilingPaintSqft);
+  const paintingBid =
+    String(params.templateKey || '').toLowerCase() === 'painting';
+  const paintingWindowTrimCount = positiveSqft(params.windowCount);
+  const hasOpeningCountsForTrim =
+    paintingWindowTrimCount || positiveSqft(params.exteriorDoorCount);
   const splitPaintPricing =
     params.paintPricingMethod !== 'combined' &&
     (params.paintPricingMethod === 'separate' || hasExplicitCeilingMeasurement);
@@ -6056,11 +6061,7 @@ export function syncInteriorPaintScopeItems(
     if (explicitScope.includes('exterior')) {
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
-      if (
-        !planSummary &&
-        (positiveSqft(params.windowCount) ||
-          positiveSqft(params.exteriorDoorCount))
-      ) {
+      if (!planSummary && paintingWindowTrimCount) {
         measuredScopeIds.add('exterior_trim_paint');
       }
     }
@@ -6120,8 +6121,7 @@ export function syncInteriorPaintScopeItems(
     if (
       !planSummary &&
       notesExplicitlyCallForExteriorPaint &&
-      (positiveSqft(params.windowCount) ||
-        positiveSqft(params.exteriorDoorCount))
+      (paintingBid ? paintingWindowTrimCount : hasOpeningCountsForTrim)
     ) {
       measuredScopeIds.add('exterior_trim_paint');
     }
@@ -6140,8 +6140,8 @@ export function syncInteriorPaintScopeItems(
     positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount);
   if (
     notesExplicitlyCallForExteriorPaint &&
-    hasExteriorOpeningPaint &&
-    !planSummary
+    !planSummary &&
+    (paintingBid ? paintingWindowTrimCount : hasExteriorOpeningPaint)
   ) {
     measuredScopeIds.add('exterior_trim_paint');
   }
@@ -6380,6 +6380,15 @@ export function syncInteriorPaintScopeItems(
       Array.isArray(explicitScope) &&
       !explicitScope.includes('trim') &&
       (row.id === 'trim_paint' || row.id === 'baseboard_install') &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
+    if (
+      row.id === 'exterior_trim_paint' &&
+      paintingBid &&
+      !paintingWindowTrimCount &&
       row.state !== 'excluded'
     ) {
       changed = true;
@@ -6997,7 +7006,7 @@ export function checklistDisplayHelper(
     return 'Paint the ceiling area.';
   }
   if (tk === 'painting' && item.id === 'exterior_paint') {
-    return 'Paint the exterior siding or stucco area.';
+    return 'Paint the exterior siding, stucco, soffit, and fascia. Door slabs are on Exterior door paint.';
   }
   if (tk === 'painting' && item.id === 'exterior_door_paint') {
     return 'Paint the hinged exterior doors. Garage doors are not included, and door installation stays off this bid.';
@@ -7164,6 +7173,8 @@ export type ScopeChecklistGroupingContext = {
   /** General-contractor plan export keeps the ground-up groups. */
   wholeProjectPlan?: boolean | null;
   planImportTradeKey?: string | null;
+  /** Products the contractor turned on, even when the note does not name them. */
+  retainFlooringItemIds?: string[] | null;
 };
 
 /** Finish-out workflow for garage / basement / in-place room conversions. */
@@ -8109,6 +8120,9 @@ export function groupScopeChecklistItems(
     const allowed = new Set(
       dedicatedFlooringConfirmScopeItems(flooringNote).map(item => item.id)
     );
+    for (const id of context.retainFlooringItemIds || []) {
+      if (id) allowed.add(id);
+    }
     const named: ScopeChecklistItem[] = [];
     const seen = new Set<string>();
     for (const item of items) {

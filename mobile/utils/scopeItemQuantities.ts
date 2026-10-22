@@ -56,6 +56,7 @@ import {
   notesExplicitPlumbingFixtureAllowance,
   notesExcludePlumbingScopePhrase,
   notesSuggestStandalonePlumbingTrade,
+  GROUND_UP_PLUMBING_PLAN_INCLUDED_IDS,
   stripNonPlumbingTradeBleedFromMeasurements,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
@@ -160,6 +161,7 @@ import {
 } from '@/utils/regionalPricingMultipliers';
 import {
   applyProjectComplexityToSuggestedPricing,
+  snapPlumbingLineRateToWholeDollar,
   hydrateProjectComplexityInputFields,
   resolveSquareFootageMultiplier,
   type ProjectComplexitySettings,
@@ -388,7 +390,11 @@ import {
   parseRoofingDeckingAllowanceFromNotes,
   suppressRoofRepairMeasurementsWhenTearOffInstall,
 } from '@/utils/scopeItemNoteHints';
-import { finalizeRoofingScopeSelections } from '@/utils/qmScopePanels/simpleTradeRemodel';
+import {
+  finalizeRoofingScopeSelections,
+  groundUpRoofingAccessoryQuantityOptional,
+} from '@/utils/qmScopePanels/simpleTradeRemodel';
+import { paintingPlanAssumesNewConstruction } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
   getRatePricingMatcher,
   parseScopeItemRatePricingFromNotes,
@@ -731,6 +737,13 @@ export type NormalizedScopeMeasurements = {
   roofSquares: number | null;
   roofPitch: string | null;
   storyCount: number | null;
+  roofingSystemChoice:
+    | 'architectural_shingles'
+    | 'three_tab_shingles'
+    | 'concrete_clay_tile'
+    | 'standing_seam_metal'
+    | 'exposed_fastener_metal'
+    | null;
   roofDeckingReplacementSqft: number | null;
   roofDripEdgeLf: number | null;
   roofRidgeCapLf: number | null;
@@ -831,7 +844,9 @@ export type NormalizedScopeMeasurements = {
   insulationAssemblies:
     import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
   planFacts?: ScopeMeasurements['planFacts'];
+  planImportMode?: ScopeMeasurements['planImportMode'];
   planImportTradeKey?: ScopeMeasurements['planImportTradeKey'];
+  planImportFingerprint?: ScopeMeasurements['planImportFingerprint'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
   baseboardLf: number | null;
@@ -1032,7 +1047,7 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   tile_flooring: {
     unit: 'sqft',
     material: 6,
-    labor: 10,
+    labor: 8,
     sourceLabel: 'Suggested budget split · National Average · floor tile',
   },
   flooring_carpet: {
@@ -7604,6 +7619,7 @@ export function normalizeScopeMeasurements(
     roofSquares: num(measurements?.roofSquares),
     roofPitch: measurements?.roofPitch ?? null,
     storyCount: num(measurements?.storyCount),
+    roofingSystemChoice: measurements?.roofingSystemChoice ?? null,
     roofDeckingReplacementSqft: num(measurements?.roofDeckingReplacementSqft),
     roofDripEdgeLf: num(measurements?.roofDripEdgeLf),
     roofRidgeCapLf: num(measurements?.roofRidgeCapLf),
@@ -7809,7 +7825,9 @@ export function normalizeScopeMeasurements(
     ),
     measurementProvenance: measurements?.measurementProvenance,
     measurementConflicts: measurements?.measurementConflicts,
+    planImportMode: measurements?.planImportMode,
     planImportTradeKey: measurements?.planImportTradeKey,
+    planImportFingerprint: measurements?.planImportFingerprint,
     itemQuantities,
   };
 }
@@ -10525,18 +10543,13 @@ export function resolveSuggestAlignedEditorPricingBasis(
     const windows =
       parseScopeMeasurementInput(String(measurementsInput.windowCount ?? '')) ||
       0;
-    const exteriorDoors =
-      parseScopeMeasurementInput(
-        String(measurementsInput.exteriorDoorCount ?? '')
-      ) || 0;
-    const quantity = windows + exteriorDoors;
-    if (quantity > 0) {
+    if (windows > 0) {
       return {
-        quantity,
+        quantity: windows,
         unit: 'each',
         quantitySource: 'inferred',
         sourceLabel: 'Calculated',
-        quantityHelper: `${windows} window trim assemblies + ${exteriorDoors} exterior doors`,
+        quantityHelper: `${windows} window trim assemblies`,
         pricingReady: true,
       };
     }
@@ -14920,7 +14933,10 @@ function withUserEnteredNationalBenchmarkFallback(
   result: ScopeItemSuggestedPricing,
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
-  result = applyProjectComplexityToSuggestedPricing(
+  result = snapPlumbingLineRateToWholeDollar(
+    itemId,
+    Number(resolved.quantity),
+    applyProjectComplexityToSuggestedPricing(
     itemId,
     templateKey,
     {
@@ -14938,6 +14954,7 @@ function withUserEnteredNationalBenchmarkFallback(
         measurementsInput.quickMeasurementUserOverrides,
     },
     result
+    ) as ScopeItemSuggestedPricing
   ) as ScopeItemSuggestedPricing;
   if (
     shouldSuppressSuggestedPricingAfterApply(
@@ -18554,16 +18571,24 @@ export function resolveScopeItemSuggestedPricing(
                 : parseScopeMeasurementInput(measurementsInput.wallPaintSqft);
         const basisUnit =
           itemId === 'trim_paint' ? 'lf' : itemId === 'door_paint' ? 'each' : 'sqft';
+        const average = getNationalAverageBudgetSplit('interior_paint');
+        const averageBase = (average?.material || 0) + (average?.labor || 0);
+        const material =
+          averageBase > 0 ? round2(share * ((average?.material || 0) / averageBase)) : 0;
+        const labor = round2(share - material);
         return {
           fill: {
             ...packageFill,
-            material: 0,
-            labor: share,
+            material,
+            labor,
             total: share,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
             lumpSumOnly: false,
             installedBudgetBenchmark: false,
             benchmarkLivingSf: null,
             helper: `Share of the $${Math.round(packageFill.total).toLocaleString()} installed paint package.`,
+            displayUnitRateLabel: `Share of the $${Math.round(packageFill.total).toLocaleString()} installed paint package.`,
             basis:
               basisQuantity && basisQuantity > 0
                 ? { quantity: basisQuantity, unit: basisUnit }
@@ -18571,13 +18596,28 @@ export function resolveScopeItemSuggestedPricing(
             storedTotalExact: share,
             pricingRecordId: `${packageFill.pricingRecordId}:${itemId}`,
             costBuckets: [
-              {
-                key: 'allowance',
-                label: 'Installed paint package',
-                amount: share,
-                rate: null,
-                source: 'local_benchmark',
-              },
+              ...(material > 0
+                ? [
+                    {
+                      key: 'material' as const,
+                      label: 'Material',
+                      amount: material,
+                      rate: null,
+                      source: 'local_benchmark' as const,
+                    },
+                  ]
+                : []),
+              ...(labor > 0
+                ? [
+                    {
+                      key: 'labor' as const,
+                      label: 'Labor',
+                      amount: labor,
+                      rate: null,
+                      source: 'local_benchmark' as const,
+                    },
+                  ]
+                : []),
             ],
           },
           comparison: null,
@@ -18623,6 +18663,15 @@ export function resolveScopeItemSuggestedPricing(
     const ceilingSurface =
       parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0;
     const quantity = wallSurface + ceilingSurface;
+    // New construction keeps ordinary prep inside the installed paint package.
+    if (
+      paintingPlanAssumesNewConstruction(
+        measurementsInput as unknown as Record<string, unknown>,
+        originalNotes
+      )
+    ) {
+      return empty;
+    }
     // Tape, plastic, and floor protection only. The installed interior paint
     // package already covers ordinary prep, so this is not the $1/sf prep rate.
     const material = round2(quantity * 0.08);
@@ -18939,14 +18988,10 @@ export function resolveScopeItemSuggestedPricing(
         String(itemQuantities.windows?.quantity ?? '')
       ) ||
       0;
-    const exteriorDoors =
-      parseScopeMeasurementInput(
-        String(measurementsInput.exteriorDoorCount ?? '')
-      ) || 0;
-    if (windows + exteriorDoors <= 0) return empty;
-    const material = round2(windows * 45 + exteriorDoors * 120);
-    const labor = round2(windows * 135 + exteriorDoors * 330);
-    const quantity = windows + exteriorDoors;
+    // Exterior door slabs are priced on exterior_door_paint. This card is windows.
+    if (windows <= 0) return empty;
+    const material = round2(windows * 45);
+    const labor = round2(windows * 135);
     return {
       fill: {
         material,
@@ -18955,8 +19000,8 @@ export function resolveScopeItemSuggestedPricing(
         materialSource: 'national_average',
         laborSource: 'national_average',
         rateSourceLabel:
-          'Suggested · National Average · exterior trim, window trim, and door painting',
-        helper: `${windows} window trim assemblies · ${exteriorDoors} exterior doors`,
+          'Suggested · National Average · window trim and casing paint',
+        helper: `${windows} window trim assemblies`,
         mode: 'suggested_price',
         lumpSumOnly: false,
         basis: { quantity, unit: 'each' },
@@ -21162,13 +21207,18 @@ export function resolveScopeItemSuggestedPricing(
         ?.choiceId || ''
     );
     const passedSystemChoice = String(choiceId || '');
+    const measurementSystemChoice = String(
+      measurementsInput.roofingSystemChoice || ''
+    );
     const usableSystemChoice = (value: string) =>
       Boolean(value) && !['unsure', 'not_in_scope'].includes(value);
     const roofingSystem = usableSystemChoice(contextSystemChoice)
       ? contextSystemChoice
       : usableSystemChoice(passedSystemChoice)
         ? passedSystemChoice
-        : contextSystemChoice;
+        : usableSystemChoice(measurementSystemChoice)
+          ? measurementSystemChoice
+          : contextSystemChoice;
     const systemRates: Record<
       string,
       { material: number; labor: number; label: string }
@@ -22150,6 +22200,11 @@ export function resolveScopeItemSuggestedPricing(
       const pricedPaint =
         (paintSf != null && paintSf > 0 ? paintSf : 0) || resolvedPaint;
       if (!(pricedPaint > 0)) {
+        // A painting bid keeps the card and waits for elevation SF.
+        // Living area is not an exterior quantity.
+        if (String(templateKey || '').toLowerCase() === 'painting') {
+          return empty;
+        }
         const lump = resolveExteriorPaintLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -23847,31 +23902,54 @@ export function resolveScopeItemSuggestedPricing(
             } as Record<string, number>
           )[String(choiceId || '')] || 0
         : 0;
-  const smallJobMinimum = Math.max(
-    repairMinimum,
-    itemId === 'decking_repair'
-      ? 300
-      : itemId === 'gutters'
-        ? 400
-        : itemId === 'downspouts'
-          ? 250
-          : [
-                'drip_edge',
-                'ridge_cap',
-                'valley_flashing',
-                'step_flashing',
-                'wall_flashing',
-                'ridge_vent',
-                'roof_vents',
-                'turbine_vents',
-                'pipe_boots',
-                'chimney_flashing',
-                'skylight_flashing',
-                'roof_penetrations',
-              ].includes(itemId)
-            ? 250
-            : 0
-  );
+  const wholeRoofBid =
+    String(templateKey || '').toLowerCase() === 'roofing' &&
+    ((parseScopeMeasurementInput(measurementsInput.roofSquares) || 0) > 0 ||
+      (parseScopeMeasurementInput(measurementsInput.roofAreaSqft) || 0) > 0);
+  const accessoryRidesWithRoof = [
+    'gutters',
+    'downspouts',
+    'drip_edge',
+    'ridge_cap',
+    'valley_flashing',
+    'step_flashing',
+    'wall_flashing',
+    'ridge_vent',
+    'roof_vents',
+    'turbine_vents',
+    'pipe_boots',
+    'chimney_flashing',
+    'skylight_flashing',
+    'roof_penetrations',
+  ].includes(itemId);
+  const smallJobMinimum =
+    wholeRoofBid && accessoryRidesWithRoof
+      ? 0
+      : Math.max(
+          repairMinimum,
+          itemId === 'decking_repair'
+            ? 300
+            : itemId === 'gutters'
+              ? 400
+              : itemId === 'downspouts'
+                ? 250
+                : [
+                      'drip_edge',
+                      'ridge_cap',
+                      'valley_flashing',
+                      'step_flashing',
+                      'wall_flashing',
+                      'ridge_vent',
+                      'roof_vents',
+                      'turbine_vents',
+                      'pipe_boots',
+                      'chimney_flashing',
+                      'skylight_flashing',
+                      'roof_penetrations',
+                    ].includes(itemId)
+                  ? 250
+                  : 0
+        );
   const repairMinimumApplied =
     smallJobMinimum > calculatedFlatworkTotal && calculatedFlatworkTotal > 0;
   const repairMinimumScale = repairMinimumApplied
@@ -28074,7 +28152,8 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   // Painting Step 3 split rows — must map before generic paint / site-walls landscaping.
   { test: /^walls?$/i, key: 'interior_paint' },
   { test: /^ceilings?$/i, key: 'ceiling_paint' },
-  { test: /^prep\s*(?:&|and)\s*masking$/i, key: 'prep' },
+  { test: /^(?:(?:paint|interior)\s+)?prep\s*(?:&|and)\s*masking$/i, key: 'prep' },
+  { test: /^interior\s+masking$/i, key: 'prep' },
   {
     test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i,
     key: 'exterior_prep',
@@ -28378,7 +28457,7 @@ export function countScopePricingReadiness(
     }
     if (active.has('exterior_prep')) {
       if (positive(raw.exteriorPaintSqft)) ready += 1;
-      else if (active.has('exterior_paint')) needsMeasurement += 1;
+      else if (!active.has('exterior_paint')) needsMeasurement += 1;
     }
   }
   for (const item of items) {
@@ -28441,6 +28520,29 @@ export function countScopePricingReadiness(
       !resolved.pricingReady &&
       notesNameShowerTileWithFlooring(notes) &&
       (item.id === 'demo' || item.id === 'waterproofing')
+    ) {
+      continue;
+    }
+    if (
+      String(measurements.planImportTradeKey || '') === 'plumbing' &&
+      String(
+        (measurements as { planImportMode?: string | null }).planImportMode ||
+          ''
+      ) === 'selected_trade' &&
+      (GROUND_UP_PLUMBING_PLAN_INCLUDED_IDS as readonly string[]).includes(
+        item.id
+      ) &&
+      !resolved.pricingReady
+    ) {
+      continue;
+    }
+    if (
+      !resolved.pricingReady &&
+      groundUpRoofingAccessoryQuantityOptional(
+        item.id,
+        measurements as unknown as Record<string, unknown>,
+        notes
+      )
     ) {
       continue;
     }
@@ -29094,12 +29196,14 @@ function syncFramingQuantitiesIntoItemQuantities(
     if (Number(nextQuantities[card.itemId]?.quantity) > 0) continue;
     const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
     const source =
-      sourceTag === 'plan_detected' ||
-      sourceTag === 'plan_verified' ||
-      sourceTag === 'ai_verified' ||
-      sourceTag === 'contractor_confirmed_from_plan_review'
-        ? 'plan_detected'
-        : 'user_entered';
+      sourceTag === 'plan_suggested'
+        ? 'inferred'
+        : sourceTag === 'plan_detected' ||
+            sourceTag === 'plan_verified' ||
+            sourceTag === 'ai_verified' ||
+            sourceTag === 'contractor_confirmed_from_plan_review'
+          ? 'plan_detected'
+          : 'user_entered';
     nextQuantities[card.itemId] = {
       quantity: String(quantity),
       unit: quantityUnit,
@@ -29425,6 +29529,7 @@ export function scopeMeasurementsToPayload(
     roofSquares: parseScopeMeasurementInput(sanitized.roofSquares),
     roofPitch: sanitized.roofPitch ?? null,
     storyCount: parseScopeMeasurementInput(sanitized.storyCount),
+    roofingSystemChoice: sanitized.roofingSystemChoice ?? null,
     roofDeckingReplacementSqft: parseScopeMeasurementInput(
       sanitized.roofDeckingReplacementSqft
     ),
@@ -30149,6 +30254,13 @@ export function scopeMeasurementsToPayload(
       input.pricingAcceptance && Object.keys(input.pricingAcceptance).length
         ? input.pricingAcceptance
         : undefined,
+    contractorRemovedScopeItemIds: Array.isArray(
+      input.contractorRemovedScopeItemIds
+    )
+      ? input.contractorRemovedScopeItemIds.filter(
+          id => typeof id === 'string' && id.trim().length > 0
+        )
+      : undefined,
     scopeGapResolutions:
       input.scopeGapResolutions && Object.keys(input.scopeGapResolutions).length
         ? input.scopeGapResolutions
@@ -30293,6 +30405,7 @@ export function scopeMeasurementsInputFromPayload(
     roofSquares: measurementFieldString(payload.roofSquares),
     roofPitch: payload.roofPitch ?? null,
     storyCount: measurementFieldString(payload.storyCount),
+    roofingSystemChoice: payload.roofingSystemChoice ?? null,
     roofDeckingReplacementSqft: measurementFieldString(
       payload.roofDeckingReplacementSqft
     ),
@@ -30977,6 +31090,13 @@ export function scopeMeasurementsInputFromPayload(
         : null,
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
+    contractorRemovedScopeItemIds: Array.isArray(
+      payload.contractorRemovedScopeItemIds
+    )
+      ? payload.contractorRemovedScopeItemIds.filter(
+          id => typeof id === 'string' && id.trim().length > 0
+        )
+      : undefined,
     scopeGapResolutions: payload.scopeGapResolutions,
     quickMeasurementSources: payload.quickMeasurementSources,
     quickMeasurementUserOverrides: payload.quickMeasurementUserOverrides,
@@ -31516,6 +31636,8 @@ export function prepareScopeMeasurementsInputForUi(
 export type ScopeMeasurementsInputExtended = ReturnType<
   typeof emptyQuickMeasurementInput
 > & {
+  /** Checklist ids the contractor removed. Counts stay; the line stays off the bid. */
+  contractorRemovedScopeItemIds?: string[];
   /** Room-addition exterior finish. Empty string means the contractor cleared it. */
   exteriorFinish?: 'stucco' | 'siding' | 'brick' | '' | null;
   exteriorFinishes?: Array<'stucco' | 'siding' | 'brick'> | null;
@@ -31678,6 +31800,14 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   appliedBenchmarkKeys?: string[];
   /** Bathroom vanity countertop pricing profile (custom vs prefab). */
   bathroomVanityCountertopMaterialType?: string | null;
+  /** New-roof covering. Architectural shingles when unset. */
+  roofingSystemChoice?:
+    | 'architectural_shingles'
+    | 'three_tab_shingles'
+    | 'concrete_clay_tile'
+    | 'standing_seam_metal'
+    | 'exposed_fastener_metal'
+    | null;
   /** Bathroom toilet relocate floor type (open/finished wood, slab, unsure). */
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
@@ -32492,6 +32622,16 @@ export function initialScopeMeasurementInputExtended(
     roofDownspoutCount: pick('roofDownspoutCount'),
     roofPitch: pickString('roofPitch'),
     storyCount: pick('storyCount'),
+    roofingSystemChoice:
+      typeof (saved as { roofingSystemChoice?: string } | null | undefined)
+        ?.roofingSystemChoice === 'string'
+        ? ((saved as { roofingSystemChoice?: string }).roofingSystemChoice as
+            | 'architectural_shingles'
+            | 'three_tab_shingles'
+            | 'concrete_clay_tile'
+            | 'standing_seam_metal'
+            | 'exposed_fastener_metal')
+        : null,
     drywallSqft: pick('drywallSqft'),
     patchRepairSqft: pick('patchRepairSqft'),
     drywallWallSqft: pick('drywallWallSqft'),
@@ -32666,16 +32806,21 @@ export function initialScopeMeasurementInputExtended(
       saved?.originalPaintAreaReferenceSqft ??
       parsedFromNotes.paintAreaSqft ??
       null,
-    paintOccupancy:
-      parsedFromNotes.paintOccupancy ??
-      suggested?.paintOccupancy ??
-      saved?.paintOccupancy ??
-      'occupied',
-    paintApplicationMethod:
-      parsedFromNotes.paintApplicationMethod ??
-      suggested?.paintApplicationMethod ??
-      saved?.paintApplicationMethod ??
-      'brush_roll',
+    paintOccupancy: paintingPlanAssumesNewConstruction(saved, scopeNotes)
+      ? 'new_construction'
+      : (parsedFromNotes.paintOccupancy ??
+        suggested?.paintOccupancy ??
+        saved?.paintOccupancy ??
+        'occupied'),
+    paintApplicationMethod: paintingPlanAssumesNewConstruction(saved, scopeNotes)
+      ? (parsedFromNotes.paintApplicationMethod ??
+        (saved?.paintApplicationMethodConfirmed
+          ? saved.paintApplicationMethod
+          : null))
+      : (parsedFromNotes.paintApplicationMethod ??
+        suggested?.paintApplicationMethod ??
+        saved?.paintApplicationMethod ??
+        'brush_roll'),
     paintOccupancyConfirmed:
       parsedFromNotes.paintOccupancyConfirmed ??
       suggested?.paintOccupancyConfirmed ??
@@ -32712,6 +32857,13 @@ export function initialScopeMeasurementInputExtended(
     cabinetPaintSqft: pick('cabinetPaintSqft'),
     itemQuantities,
     pricingAcceptance: saved?.pricingAcceptance,
+    contractorRemovedScopeItemIds: Array.isArray(
+      saved?.contractorRemovedScopeItemIds
+    )
+      ? saved.contractorRemovedScopeItemIds.filter(
+          id => typeof id === 'string' && id.trim().length > 0
+        )
+      : [],
     scopeGapResolutions: saved?.scopeGapResolutions,
     planRooms: saved?.planRooms?.length
       ? saved.planRooms

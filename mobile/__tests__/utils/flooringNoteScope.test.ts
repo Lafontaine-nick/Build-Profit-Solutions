@@ -473,6 +473,44 @@ describe('dedicated flooring note', () => {
     });
   });
 
+  it('keeps contractor-selected flooring products when the note does not name them', () => {
+    const notes = 'Detected flooring job.';
+    const items = [
+      { id: 'flooring', state: 'included' as const },
+      { id: 'flooring_carpet', state: 'included' as const },
+      { id: 'tile_flooring', state: 'included' as const },
+      { id: 'flooring_laminate', state: 'included' as const },
+    ];
+    expect(
+      filterDedicatedFlooringConfirmItems(items, notes).map(item => item.id)
+    ).toEqual(['flooring']);
+    expect(
+      filterDedicatedFlooringConfirmItems(items, notes, [
+        'flooring_carpet',
+        'tile_flooring',
+      ]).map(item => item.id)
+    ).toEqual(['flooring', 'flooring_carpet', 'tile_flooring']);
+    const grouped = groupScopeChecklistItems(
+      items.map(item => ({
+        ...item,
+        inputType: 'yes_no' as const,
+        label: item.id,
+        helperText: '',
+        category: 'flooring',
+      })),
+      'flooring',
+      {
+        notes,
+        retainFlooringItemIds: ['flooring_carpet', 'tile_flooring'],
+      }
+    );
+    expect(grouped.flatMap(group => group.items).map(item => item.id)).toEqual([
+      'flooring',
+      'flooring_carpet',
+      'tile_flooring',
+    ]);
+  });
+
   it('stays off a mixed wall-framing and LVP note', () => {
     expect(
       notesDescribeDedicatedFlooringJob(

@@ -39,6 +39,7 @@ import {
   wholeHomeWallAndAtticInsulationLabel,
 } from '@/utils/wholeHomeRemodelNote';
 import { estimatedIceWaterShieldSqft } from '@/utils/roofingPlanningMeasurements';
+import { roofCoveringLabelForReveal } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
 import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
 import {
@@ -56,6 +57,11 @@ import {
   dedicatedWindowsDoorsRevealRows,
   notesDescribeDedicatedWindowsDoorsJob,
 } from '@/utils/windowsDoorsNoteScope';
+import {
+  windowsDoorsPlanFilledCounts,
+  windowsDoorsPlanImport,
+  windowsDoorsPlanTagline,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
   atticInsulationWithDrywallAreas,
   dedicatedInsulationRevealLines,
@@ -86,6 +92,8 @@ import {
   notesDescribeDedicatedFlooringJob,
 } from '@/utils/flooringNoteScope';
 import {
+  FRAMING_COVER_SHEET_TAGLINE,
+  framingCoverSheetPackage,
   notesNameDedicatedWallAreaFraming,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
@@ -120,8 +128,12 @@ import {
   notesExplicitPlumbingFixtureAllowance,
   notesExcludePlumbingScopePhrase,
   notesSuggestStandalonePlumbingTrade,
+  PLUMBING_CARDS,
   plumbingMeasurementKeyForItemId,
   plumbingNoteScopeItemIds,
+  plumbingPlanHasPrintedQuantity,
+  plumbingPlanLabeledBathNames,
+  plumbingUnprintedPlanTagline,
   standalonePlumbingProjectTitle,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
@@ -212,6 +224,10 @@ import {
   confirmedPlanTakeoffLines,
 } from '@/utils/planTakeoffReviewUi';
 import { drywallCoverSheetPackage } from '@/utils/subcontractorTrade/drywallPlanConvergence';
+import {
+  INSULATION_PLAN_FOOTPRINT_TAGLINE,
+  insulationPlanFootprintPackage,
+} from '@/utils/insulationEnvelopeQuantity';
 
 export type InitialRevealStatusTone = 'ready' | 'mostly' | 'review';
 
@@ -808,20 +824,37 @@ function collectInitialRevealConfirmItems(
   if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
     return splitInitialRevealConfirmItems(areaOnlyAdditionAttention(draft));
   }
-  if (roofingPlanOnlyExport(draft)) {
-    return splitInitialRevealConfirmItems([
-      'Roof surface area / squares: needs measurement',
-    ]);
+  if (roofingPlanScopeOwnsReveal(draft)) {
+    return splitInitialRevealConfirmItems(
+      roofingPlanOnlyExport(draft)
+        ? ['Roof surface area / squares: needs measurement']
+        : []
+    );
+  }
+  if (stuccoPlanExport(draft)) {
+    const gross = positiveRevealNumber(
+      (draft.scopeMeasurements as { stuccoGrossWallSqft?: unknown } | null)
+        ?.stuccoGrossWallSqft
+    );
+    return splitInitialRevealConfirmItems(
+      gross ? [] : ['Exterior wall area — gross: needs measurement']
+    );
+  }
+  if (
+    framingCoverSheetPackage(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return splitInitialRevealConfirmItems([]);
   }
   if (flooringPlanExport(draft)) {
     const flooringRow = flooringPlanScopeRows(draft).find(
       row => row.name === 'Flooring'
     );
-    return splitInitialRevealConfirmItems([
-      flooringRow?.quantity === 'Needs measurement'
-        ? 'Flooring: needs measurement'
-        : `Pricing for ${flooringRow?.name || 'Flooring'}${flooringRow?.quantity ? ` · ${flooringRow.quantity}` : ''}`,
-    ]);
+    if (flooringRow?.quantity && flooringRow.quantity !== 'Needs measurement') {
+      return splitInitialRevealConfirmItems([]);
+    }
+    return splitInitialRevealConfirmItems(['Flooring: needs measurement']);
   }
   const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
     line =>
@@ -837,9 +870,25 @@ function collectInitialRevealConfirmItems(
         .map(line => line.slice(0, -PLAN_SCOPE_CONFIRM_COUNT_SUFFIX.length))
     );
   }
+  // A painting plan asks for a price only where the surface has no quantity.
+  // Walls, ceilings, trim, and door paint are the bid, not extra checks.
+  if (paintingPlanExport(draft) && planTakeoffLinesOwnRevealScope(draft)) {
+    return splitInitialRevealConfirmItems(
+      planPriceLines
+        .filter(line => /Needs SF/i.test(line))
+        .map(line => line.replace(/\s*·\s*Needs SF/i, ': needs SF'))
+    );
+  }
   // After Confirm scope, the applied cards are the scope. Leftover symbol
   // counts (GFCI, switches, ceiling fans) stay off this list.
   if (planTakeoffLinesOwnRevealScope(draft)) {
+    if (
+      insulationPlanFootprintPackage(
+        draft.scopeMeasurements as Record<string, unknown> | null
+      )
+    ) {
+      return splitInitialRevealConfirmItems([]);
+    }
     const unpricedPlanPriceLines = planPriceLines.filter(
       line => appliedElectricalPlanLineAmount(draft, line) == null
     );
@@ -852,9 +901,8 @@ function collectInitialRevealConfirmItems(
       return splitInitialRevealConfirmItems([]);
     }
   }
-  const plumbingPlanCounts = plumbingPlanCountAttention(draft);
-  if (plumbingPlanCounts.length > 0) {
-    return splitInitialRevealConfirmItems(plumbingPlanCounts);
+  if (plumbingPlanImportReveal(draft)) {
+    return splitInitialRevealConfirmItems(plumbingPlanCountAttention(draft));
   }
   const bathroomNoteLimit = shouldLimitBathroomChecklistToNotes({
     notes: draft.originalNotes,
@@ -1367,7 +1415,7 @@ function wholeHousePlanTitle(draft: EstimateAiDraft): string | null {
 /** Plan export already lists these quantities under Pricing needed and Scope. */
 export function planRevealOmitsWhatWeFound(draft: EstimateAiDraft): boolean {
   return (
-    roofingPlanOnlyExport(draft) ||
+    roofingPlanScopeOwnsReveal(draft) ||
     stuccoPlanExport(draft) ||
     flooringPlanExport(draft) ||
     confirmedPlanLinesForDraft(draft).length > 0
@@ -1414,6 +1462,23 @@ function isRoofingRevealDraft(draft: EstimateAiDraft): boolean {
   return templateKey === 'roofing';
 }
 
+/** A roofing plan export. Scope found is the roof, not the story count. */
+function roofingPlanScopeOwnsReveal(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportMode?: string | null;
+        planImportTradeKey?: string | null;
+        planImportFingerprint?: string | null;
+      }
+    | null
+    | undefined;
+  return (
+    measurements?.planImportMode === 'selected_trade' &&
+    measurements?.planImportTradeKey === 'roofing' &&
+    Boolean(String(measurements?.planImportFingerprint || '').trim())
+  );
+}
+
 function roofingPlanOnlyExport(draft: EstimateAiDraft): boolean {
   const measurements = draft.scopeMeasurements as
     | {
@@ -1450,6 +1515,18 @@ function roofingPlanOnlyExport(draft: EstimateAiDraft): boolean {
   );
 }
 
+function roofCoveringName(draft: EstimateAiDraft): string {
+  const item = (draft.scopeChecklist?.items || []).find(
+    row => row.id === 'shingles_roofing'
+  );
+  return roofCoveringLabelForReveal({
+    measurements: draft.scopeMeasurements as {
+      roofingSystemChoice?: string | null;
+    } | null,
+    checklistLabel: item?.label,
+  });
+}
+
 function roofingPlanOnlyScopeRows(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string }> {
@@ -1461,23 +1538,27 @@ function roofingPlanOnlyScopeRows(
   const pitch = String(
     measurements.roofPitch || planFacts.roofPitch || ''
   ).trim();
-  const stories =
-    positiveRevealNumber(measurements.storyCount) ||
-    positiveRevealNumber(planFacts.storyCount);
   const rows: Array<{ name: string; amount: number; quantity?: string }> = [];
   if (pitch) rows.push({ name: 'Roof pitch', amount: 0, quantity: pitch });
-  if (stories) {
+  const squares =
+    positiveRevealNumber(measurements.roofSquares) ||
+    (() => {
+      const area = positiveRevealNumber(measurements.roofAreaSqft);
+      return area ? Math.round((area / 100) * 100) / 100 : 0;
+    })();
+  if (squares) {
     rows.push({
-      name: 'Stories',
+      name: roofCoveringName(draft),
       amount: 0,
-      quantity: `${stories} ${stories === 1 ? 'story' : 'stories'}`,
+      quantity: `${squares.toLocaleString('en-US')} squares`,
+    });
+  } else {
+    rows.push({
+      name: 'Roof surface area / squares',
+      amount: 0,
+      quantity: 'Needs measurement',
     });
   }
-  rows.push({
-    name: 'Roof surface area / squares',
-    amount: 0,
-    quantity: 'Needs measurement',
-  });
   return rows;
 }
 
@@ -1546,24 +1627,138 @@ function flooringPlanScopeRows(
   );
   const flooring = positiveRevealNumber(measurements.flooringSqft);
   const living = positiveRevealNumber(measurements.floorAreaSqft);
-  const livingCopy =
-    flooring != null && living != null && Math.abs(flooring - living) < 1;
-  const quantity =
-    productTotal > 0 ? productTotal : flooring != null && !livingCopy ? flooring : null;
-  const rows: Array<{ name: string; amount: number; quantity?: string }> = [];
-  if (living) {
-    rows.push({
-      name: 'Living area',
+  const area = living ?? (productTotal > 0 ? productTotal : flooring);
+  return [
+    {
+      name: 'Flooring',
       amount: 0,
-      quantity: `${living.toLocaleString()} SF`,
-    });
-  }
-  rows.push({
-    name: 'Flooring',
-    amount: 0,
-    quantity: quantity ? `${quantity.toLocaleString()} sqft` : 'Needs measurement',
+      quantity: area
+        ? `${Math.round(area).toLocaleString('en-US')} SF`
+        : 'Needs measurement',
+    },
+  ];
+}
+
+const WINDOWS_DOORS_REVEAL_LINES: Array<{
+  ids: string[];
+  key: 'windowCount' | 'exteriorDoorCount' | 'slidingDoorCount' | 'interiorDoorCount';
+  name: string;
+}> = [
+  { ids: ['windows', 'window_install'], key: 'windowCount', name: 'Windows' },
+  {
+    ids: ['exterior_doors', 'exterior_door_install'],
+    key: 'exteriorDoorCount',
+    name: 'Exterior swing doors',
+  },
+  {
+    ids: ['sliding_doors'],
+    key: 'slidingDoorCount',
+    name: 'Sliding / patio doors',
+  },
+  {
+    ids: ['interior_doors', 'interior_door_install'],
+    key: 'interiorDoorCount',
+    name: 'Interior doors',
+  },
+];
+
+/** Plan counts stay on the estimate list before and after Confirm Scope. */
+function windowsDoorsPlanRevealRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  const measurements = (draft.scopeMeasurements || null) as Record<
+    string,
+    unknown
+  > | null;
+  if (!windowsDoorsPlanImport(measurements)) return null;
+  const filled = new Map(
+    windowsDoorsPlanFilledCounts(measurements).map(row => [row.key, row.count])
+  );
+  const showAmounts = showRevealAmounts(draft);
+  const packages = showAmounts ? getScopePackagesForReview(draft) : [];
+  return WINDOWS_DOORS_REVEAL_LINES.flatMap(line => {
+    const count = filled.get(line.key);
+    if (!count) return [];
+    const pkg = packages.find(candidate =>
+      line.ids.includes(
+        String(candidate.checklistItemId || candidate.costCode || '').trim()
+      )
+    );
+    const applied = pkg
+      ? revealRowAmount(draft, pkg)
+      : appliedAliasRevealAmount(draft, line.ids[0]);
+    const indicative =
+      !(applied > 0) && pkg
+        ? scopePackageIndicativePricedAmount(pkg, draft)
+        : 0;
+    return [
+      {
+        name: line.name,
+        amount: applied > 0 ? applied : indicative,
+        quantity: `${count.toLocaleString('en-US')} each`,
+      },
+    ];
   });
-  return rows;
+}
+
+function paintingPlanExport(draft: EstimateAiDraft): boolean {
+  const measurements = draft.scopeMeasurements as
+    | {
+        planImportMode?: string | null;
+        planImportTradeKey?: string | null;
+        planImportFingerprint?: string | null;
+      }
+    | null
+    | undefined;
+  return (
+    measurements?.planImportMode === 'selected_trade' &&
+    measurements?.planImportTradeKey === 'painting' &&
+    Boolean(measurements?.planImportFingerprint)
+  );
+}
+
+const PAINTING_INSTALL_REVEAL_IDS = new Set([
+  'exterior_doors',
+  'exterior_door_install',
+  'interior_doors',
+  'interior_door_install',
+  'baseboard_install',
+  'door_casing_install',
+  'window_install',
+]);
+
+/**
+ * After Confirm Scope, the initial estimate lists the paint lines that were
+ * applied. Door installation is not part of a painting bid, and an unpriced
+ * prep row is not a second scope item beside those prices.
+ */
+function appliedPaintingConfirmScopePreview(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (!paintingPlanExport(draft)) return null;
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  const rows = getScopePackagesForReview(draft)
+    .map(pkg => {
+      const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
+      if (PAINTING_INSTALL_REVEAL_IDS.has(id)) return null;
+      const name = String(pkg.name || pkg.scope || '').trim();
+      if (!name || /exterior door installation/i.test(name)) return null;
+      const amount = scopePackagePricedAmount(pkg, draft);
+      if (!(amount > 0)) return null;
+      const quantity = formatScopeQuantity(pkg, draft);
+      return {
+        name,
+        amount,
+        ...(quantity ? { quantity } : {}),
+      };
+    })
+    .filter(
+      (row): row is { name: string; amount: number; quantity?: string | null } =>
+        Boolean(row)
+    );
+  return rows.length ? rows : null;
 }
 
 function isConcreteRevealDraft(draft: EstimateAiDraft): boolean {
@@ -2273,6 +2468,12 @@ function stuccoNoteOwnsReveal(draft: EstimateAiDraft): boolean {
 }
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  const roofingApplied = appliedRoofingConfirmScopePreview(draft);
+  if (roofingApplied.length) return roofingApplied.length;
+  const paintingApplied = appliedPaintingConfirmScopePreview(draft);
+  if (paintingApplied) return paintingApplied.length;
+  const windowsDoorsPlan = windowsDoorsPlanRevealRows(draft);
+  if (windowsDoorsPlan) return windowsDoorsPlan.length;
   if (electricalDeviceNoteOwnsReveal(draft)) {
     return dedicatedElectricalRevealRows(draft.originalNotes).length;
   }
@@ -2288,7 +2489,7 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
     return areaOnlyAdditionRevealRows(draft)?.length || 0;
   }
-  if (roofingPlanOnlyExport(draft)) {
+  if (roofingPlanScopeOwnsReveal(draft)) {
     return roofingPlanOnlyScopeRows(draft).length;
   }
   if (stuccoPlanExport(draft)) {
@@ -2306,6 +2507,9 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (groundUpLivingRevealLine(draft.originalNotes)) {
     const previewCount = getInitialRevealChecklistScopePreview(draft).length;
     if (previewCount > 0) return previewCount;
+  }
+  if (plumbingPlanImportReveal(draft)) {
+    return getInitialRevealChecklistScopePreview(draft).length;
   }
   const checklistCount = getInitialRevealScopeRows(draft).length;
   if (checklistCount > 0) return checklistCount;
@@ -2357,18 +2561,30 @@ function plumbingPlanImportReveal(draft: EstimateAiDraft): boolean {
   );
 }
 
+function plumbingPlanRooms(
+  draft: EstimateAiDraft
+): Array<{ name?: string | null }> {
+  const measurements = draft.scopeMeasurements as
+    | { planRooms?: Array<{ name?: string | null }> }
+    | null
+    | undefined;
+  if (measurements?.planRooms?.length) return measurements.planRooms;
+  return draft.rooms || [];
+}
+
+function plumbingPlanAwaitsContractorCounts(draft: EstimateAiDraft): boolean {
+  return (
+    plumbingPlanImportReveal(draft) &&
+    !plumbingPlanHasPrintedQuantity(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  );
+}
+
 function plumbingPlanCountAttention(draft: EstimateAiDraft): string[] {
   if (!plumbingPlanImportReveal(draft)) return [];
-  const measurements = initialScopeMeasurementInputExtended(draft) as Record<
-    string,
-    unknown
-  >;
-  return getInitialRevealScopeRows(draft)
-    .filter(row => {
-      const key = plumbingMeasurementKeyForItemId(row.id);
-      return Boolean(key && !(Number(measurements[key]) > 0));
-    })
-    .map(row => `Count needed for ${row.name}`);
+  // The new-home cards stay on with blank quantities. That is the contractor's entry, not a missed count.
+  return [];
 }
 
 function plumbingMissingQuantityAttentionItems(
@@ -4443,9 +4659,170 @@ function appliedAliasRevealAmount(
   );
 }
 
+const ROOFING_APPLIED_REVEAL_LINES: Array<{
+  id: string;
+  key: string;
+  unit: string;
+  label: string;
+}> = [
+  { id: 'shingles_roofing', key: 'roofSquares', unit: 'squares', label: 'Shingles' },
+  { id: 'ridge_vent', key: 'roofRidgeVentLf', unit: 'each', label: 'Ridge vent' },
+  { id: 'pipe_boots', key: 'roofPipeBootCount', unit: 'each', label: 'Pipe boots' },
+  { id: 'gutters', key: 'roofGutterLf', unit: 'LF', label: 'Gutters' },
+  { id: 'downspouts', key: 'roofDownspoutCount', unit: 'each', label: 'Downspouts' },
+];
+
+/** Priced Confirm Scope lines for a roofing bid. Leaves out unpriced plan text. */
+function appliedRoofingConfirmScopePreview(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> {
+  if (!isRoofingRevealDraft(draft) && !roofingPlanOnlyExport(draft)) {
+    const trade = String(
+      (draft.scopeMeasurements as { planImportTradeKey?: string } | null)
+        ?.planImportTradeKey || ''
+    );
+    if (trade !== 'roofing' && !isRoofingRevealDraft(draft)) return [];
+  }
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return [];
+  }
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const acceptance = measurements.pricingAcceptance as
+    | Record<string, { totalAmount?: number }>
+    | undefined;
+  if (!acceptance) return [];
+  const items = draft.scopeChecklist?.items || [];
+    const coveringName = roofCoveringName(draft);
+  const orderedIds = [
+    ...ROOFING_APPLIED_REVEAL_LINES.map(line => line.id),
+    ...Object.keys(acceptance).filter(
+      id => !ROOFING_APPLIED_REVEAL_LINES.some(line => line.id === id)
+    ),
+  ];
+  return orderedIds.flatMap(id => {
+    const amount = Number(acceptance[id]?.totalAmount || 0);
+    if (!(amount > 0)) return [];
+    const line = ROOFING_APPLIED_REVEAL_LINES.find(entry => entry.id === id);
+    const qty = line
+      ? Number(String(measurements[line.key] ?? '').replace(/,/g, ''))
+      : 0;
+    const name =
+      id === 'shingles_roofing'
+        ? coveringName
+        : line?.label || items.find(item => item.id === id)?.label || id;
+    return [
+      {
+        name: String(name).trim(),
+        amount: Math.round(amount * 100) / 100,
+        quantity:
+          qty > 0
+            ? `${qty.toLocaleString('en-US')} ${line?.unit || 'each'}`
+            : null,
+      },
+    ];
+  });
+}
+
+function appliedPlumbingPriceRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> {
+  if (!isPlumbingRevealDraft(draft) && !plumbingPlanImportReveal(draft)) return [];
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return [];
+  }
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const acceptance = measurements.pricingAcceptance as
+    | Record<string, { totalAmount?: number; selectionStatus?: string }>
+    | undefined;
+  const items = draft.scopeChecklist?.items || [];
+  if (acceptance && Object.keys(acceptance).length) {
+    const orderedIds = [
+      ...PLUMBING_CARDS.map(card => card.itemId),
+      ...Object.keys(acceptance).filter(
+        id => !PLUMBING_CARDS.some(card => card.itemId === id)
+      ),
+    ];
+    const rows = orderedIds.flatMap(id => {
+      const saved = acceptance[id];
+      const amount = Number(saved?.totalAmount || 0);
+      if (!(amount > 0)) return [];
+      const card = PLUMBING_CARDS.find(entry => entry.itemId === id);
+      const key = card?.measurementKey || plumbingMeasurementKeyForItemId(id);
+      const qty = key
+        ? Number(String(measurements[key] ?? '').replace(/,/g, ''))
+        : 0;
+      const unit = card?.unit === 'lf' ? 'LF' : 'EA';
+      const label =
+        items.find(item => item.id === id)?.label || card?.label || id;
+      return [
+        {
+          name: String(label).trim(),
+          amount: Math.round(amount * 100) / 100,
+          quantity:
+            qty > 0 ? `${qty.toLocaleString('en-US')} ${unit}` : null,
+        },
+      ];
+    });
+    if (rows.length) return rows;
+  }
+  return getScopePackagesForReview(draft).flatMap(pkg => {
+    const amount = scopePackagePricedAmount(pkg, draft);
+    if (!(amount > 0)) return [];
+    const quantity = pkg.scopeQuantities?.[0];
+    return [
+      {
+        name: pkg.name,
+        amount,
+        quantity: quantity
+          ? `${quantity.quantity.toLocaleString('en-US')} ${quantity.unit}`
+          : null,
+      },
+    ];
+  });
+}
+
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
+  const pricedPlumbing = appliedPlumbingPriceRows(draft);
+  if (pricedPlumbing.length) return pricedPlumbing;
+  const pricedRoofing = appliedRoofingConfirmScopePreview(draft);
+  if (pricedRoofing.length) return pricedRoofing;
+  if (plumbingPlanAwaitsContractorCounts(draft)) {
+    return plumbingPlanLabeledBathNames(plumbingPlanRooms(draft)).map(name => ({
+      name,
+      amount: 0,
+    }));
+  }
+  if (
+    plumbingPlanImportReveal(draft) &&
+    plumbingPlanHasPrintedQuantity(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    const measurements = draft.scopeMeasurements as Record<string, unknown>;
+    return (draft.scopeChecklist?.items || [])
+      .flatMap(item => {
+        const key = plumbingMeasurementKeyForItemId(item.id);
+        const qty = key ? Number(measurements[key] || 0) : 0;
+        if (!key || !(qty > 0)) return [];
+        const quantity = /Lf$/.test(key)
+          ? `${qty.toLocaleString('en-US')} LF`
+          : `${qty.toLocaleString('en-US')} EA`;
+        return [
+          {
+            name: String(item.label || item.id).trim(),
+            amount: 0,
+            quantity,
+          },
+        ];
+      })
+      .slice(0, 50);
+  }
+  const paintingApplied = appliedPaintingConfirmScopePreview(draft);
+  if (paintingApplied) return paintingApplied;
+  const windowsDoorsPlan = windowsDoorsPlanRevealRows(draft);
+  if (windowsDoorsPlan) return windowsDoorsPlan;
   if (electricalDeviceNoteOwnsReveal(draft)) {
     return dedicatedElectricalRevealRows(draft.originalNotes);
   }
@@ -4496,7 +4873,7 @@ export function getInitialRevealChecklistScopePreview(
   }
   const areaOnlyPreview = areaOnlyAdditionRevealRows(draft);
   if (areaOnlyPreview) return areaOnlyPreview;
-  if (roofingPlanOnlyExport(draft)) {
+  if (roofingPlanScopeOwnsReveal(draft)) {
     return roofingPlanOnlyScopeRows(draft);
   }
   if (stuccoPlanExport(draft)) {
@@ -4507,6 +4884,18 @@ export function getInitialRevealChecklistScopePreview(
   }
   const appliedElectrical = appliedElectricalConfirmScopePreview(draft);
   if (appliedElectrical) return appliedElectrical;
+  const framingPackage = framingCoverSheetPackage(
+    draft.scopeMeasurements as Record<string, unknown> | null
+  );
+  if (framingPackage) {
+    return [
+      {
+        name: 'Framing package',
+        amount: 0,
+        quantity: `${framingPackage.packageSqft.toLocaleString('en-US')} SF`,
+      },
+    ];
+  }
   const planLines = confirmedPlanLinesForDraft(draft);
   if (planTakeoffLinesOwnRevealScope(draft) && planLines.length > 0) {
     return planLines.map(name => ({
@@ -5156,6 +5545,10 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   if (wholeHousePlanExport(draft)) {
     return 'Read from the plan. Unprinted trades are planning allowances.';
   }
+  const windowsTagline = windowsDoorsPlanTagline(
+    draft.scopeMeasurements as Record<string, unknown> | null | undefined
+  );
+  if (windowsTagline) return windowsTagline;
   const concreteMeasurements = draft.scopeMeasurements as
     | {
         planImportTradeKey?: string | null;
@@ -5181,6 +5574,29 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     return 'Living and garage areas from the cover sheet.';
   }
   if (
+    framingCoverSheetPackage(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return FRAMING_COVER_SHEET_TAGLINE;
+  }
+  if (
+    flooringPlanExport(draft) &&
+    positiveRevealNumber(
+      (draft.scopeMeasurements as { floorAreaSqft?: unknown } | null)
+        ?.floorAreaSqft
+    )
+  ) {
+    return 'Living area from the cover sheet.';
+  }
+  if (
+    insulationPlanFootprintPackage(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return INSULATION_PLAN_FOOTPRINT_TAGLINE;
+  }
+  if (
     notesDescribeGroundUpHome(draft.originalNotes) &&
     (revealProjectType === 'new_build' ||
       revealProjectType === 'stucco' ||
@@ -5195,6 +5611,24 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     )
   ) {
     return NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY;
+  }
+  if (roofingPlanScopeOwnsReveal(draft)) {
+    const squares = positiveRevealNumber(
+      (draft.scopeMeasurements as { roofSquares?: unknown } | null)?.roofSquares
+    );
+    if (squares) {
+      return `${roofCoveringName(draft)} · ${squares.toLocaleString('en-US')} squares.`;
+    }
+  }
+  const roofingPriced = appliedRoofingConfirmScopePreview(draft);
+  if (roofingPriced.length) {
+    const covering = roofCoveringName(draft);
+    const squares = roofingPriced.find(row =>
+      /squares/i.test(String(row.quantity || ''))
+    );
+    return squares?.quantity
+      ? `${covering} · ${squares.quantity}.`
+      : `${covering}.`;
   }
   if (
     notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
@@ -5240,7 +5674,13 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     if (summary.toLowerCase() === title) return trades.join(' · ');
     return `${summary} · ${trades.join(' · ')}`;
   }
+  if (plumbingPlanAwaitsContractorCounts(draft)) {
+    return plumbingUnprintedPlanTagline(
+      plumbingPlanLabeledBathNames(plumbingPlanRooms(draft))
+    );
+  }
   if (isPlumbingRevealDraft(draft)) {
+    if (appliedPlumbingPriceRows(draft).length > 0) return null;
     const scopeCount = getInitialRevealScopeRows(draft).length;
     if (scopeCount > 0) {
       const title = standalonePlumbingRevealDraft(draft)
@@ -5334,6 +5774,13 @@ export function getInitialRevealUnderstoodBullets(
   draft: EstimateAiDraft,
   max = 3
 ): string[] {
+  if (
+    framingCoverSheetPackage(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return [];
+  }
   if (electricalDeviceNoteOwnsReveal(draft)) {
     return dedicatedElectricalRevealLines(draft.originalNotes);
   }
@@ -5406,7 +5853,7 @@ export function getInitialRevealUnderstoodBullets(
       `${thermostatCount} thermostat${thermostatCount === 1 ? '' : 's'}`,
     ];
   }
-  if (roofingPlanOnlyExport(draft)) {
+  if (roofingPlanScopeOwnsReveal(draft)) {
     return roofingPlanOnlyScopeRows(draft)
       .map(row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`)
       .slice(0, Math.max(max, 3));
@@ -5448,6 +5895,11 @@ export function getInitialRevealUnderstoodBullets(
   }
 
   if (isPlumbingRevealDraft(draft)) {
+    if (plumbingPlanAwaitsContractorCounts(draft)) {
+      const baths = plumbingPlanLabeledBathNames(plumbingPlanRooms(draft));
+      if (baths.length > 0) return baths.slice(0, max);
+      return ['Fixture counts and pipe lengths are not printed.'].slice(0, max);
+    }
     const fromNotes = summarizePlumbingNoteBullets(
       draft.originalNotes || '',
       plumbingMax

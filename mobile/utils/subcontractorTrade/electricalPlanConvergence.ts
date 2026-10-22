@@ -6,6 +6,7 @@
  * and estimatePlanToMeasurements.js — still no Plan Export rates.
  */
 
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import {
   applyElectricalServicePanelOwnership,
   serviceUpgradeExplicitlyExcluded,
@@ -1416,6 +1417,11 @@ export function syncElectricalScopeItems<
     return { ...item, label: card.label, helperText: card.helper };
   });
   return labeledItems.map(item => {
+    if (contractorKeptScopeItemOut(item)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' as const };
+    }
     if (packageOnly) {
       if (
         ELECTRICAL_ITEM_IDS.includes(item.id) &&

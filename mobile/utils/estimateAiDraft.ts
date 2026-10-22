@@ -145,6 +145,7 @@ import {
   buildPlumbingStructuredMeasurements,
   buildStandalonePlumbingChecklistItems,
   ensurePlumbingPlanChecklistItems,
+  filterPlumbingLabeledBathRooms,
   groundUpPlumbingPlanLockedIds,
   finalizeStandalonePlumbingChecklist,
   inferPlumbingRoomContextFromNotes,
@@ -173,7 +174,9 @@ import {
 } from '@/utils/bathroomNoteScope';
 import {
   FRAMING_CARDS,
+  FRAMING_COVER_SHEET_HELPER,
   buildFramingStructuredMeasurements,
+  framingCoverSheetPackage,
   normalizeFramingPlanMeasurements,
   notesNameDedicatedWallAreaFraming,
   notesNameLinearFootStudWall,
@@ -284,6 +287,8 @@ export type ScopeChecklistItem = {
   options?: ScopeChecklistOption[];
   /** yes_no: included = Yes in scope, excluded = No, unsure = Not sure */
   state: ScopeAssumptionState;
+  /** Contractor removed this line. Sync must not put it back while a count remains. */
+  contractorRemoved?: boolean;
   /** choice: selected option id */
   choiceId?: string | null;
   /** multi_choice: selected option ids (e.g. wall remove + add) */
@@ -615,6 +620,14 @@ export type ScopeMeasurements = {
   roofIceWaterShieldSqft?: number | null;
   roofPitch?: string | null;
   storyCount?: number | null;
+  /** Covering selected on a roofing plan. Architectural shingles when unset. */
+  roofingSystemChoice?:
+    | 'architectural_shingles'
+    | 'three_tab_shingles'
+    | 'concrete_clay_tile'
+    | 'standing_seam_metal'
+    | 'exposed_fastener_metal'
+    | null;
   roofDeckingReplacementSqft?: number | null;
   roofDripEdgeLf?: number | null;
   roofRidgeCapLf?: number | null;
@@ -947,6 +960,8 @@ export type ScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+  /** Checklist ids the contractor removed. Counts stay; the line stays off the bid. */
+  contractorRemovedScopeItemIds?: string[];
   /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */
   scopeGapResolutions?: Record<
     string,
@@ -5621,11 +5636,16 @@ function stripWholeProjectScopeMeasurements(
           storySource: scopeMeasurements?.quickMeasurementSources?.storyCount,
         }
       : null;
+  const plumbingPlanRooms =
+    tradeKey === 'plumbing' && scopeMeasurements?.planRooms?.length
+      ? scopeMeasurements.planRooms
+      : null;
   const next: ScopeMeasurements = { ...(scopeMeasurements || {}) };
   for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {
     delete (next as Record<string, unknown>)[key];
   }
   delete next.planRooms;
+  if (plumbingPlanRooms?.length) next.planRooms = plumbingPlanRooms;
   delete next.planFacts;
   delete next.areaReconciliation;
   if (next.itemQuantities) {
@@ -5817,14 +5837,21 @@ export function buildStuccoTradeChecklistItems(
   return customItems.length ? [...items, ...customItems] : items;
 }
 
-function standaloneFramingChecklistItems(): ScopeChecklistItem[] {
+function standaloneFramingChecklistItems(
+  measurements?: Record<string, unknown> | null
+): ScopeChecklistItem[] {
+  const coverSheet = framingCoverSheetPackage(measurements);
   return FRAMING_CARDS.flatMap(card => [
     {
       id: card.itemId,
       label: card.label,
-      helperText: card.helper,
+      helperText:
+        coverSheet && card.itemId === 'framing'
+          ? FRAMING_COVER_SHEET_HELPER
+          : card.helper,
       category: card.groupTitle,
       state: 'unsure' as const,
+      noteBacked: false,
     },
   ]);
 }
@@ -6391,7 +6418,9 @@ export function applyPlanImportToDraft(
         next.originalNotes
       )
     : planImportTradeKey === 'framing'
-      ? standaloneFramingChecklistItems()
+      ? standaloneFramingChecklistItems(
+          scopeMeasurements as Record<string, unknown>
+        )
       : planImportTradeKey === 'insulation'
         ? standaloneInsulationChecklistItems()
         : planImportTradeKey === 'drywall'
@@ -6887,8 +6916,17 @@ export function applyPlanImportToDraft(
   if (!applyAsSelectedTrade && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;
   }
+  const plumbingBathRooms =
+    applyAsSelectedTrade && planImportTradeKey === 'plumbing'
+      ? filterPlumbingLabeledBathRooms(normalizePlanRooms(payload.rooms))
+      : [];
   const rooms = applyAsSelectedTrade ? [] : normalizePlanRooms(payload.rooms);
-  if (rooms.length) {
+  if (plumbingBathRooms.length) {
+    scopeMeasurements = {
+      ...scopeMeasurements,
+      planRooms: plumbingBathRooms,
+    };
+  } else if (rooms.length) {
     scopeMeasurements = applyPlanRoomsToScopeMeasurements(
       scopeMeasurements,
       rooms

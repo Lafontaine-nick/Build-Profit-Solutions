@@ -105,7 +105,7 @@ export const FLOORING_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number
 };
 export const FLOORING_DETACHED_MEDIAN_TOTAL = 23500;
 export const FLOORING_ALL_PROJECT_RANGE = { low: 15500, high: 25800 } as const;
-/** Generic national flooring ~$9/SF × Plan 41 living SF (not full tile $16/SF). */
+/** Generic national flooring ~$9/SF × Plan 41 living SF (full tile is $14/SF). */
 export const FLOORING_NATIONAL_REFERENCE_TOTAL = 16911;
 
 const STUCCO_MATERIAL_SHARE = 0.39; // national 3.5 / 9

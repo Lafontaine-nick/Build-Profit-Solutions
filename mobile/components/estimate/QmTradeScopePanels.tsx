@@ -37,6 +37,11 @@ import {
   kitchenNoteNamesSurfaceDemo,
 } from '@/utils/kitchenNoteScope';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
+import {
+  roofingStoryCountForReview,
+  stuccoStoryCountForReview,
+  stuccoWallAreaCarriedIntoConfirmScope,
+} from '@/utils/planTakeoffReviewUi';
 import { measurementRowInfoText } from '@/utils/scopeQuickMeasurements';
 import {
   emptyKitchenExistingCounts,
@@ -138,6 +143,11 @@ import {
   hvacScopeOptionMentionedInNotes,
   hvacWholeHouseVentilationButtonVisible,
   roofingOptionsForIds,
+  ROOF_MATERIAL_OPTIONS,
+  readRoofMaterialChoice,
+  roofMaterialCardLabel,
+  roofMaterialChoiceFromLabel,
+  roofMaterialPriceIncludes,
   roofingDownspoutQuantityWarning,
   roofingQmOptionAllowanceAmount,
   roofingQmOptionQuantitySatisfied,
@@ -6936,6 +6946,7 @@ export function QmRoofingScopePanels({
   setMeasurements,
   onScopeSelectionChange,
   notes,
+  savedCoveringLabel,
   condensed = false,
   applying,
   darkMode,
@@ -6947,6 +6958,8 @@ export function QmRoofingScopePanels({
   >;
   onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   notes?: string | null;
+  /** Card name already saved on this bid, used when the choice field was dropped. */
+  savedCoveringLabel?: string | null;
   condensed?: boolean;
   applying: boolean;
   darkMode: boolean;
@@ -7038,6 +7051,51 @@ export function QmRoofingScopePanels({
   const planOnlyRoof =
     measurements.planImportMode === 'selected_trade' &&
     measurements.planImportTradeKey === 'roofing';
+  useEffect(() => {
+    if (!planOnlyRoof) return;
+    if (measurements.roofingSystemChoice) return;
+    const restored = roofMaterialChoiceFromLabel(savedCoveringLabel);
+    if (!restored || restored === 'architectural_shingles') return;
+    setMeasurements(prev =>
+      prev.roofingSystemChoice
+        ? prev
+        : { ...prev, roofingSystemChoice: restored }
+    );
+  }, [
+    planOnlyRoof,
+    measurements.roofingSystemChoice,
+    savedCoveringLabel,
+    setMeasurements,
+  ]);
+  useEffect(() => {
+    if (!planOnlyRoof) return;
+    if (measurements.quickMeasurementUserOverrides?.storyCount) return;
+    const next = roofingStoryCountForReview({
+      measurements,
+      planFacts: measurements.planFacts as Record<string, unknown> | null,
+      provenanceEntry:
+        measurements.measurementProvenance?.storyCount ??
+        measurements.quickMeasurementSources?.storyCount,
+    });
+    if (next == null) return;
+    const current = Number(
+      String(measurements.storyCount ?? '').replace(/,/g, '')
+    );
+    if (current === next) return;
+    setMeasurements(prev => {
+      if (prev.quickMeasurementUserOverrides?.storyCount) return prev;
+      const previous = Number(String(prev.storyCount ?? '').replace(/,/g, ''));
+      if (previous === next) return prev;
+      return { ...prev, storyCount: String(next) };
+    });
+  }, [measurements, planOnlyRoof, setMeasurements]);
+  const roofMaterial = readRoofMaterialChoice(measurements);
+  const setRoofMaterial = (choice: (typeof ROOF_MATERIAL_OPTIONS)[number]['id']) => {
+    setMeasurements(prev => ({
+      ...prev,
+      roofingSystemChoice: choice,
+    }));
+  };
   const markRoofingMeasurement = (
     key: string,
     value: string,
@@ -7195,15 +7253,53 @@ export function QmRoofingScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
+            {planOnlyRoof ? (
+              <>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    {
+                      color: darkMode ? '#d7e1f0' : '#64748b',
+                      marginTop: 12,
+                      marginBottom: 8,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  Roof material
+                </Text>
+                <View style={[styles.choiceWrap, { marginBottom: 4 }]}>
+                  {ROOF_MATERIAL_OPTIONS.map(option => (
+                    <QmScopeChoiceChip
+                      key={option.id}
+                      label={option.label}
+                      active={roofMaterial === option.id}
+                      reviewState={
+                        roofMaterial === option.id ? 'confirmed' : 'idle'
+                      }
+                      onPress={() => setRoofMaterial(option.id)}
+                      disabled={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                      compact
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
             <QmSqftMeasurementRow
-              label={planOnlyRoof ? 'Shingles' : 'Roof surface area / squares'}
+              label={
+                planOnlyRoof
+                  ? roofMaterialCardLabel(roofMaterial)
+                  : 'Roof surface area / squares'
+              }
               helperText={
                 roofAreaMissing
                   ? planOnlyRoof
-                    ? 'Needs measurement. Not found on plan — enter roof squares. Price includes underlayment, drip edge, and ridge cap.'
+                    ? `Needs measurement. Not found on plan — enter roof squares. ${roofMaterialPriceIncludes(roofMaterial)}`
                     : 'Needs measurement. Not found on plan — enter roof squares before pricing.'
                   : planOnlyRoof
-                    ? 'Includes underlayment, drip edge, and ridge cap. Those are not priced again.'
+                    ? roofMaterialPriceIncludes(roofMaterial)
                     : 'Roof squares price the shingle install.'
               }
               value={roofSquaresValue}
@@ -7568,6 +7664,60 @@ export function QmStuccoScopePanels({
     measurements.stuccoOtherFinishDeductionSqft,
     measurements.stuccoNetWallSqft,
   ]);
+
+  const planOnlyStucco =
+    String(
+      (measurements as { planImportMode?: string }).planImportMode || ''
+    ) === 'selected_trade' &&
+    String(
+      (measurements as { planImportTradeKey?: string }).planImportTradeKey ||
+        ''
+    ) === 'stucco';
+
+  useEffect(() => {
+    if (!planOnlyStucco) return;
+    if (measurements.quickMeasurementUserOverrides?.stuccoStories) return;
+    const next = stuccoStoryCountForReview({
+      measurements,
+      planFacts: measurements.planFacts as Record<string, unknown> | null,
+      provenanceEntry:
+        measurements.measurementProvenance?.stuccoStories ??
+        measurements.quickMeasurementSources?.stuccoStories,
+    });
+    if (next == null) return;
+    const current = parseStuccoMeasurement(measurements.stuccoStories);
+    if (current === next) return;
+    setMeasurements(prev => {
+      if (prev.quickMeasurementUserOverrides?.stuccoStories) return prev;
+      const previous = parseStuccoMeasurement(prev.stuccoStories);
+      if (previous === next) return prev;
+      return { ...prev, stuccoStories: String(next) };
+    });
+  }, [measurements, planOnlyStucco, setMeasurements]);
+
+  const stuccoWallCarryAttempted = useRef(false);
+  useEffect(() => {
+    if (!planOnlyStucco || stuccoWallCarryAttempted.current) return;
+    const carried = stuccoWallAreaCarriedIntoConfirmScope({
+      measurements,
+    });
+    const grossPresent =
+      Number(String(measurements.stuccoGrossWallSqft ?? '').replace(/,/g, '')) >
+      0;
+    const netPresent =
+      Number(String(measurements.stuccoNetWallSqft ?? '').replace(/,/g, '')) >
+      0;
+    if (!carried && !grossPresent && !netPresent) return;
+    stuccoWallCarryAttempted.current = true;
+    if (!carried) return;
+    setMeasurements(prev => {
+      const next = stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: prev,
+      });
+      if (!next) return prev;
+      return { ...prev, ...next };
+    });
+  }, [measurements, planOnlyStucco, setMeasurements]);
 
   const updateMeasurement = (
     key: keyof ScopeMeasurementsInputExtended,
@@ -7954,7 +8104,18 @@ export function QmStuccoScopePanels({
                   placeholder='1'
                   unitLabel='story'
                   onChangeText={value => {
-                    updateMeasurement('stuccoStories', value);
+                    setMeasurements(prev => ({
+                      ...prev,
+                      stuccoStories: value,
+                      quickMeasurementUserOverrides: {
+                        ...(prev.quickMeasurementUserOverrides || {}),
+                        stuccoStories: true,
+                      },
+                      quickMeasurementSources: {
+                        ...(prev.quickMeasurementSources || {}),
+                        stuccoStories: 'user_entered',
+                      },
+                    }));
                     onStoriesChange?.();
                   }}
                   applying={applying}

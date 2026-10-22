@@ -85,6 +85,34 @@ describe('framing canonical architecture', () => {
     expect(synced.map(item => item.id)).toEqual(['framing']);
   });
 
+  it('explains a cover-sheet framing package as living plus garage', () => {
+    const synced = syncFramingScopeItems(
+      [
+        {
+          id: 'framing',
+          state: 'included',
+          helperText: FRAMING_CARDS[0]?.helper,
+          noteBacked: true,
+        },
+      ],
+      {
+        quantities: {
+          planImportTradeKey: 'framing',
+          planImportMode: 'selected_trade',
+          floorAreaSqft: 2571,
+          garageSqft: 1427,
+          framedAreaSqft: 3998,
+        } as any,
+      }
+    );
+    expect(synced[0]).toMatchObject({
+      helperText:
+        'Cover-sheet living area plus the garage. Lumber, sheathing, trusses, decking, and framing labor stay in this one package.',
+      noteBacked: false,
+      state: 'included',
+    });
+  });
+
   it('defines one canonical owner for every Framing quantity', () => {
     const keys = FRAMING_CARDS.map(card => card.measurementKey);
     expect(new Set(keys).size).toBe(keys.length);
@@ -385,7 +413,7 @@ describe('framing canonical architecture', () => {
     expect(Number(reconciled.framedAreaSqft)).toBe(4441);
     expect(reconciled.framingScope).toEqual(['framing']);
     expect(reconciled.quickMeasurementSources?.framedAreaSqft).toBe(
-      'plan_detected'
+      'plan_suggested'
     );
     expect(reconciled.quickMeasurementSources?.sheathingSqft).toBe(
       'plan_detected'
@@ -393,7 +421,7 @@ describe('framing canonical architecture', () => {
     expect(reconciled.itemQuantities?.framing).toMatchObject({
       quantity: 4441,
       unit: 'sqft',
-      quantitySource: 'plan_detected',
+      quantitySource: 'inferred',
     });
     expect(reconciled.itemQuantities?.shear_sheathing).toBeUndefined();
   });

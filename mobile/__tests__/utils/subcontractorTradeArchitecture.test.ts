@@ -23,6 +23,7 @@ import {
   scopeMeasurementsInputFromPayload,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
+import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
 import { planMeasurementsToScopeMeasurements } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { SIMPLE_TRADE_SPECS } from '@/utils/qmScopePanels/simpleTradeRemodel';
@@ -1074,6 +1075,49 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(items).toEqual([{ id: 'interior_doors', state: 'included' }]);
   });
 
+  it('keeps a contractor-removed opening out while its count stays filled', () => {
+    const items = syncWindowsDoorsScopeItems(
+      [
+        {
+          id: 'exterior_doors',
+          state: 'excluded',
+          contractorRemoved: true,
+        },
+      ],
+      { exteriorDoorCount: 5 }
+    );
+
+    expect(items).toEqual([
+      {
+        id: 'exterior_doors',
+        state: 'excluded',
+        contractorRemoved: true,
+      },
+    ]);
+  });
+
+  it('reapplies a stored removal after a sync rebuilds the card as included', () => {
+    const items = applyContractorRemovedScopeItems(
+      [
+        { id: 'windows', state: 'included' },
+        { id: 'exterior_doors', state: 'included' },
+      ],
+      ['exterior_doors']
+    );
+
+    expect(items).toEqual([
+      { id: 'windows', state: 'included' },
+      {
+        id: 'exterior_doors',
+        state: 'excluded',
+        contractorRemoved: true,
+      },
+    ]);
+    expect(
+      applyContractorRemovedScopeItems(items, ['exterior_doors'])
+    ).toBe(items);
+  });
+
   it('keeps garage door helpers for legacy imports and GC scope', () => {
     const filtered = filterPlanMeasurementsForTrade(
       {
@@ -1532,6 +1576,29 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(
       openingEvidenceSummaryLines('windowCount', planFacts).warning
     ).toContain('Source counts disagree');
+    expect(
+      openingEvidenceSummaryLines('windowCount', planFacts, 33).lines.join(' ')
+    ).not.toMatch(/unique opening/);
+    expect(
+      openingEvidenceSummaryLines(
+        'interiorDoorCount',
+        {
+          openingEvidence: [
+            {
+              id: 'i-other',
+              category: 'interior',
+              source: 'floor_plan',
+              interiorSubtype: 'other',
+            },
+          ],
+          openingReconciliation: {
+            uniqueCounts: { interior: 21 },
+            interiorBreakdown: { other: 21 },
+          },
+        },
+        20
+      ).lines
+    ).toEqual([]);
     expect(openingEvidenceDetailLines('interiorDoorCount', planFacts)).toEqual([
       'Bedroom 3 · Room · A1.2',
       'Hall bath · Bath · A1.2',

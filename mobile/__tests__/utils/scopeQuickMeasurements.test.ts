@@ -765,6 +765,32 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('cabinetLf');
   });
 
+  it('keeps swing doors on a windows plan when the notes never say exterior doors', () => {
+    const keys = quickMeasurementRowsForInput(
+      'windows_doors',
+      'windows_doors',
+      {
+        windowCount: 33,
+        exteriorDoorCount: 5,
+        slidingDoorCount: 2,
+        interiorDoorCount: 20,
+      },
+      [],
+      {
+        windowsDoorsPlanImport: true,
+        scopeNotes: 'Detected windows doors.',
+      }
+    )
+      .flat()
+      .map(field => field.key);
+    expect(keys).toEqual([
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ]);
+  });
+
   it('promotes structural mixed notes out of a windows-and-doors layout', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';

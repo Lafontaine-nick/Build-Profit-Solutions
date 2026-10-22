@@ -51,6 +51,27 @@ describe('stripScopeInputForSingleTrade', () => {
     expect(stripped.floorAreaSqft).toBe('2571');
     expect(stripped.garageSqft).toBe('');
   });
+
+  it('keeps labeled bath rooms on a plumbing import', () => {
+    const stripped = stripScopeInputForSingleTrade(
+      {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'plumbing',
+        planRooms: [
+          { name: 'Primary Suite', areaSqft: 209 },
+          { name: 'Powder Bath', areaSqft: 23.5 },
+          { name: 'Primary Bath', areaSqft: 65.5 },
+          { name: 'Garage', areaSqft: 505 },
+        ],
+      },
+      'plumbing'
+    );
+
+    expect(stripped.planRooms?.map(room => room.name)).toEqual([
+      'Powder Bath',
+      'Primary Bath',
+    ]);
+  });
 });
 
 describe('roofing plan scope filtering', () => {

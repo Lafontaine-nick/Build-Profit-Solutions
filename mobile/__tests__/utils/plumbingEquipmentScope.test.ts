@@ -31,21 +31,55 @@ describe('plumbing equipment scope cards', () => {
     );
   });
 
-  test('hydrates fixtures hardware from rough-in when schedule counts are missing', () => {
-    expect(
-      hydratePlumbingPlanMeasurementsFromInventory(
-        { plumbingRoughPointCount: 10, plumbingTrimHookupCount: 10 },
-        null,
-        {
-          waterHeaterDetail: { count: 1, type: 'tank' },
-          gasApplianceScope: { range: true, fireplace: true, dryer: true },
-        }
-      )
-    ).toMatchObject({
-      plumbingFixturesHardwareCount: 10,
+  test('does not copy rough-in counts into a fixture allowance without a fixture schedule', () => {
+    const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+      { plumbingRoughPointCount: 10, plumbingTrimHookupCount: 10 },
+      null,
+      {
+        waterHeaterDetail: { count: 1, type: 'tank' },
+        gasApplianceScope: { range: true, fireplace: true, dryer: true },
+      }
+    );
+    expect(hydrated).toMatchObject({
       waterHeaterCount: 1,
       gasApplianceConnectionCount: 3,
     });
+    expect(hydrated.plumbingFixturesHardwareCount).toBeFalsy();
+  });
+
+  test('a typed gas length does not invent a water heater or appliance hookups', () => {
+    const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+      { gasLineLf: 20 },
+      null
+    );
+    expect(hydrated.waterHeaterCount).toBeFalsy();
+    expect(hydrated.gasApplianceConnectionCount).toBeFalsy();
+  });
+
+  test('water and sewer totals use the whole-dollar unit rate', () => {
+    const measurements = {
+      floorAreaSqft: 2571,
+      storyCount: 1,
+      waterLineLf: 25,
+      sewerLineLf: 25,
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'plumbing',
+      quickMeasurementUserOverrides: { floorAreaSqft: true },
+    };
+    const water = resolveScopeItemSuggestedPricing(
+      'water_line',
+      measurements,
+      'plumbing',
+      { quantity: 25, unit: 'lf', quantitySource: 'user_entered' }
+    );
+    const sewer = resolveScopeItemSuggestedPricing(
+      'sewer_line',
+      measurements,
+      'plumbing',
+      { quantity: 25, unit: 'lf', quantitySource: 'user_entered' }
+    );
+    expect(water.fill?.total).toBe(800);
+    expect(sewer.fill?.total).toBe(1350);
   });
 
   test('skips fixture allowance when customer supplies fixtures', () => {
@@ -253,7 +287,7 @@ describe('plumbing equipment scope cards', () => {
     });
   });
 
-  test('infers water heater and gas connections from gas LF without vision equipment scope', () => {
+  test('a gas length with a fixture schedule does not invent a water heater or appliance hookups', () => {
     const plan58Inventory = {
       toilets: 3,
       lavatories: 3,
@@ -261,22 +295,21 @@ describe('plumbing equipment scope cards', () => {
       tubs: 1,
       kitchenSinks: 1,
     };
-    expect(
-      hydratePlumbingPlanMeasurementsFromInventory(
-        {
-          waterLineLf: '50',
-          sewerLineLf: '30',
-          gasLineLf: '40',
-        },
-        plan58Inventory
-      )
-    ).toMatchObject({
+    const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+      {
+        waterLineLf: '50',
+        sewerLineLf: '30',
+        gasLineLf: '40',
+      },
+      plan58Inventory
+    );
+    expect(hydrated).toMatchObject({
       plumbingRoughPointCount: 10,
       plumbingTrimHookupCount: 10,
       plumbingFixturesHardwareCount: 10,
-      waterHeaterCount: 1,
-      gasApplianceConnectionCount: 3,
     });
+    expect(hydrated.waterHeaterCount).toBeFalsy();
+    expect(hydrated.gasApplianceConnectionCount).toBeFalsy();
   });
 
   test('Plan 58-style package totals near nineteen thousand', () => {

@@ -25,6 +25,10 @@ import {
   planReviewFieldHelperText,
   planReviewMeasurementDetailLine,
   planReviewRowHasSelectableQuantity,
+  roofingPlanFactReviewProvenance,
+  roofingStoryCountForReview,
+  stuccoStoryCountForReview,
+  stuccoWallAreaCarriedIntoConfirmScope,
   planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
   wholeProjectDrawingCountApply,
@@ -914,6 +918,22 @@ describe('plan takeoff review UI polish', () => {
       cabinetRunLf: 62,
       exteriorPaintSqft: 3800,
     });
+    expect(
+      buildPaintingPlanReviewSummary(
+        {
+          wallPaintSqft: 5029.3,
+          ceilingPaintSqft: 2571,
+        },
+        null,
+        { assumeNewConstruction: true }
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        { label: 'Job condition', value: 'New construction' },
+        { label: 'Application method', value: 'Needs confirmation' },
+        { label: 'Prep / masking', value: 'Inside the paint package' },
+      ])
+    );
     expect(summary).toEqual(
       expect.arrayContaining([
         { label: 'Walls', value: '8,500 sqft' },
@@ -934,21 +954,33 @@ describe('plan takeoff review UI polish', () => {
     expect(
       confirmedPlanTakeoffLines({
         measurements: {
+          planImportMode: 'selected_trade',
           planImportTradeKey: 'painting',
+          planImportFingerprint: 'painting-plan',
+          floorAreaSqft: 2571,
+          storyCount: 2,
           wallPaintSqft: 3734,
           ceilingPaintSqft: 2571,
           baseboardLf: 410.3,
           interiorDoorCount: 19,
           exteriorDoorCount: 4,
         },
+        sources: {
+          wallPaintSqft: 'detected_from_plan',
+          ceilingPaintSqft: 'planning_estimate',
+          baseboardLf: 'detected_from_plan',
+          interiorDoorCount: 'contractor_confirmed_from_plan_review',
+          exteriorDoorCount: 'contractor_confirmed_from_plan_review',
+          floorAreaSqft: 'plan_detected',
+          storyCount: 'plan_detected',
+        },
         wholeProject: false,
       })
     ).toEqual([
-      'Exterior doors · 4',
-      'Interior doors · 19',
-      'Baseboard · 410.3 LF',
-      'Ceilings · 2,571 SF',
       'Interior walls · 3,734 SF',
+      'Ceilings · 2,571 SF',
+      'Trim paint · 410.3 LF',
+      'Interior door paint · 19',
       'Exterior paint · Needs SF',
     ]);
   });
@@ -980,7 +1012,7 @@ describe('plan takeoff review UI polish', () => {
         { label: 'Exterior doors', value: '4 EA' },
         {
           label: 'Exterior paint',
-          value: 'On this bid',
+          value: 'Needs SF',
           note: 'Elevation square footage was not printed — enter it before pricing',
         },
       ])
@@ -1002,6 +1034,32 @@ describe('plan takeoff review UI polish', () => {
     );
     expect(summary.some(line => line.label === 'Walls')).toBe(false);
     expect(summary.some(line => line.label === 'Ceilings')).toBe(false);
+  });
+
+  it('labels a wall area that is trim times plate height as a figure to confirm', () => {
+    const summary = buildPaintingPlanReviewSummary(
+      {
+        wallPaintSqft: 3734,
+        ceilingPaintSqft: 2571,
+        baseboardLf: 410.3,
+      },
+      {
+        wallPaintSqft: { source: 'measured_from_geometry', coverage: 'complete' },
+        ceilingPaintSqft: { source: 'planning_estimate', coverage: 'living_area' },
+        baseboardLf: { source: 'measured_from_geometry' },
+      }
+    );
+    expect(summary.find(line => line.label === 'Walls')).toMatchObject({
+      value: '3,734 sqft',
+      note: '410.3 LF × 9.1 ft plate height — confirm',
+    });
+    expect(summary.find(line => line.label === 'Baseboard / trim')).toMatchObject({
+      value: '410.3 LF',
+      note: 'Room perimeters — confirm',
+    });
+    expect(summary.find(line => line.label === 'Ceilings')?.note).toBe(
+      'Living area — confirm'
+    );
   });
 
   it('labels geometry-derived Painting quantities in Plan Review', () => {
@@ -1892,6 +1950,94 @@ describe('plan takeoff review UI polish', () => {
     ).toBe('From plan — confirm');
   });
 
+  test('a roofing story count without an upper floor is one story', () => {
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2, roofPitch: '2:12' },
+        planFacts: {
+          storyCount: 2,
+          roofPitch: '2:12',
+          fieldEvidence: {
+            storyCount: {
+              evidence: [{ sourceText: 'ROOF PITCH 2:12' }],
+            },
+          },
+        },
+      })
+    ).toBe(1);
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2 },
+        planFacts: {
+          storyCount: 2,
+          buildingAreas: {
+            totalLivingSqft: 2571,
+            mainFloorLivingSqft: 2527,
+          },
+          fieldEvidence: {
+            storyCount: { evidence: [{ sourceText: '2 STORY' }] },
+          },
+        },
+      })
+    ).toBe(1);
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2 },
+        planFacts: {
+          storyCount: 2,
+          fieldEvidence: {
+            storyCount: { evidence: [{ sourceText: '2ND FLOOR' }] },
+          },
+        },
+      })
+    ).toBe(1);
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2 },
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+        },
+      })
+    ).toBe(2);
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2 },
+        provenanceEntry: { source: 'user_entered' },
+      })
+    ).toBe(2);
+    expect(
+      roofingStoryCountForReview({
+        measurements: { storyCount: 2 },
+        provenanceEntry: {
+          source: 'contractor_confirmed_from_plan_review',
+        },
+      })
+    ).toBe(1);
+  });
+
+  test('roof pitch and stories use takeoff names and inherit plan-fact provenance', () => {
+    expect(measurementDisplayLabel('roofPitch').label).toBe('Roof pitch');
+    expect(measurementDisplayLabel('storyCount').label).toBe('Stories');
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'roofPitch',
+        tradeKey: 'roofing',
+        value: '2:12',
+        provenanceEntry: roofingPlanFactReviewProvenance(
+          'roofPitch',
+          '2:12',
+          { roofPitch: '2:12', storyCount: 2 },
+          undefined
+        ),
+      }).provenance
+    ).toMatchObject({
+      status: 'plan_verified',
+      label: 'Detected from plan',
+    });
+  });
+
   test('roof pitch and stories read from plan facts are detected from plan', () => {
     const provenance = {
       source: 'plan_facts',
@@ -1914,6 +2060,71 @@ describe('plan takeoff review UI polish', () => {
         provenanceEntry: { ...provenance, value: 2 },
       }).provenance.label
     ).toBe('Detected from plan');
+  });
+
+  test('a one-floor house is one stucco story and the typed wall area carries', () => {
+    expect(
+      stuccoStoryCountForReview({
+        measurements: { stuccoStories: 2 },
+        planFacts: {
+          storyCount: 2,
+          buildingAreas: {
+            totalLivingSqft: 2571,
+            mainFloorLivingSqft: 2527,
+          },
+        },
+      })
+    ).toBe(1);
+    expect(
+      stuccoStoryCountForReview({
+        measurements: { stuccoStories: 2 },
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+        },
+      })
+    ).toBe(2);
+    expect(
+      stuccoStoryCountForReview({
+        measurements: {
+          stuccoStories: 2,
+          quickMeasurementUserOverrides: { stuccoStories: true },
+        },
+      })
+    ).toBe(2);
+    expect(
+      stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: { stuccoNetWallSqft: 22 },
+        carriedGross: 22,
+      })
+    ).toEqual({
+      stuccoGrossWallSqft: '22',
+    });
+    expect(
+      stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: {},
+        carriedGross: 22,
+      })
+    ).toEqual({
+      stuccoGrossWallSqft: '22',
+      stuccoNetWallSqft: '22',
+    });
+    expect(
+      stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: {
+          stuccoNetWallSqft: 18,
+          stuccoWindowDoorOpeningSqft: '4',
+        },
+        carriedNet: 18,
+      })
+    ).toBeNull();
+    expect(
+      stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: { stuccoGrossWallSqft: '22' },
+        carriedGross: 22,
+      })
+    ).toBeNull();
   });
 
   test('stucco stories and wall height read from plan facts are detected from plan', () => {

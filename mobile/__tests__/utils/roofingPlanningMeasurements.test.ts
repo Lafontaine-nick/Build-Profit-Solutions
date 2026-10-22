@@ -12,13 +12,17 @@ import {
   initialScopeMeasurementInputExtended,
   resolveChecklistItemQuantity,
   buildNormalizedScopeMeasurementsFromInput,
+  countScopePricingReadiness,
   prepareScopeMeasurementsInputForUi,
 } from '@/utils/scopeItemQuantities';
 import { mergeConfirmScopeSavedMeasurements } from '@/utils/benchmarkReasonablenessContext';
+import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { SCOPE_PLANNING_ESTIMATE_LABEL } from '@/constants/scopeNoteSourceLabels';
 import {
   ensureGroundUpRoofingPlanChecklistItems,
   finalizeRoofingScopeSelections,
+  groundUpRoofingAccessoryQuantityOptional,
+  groundUpRoofingCoveringSettled,
 } from '@/utils/qmScopePanels/simpleTradeRemodel';
 
 const REPAIR_50_SQFT_NOTES =
@@ -398,6 +402,15 @@ describe('roofingPlanningMeasurements', () => {
     expect(cards.find(card => card.id === 'shingles_roofing')?.helperText).toMatch(
       /drip edge, and ridge cap/i
     );
+    expect(cards.every(card => card.noteBacked)).toBe(false);
+    const clay = ensureGroundUpRoofingPlanChecklistItems(
+      [],
+      'concrete_clay_tile'
+    );
+    expect(clay.find(card => card.id === 'shingles_roofing')).toMatchObject({
+      label: 'Clay tile',
+      helperText: expect.stringMatching(/clay or concrete tile/i),
+    });
     expect(cards.every(card => card.state === 'included')).toBe(true);
   });
 
@@ -418,6 +431,58 @@ describe('roofingPlanningMeasurements', () => {
       []
     );
     expect(selected).toEqual(['shingles']);
+  });
+
+  test('a measured new roof does not treat blank accessories as missing', () => {
+    const plan = {
+      planImportMode: 'selected_trade' as const,
+      planImportTradeKey: 'roofing',
+      planImportFingerprint: 'shv-lot-49',
+      roofSquares: 22,
+      roofingSystemChoice: 'concrete_clay_tile',
+    };
+    const items = [
+      { id: 'shingles_roofing', state: 'included' as const },
+      { id: 'ridge_vent', state: 'included' as const },
+      { id: 'pipe_boots', state: 'included' as const },
+      { id: 'gutters', state: 'included' as const },
+      { id: 'downspouts', state: 'included' as const },
+    ];
+    expect(groundUpRoofingCoveringSettled('shingles_roofing', plan)).toBe(true);
+    expect(groundUpRoofingCoveringSettled('gutters', plan)).toBe(false);
+    expect(groundUpRoofingAccessoryQuantityOptional('gutters', plan)).toBe(
+      true
+    );
+    expect(
+      groundUpRoofingAccessoryQuantityOptional('shingles_roofing', plan)
+    ).toBe(false);
+    const measured = buildNormalizedScopeMeasurementsFromInput({
+      ...emptyQuickMeasurementInput(),
+      ...plan,
+    });
+    expect(
+      countScopePricingReadiness(items, measured, 'roofing').needsMeasurement
+    ).toBe(0);
+    const unmeasured = buildNormalizedScopeMeasurementsFromInput({
+      ...emptyQuickMeasurementInput(),
+      ...plan,
+      roofSquares: null,
+    });
+    expect(
+      countScopePricingReadiness(items, unmeasured, 'roofing').needsMeasurement
+    ).toBe(1);
+    const reroof = buildNormalizedScopeMeasurementsFromInput({
+      ...emptyQuickMeasurementInput(),
+      ...plan,
+    });
+    expect(
+      countScopePricingReadiness(
+        items,
+        reroof,
+        'roofing',
+        'tear off the existing shingles'
+      ).needsMeasurement
+    ).toBe(4);
   });
 
   test('reconcileRoofingQuickMeasurements leaves explicit square jobs alone', () => {

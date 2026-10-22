@@ -50,6 +50,7 @@ import {
   SCOPE_MENTIONED_IN_NOTES_LABEL,
   SCOPE_DETECTED_FROM_PHOTOS_LABEL,
   SCOPE_PARSED_FROM_NOTES_LABEL,
+  SCOPE_PLANNING_ESTIMATE_LABEL,
   scopeLinkedToNotesSummary,
 } from '@/constants/scopeNoteSourceLabels';
 import type {
@@ -59,6 +60,7 @@ import type {
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
+import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
 import {
   applyScopeDetectionsToChecklistItems,
   buildStuccoTradeChecklistItems,
@@ -80,6 +82,9 @@ import {
   ensurePaintingPlanChecklistItems,
   keepPaintingBidOnPaintOnly,
   PAINTING_REVIEW_MEASUREMENT_KEYS,
+  paintingPlanAssumesNewConstruction,
+  paintingPlanSurfaceSettled,
+  paintingSelectedTradeKeepsExteriorOnBid,
   restorePaintingPlanSurfaceFields,
 } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
@@ -99,6 +104,8 @@ import {
   buildStandalonePlumbingChecklistItems,
   finalizeStandalonePlumbingChecklist,
   plumbingCardForItemId,
+  plumbingPlanHasPrintedQuantity,
+  PLUMBING_QUANTITY_KEYS,
   plumbingStateFromNotesScopeMode,
   resolveNotesScopeModeFromPlumbingState,
   syncPlumbingScopeItems,
@@ -154,8 +161,10 @@ import {
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
+  countWindowsDoorsPlanOpeningsAsFromPlan,
   isWindowsDoorsCountScopeItemId,
   syncWindowsDoorsScopeItems,
+  windowsDoorsPlanOpeningSettled,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
@@ -173,6 +182,8 @@ import {
   electricalPlanDeviceStaysVisible,
   ELECTRICAL_UNPRINTED_PLAN_KEYS,
   planImportLooksLikeGroundUp,
+  stuccoStoryCountForReview,
+  stuccoWallAreaCarriedIntoConfirmScope,
 } from '@/utils/planTakeoffReviewUi';
 import {
   INSULATION_BATT_FACING_DEFAULT,
@@ -309,6 +320,7 @@ import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
 import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
+  selectedFlooringProductItemIds,
 } from '@/utils/flooringNoteScope';
 import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
 import { notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
@@ -662,8 +674,11 @@ import {
   dedicatedHvacEquipmentChecklistItems,
   simpleTradePanelFor,
   ensureGroundUpRoofingPlanChecklistItems,
+  groundUpRoofingAccessoryQuantityOptional,
+  groundUpRoofingCoveringSettled,
   isGroundUpRoofingPlanImport,
-  NEW_ROOF_SHINGLE_PRICE_INCLUDES,
+  readRoofMaterialChoice,
+  roofMaterialPriceIncludes,
 } from '@/utils/qmScopePanels';
 import { hvacNamedEquipmentReplacesPackage } from '@/utils/southernUtahHvacComparables';
 import {
@@ -780,6 +795,9 @@ import {
   sumConfirmScopeAppliedPricingTotal,
   sumHardCostExcludedAppliedDollars,
   kitchenConfirmScopeNoteRate,
+  confirmScopeGroupPricingTemplateKey,
+  confirmScopeUsesGroundUpHousePricing,
+  paintingConfirmScopePriceIsCommitted,
   groupApplyBlockMatchingDisplayedLine,
   listConfirmScopeAppliedPricingLines,
   wholeProjectGroupDisplayTotal,
@@ -835,7 +853,9 @@ import {
   type InsulationAssemblyDetailRow,
 } from '@/utils/suggestedPricingCardUi';
 import {
+  INSULATION_PLAN_FOOTPRINT_HELPER,
   insulationEnvelopeInputsFromPlanFacts,
+  insulationPlanFootprintPackage,
   resolveInsulationEnvelopePlanningQuantity,
 } from '@/utils/insulationEnvelopeQuantity';
 import {
@@ -1185,6 +1205,17 @@ function legSourcePill({
   return <SourcePill kind={legPillKind(source)} />;
 }
 
+function quantitySourcePill(resolved: {
+  quantitySource?: string | null;
+  sourceLabel?: string | null;
+}) {
+  if (resolved.sourceLabel === SCOPE_PLANNING_ESTIMATE_LABEL) {
+    return <SourcePill kind='notes' label={SCOPE_PLANNING_ESTIMATE_LABEL} />;
+  }
+  if (resolved.quantitySource === 'notes') return <SourcePill kind='notes' />;
+  return undefined;
+}
+
 function SourcePill({
   kind,
   label,
@@ -1236,6 +1267,9 @@ function SourcePill({
 /** Saved templates + active bid, supplied once and consumed by every QuantitySection. */
 const ScopePricingContextValue =
   React.createContext<ScopePricingContext | null>(null);
+const ScopeRemoveFromBidContext = React.createContext<
+  ((itemId: string, label: string) => void) | null
+>(null);
 const ScopeAssemblyContextValue = React.createContext<{
   activeScopeKeys: string[];
   excludedScopeKeys: string[];
@@ -2219,6 +2253,7 @@ function SuggestedBudgetSplitRows({
   applyPending = false,
   forceStandardCard = false,
   onEdit,
+  onRemove,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
@@ -2226,6 +2261,8 @@ function SuggestedBudgetSplitRows({
   onUsePricing?: () => void;
   /** Renders Edit beside Apply on the same row. */
   onEdit?: () => void;
+  /** Takes this line off the bid before a price is selected. */
+  onRemove?: () => void;
   adjusted?: boolean;
   itemId?: string;
   quantitySource?: string | null;
@@ -2726,7 +2763,7 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {showApply || onEdit ? (
+      {showApply || onEdit || onRemove ? (
         <View style={styles.suggestedCardActionRow}>
           {showApply ? (
             <View style={styles.suggestedCardApplySlot}>
@@ -2775,6 +2812,39 @@ function SuggestedBudgetSplitRows({
                 ]}
               >
                 Edit
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {onRemove ? (
+            <TouchableOpacity
+              onPress={onRemove}
+              activeOpacity={0.75}
+              accessibilityRole='button'
+              accessibilityLabel='Remove from bid'
+              style={[
+                styles.suggestedCardRemoveBtn,
+                {
+                  borderColor: darkMode
+                    ? 'rgba(255, 69, 58, 0.72)'
+                    : 'rgba(220, 38, 38, 0.45)',
+                  backgroundColor: darkMode
+                    ? 'rgba(255, 69, 58, 0.16)'
+                    : 'rgba(220, 38, 38, 0.08)',
+                },
+              ]}
+            >
+              <Ionicons
+                name='trash-outline'
+                size={15}
+                color={darkMode ? '#ff6b63' : '#dc2626'}
+              />
+              <Text
+                style={[
+                  styles.suggestedCardRemoveText,
+                  { color: darkMode ? '#ff6b63' : '#dc2626' },
+                ]}
+              >
+                Remove
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -5907,6 +5977,11 @@ function QuantitySection({
   const [pendingAppliedPricingBlock, setPendingAppliedPricingBlock] =
     useState<SuggestedPricingBlock | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
+  const removeScopeItem = React.useContext(ScopeRemoveFromBidContext);
+  const onRemoveFromBid = removeScopeItem
+    ? () => removeScopeItem(itemId, scopeItemLabel)
+    : undefined;
+  const onRemoveBeforePricing = onRemoveFromBid;
   const assemblyContext = React.useContext(ScopeAssemblyContextValue);
   const scopeGapPricingContext = React.useMemo<ScopeGapPricingContext>(
     () => ({
@@ -6140,11 +6215,17 @@ function QuantitySection({
           ? storedInsulationSqft
           : noteInsulationSqft;
     if (authoritativeInsulationSqft > 0) {
+      const planFootprint = insulationPlanFootprintPackage(
+        measurementsInput as unknown as Record<string, unknown>
+      );
       resolved = {
         ...resolved,
         quantity: authoritativeInsulationSqft,
         unit: 'sqft',
-        quantitySource: 'notes',
+        quantitySource: planFootprint ? 'inferred' : 'notes',
+        sourceLabel: planFootprint
+          ? SCOPE_PLANNING_ESTIMATE_LABEL
+          : resolved.sourceLabel,
         dualCount: { quantity: authoritativeInsulationSqft, unit: 'sqft' },
         pricingReady: true,
         showInput: true,
@@ -6618,11 +6699,27 @@ function QuantitySection({
           setTimeout(() => onItemQuantityBlur(itemId), 0);
         });
       };
-      const accepted = scopeShowsConfirmScopeAppliedPricing(
+      const scopePriceAccepted = scopeShowsConfirmScopeAppliedPricing(
         itemId,
         measurementsInput,
         templateKey
       );
+      const paintingPriceCommitted = paintingConfirmScopePriceIsCommitted({
+        itemId,
+        measurements: measurementsInput,
+        templateKey,
+        notes: originalNotes,
+        choiceId,
+      });
+      const paintSelectionStatus =
+        measurementsInput.pricingAcceptance?.[itemId]?.selectionStatus;
+      const paintingPriceStale =
+        String(templateKey || '').toLowerCase() === 'painting' &&
+        scopePriceAccepted &&
+        !paintingPriceCommitted &&
+        paintSelectionStatus !== 'manual_adjusted' &&
+        paintSelectionStatus !== 'user_entered';
+      const accepted = scopePriceAccepted && !paintingPriceStale;
       const dualLiveMaterial = parsePricingAmount(materialInput?.quantity);
       const dualLiveLabor = parsePricingAmount(laborInput?.quantity);
       const dualLiveManualTotal =
@@ -6909,6 +7006,7 @@ function QuantitySection({
                     ? () => onClearAcceptedPricing(itemId)
                     : undefined
                 }
+                onRemove={onRemoveFromBid}
                 onScopeGapResolutionsChange={onScopeGapResolutionsChange}
                 onScopeGapPriceSeparately={(
                   componentKey,
@@ -6939,7 +7037,7 @@ function QuantitySection({
                   )
                 }
               />
-              {!hideSuggestion && suggestedBudgetSplit ? (
+              {!hideSuggestion && suggestedBudgetSplit && !paintingPriceCommitted ? (
                 <SuggestedBudgetSplitRows
                   block={suggestedBudgetSplit}
                   Colors={Colors}
@@ -6980,11 +7078,7 @@ function QuantitySection({
                       : fieldLabels?.countUnit || displayResolved.dualCount.unit
                   )}
                   label={fieldLabels?.count || quantityRowSourceLabel}
-                  pill={
-                    displayResolved.quantitySource === 'notes' ? (
-                      <SourcePill kind='notes' />
-                    ) : undefined
-                  }
+                  pill={quantitySourcePill(displayResolved)}
                   emphasized
                   darkMode={darkMode}
                   Colors={Colors}
@@ -7138,6 +7232,7 @@ function QuantitySection({
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                   forceStandardCard={kitchenStandardSuggestedCard}
+                  onRemove={onRemoveBeforePricing}
                   onEdit={
                     !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
                     !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
@@ -7172,6 +7267,7 @@ function QuantitySection({
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                   forceStandardCard
+                  onRemove={onRemoveBeforePricing}
                 />
               ) : displayedPriceApplyBlock ? (
                 <SuggestedPricingApplyButton
@@ -7478,6 +7574,7 @@ function QuantitySection({
                 ) || null
               }
               confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
+              onRemove={onRemoveBeforePricing}
               onEdit={
                 !planningComparison && !shouldSuppressScopePricingEdit(planningFill)
                   ? () => setPricingEditorOpen(true)
@@ -8225,11 +8322,27 @@ function QuantitySection({
           </Text>
         ) : null}
         {(() => {
-          const accepted = scopeShowsConfirmScopeAppliedPricing(
+          const scopePriceAccepted = scopeShowsConfirmScopeAppliedPricing(
             itemId,
             measurementsInput,
             templateKey
           );
+          const paintingPriceCommitted = paintingConfirmScopePriceIsCommitted({
+            itemId,
+            measurements: measurementsInput,
+            templateKey,
+            notes: originalNotes,
+            choiceId,
+          });
+          const paintSelectionStatus =
+            measurementsInput.pricingAcceptance?.[itemId]?.selectionStatus;
+          const paintingPriceStale =
+            String(templateKey || '').toLowerCase() === 'painting' &&
+            scopePriceAccepted &&
+            !paintingPriceCommitted &&
+            paintSelectionStatus !== 'manual_adjusted' &&
+            paintSelectionStatus !== 'user_entered';
+          const accepted = scopePriceAccepted && !paintingPriceStale;
           const itemAcceptance = measurementsInput.pricingAcceptance?.[itemId];
           const pricingAlternativeBlock =
             resolveConfirmScopePricingAlternativeBlock({
@@ -8512,6 +8625,7 @@ function QuantitySection({
                       ? () => onClearAcceptedPricing(itemId)
                       : undefined
                   }
+                  onRemove={onRemoveFromBid}
                   onScopeGapResolutionsChange={onScopeGapResolutionsChange}
                   onScopeGapPriceSeparately={(
                     componentKey,
@@ -8542,7 +8656,7 @@ function QuantitySection({
                     )
                   }
                 />
-                {!hideSuggestion && suggestedBudgetSplit ? (
+                {!hideSuggestion && suggestedBudgetSplit && !paintingPriceCommitted ? (
                   <SuggestedBudgetSplitRows
                     block={suggestedBudgetSplit}
                     Colors={Colors}
@@ -8585,11 +8699,7 @@ function QuantitySection({
                     resolved.quantitySource,
                     itemId
                   )}
-                  pill={
-                    resolved.quantitySource === 'notes' ? (
-                      <SourcePill kind='notes' />
-                    ) : undefined
-                  }
+                  pill={quantitySourcePill(resolved)}
                   label={quantityRowSourceLabel}
                   emphasized
                   darkMode={darkMode}
@@ -8651,6 +8761,7 @@ function QuantitySection({
                     ) || null
                   }
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  onRemove={onRemoveBeforePricing}
                   onEdit={
                     !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
                     !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
@@ -8938,6 +9049,7 @@ function QuantitySection({
               ) || null
             }
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
+            onRemove={onRemoveBeforePricing}
             onEdit={
               !shouldShowPricingComparisonBlock(suggestedComparisonSplit) &&
               !shouldSuppressScopePricingEdit(suggestedBudgetSplit)
@@ -9957,6 +10069,13 @@ function YesNoRow({
   const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const isCustom = isCustomScopeItem(item);
+  const priceSelected =
+    !isCustom &&
+    hasAcceptedScopePricing(
+      item.id,
+      measurementsInput.itemQuantities || {},
+      measurementsInput.pricingAcceptance
+    );
   const customPricingApplied =
     isCustom &&
     isCustomScopePricingApplied(item.id, measurementsInput.pricingAcceptance);
@@ -9989,6 +10108,20 @@ function YesNoRow({
   const onSetStateRef = useRef(onSetState);
   onSetStateRef.current = onSetState;
   const displayedState = optimisticState ?? item.state;
+  const coveringSettled = groundUpRoofingCoveringSettled(
+    item.id,
+    measurementsInput as unknown as Record<string, unknown>,
+    originalNotes
+  );
+  const surfaceSettled = paintingPlanSurfaceSettled(
+    item.id,
+    measurementsInput as unknown as Record<string, unknown>
+  );
+  const openingSettled = windowsDoorsPlanOpeningSettled(
+    item.id,
+    measurementsInput as unknown as Record<string, unknown>
+  );
+  const choiceSettled = coveringSettled || surfaceSettled || openingSettled;
   useEffect(() => {
     if (
       optimisticStateRef.current != null &&
@@ -10507,6 +10640,7 @@ function YesNoRow({
           {helper}
         </Text>
       ) : null}
+      {choiceSettled || priceSelected ? null : (
       <View style={styles.choiceRow}>
         <YesNoChip
           label='Yes'
@@ -10544,6 +10678,7 @@ function YesNoRow({
           />
         ) : null}
       </View>
+      )}
       {showPlumbingRoughCollapsedSummary ? (
         <TouchableOpacity
           activeOpacity={0.75}
@@ -15167,6 +15302,7 @@ function CollapsibleQuickMeasurements({
   notesTradeMode = 'whole_project',
   onNotesTradeModeChange,
   onHvacScopeSelectionChange,
+  savedCoveringLabel = null,
   stuccoSystemChoiceId = null,
   onStuccoSystemChange,
   onExteriorFinishChange,
@@ -15270,6 +15406,7 @@ function CollapsibleQuickMeasurements({
   onNotesTradeModeChange?: (mode: NotesScopeMode) => void;
   /** Sync HVAC Quick Measurement selections into Step 3 scope cards. */
   onHvacScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
+  savedCoveringLabel?: string | null;
   stuccoSystemChoiceId?: string | null;
   onStuccoSystemChange?: (choiceId: string | null) => void;
   onExteriorFinishChange?: (finishes: AreaOnlyExteriorFinish[]) => void;
@@ -17307,6 +17444,20 @@ function CollapsibleQuickMeasurements({
           return false;
         }
         if (
+          String(measurements.planImportTradeKey || '') === 'plumbing' &&
+          measurements.planImportMode === 'selected_trade' &&
+          (PLUMBING_QUANTITY_KEYS as readonly string[]).includes(result.key) &&
+          !(
+            Number(
+              String(
+                (measurements as Record<string, unknown>)[result.key] ?? ''
+              ).replace(/,/g, '')
+            ) > 0
+          )
+        ) {
+          return false;
+        }
+        if (
           (tradeKey === 'electrical' ||
             String(effectiveTemplateKey || '').toLowerCase() ===
               'electrical') &&
@@ -17356,6 +17507,8 @@ function CollapsibleQuickMeasurements({
       effectiveTemplateKey,
       measurements.measurementProvenance,
       measurements.quickMeasurementUserOverrides,
+      measurements.planImportTradeKey,
+      measurements.planImportMode,
       dedicatedElectricalMeasurementKeys,
     ]
   );
@@ -17789,6 +17942,42 @@ function CollapsibleQuickMeasurements({
         ...openingResultsFromMore,
       ];
     }
+    if (windowsDoorsPlanImport) {
+      const openingOrder = WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS;
+      const openingKeys = new Set<QuickMeasurementFieldKey>(openingOrder);
+      const gathered: QuickMeasurementFieldResult[] = [];
+      (
+        [
+          'fromPlan',
+          'suggestions',
+          'needsConfirmation',
+          'confirmed',
+          'more',
+        ] as const
+      ).forEach(groupId => {
+        const kept: QuickMeasurementFieldResult[] = [];
+        for (const result of positioned[groupId]) {
+          const count = Number(
+            String(measurements[result.key] ?? '').replace(/,/g, '')
+          );
+          if (openingKeys.has(result.key) && count > 0) {
+            gathered.push({ ...result, state: 'confirmed' });
+          } else {
+            kept.push(result);
+          }
+        }
+        positioned = { ...positioned, [groupId]: kept };
+      });
+      gathered.sort(
+        (a, b) =>
+          openingOrder.indexOf(a.key as (typeof openingOrder)[number]) -
+          openingOrder.indexOf(b.key as (typeof openingOrder)[number])
+      );
+      positioned = {
+        ...positioned,
+        confirmed: [...gathered, ...positioned.confirmed],
+      };
+    }
     if (String(effectiveTemplateKey || '').toLowerCase() === 'insulation') {
       const insulationSurfaceKeys = new Set<QuickMeasurementFieldKey>([
         'exteriorWallInsulationSqft',
@@ -17827,8 +18016,10 @@ function CollapsibleQuickMeasurements({
     typedMoreMeasurementKeys,
     typedMoreMeasurementPositions,
     typedMeasurementHomes,
+    measurements,
     measurements.quickMeasurementSources,
     measurements.quickMeasurementUserOverrides,
+    windowsDoorsPlanImport,
     effectiveTemplateKey,
     notes,
   ]);
@@ -17893,7 +18084,11 @@ function CollapsibleQuickMeasurements({
       next.detected += 1;
       next.relevantTotal += 1;
     }
-    return next;
+    return countWindowsDoorsPlanOpeningsAsFromPlan(
+      next,
+      visible,
+      measurements as unknown as Record<string, unknown>
+    );
   }, [fieldResultsForSummary, flooringPlanOmitsExistingWork, measurements]);
   const measurementConflicts = useMemo(
     () =>
@@ -17915,12 +18110,14 @@ function CollapsibleQuickMeasurements({
   const windowsDoorsSuppressedQuickMeasurementFields = useMemo(() => {
     if (!windowsDoorsPlanImport) return new Set<string>();
     return new Set(
-      WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.filter(key =>
-        shouldSuppressPlanReviewQuickMeasurementField(key, measurements, {
+      WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.filter(key => {
+        const count = Number(String(measurements[key] ?? '').replace(/,/g, ''));
+        if (Number.isFinite(count) && count > 0) return false;
+        return shouldSuppressPlanReviewQuickMeasurementField(key, measurements, {
           allowedFields: windowsDoorsPlanReviewFieldSet(),
           conflicts: measurementConflicts,
-        })
-      )
+        });
+      })
     );
   }, [windowsDoorsPlanImport, measurements, measurementConflicts]);
   for (const conflict of measurements.measurementConflicts || []) {
@@ -20174,8 +20371,20 @@ function CollapsibleQuickMeasurements({
   const drywallCoverPackage = drywallCoverSheetPackage(
     measurements as Record<string, unknown>
   );
-  const subtitle =
-    headerSummary.relevantTotal > 0
+  const plumbingPlanAwaitsCounts =
+    String(measurements.planImportTradeKey || '') === 'plumbing' &&
+    measurements.planImportMode === 'selected_trade' &&
+    !plumbingPlanHasPrintedQuantity(
+      measurements as Record<string, unknown>
+    );
+  const paintingPlanExportSubtitle =
+    String(measurements.planImportTradeKey || '') === 'painting' &&
+    measurements.planImportMode === 'selected_trade';
+  const subtitle = paintingPlanExportSubtitle
+    ? 'Quantities from the plan. Exterior paint stays blank until entered.'
+    : plumbingPlanAwaitsCounts
+    ? 'Stories are set. Counts go on the cards below.'
+    : headerSummary.relevantTotal > 0
       ? headerSummary.needsConfirmation > 0
         ? electricalPlanCountsFilled
           ? 'Confirm the plan counts before they are priced.'
@@ -20298,11 +20507,19 @@ function CollapsibleQuickMeasurements({
       );
     const paintingPlanSurfaceValue = (() => {
       if (String(measurements.planImportTradeKey || '') !== 'painting') return '';
-      if (field.key !== 'wallPaintSqft' && field.key !== 'ceilingPaintSqft') {
+      if (
+        field.key !== 'wallPaintSqft' &&
+        field.key !== 'ceilingPaintSqft' &&
+        field.key !== 'exteriorPaintSqft'
+      ) {
         return '';
       }
       const direct = String(measurements[field.key] ?? '').trim();
-      if (direct) return direct;
+      const directQuantity = Number(direct.replace(/,/g, ''));
+      if (direct && Number.isFinite(directQuantity) && directQuantity > 0) {
+        return direct;
+      }
+      if (field.key === 'exteriorPaintSqft') return '';
       if (field.key === 'wallPaintSqft') {
         const restored = restorePaintingPlanSurfaceFields(measurements, {
           notes,
@@ -20493,11 +20710,15 @@ function CollapsibleQuickMeasurements({
               'Drain piping moved with the fixture. The supply is priced on its own line.',
           }
         : {}),
+      ...(windowsDoorsPlanImport && field.key === 'exteriorDoorCount'
+        ? { label: 'Exterior swing doors' }
+        : {}),
       ...(field.key === 'windowCount'
         ? {
-            label:
-              notesNameStuccoWithWindows(notes) ||
-              notesDescribeAreaOnlyAddition(notes)
+            label: windowsDoorsPlanImport
+              ? 'Windows'
+              : notesNameStuccoWithWindows(notes) ||
+                  notesDescribeAreaOnlyAddition(notes)
                 ? 'Windows'
                 : 'Window replacement',
           }
@@ -21326,9 +21547,11 @@ function CollapsibleQuickMeasurements({
     const helperCopy =
       trade === 'electrical'
         ? 'Multi-story and larger homes add labor on rough-in, trim, homeruns, and panel work. Material stays at base rates.'
-        : bathRemodelPlumbing
-          ? 'Extra stories add labor to rough-in, trim, and vertical runs.'
-          : 'Extra stories and larger homes add labor to rough-in, trim, and vertical runs.';
+        : mepPlanImportStoryOnly
+          ? 'Stories change labor on rough-in, trim, and vertical runs.'
+          : bathRemodelPlumbing
+            ? 'Extra stories add labor to rough-in, trim, and vertical runs.'
+            : 'Extra stories and larger homes add labor to rough-in, trim, and vertical runs.';
     return (
       <View
         style={[
@@ -21387,17 +21610,19 @@ function CollapsibleQuickMeasurements({
             >
               Add living area adjustment
             </Text>
-            <Text
-              style={{
-                color: captionColor(darkMode, Colors),
-                fontSize: 11,
-                lineHeight: 15,
-                marginTop: 2,
-              }}
-            >
-              Plan takeoff already sizes this scope — add living SF only when
-              you want a size-based labor stack on top of stories.
-            </Text>
+            {mepPlanImportStoryOnly ? null : (
+              <Text
+                style={{
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 11,
+                  lineHeight: 15,
+                  marginTop: 2,
+                }}
+              >
+                Plan takeoff already sizes this scope — add living SF only when
+                you want a size-based labor stack on top of stories.
+              </Text>
+            )}
           </TouchableOpacity>
         ) : showLivingAreaComplexity ? (
           <QmSqftMeasurementRow
@@ -21450,7 +21675,8 @@ function CollapsibleQuickMeasurements({
           adjustPlumbingStoryCount,
           3
         )}
-        {!plumbingCard || hasPlanProjectComplexityContext(measurements) ? (
+        {(!plumbingCard || hasPlanProjectComplexityContext(measurements)) &&
+        !(plumbingCard && mepPlanImportStoryOnly) ? (
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -21724,6 +21950,11 @@ function CollapsibleQuickMeasurements({
       const nextScope = current.includes(surface)
         ? current.filter(value => value !== surface)
         : [...current, surface];
+      const overrides = { ...(prev.quickMeasurementUserOverrides || {}) };
+      if (surface === 'exterior') {
+        if (nextScope.includes('exterior')) delete overrides.paintScopeExterior;
+        else overrides.paintScopeExterior = true;
+      }
       const hasWallsAndCeilings =
         nextScope.includes('walls') && nextScope.includes('ceilings');
       const itemQuantities = { ...(prev.itemQuantities || {}) };
@@ -21734,6 +21965,7 @@ function CollapsibleQuickMeasurements({
       return {
         ...prev,
         paintScope: nextScope,
+        quickMeasurementUserOverrides: overrides,
         paintPricingMethod: hasWallsAndCeilings
           ? prev.paintPricingMethod || 'combined'
           : null,
@@ -21998,14 +22230,18 @@ function CollapsibleQuickMeasurements({
             <Text
               style={{
                 color:
-                  (electricalGroupSummary || headerSummary).needsConfirmation > 0
+                  plumbingPlanAwaitsCounts
+                    ? captionColor(darkMode, Colors)
+                    : (electricalGroupSummary || headerSummary).needsConfirmation > 0
                     ? '#fbbf24'
                     : captionColor(darkMode, Colors),
                 fontSize: 11,
                 marginTop: 2,
                 minHeight: 28,
                 fontWeight:
-                  (electricalGroupSummary || headerSummary).needsConfirmation > 0
+                  plumbingPlanAwaitsCounts
+                    ? '400'
+                    : (electricalGroupSummary || headerSummary).needsConfirmation > 0
                     ? '700'
                     : '400',
               }}
@@ -22361,7 +22597,7 @@ function CollapsibleQuickMeasurements({
                   ['trim', 'Baseboards / Trim'],
                   ['doors', 'Interior Doors'],
                   ['cabinets', 'Cabinets'],
-                  ['exterior', 'Exterior Paint'],
+                  ['exterior', 'Exterior house paint'],
                 ].map(([surface, label]) => {
                   const measuredExterior =
                     surface === 'exterior' &&
@@ -22641,13 +22877,23 @@ function CollapsibleQuickMeasurements({
                   lineHeight: 18,
                 }}
               >
-                These selections automatically adjust prep, masking, and
-                painting labor. They do not create separate scope items.
+                These selections record the job condition and how the paint
+                goes on.{' '}
+                {paintingPlanAssumesNewConstruction(
+                  measurements as unknown as Record<string, unknown>,
+                  notes
+                )
+                  ? 'Prep is inside the paint package.'
+                  : 'Interior masking is priced on its own card.'}
               </Text>
               {[
                 {
                   key: 'paintOccupancy' as const,
-                  label: `Job condition${measurements.paintOccupancyConfirmed ? '' : ' · planning assumption'}`,
+                  label: measurements.paintOccupancy
+                    ? measurements.paintOccupancyConfirmed
+                      ? 'Job condition'
+                      : 'Job condition · planning assumption'
+                    : 'Job condition · needs a choice',
                   values: [
                     ['occupied', 'Occupied'],
                     ['vacant', 'Vacant'],
@@ -22657,7 +22903,11 @@ function CollapsibleQuickMeasurements({
                 },
                 {
                   key: 'paintApplicationMethod' as const,
-                  label: `Application method${measurements.paintApplicationMethodConfirmed ? '' : ' · planning assumption'}`,
+                  label: measurements.paintApplicationMethod
+                    ? measurements.paintApplicationMethodConfirmed
+                      ? 'Application method'
+                      : 'Application method · planning assumption'
+                    : 'Application method · needs a choice',
                   values: [
                     ['brush_roll', 'Brush / roll'],
                     ['spray', 'Spray'],
@@ -22945,6 +23195,7 @@ function CollapsibleQuickMeasurements({
                   setMeasurements={setMeasurements}
                   onScopeSelectionChange={onHvacScopeSelectionChange}
                   notes={notes}
+                  savedCoveringLabel={savedCoveringLabel}
                   condensed={noteScopedCards}
                   applying={applying}
                   darkMode={darkMode}
@@ -23448,7 +23699,7 @@ function ScopeGroupSection({
             >
               {priceLabel}
             </Text>
-          ) : cardHeader ? (
+          ) : cardHeader && statusLabel ? (
             <View
               style={{
                 paddingHorizontal: 8,
@@ -23470,7 +23721,7 @@ function ScopeGroupSection({
                 {statusLabel}
               </Text>
             </View>
-          ) : (
+          ) : cardHeader ? null : (
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -24497,11 +24748,14 @@ export default function AIEstimateScopeAssumptionsModal({
           )) ||
         (card.id === 'exterior_trim_paint' &&
           !wholeProjectPlanChecklist &&
-          (Number(String(measurements.windowCount ?? '').replace(/,/g, '')) >
-            0 ||
-            /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
-              currentUserNote
-            ))) ||
+          (String(checklist?.templateKey || '').toLowerCase() === 'painting'
+            ? Number(String(measurements.windowCount ?? '').replace(/,/g, '')) >
+              0
+            : Number(String(measurements.windowCount ?? '').replace(/,/g, '')) >
+                0 ||
+              /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
+                currentUserNote
+              ))) ||
         (card.id === 'exterior_doors' &&
           /\b(?:exterior|entry)\s+doors?\b/i.test(currentUserNote)) ||
         (card.id === 'insulation' &&
@@ -24510,6 +24764,14 @@ export default function AIEstimateScopeAssumptionsModal({
         (card.id === 'baseboard_install' &&
           /\bbaseboards?\b|\bbase\s*board\b/i.test(currentUserNote));
       if (!noteMentionsCard) continue;
+      const insulationFootprint =
+        card.id === 'insulation' &&
+        insulationPlanFootprintPackage(
+          measurements as unknown as Record<string, unknown>
+        );
+      const helperText = insulationFootprint
+        ? INSULATION_PLAN_FOOTPRINT_HELPER
+        : card.helperText;
       const existing = expanded.some(item => item.id === card.id);
       if (existing) {
         expanded = expanded.map(item =>
@@ -24517,9 +24779,9 @@ export default function AIEstimateScopeAssumptionsModal({
             ? {
                 ...item,
                 label: card.label,
-                helperText: card.helperText,
+                helperText,
                 state: 'included' as const,
-                noteBacked: true,
+                noteBacked: !insulationFootprint,
               }
             : item
         );
@@ -24530,10 +24792,10 @@ export default function AIEstimateScopeAssumptionsModal({
             id: card.id,
             inputType: 'yes_no',
             label: card.label,
-            helperText: card.helperText,
+            helperText,
             category: card.category,
             state: 'included',
-            noteBacked: true,
+            noteBacked: !insulationFootprint,
           },
         ];
       }
@@ -24643,9 +24905,15 @@ export default function AIEstimateScopeAssumptionsModal({
       window_install: 30,
       exterior_trim_paint: 40,
     };
+    const paintingWindowCount =
+      Number(String(measurements.windowCount ?? '').replace(/,/g, '')) || 0;
     const orderedPaintingItems =
       String(checklist?.templateKey || '').toLowerCase() === 'painting'
         ? groupedOpeningItems
+            .filter(
+              item =>
+                item.id !== 'exterior_trim_paint' || paintingWindowCount > 0
+            )
             .map((item, index) => ({ item, index }))
             .sort(
               (a, b) =>
@@ -24782,7 +25050,10 @@ export default function AIEstimateScopeAssumptionsModal({
           measurements as Record<string, unknown>,
           currentUserNote
         )
-          ? ensureGroundUpRoofingPlanChecklistItems(plumbingReady)
+          ? ensureGroundUpRoofingPlanChecklistItems(
+              plumbingReady,
+              readRoofMaterialChoice(measurements)
+            )
           : plumbingReady;
       const framingReady =
         singleTradeKey === 'framing'
@@ -24979,7 +25250,8 @@ export default function AIEstimateScopeAssumptionsModal({
           item.state !== 'excluded' &&
           !(specificFlooringProduct && item.id === 'flooring')
       ),
-      scopeNotes
+      scopeNotes,
+      selectedFlooringProductItemIds(measurements)
     )
       .map((item, index) => ({
         item:
@@ -25089,7 +25361,8 @@ export default function AIEstimateScopeAssumptionsModal({
           ),
           roofingNoteParams
         ),
-        noteScopeParams.notes
+        noteScopeParams.notes,
+        selectedFlooringProductItemIds(measurements)
       ),
       noteScopeParams.notes,
       { planBacked: noteScopeParams.planBacked }
@@ -25106,8 +25379,14 @@ export default function AIEstimateScopeAssumptionsModal({
       noteScopeParams.notes,
       { planBacked: noteScopeParams.planBacked }
     );
-    if (!notesWaterproofPanNotWalls(noteScopeParams.notes)) return filtered;
-    return filtered.map(item =>
+    const paintingItems = paintingPlanAssumesNewConstruction(
+      measurements as unknown as Record<string, unknown>,
+      noteScopeParams.notes
+    )
+      ? filtered.filter(item => item.id !== 'prep')
+      : filtered;
+    if (!notesWaterproofPanNotWalls(noteScopeParams.notes)) return paintingItems;
+    return paintingItems.map(item =>
       item.id === 'waterproofing'
         ? {
             ...item,
@@ -25126,8 +25405,12 @@ export default function AIEstimateScopeAssumptionsModal({
       draft?.projectType,
       draft?.scopeMode,
       isWholeHomeMixedRemodelNote,
+      measurements.paintOccupancy,
+      measurements.paintOccupancyConfirmed,
+      measurements.flooringProductScope,
       measurements.planImportFingerprint,
       measurements.planImportMode,
+      measurements.planImportTradeKey,
       measurements.tradeScopeSelections?.roofing,
       notesFallback,
       planImport,
@@ -26895,13 +27178,21 @@ export default function AIEstimateScopeAssumptionsModal({
         checklistItems: sourceItems,
       }) as typeof nextMeasurements;
     }
-    if (
-      String(checklist.templateKey || '').toLowerCase() === 'painting' &&
-      Number(nextMeasurements.exteriorPaintSqft || 0) > 0
-    ) {
-      nextMeasurements.paintScope = Array.from(
-        new Set([...(nextMeasurements.paintScope || []), 'exterior' as const])
+    if (String(checklist.templateKey || '').toLowerCase() === 'painting') {
+      const exteriorDeclined = Boolean(
+        nextMeasurements.quickMeasurementUserOverrides?.paintScopeExterior
       );
+      if (
+        !exteriorDeclined &&
+        (paintingSelectedTradeKeepsExteriorOnBid(
+          nextMeasurements as Record<string, unknown>
+        ) ||
+          Number(nextMeasurements.exteriorPaintSqft || 0) > 0)
+      ) {
+        nextMeasurements.paintScope = Array.from(
+          new Set([...(nextMeasurements.paintScope || []), 'exterior' as const])
+        );
+      }
     }
     const strippedQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
       nextMeasurements.itemQuantities,
@@ -27413,10 +27704,21 @@ export default function AIEstimateScopeAssumptionsModal({
         continue;
       }
       const existing = normalized.find(item => item.id === card.id);
+      const keepPlanEstimate =
+        card.id === 'insulation' &&
+        Boolean(
+          insulationPlanFootprintPackage(
+            nextMeasurements as unknown as Record<string, unknown>
+          )
+        );
       if (existing) {
         normalized = normalized.map(item =>
           item.id === card.id
-            ? { ...item, state: 'included' as const, noteBacked: true }
+            ? {
+                ...item,
+                state: 'included' as const,
+                noteBacked: keepPlanEstimate ? false : true,
+              }
             : item
         );
       } else {
@@ -27424,10 +27726,12 @@ export default function AIEstimateScopeAssumptionsModal({
           id: card.id,
           inputType: 'yes_no',
           label: card.label,
-          helperText: card.helperText,
+          helperText: keepPlanEstimate
+            ? INSULATION_PLAN_FOOTPRINT_HELPER
+            : card.helperText,
           category: card.category,
           state: 'included',
-          noteBacked: true,
+          noteBacked: !keepPlanEstimate,
         });
       }
     }
@@ -27441,6 +27745,71 @@ export default function AIEstimateScopeAssumptionsModal({
     if (notesNameReceptaclesWithToilet(scopeNotes)) {
       normalized = receptaclesWithToiletChecklistItems();
     }
+    if (nextMeasurements.planImportTradeKey === 'stucco') {
+      const importAreas =
+        planImport?.buildingAreas || planImport?.planFacts?.buildingAreas;
+      const savedFacts = nextMeasurements.planFacts;
+      if (
+        importAreas &&
+        !(
+          savedFacts &&
+          typeof savedFacts === 'object' &&
+          savedFacts.buildingAreas
+        )
+      ) {
+        nextMeasurements = {
+          ...nextMeasurements,
+          planFacts: {
+            ...(savedFacts && typeof savedFacts === 'object' ? savedFacts : {}),
+            ...(planImport?.planFacts?.storyCount != null
+              ? { storyCount: planImport.planFacts.storyCount }
+              : {}),
+            buildingAreas: importAreas,
+          },
+        };
+      }
+      const carriedWall = stuccoWallAreaCarriedIntoConfirmScope({
+        measurements: nextMeasurements,
+        carriedGross:
+          planImport?.measurements?.stuccoGrossWallSqft ??
+          draft?.scopeMeasurements?.stuccoGrossWallSqft,
+        carriedNet:
+          planImport?.measurements?.stuccoNetWallSqft ??
+          draft?.scopeMeasurements?.stuccoNetWallSqft,
+      });
+      if (carriedWall) {
+        nextMeasurements = { ...nextMeasurements, ...carriedWall };
+      }
+      if (!nextMeasurements.quickMeasurementUserOverrides?.stuccoStories) {
+        const stories = stuccoStoryCountForReview({
+          measurements: nextMeasurements,
+          planFacts: (nextMeasurements.planFacts ||
+            planImport?.planFacts ||
+            draft?.scopeMeasurements?.planFacts) as Record<
+            string,
+            unknown
+          > | null,
+          buildingAreas: planImport?.buildingAreas,
+          provenanceEntry:
+            nextMeasurements.measurementProvenance?.stuccoStories,
+        });
+        if (stories != null) {
+          const currentStories = Number(
+            String(nextMeasurements.stuccoStories ?? '').replace(/,/g, '')
+          );
+          if (currentStories !== stories) {
+            nextMeasurements = {
+              ...nextMeasurements,
+              stuccoStories: String(stories),
+            };
+          }
+        }
+      }
+    }
+    normalized = applyContractorRemovedScopeItems(
+      normalized,
+      nextMeasurements.contractorRemovedScopeItemIds
+    );
     baseItemsRef.current = normalized;
     setItems(normalized);
     setMeasurementsSynced(nextMeasurements);
@@ -27861,13 +28230,20 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const plumbingPlanPackageCards =
+    String(measurements.planImportTradeKey || '') === 'plumbing' &&
+    measurements.planImportMode === 'selected_trade';
   const summary = useMemo(
     () =>
       scopeChecklistSummaryCounts(
         confirmScopeChecklistItems,
-        pricingCounts.needsMeasurement
+        plumbingPlanPackageCards ? 0 : pricingCounts.needsMeasurement
       ),
-    [confirmScopeChecklistItems, pricingCounts.needsMeasurement]
+    [
+      confirmScopeChecklistItems,
+      plumbingPlanPackageCards,
+      pricingCounts.needsMeasurement,
+    ]
   );
 
   const persistScopeProgressNow = useCallback(() => {
@@ -28332,8 +28708,15 @@ export default function AIEstimateScopeAssumptionsModal({
       notes: scopeNotes,
       wholeProjectPlan: wholeProjectPlanChecklist,
       planImportTradeKey: concretePlanExport ? 'concrete' : null,
+      retainFlooringItemIds: selectedFlooringProductItemIds(measurements),
     }),
-    [draft?.projectType, scopeNotes, wholeProjectPlanChecklist, concretePlanExport]
+    [
+      concretePlanExport,
+      draft?.projectType,
+      measurements.flooringProductScope,
+      scopeNotes,
+      wholeProjectPlanChecklist,
+    ]
   );
 
   const groupedItems = useMemo(() => {
@@ -29531,6 +29914,14 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
 
   useEffect(() => {
+    const removedIds = measurements.contractorRemovedScopeItemIds;
+    if (!removedIds?.length) return;
+    startTransition(() => {
+      setItems(prev => applyContractorRemovedScopeItems(prev, removedIds));
+    });
+  }, [items, measurements.contractorRemovedScopeItemIds]);
+
+  useEffect(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'garage_doors')
       return;
     startTransition(() => {
@@ -29687,6 +30078,13 @@ export default function AIEstimateScopeAssumptionsModal({
         deferredMeasurements.deckFootingCount ?? '',
         deferredMeasurements.deckStairCount ?? '',
         deferredMeasurements.railingLf ?? '',
+        deferredMeasurements.roofSquares ?? '',
+        deferredMeasurements.roofAreaSqft ?? '',
+        deferredMeasurements.roofRidgeVentLf ?? '',
+        deferredMeasurements.roofPipeBootCount ?? '',
+        deferredMeasurements.roofGutterLf ?? '',
+        deferredMeasurements.roofDownspoutCount ?? '',
+        deferredMeasurements.roofingSystemChoice ?? '',
         JSON.stringify(deferredMeasurements.pricingAcceptance ?? {}),
       ].join('\u001f'),
     [
@@ -30658,6 +31056,15 @@ export default function AIEstimateScopeAssumptionsModal({
         notes: scopeNotes,
       });
       if (!resolved.showInput || resolved.pricingReady) continue;
+      if (
+        groundUpRoofingAccessoryQuantityOptional(
+          item.id,
+          measurements as unknown as Record<string, unknown>,
+          scopeNotes
+        )
+      ) {
+        continue;
+      }
 
       const group = groupedItems.find(g =>
         g.items.some(row => row.id === item.id)
@@ -31247,6 +31654,84 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [setMeasurementsSynced]
   );
+
+  const handleRemoveScopeItem = useCallback(
+    (itemId: string, label: string) => {
+      Alert.alert(
+        `Remove ${label} from this bid?`,
+        'It comes off the price. The measurement stays in Quick measurements.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              hapticTap();
+              setItems(prev =>
+                prev.map(row =>
+                  row.id === itemId
+                    ? {
+                        ...row,
+                        state: 'excluded' as const,
+                        contractorRemoved: true,
+                      }
+                    : row
+                )
+              );
+              setMeasurementsSynced(prev => {
+                const existing = prev.contractorRemovedScopeItemIds || [];
+                if (existing.includes(itemId)) return prev;
+                return {
+                  ...prev,
+                  contractorRemovedScopeItemIds: [...existing, itemId],
+                };
+              });
+              InteractionManager.runAfterInteractions(() => {
+                persistScopeProgressNow();
+              });
+            },
+          },
+        ]
+      );
+    },
+    [persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const handleUndoRemoveScopeItem = useCallback(
+    (itemId: string) => {
+      hapticTap();
+      setItems(prev =>
+        prev.map(row =>
+          row.id === itemId
+            ? { ...row, state: 'included' as const, contractorRemoved: false }
+            : row
+        )
+      );
+      setMeasurementsSynced(prev => ({
+        ...prev,
+        contractorRemovedScopeItemIds: (
+          prev.contractorRemovedScopeItemIds || []
+        ).filter(id => id !== itemId),
+      }));
+      InteractionManager.runAfterInteractions(() => {
+        persistScopeProgressNow();
+      });
+    },
+    [persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const removedFromBidRows = useMemo(() => {
+    const ids = measurements.contractorRemovedScopeItemIds || [];
+    return ids.map(id => {
+      const item = items.find(row => row.id === id);
+      return {
+        id,
+        label: item
+          ? checklistDisplayLabel(item, checklist?.templateKey)
+          : 'Scope item',
+      };
+    });
+  }, [checklist?.templateKey, items, measurements.contractorRemovedScopeItemIds]);
 
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
@@ -32010,8 +32495,12 @@ export default function AIEstimateScopeAssumptionsModal({
     if (bathroomPricingFlow && item.id === 'fixture_demo') {
       return null;
     }
+    const paintingBidIncludesExterior =
+      String(checklist?.templateKey || '').toLowerCase() === 'painting' &&
+      measurements.paintScope?.includes('exterior');
     if (
       !wholeProjectPlanChecklist &&
+      !paintingBidIncludesExterior &&
       item.id === 'exterior_paint' &&
       !/\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\b[^.;\n]{0,35}\b(?:exterior|outside)\b|\b(?:siding|stucco|soffit|fascia)\b[^.;\n]{0,35}\bpaint(?:ing)?\b/i.test(
         scopeNotes
@@ -33417,6 +33906,10 @@ export default function AIEstimateScopeAssumptionsModal({
             onSummaryChange={setQuickMeasurementSummary}
             onElectricalMeasurementsSettled={setElectricalMeasurementsSettled}
             onHvacScopeSelectionChange={syncHvacQmScopeItems}
+            savedCoveringLabel={
+              displayItems.find(item => item.id === 'shingles_roofing')?.label ??
+              null
+            }
             stuccoSystemChoiceId={
               items.find(row => row.id === 'stucco')?.choiceId ?? null
             }
@@ -33900,13 +34393,16 @@ export default function AIEstimateScopeAssumptionsModal({
                 );
                 const drywallFinishGroup = group.title === 'Drywall finish';
                 const drywallFinishOn = measurements.drywallFinishIncluded === true;
-                const groundUpHouseBid =
-                  !framingPlanExport &&
-                  !plumbingPlanExport &&
-                  !roofingPlanExport &&
-                  !drywallPlanExport &&
-                  (scopePricingTemplateKey === 'ground_up' ||
-                    (wholeHouseLivingSqft >= 800 && wholeHouseGarageSqft >= 200));
+                const groundUpHouseBid = confirmScopeUsesGroundUpHousePricing({
+                  singleTradePlanImport,
+                  framingPlanExport,
+                  plumbingPlanExport,
+                  roofingPlanExport,
+                  drywallPlanExport,
+                  scopePricingTemplateKey,
+                  wholeHouseLivingSqft,
+                  wholeHouseGarageSqft,
+                });
                 const pricedItems = (
                   drywallFinishGroup && !drywallFinishOn
                     ? regularItems.map(item => ({
@@ -33974,18 +34470,16 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
                   return true;
                 });
-                const groupPricingTemplateKey = framingPlanExport
-                  ? 'framing'
-                  : plumbingPlanExport
-                    ? 'plumbing'
-                    : roofingPlanExport
-                      ? 'roofing'
-                      : drywallPlanExport
-                        ? 'drywall'
-                        : wholeHouseLivingSqft >= 800 &&
-                            wholeHouseGarageSqft >= 200
-                          ? 'ground_up'
-                          : scopePricingTemplateKey;
+                const groupPricingTemplateKey = confirmScopeGroupPricingTemplateKey({
+                  singleTradePlanImport,
+                  framingPlanExport,
+                  plumbingPlanExport,
+                  roofingPlanExport,
+                  drywallPlanExport,
+                  scopePricingTemplateKey,
+                  wholeHouseLivingSqft,
+                  wholeHouseGarageSqft,
+                });
                 const groupPricingCacheKey = `${groupPricingTemplateKey}|${group.title}|${drywallFinishOn}|${scopeNotes}|${pricedItems
                   .map(item => `${item.id}:${item.state}:${item.choiceId || ''}`)
                   .join(',')}|${[
@@ -34001,6 +34495,11 @@ export default function AIEstimateScopeAssumptionsModal({
                   measurements.wallDemoSqft,
                   measurements.drywallSqft,
                   measurements.wallPaintSqft,
+                  measurements.ceilingPaintSqft,
+                  measurements.baseboardLf,
+                  measurements.interiorDoorCount,
+                  measurements.exteriorDoorCount,
+                  measurements.paintOccupancy,
                   measurements.exteriorPaintSqft,
                   measurements.exteriorFinish,
                   measurements.exteriorStuccoSystem,
@@ -34184,7 +34683,9 @@ export default function AIEstimateScopeAssumptionsModal({
                     includesNote={
                       group.title === 'Roofing System' &&
                       shinglePriceIncludesStandardEdge
-                        ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
+                        ? roofMaterialPriceIncludes(
+                            readRoofMaterialChoice(measurements)
+                          )
                         : (() => {
                             const electricalNote =
                               visibleItems.length > 0 &&
@@ -34210,9 +34711,11 @@ export default function AIEstimateScopeAssumptionsModal({
                     statusLabel={
                       drywallFinishGroup && !drywallFinishOn
                         ? 'Not included'
-                        : plumbingPlanExport || notesPlumbingFlow
-                          ? 'Needs count'
-                          : 'Price needed'
+                        : plumbingPlanExport
+                          ? ''
+                          : notesPlumbingFlow
+                            ? 'Needs count'
+                            : 'Price needed'
                     }
                     statusQuiet={drywallFinishGroup && !drywallFinishOn}
                     showApply={groupCollapsed && pendingGroupApplies.length > 0}
@@ -34370,6 +34873,31 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ]}
       >
+        {removedFromBidRows.length > 0 ? (
+          <View style={styles.removedScopeList}>
+            {removedFromBidRows.map(row => (
+              <View key={row.id} style={styles.removedScopeRow}>
+                <Text
+                  style={[
+                    styles.removedScopeLabel,
+                    { color: captionColor(darkMode, Colors) },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Removed {row.label}.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleUndoRemoveScopeItem(row.id)}
+                  accessibilityRole='button'
+                  accessibilityLabel={`Undo remove ${row.label}`}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.removedScopeUndo}>Undo</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : null}
         <ReliableFlowPress
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
@@ -34552,6 +35080,7 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   return (
+    <ScopeRemoveFromBidContext.Provider value={handleRemoveScopeItem}>
     <ScopePricingContextValue.Provider value={enrichedPricingContext}>
       <ScopeAssemblyContextValue.Provider value={scopeAssemblyContext}>
         <ScopeNormalizedMeasurementsContext.Provider value={sharedRowNorm}>
@@ -34589,6 +35118,7 @@ export default function AIEstimateScopeAssumptionsModal({
         </ScopeNormalizedMeasurementsContext.Provider>
       </ScopeAssemblyContextValue.Provider>
     </ScopePricingContextValue.Provider>
+    </ScopeRemoveFromBidContext.Provider>
   );
 }
 
@@ -35168,6 +35698,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  suggestedCardRemoveBtn: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  suggestedCardRemoveText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
   compactSuggestedRow: {
     marginTop: 10,
     paddingTop: 12,
@@ -35476,6 +36020,26 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     fontWeight: '600',
+  },
+  removedScopeList: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  removedScopeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  removedScopeLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  removedScopeUndo: {
+    color: '#2dcc9a',
+    fontSize: 13,
+    fontWeight: '800',
   },
   footer: {
     paddingHorizontal: 16,

@@ -283,14 +283,36 @@ export function dedicatedFlooringRemovedTypes(
   );
 }
 
+/** Checklist ids for products the contractor turned on in New Flooring. */
+export function selectedFlooringProductItemIds(
+  measurements: { flooringProductScope?: unknown } | null | undefined
+): string[] {
+  const scope = Array.isArray(measurements?.flooringProductScope)
+    ? measurements.flooringProductScope
+    : [];
+  const ids: string[] = [];
+  for (const product of scope) {
+    const id = PRODUCT_RULES.find(rule => rule.product === String(product))?.id;
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 export function filterDedicatedFlooringConfirmItems<
   T extends { id?: string | null },
->(items: T[], notes?: string | null): T[] {
+>(
+  items: T[],
+  notes?: string | null,
+  keepIds?: Iterable<string> | null
+): T[] {
   const text = dedicatedFlooringNoteText(notes);
   if (!notesDescribeDedicatedFlooringJob(text)) return items;
   const allowed = new Set(
     dedicatedFlooringConfirmScopeItems(text).map(item => item.id)
   );
+  for (const id of keepIds || []) {
+    if (id) allowed.add(id);
+  }
   return items.filter(item => {
     const id = String(item.id || '');
     return id.startsWith('custom_') || allowed.has(id);

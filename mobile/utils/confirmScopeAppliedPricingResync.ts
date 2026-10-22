@@ -148,6 +148,13 @@ function collectTakeoffQuantityChanges(
     if (prevQty !== nextQty) changed.add(card.itemId);
   }
 
+  if (
+    String(previous.roofingSystemChoice || '') !==
+    String(next.roofingSystemChoice || '')
+  ) {
+    changed.add('shingles_roofing');
+  }
+
   return [...changed];
 }
 
@@ -491,7 +498,12 @@ function resyncAppliedScopePricingForItem(params: {
     return scaled ?? { itemQuantities, pricingAcceptance };
   }
 
-  if (forceRecompute) {
+  const roofMaterialChanged =
+    itemId === 'shingles_roofing' &&
+    String(previousMeasurements.roofingSystemChoice || '') !==
+      String(measurements.roofingSystemChoice || '');
+
+  if (forceRecompute && !roofMaterialChanged) {
     const complexityResync = rescaleAppliedPricingForComplexityChange({
       itemId,
       previousMeasurements,
@@ -503,8 +515,28 @@ function resyncAppliedScopePricingForItem(params: {
     if (complexityResync) return complexityResync;
   }
 
+  const pricingQuantities = roofMaterialChanged
+    ? Object.fromEntries(
+        Object.entries(itemQuantities).filter(
+          ([key]) => !key.startsWith('shingles_roofing__')
+        )
+      )
+    : itemQuantities;
+  const pricingAcceptanceForSuggest = roofMaterialChanged
+    ? Object.fromEntries(
+        Object.entries(pricingAcceptance).filter(
+          ([key]) => key !== 'shingles_roofing'
+        )
+      )
+    : pricingAcceptance;
+  const pricingMeasurements = {
+    ...reconciledMeasurements,
+    itemQuantities: pricingQuantities,
+    pricingAcceptance: pricingAcceptanceForSuggest,
+  };
+
   const normalized = buildNormalizedScopeMeasurementsFromInput(
-    { ...reconciledMeasurements, itemQuantities, pricingAcceptance },
+    pricingMeasurements,
     {
       notes: notes || undefined,
       templateKey,
@@ -516,7 +548,7 @@ function resyncAppliedScopePricingForItem(params: {
   });
   const pricing = resolveScopeItemSuggestedPricing(
     itemId,
-    { ...reconciledMeasurements, itemQuantities, pricingAcceptance },
+    pricingMeasurements,
     templateKey,
     resolved,
     pricingContext,
@@ -524,8 +556,9 @@ function resyncAppliedScopePricingForItem(params: {
     notes || undefined,
     { bypassAppliedSuppress: true }
   );
-  const suggested =
-    pricing.fill || (forceRecompute ? pricing.comparison : null);
+  const suggested = roofMaterialChanged
+    ? pricing.fill
+    : pricing.fill || (forceRecompute ? pricing.comparison : null);
 
   const previousTotal =
     previousAcceptance?.totalAmount ??
@@ -546,7 +579,7 @@ function resyncAppliedScopePricingForItem(params: {
     itemQuantities = applySuggestedBlockToQuantities(
       itemId,
       suggested,
-      itemQuantities,
+      pricingQuantities,
       templateKey
     );
     const materialKey = allowanceSplitSubKey(itemId, 'material');
@@ -590,6 +623,9 @@ export function resyncAppliedScopePricingAfterMeasurementChanges(params: {
     params.previous,
     params.next
   );
+  const roofMaterialChanged =
+    String(params.previous.roofingSystemChoice || '') !==
+    String(params.next.roofingSystemChoice || '');
   let changedItemIds = collectTakeoffQuantityChanges(params.previous, params.next);
   if (complexityChanged) {
     changedItemIds = [
@@ -622,7 +658,9 @@ export function resyncAppliedScopePricingAfterMeasurementChanges(params: {
       notes: params.notes,
       pricingContext: params.pricingContext,
       forceRecompute:
-        complexityChanged || (assemblyChanged && itemId === 'insulation'),
+        complexityChanged ||
+        (assemblyChanged && itemId === 'insulation') ||
+        (roofMaterialChanged && itemId === 'shingles_roofing'),
     });
     if (!patch) continue;
     itemQuantities = patch.itemQuantities;

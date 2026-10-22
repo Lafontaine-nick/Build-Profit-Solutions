@@ -712,6 +712,38 @@ export function applyProjectComplexityToSuggestedPricing(
   };
 }
 
+/** Entry cards show a whole-dollar unit rate. Keep the line total on that same rate. */
+export function snapPlumbingLineRateToWholeDollar(
+  itemId: string,
+  quantity: number,
+  result: ComplexityPricingResult
+): ComplexityPricingResult {
+  if (itemId !== 'water_line' && itemId !== 'sewer_line') return result;
+  const fill = result.fill;
+  if (!fill || !(fill.total > 0)) return result;
+  const qty = Number(quantity);
+  if (!(qty > 0)) return result;
+  const unit = Math.round(fill.total / qty);
+  if (!(unit > 0)) return result;
+  const total = round2(unit * qty);
+  if (total === fill.total) return result;
+  const labor = round2(Math.max(0, total - fill.material));
+  return {
+    ...result,
+    fill: {
+      ...fill,
+      labor,
+      total,
+      storedTotalExact: total,
+      costBuckets: Array.isArray(fill.costBuckets)
+        ? fill.costBuckets.map(bucket =>
+            bucket.key === 'labor' ? { ...bucket, amount: labor } : bucket
+          )
+        : fill.costBuckets,
+    },
+  };
+}
+
 export function summarizeProjectComplexity(
   settings: ProjectComplexitySettings
 ): Array<{ label: string; detail: string; percent: string }> {

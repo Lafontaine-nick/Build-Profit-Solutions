@@ -102,7 +102,6 @@ describe('plan facts persistence', () => {
     );
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
       { name: 'Roof pitch', amount: 0, quantity: '2:12' },
-      { name: 'Stories', amount: 0, quantity: '2 stories' },
       {
         name: 'Roof surface area / squares',
         amount: 0,
@@ -111,7 +110,6 @@ describe('plan facts persistence', () => {
     ]);
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
       'Roof pitch · 2:12',
-      'Stories · 2 stories',
       'Roof surface area / squares · Needs measurement',
     ]);
   });
@@ -123,6 +121,19 @@ describe('plan facts persistence', () => {
     expect(lot39.buildingAreas?.mainFloorLivingSqft).toBe(1892);
     expect(lot39.buildingAreas?.upstairsLivingSqft).toBe(1209);
     expect(warnings.join(' ')).toMatch(/3,098.*3,101/);
+  });
+
+  test('a selected roof covering survives the confirm-scope save', () => {
+    const payload = scopeMeasurementsPayloadForPersist({
+      ...initialScopeMeasurementInputExtended(),
+      roofSquares: '22',
+      roofPitch: '2:12',
+      roofingSystemChoice: 'concrete_clay_tile',
+    });
+    expect(payload.roofingSystemChoice).toBe('concrete_clay_tile');
+    expect(scopeMeasurementsInputFromPayload(payload).roofingSystemChoice).toBe(
+      'concrete_clay_tile'
+    );
   });
 });
 

@@ -1,3 +1,4 @@
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import { isPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
 
 export type PaintScopeSurface =
@@ -67,6 +68,80 @@ export const PAINTING_REVIEW_MEASUREMENT_KEYS = [
   'exteriorDoorCount',
 ] as const;
 
+const PAINT_REMODEL_NOTE =
+  /\b(?:occupied|owner[- ]occupied|furnished|repaint|re-?paint|remodel|renovation|vacant|unoccupied)\b/i;
+
+export function paintingPlanImport(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!measurements) return false;
+  return (
+    String(measurements.planImportMode || '') === 'selected_trade' &&
+    String(measurements.planImportTradeKey || '') === 'painting' &&
+    Boolean(String(measurements.planImportFingerprint || '').trim())
+  );
+}
+
+/**
+ * An architectural painting plan is a new build until the notes or a
+ * confirmed chip say the house is occupied, vacant, or a remodel.
+ */
+export function paintingPlanAssumesNewConstruction(
+  measurements: Record<string, unknown> | null | undefined,
+  notes?: string | null
+): boolean {
+  if (!paintingPlanImport(measurements)) return false;
+  if (PAINT_REMODEL_NOTE.test(String(notes || ''))) return false;
+  if (measurements?.paintOccupancyConfirmed === true) {
+    return String(measurements.paintOccupancy || '') === 'new_construction';
+  }
+  return true;
+}
+
+const PAINT_SCOPE_BY_CARD: Record<string, PaintScopeSurface> = {
+  interior_paint: 'walls',
+  ceiling_paint: 'ceilings',
+  trim_paint: 'trim',
+  door_paint: 'doors',
+  exterior_paint: 'exterior',
+};
+
+/** The paint-scope chip already put this surface on the bid. */
+export function paintingPlanSurfaceSettled(
+  itemId: string,
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!paintingPlanImport(measurements)) return false;
+  const scope = Array.isArray(measurements?.paintScope)
+    ? measurements.paintScope.map(value => String(value))
+    : [];
+  const surface = PAINT_SCOPE_BY_CARD[itemId];
+  if (surface && scope.includes(surface)) return true;
+  const positive = (value: unknown) => {
+    const count = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(count) && count > 0;
+  };
+  if (itemId === 'interior_paint' && positive(measurements?.wallPaintSqft)) {
+    return true;
+  }
+  if (itemId === 'ceiling_paint' && positive(measurements?.ceilingPaintSqft)) {
+    return true;
+  }
+  if (itemId === 'trim_paint' && positive(measurements?.baseboardLf)) {
+    return true;
+  }
+  if (itemId === 'door_paint' && positive(measurements?.interiorDoorCount)) {
+    return true;
+  }
+  if (itemId === 'exterior_door_paint') {
+    const count = Number(
+      String(measurements?.exteriorDoorCount ?? '').replace(/,/g, '')
+    );
+    return Number.isFinite(count) && count > 0;
+  }
+  return false;
+}
+
 /** Confirm Scope for a painting bid shows only these takeoff fields. */
 export const PAINTING_CONFIRM_SCOPE_IDS = [
   'interior_paint',
@@ -105,6 +180,34 @@ export type PaintingStructuredMeasurements = {
     { quantity: number; unit: string; quantitySource?: string }
   > | null;
 };
+
+/**
+ * Selected-trade painting plans keep exterior paint on the bid so the
+ * contractor can enter elevation SF. A chip they turned off stays off.
+ * Whole-house and notes-only jobs are unchanged.
+ */
+export function paintingSelectedTradeKeepsExteriorOnBid(
+  input: Record<string, unknown>
+): boolean {
+  const overrides = input.quickMeasurementUserOverrides;
+  if (
+    overrides &&
+    typeof overrides === 'object' &&
+    (overrides as { paintScopeExterior?: boolean }).paintScopeExterior
+  ) {
+    return false;
+  }
+  if (String(input.planImportTradeKey || '') !== 'painting') return false;
+  if (String(input.planImportMode || '') === 'whole_project') return false;
+  return [
+    'wallPaintSqft',
+    'ceilingPaintSqft',
+    'paintAreaSqft',
+    'combinedPaintableAreaSqft',
+    'baseboardLf',
+    'interiorDoorCount',
+  ].some(key => positiveNumber(input[key]) != null);
+}
 
 function positiveNumber(value: unknown): number | null {
   const n = Number(String(value ?? '').replace(/,/g, ''));
@@ -199,6 +302,14 @@ export function buildPaintingStructuredMeasurements(
   }
   if (positiveNumber(aliased.cabinetPaintSqft) != null && !inferredScope.includes('cabinets')) {
     inferredScope.push('cabinets');
+  }
+  // A painting plan bid includes exterior paint even when the elevations
+  // never printed a square footage. The quantity stays blank until entered.
+  if (
+    paintingSelectedTradeKeepsExteriorOnBid(aliased) &&
+    !inferredScope.includes('exterior')
+  ) {
+    inferredScope.push('exterior');
   }
 
   const explicitScope = readExplicitPaintScope(aliased);
@@ -550,9 +661,9 @@ const PAINTING_CONFIRM_SCOPE_DEFAULTS: Record<
       'Tape, plastic, and floor protection for the interior walls and ceilings. This is not included in the wall, ceiling, trim, or door paint prices.',
   },
   exterior_paint: {
-    label: 'Exterior paint',
+    label: 'Exterior house paint',
     helperText:
-      'Paint only the exterior surface square footage on this card. Door slabs, window units, garage doors, and masking are priced separately.',
+      'Paint the exterior siding, stucco, soffit, and fascia square footage. Door slabs and masking are priced on their own cards.',
   },
   exterior_prep: {
     label: 'Exterior masking',
@@ -597,7 +708,7 @@ export function ensurePaintingPlanChecklistItems<T extends { id: string }>(
       : null;
     byId.set(item.id, {
       ...item,
-      state: 'included',
+      state: contractorKeptScopeItemOut(item) ? 'excluded' : 'included',
       ...(copy ? { label: copy.label, helperText: copy.helperText } : {}),
     } as T);
   }
@@ -630,7 +741,7 @@ const PAINTING_INSTALL_SCOPE_IDS = new Set([
  * installation stay off even when the plan count would otherwise add them.
  */
 export function keepPaintingBidOnPaintOnly<
-  T extends { id: string; state?: string },
+  T extends { id: string; state?: string; label?: string; helperText?: string },
 >(items: T[]): T[] {
   const paintingBid = items.some(
     item => item.id === 'exterior_door_paint' || item.id === 'door_paint'
@@ -639,8 +750,16 @@ export function keepPaintingBidOnPaintOnly<
   return items
     .filter(item => !PAINTING_INSTALL_SCOPE_IDS.has(item.id))
     .map(item =>
-      item.id === 'exterior_paint' && item.state !== 'excluded'
-        ? { ...item, state: 'included' }
+      item.id === 'exterior_paint' &&
+      item.state !== 'excluded' &&
+      !contractorKeptScopeItemOut(item)
+        ? {
+            ...item,
+            state: 'included' as const,
+            label: 'Exterior house paint',
+            helperText:
+              'Paint the exterior siding, stucco, soffit, and fascia. Door slabs are on Exterior door paint.',
+          }
         : item
     );
 }

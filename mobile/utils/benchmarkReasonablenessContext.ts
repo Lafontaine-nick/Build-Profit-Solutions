@@ -986,9 +986,22 @@ export function listConfirmScopeAppliedPricingLines(params: {
     const split = splitAppliedScopeDollars(item.id, params.measurements, params.templateKey);
     const total = Math.round((split.material + split.labor + split.allowance) * 100) / 100;
     if (!(total > 0)) continue;
+    if (
+      !paintingAppliedTotalMatchesCard(
+        item.id,
+        total,
+        params.measurements,
+        params.templateKey,
+        params.notes,
+        params.items,
+        item.choiceId
+      )
+    ) {
+      continue;
+    }
     lines.push({
       itemId: item.id,
-      label: item.label || item.id,
+      label: paintingSelectedLineLabel(item, params.templateKey),
       total,
       material: split.material,
       labor: split.labor,
@@ -1025,6 +1038,165 @@ function landscapingChoiceCountsInGroupTotal(item: {
   return checklistItemInScope(item);
 }
 
+/**
+ * A selected trade keeps its own price book. A whole-house living area and
+ * garage must not switch that book to ground-up.
+ */
+export function confirmScopeGroupPricingTemplateKey(params: {
+  singleTradePlanImport?: boolean;
+  framingPlanExport?: boolean;
+  plumbingPlanExport?: boolean;
+  roofingPlanExport?: boolean;
+  drywallPlanExport?: boolean;
+  scopePricingTemplateKey?: string | null;
+  wholeHouseLivingSqft?: number;
+  wholeHouseGarageSqft?: number;
+}): string | null {
+  if (params.framingPlanExport) return 'framing';
+  if (params.plumbingPlanExport) return 'plumbing';
+  if (params.roofingPlanExport) return 'roofing';
+  if (params.drywallPlanExport) return 'drywall';
+  if (params.singleTradePlanImport) return params.scopePricingTemplateKey ?? null;
+  if ((params.wholeHouseLivingSqft || 0) >= 800 && (params.wholeHouseGarageSqft || 0) >= 200) {
+    return 'ground_up';
+  }
+  return params.scopePricingTemplateKey ?? null;
+}
+
+export function confirmScopeUsesGroundUpHousePricing(params: {
+  singleTradePlanImport?: boolean;
+  framingPlanExport?: boolean;
+  plumbingPlanExport?: boolean;
+  roofingPlanExport?: boolean;
+  drywallPlanExport?: boolean;
+  scopePricingTemplateKey?: string | null;
+  wholeHouseLivingSqft?: number;
+  wholeHouseGarageSqft?: number;
+}): boolean {
+  if (params.singleTradePlanImport) return false;
+  if (
+    params.framingPlanExport ||
+    params.plumbingPlanExport ||
+    params.roofingPlanExport ||
+    params.drywallPlanExport
+  ) {
+    return false;
+  }
+  return (
+    params.scopePricingTemplateKey === 'ground_up' ||
+    ((params.wholeHouseLivingSqft || 0) >= 800 && (params.wholeHouseGarageSqft || 0) >= 200)
+  );
+}
+
+function paintingCardSuggestionTotal(params: {
+  itemId: string;
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+  items?: ScopeChecklistItem[];
+  choiceId?: string | null;
+}): number | null {
+  if (String(params.templateKey || '').toLowerCase() !== 'painting') return null;
+  const resolved = resolveChecklistItemQuantity(params.itemId, params.measurements, {
+    choiceId: params.choiceId,
+    templateKey: params.templateKey,
+    notes: params.notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    params.itemId,
+    params.measurements,
+    params.templateKey,
+    resolved,
+    params.items ? { checklistItems: params.items } : null,
+    params.choiceId,
+    params.notes
+  );
+  const total = Number(suggested.fill?.total);
+  if (!Number.isFinite(total) || !(total > 0) || suggested.fill?.isComparison) return null;
+  return total;
+}
+
+/** True when a painting card's Apply has committed the same total the card shows. */
+export function paintingConfirmScopePriceIsCommitted(params: {
+  itemId: string;
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+  items?: ScopeChecklistItem[];
+  choiceId?: string | null;
+}): boolean {
+  if (String(params.templateKey || '').toLowerCase() !== 'painting') return false;
+  if (
+    !hasAcceptedScopePricing(
+      params.itemId,
+      params.measurements.itemQuantities || {},
+      params.measurements.pricingAcceptance
+    )
+  ) {
+    return false;
+  }
+  return paintingAppliedTotalMatchesCard(
+    params.itemId,
+    0,
+    params.measurements,
+    params.templateKey,
+    params.notes,
+    params.items,
+    params.choiceId
+  );
+}
+
+function paintingSelectedLineLabel(
+  item: ScopeChecklistItem,
+  templateKey?: string | null
+): string {
+  if (String(templateKey || '').toLowerCase() !== 'painting') {
+    return item.label || item.id;
+  }
+  if (item.id === 'prep') return 'Interior masking';
+  if (item.id === 'exterior_prep') return 'Exterior masking';
+  if (item.id === 'ceiling_paint') return 'Ceilings';
+  if (item.id === 'door_paint') return 'Interior door paint';
+  if (item.id === 'trim_paint') return 'Trim paint';
+  return item.label || item.id;
+}
+
+/**
+ * A painting row is selected only after Apply commits the card total.
+ * Live quantities that already equal the card stay off Selected pricing
+ * while an older acceptance total is still what Apply would replace.
+ */
+function paintingAppliedTotalMatchesCard(
+  itemId: string,
+  _appliedTotal: number,
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  notes: string | null | undefined,
+  items?: ScopeChecklistItem[],
+  choiceId?: string | null
+): boolean {
+  if (String(templateKey || '').toLowerCase() !== 'painting') return true;
+  const acceptance = measurements.pricingAcceptance?.[itemId];
+  const status = acceptance?.selectionStatus;
+  if (status === 'manual_adjusted' || status === 'user_entered') return true;
+  const suggested = paintingCardSuggestionTotal({
+    itemId,
+    measurements,
+    templateKey,
+    notes,
+    items,
+    choiceId,
+  });
+  if (suggested == null) return true;
+  const acceptedTotal = Number(acceptance?.totalAmount);
+  const live = liveScopeMoneyFromQuantities(itemId, measurements.itemQuantities || {}) ?? 0;
+  const hasAcceptedTotal = Number.isFinite(acceptedTotal) && acceptedTotal > 0;
+  const committed = hasAcceptedTotal ? acceptedTotal : live;
+  if (!(committed > 0)) return false;
+  if (hasAcceptedTotal && live > 0 && Math.abs(acceptedTotal - live) >= 1) return false;
+  return Math.abs(committed - suggested) < 1;
+}
+
 function displayedTotalForGroupItem(
   item: ScopeChecklistItem,
   applied: Map<string, number>,
@@ -1037,7 +1209,21 @@ function displayedTotalForGroupItem(
 ): number {
   if (!landscapingChoiceCountsInGroupTotal(item)) return 0;
   const appliedTotal = applied.get(item.id);
-  if (appliedTotal != null && appliedTotal > 0) return appliedTotal;
+  if (
+    appliedTotal != null &&
+    appliedTotal > 0 &&
+    paintingAppliedTotalMatchesCard(
+      item.id,
+      appliedTotal,
+      params.measurements,
+      params.templateKey,
+      params.notes,
+      params.items,
+      item.choiceId
+    )
+  ) {
+    return appliedTotal;
+  }
   if (!checklistItemInScope(item)) return 0;
   const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
     choiceId: item.choiceId,
@@ -1228,6 +1414,19 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
     const split = splitAppliedScopeDollars(item.id, params.measurements, params.templateKey);
     const itemTotal = split.material + split.labor + split.allowance;
     if (!(itemTotal > 0)) continue;
+    if (
+      !paintingAppliedTotalMatchesCard(
+        item.id,
+        itemTotal,
+        params.measurements,
+        params.templateKey,
+        params.notes,
+        params.items,
+        item.choiceId
+      )
+    ) {
+      continue;
+    }
     out.material += split.material;
     out.labor += split.labor;
     out.allowance += split.allowance;

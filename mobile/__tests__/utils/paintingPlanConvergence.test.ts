@@ -3,6 +3,8 @@ import {
   buildPaintingPdfMeasurementLines,
   buildPaintingStructuredMeasurements,
   ensurePaintingPlanChecklistItems,
+  paintingPlanAssumesNewConstruction,
+  paintingPlanSurfaceSettled,
   keepPaintingBidOnPaintOnly,
   exteriorPaintSqftFromElevationFaces,
   normalizePaintingScalarMeasurements,
@@ -17,11 +19,30 @@ import {
   filterPlanScopesForTrade,
 } from '@/utils/planImportTradeConfig';
 import {
+  lookupRuleKeyForPackage,
+  countScopePricingReadiness,
   resolveScopeItemSuggestedPricing,
   scopeMeasurementsInputFromPayload,
   scopeMeasurementsPayloadForPersist,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import {
+  getInitialRevealChecklistScopePreview,
+  getInitialRevealConfirmItems,
+} from '@/utils/estimateInitialRevealUi';
+import {
+  confirmScopeGroupPricingTemplateKey,
+  confirmScopeUsesGroundUpHousePricing,
+  listConfirmScopeAppliedPricingLines,
+  paintingConfirmScopePriceIsCommitted,
+  wholeProjectGroupDisplayTotal,
+} from '@/utils/benchmarkReasonablenessContext';
+import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
+import {
+  scopePackagePricedAmount,
+  scopePackageReviewUnpricedLabel,
+} from '@/utils/estimateDraftReviewUi';
 import { blendBarometerLump } from '@/utils/builderBudgetLumpBlend';
 import {
   INTERIOR_PAINT_INSTALLED_BY_PROJECT,
@@ -132,9 +153,10 @@ describe('painting plan convergence', () => {
       'door_paint',
       'trim_paint',
     ]);
-    expect(items.find(item => item.id === 'exterior_paint')?.state).toBe(
-      'included'
-    );
+    expect(items.find(item => item.id === 'exterior_paint')).toMatchObject({
+      state: 'included',
+      label: 'Exterior house paint',
+    });
   });
 
   it('restores plan wall and ceiling areas and prices interior masking from those surfaces', () => {
@@ -283,6 +305,241 @@ describe('painting plan convergence', () => {
       { quantity: 3734, unit: 'sqft', quantitySource: 'plan_vision' }
     );
     expect(walls.fill?.helper).toMatch(/installed paint package/i);
+    expect(walls.fill?.displayUnitRateLabel).toMatch(/installed paint package/i);
+    expect(
+      Math.round(((walls.fill?.material || 0) + (walls.fill?.labor || 0)) * 100) / 100
+    ).toBe(Math.round((walls.fill?.total || 0) * 100) / 100);
+    expect(walls.fill?.material || 0).toBeGreaterThan(0);
+    expect(walls.fill?.labor || 0).toBeGreaterThan(0);
+    expect(walls.fill?.costBuckets?.some(bucket => bucket.key === 'allowance')).toBe(false);
+  });
+
+  it('keeps a painting plan on the painting card when the house is large enough for a whole-house bid', () => {
+    expect(
+      confirmScopeGroupPricingTemplateKey({
+        singleTradePlanImport: true,
+        scopePricingTemplateKey: 'painting',
+        wholeHouseLivingSqft: 2571,
+        wholeHouseGarageSqft: 400,
+      })
+    ).toBe('painting');
+    expect(
+      confirmScopeUsesGroundUpHousePricing({
+        singleTradePlanImport: true,
+        scopePricingTemplateKey: 'painting',
+        wholeHouseLivingSqft: 2571,
+        wholeHouseGarageSqft: 400,
+      })
+    ).toBe(false);
+    expect(
+      confirmScopeGroupPricingTemplateKey({
+        scopePricingTemplateKey: 'ground_up',
+        wholeHouseLivingSqft: 2571,
+        wholeHouseGarageSqft: 400,
+      })
+    ).toBe('ground_up');
+
+    const measurements = inputWith({
+      planImportTradeKey: 'painting',
+      ceilingPaintSqft: '2571',
+      wallPaintSqft: '3734',
+      baseboardLf: '410.3',
+      interiorDoorCount: '18',
+      floorAreaSqft: '2571',
+      garageSqft: '400',
+      itemQuantities: {
+        interior_paint__material: {
+          quantity: '3257',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        interior_paint__labor: {
+          quantity: '9252',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+      pricingAcceptance: {
+        interior_paint: {
+          selectionStatus: 'accepted',
+          totalAmount: 12509,
+          materialAmount: 3257,
+          laborAmount: 9252,
+          pricingSourceKind: 'national_average',
+          pricingSourceLabel: 'Selected',
+          pricingTypeLabel: 'Material + labor',
+        },
+      },
+    });
+    const card = resolveScopeItemSuggestedPricing('interior_paint', measurements, 'painting', {
+      quantity: 3734,
+      unit: 'sqft',
+      quantitySource: 'plan_vision',
+    });
+    const cardTotal = Number(card.fill?.total || 0);
+    expect(cardTotal).toBeGreaterThan(0);
+    expect(cardTotal).not.toBe(Math.round(3734 * 3.35));
+    const items = [
+      {
+        id: 'interior_paint',
+        label: 'Interior paint — walls',
+        state: 'included' as const,
+        inputType: 'yes_no' as const,
+      },
+    ];
+    expect(
+      listConfirmScopeAppliedPricingLines({
+        items,
+        measurements,
+        templateKey: 'painting',
+      }).some(line => line.itemId === 'interior_paint')
+    ).toBe(false);
+    expect(
+      paintingConfirmScopePriceIsCommitted({
+        itemId: 'interior_paint',
+        measurements,
+        templateKey: 'painting',
+      })
+    ).toBe(false);
+    expect(
+      wholeProjectGroupDisplayTotal({
+        items,
+        measurements,
+        templateKey: 'painting',
+      })
+    ).toBe(Math.round(cardTotal * 100) / 100);
+
+    const committed = inputWith({
+      ...measurements,
+      itemQuantities: {
+        interior_paint__material: {
+          quantity: String(card.fill?.material || 0),
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        interior_paint__labor: {
+          quantity: String(card.fill?.labor || 0),
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+      pricingAcceptance: {
+        interior_paint: {
+          selectionStatus: 'accepted',
+          totalAmount: cardTotal,
+          materialAmount: Number(card.fill?.material || 0),
+          laborAmount: Number(card.fill?.labor || 0),
+          pricingSourceKind: 'national_average',
+          pricingSourceLabel: 'Selected',
+          pricingTypeLabel: 'Material + labor',
+        },
+      },
+    });
+    const committedLines = listConfirmScopeAppliedPricingLines({
+      items,
+      measurements: committed,
+      templateKey: 'painting',
+    });
+    expect(committedLines.map(line => line.total)).toEqual([
+      Math.round(cardTotal * 100) / 100,
+    ]);
+    expect(
+      paintingConfirmScopePriceIsCommitted({
+        itemId: 'interior_paint',
+        measurements: committed,
+        templateKey: 'painting',
+      })
+    ).toBe(true);
+  });
+
+  it('treats a new-build painting plan as new construction and keeps prep in the package', () => {
+    const plan = {
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'painting',
+      planImportFingerprint: 'painting-plan',
+      wallPaintSqft: '5000',
+      ceilingPaintSqft: '2600',
+      paintScope: ['walls', 'ceilings', 'trim', 'doors', 'exterior'],
+      exteriorDoorCount: '7',
+    };
+    expect(paintingPlanAssumesNewConstruction(plan)).toBe(true);
+    expect(
+      paintingPlanAssumesNewConstruction(plan, 'repaint the occupied house')
+    ).toBe(false);
+    expect(
+      paintingPlanAssumesNewConstruction({
+        ...plan,
+        paintOccupancy: 'occupied',
+        paintOccupancyConfirmed: true,
+      })
+    ).toBe(false);
+    expect(paintingPlanSurfaceSettled('interior_paint', plan)).toBe(true);
+    expect(paintingPlanSurfaceSettled('exterior_door_paint', plan)).toBe(true);
+    expect(paintingPlanSurfaceSettled('prep', plan)).toBe(false);
+    const masked = resolveScopeItemSuggestedPricing(
+      'prep',
+      inputWith(plan),
+      'painting',
+      { quantity: 7600.3, unit: 'sqft', quantitySource: 'plan_detected' }
+    );
+    expect(masked.fill).toBeNull();
+    const occupied = resolveScopeItemSuggestedPricing(
+      'prep',
+      inputWith({
+        ...plan,
+        paintOccupancy: 'occupied',
+        paintOccupancyConfirmed: true,
+      }),
+      'painting',
+      { quantity: 7600.3, unit: 'sqft', quantitySource: 'plan_detected' }
+    );
+    expect(occupied.fill?.total).toBe(1900);
+    const readiness = countScopePricingReadiness(
+      [
+        { id: 'interior_paint', state: 'included' },
+        { id: 'exterior_paint', state: 'included' },
+        { id: 'exterior_prep', state: 'included' },
+      ],
+      inputWith({ ...plan, wallPaintSqft: '5029.3', exteriorPaintSqft: '' }),
+      'painting'
+    );
+    expect(readiness.needsMeasurement).toBe(1);
+  });
+
+  it('lists the paint bid on scope found and only asks for the missing elevation', () => {
+    const draft = {
+      originalNotes: '',
+      scopeAssumptionsConfirmed: false,
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'painting',
+        planImportFingerprint: 'painting-plan',
+        floorAreaSqft: '2571',
+        storyCount: '2',
+        wallPaintSqft: '3734',
+        ceilingPaintSqft: '2571',
+        baseboardLf: '410.3',
+        interiorDoorCount: '18',
+        exteriorDoorCount: '7',
+        quickMeasurementSources: {
+          wallPaintSqft: 'detected_from_plan',
+          ceilingPaintSqft: 'planning_estimate',
+          interiorDoorCount: 'contractor_confirmed_from_plan_review',
+          exteriorDoorCount: 'contractor_confirmed_from_plan_review',
+          floorAreaSqft: 'plan_detected',
+        },
+      },
+    } as unknown as EstimateAiDraft;
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual([
+      'Interior walls · 3,734 SF',
+      'Ceilings · 2,571 SF',
+      'Trim paint · 410.3 LF',
+      'Interior door paint · 18',
+      'Exterior paint · Needs SF',
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Exterior paint: needs SF',
+    ]);
   });
 
   it('drops generic ground-up cleanup and keeps an explicit painting cleanup line', () => {
@@ -308,6 +565,58 @@ describe('painting plan convergence', () => {
       'Interior paint',
       'Paint cleanup',
     ]);
+  });
+
+  it('keeps exterior paint on a painting plan bid when elevation SF is blank', () => {
+    const structured = buildPaintingStructuredMeasurements({
+      planImportTradeKey: 'painting',
+      planImportMode: 'selected_trade',
+      wallPaintSqft: 3734,
+      ceilingPaintSqft: 2571,
+      baseboardLf: 410.3,
+      paintScope: ['walls', 'ceilings', 'trim', 'doors'],
+    });
+    expect(structured.paintScope).toEqual(
+      expect.arrayContaining(['walls', 'ceilings', 'trim', 'doors', 'exterior'])
+    );
+    expect(structured.itemQuantities?.exterior_paint).toBeUndefined();
+
+    const declined = buildPaintingStructuredMeasurements({
+      planImportTradeKey: 'painting',
+      planImportMode: 'selected_trade',
+      wallPaintSqft: 3734,
+      ceilingPaintSqft: 2571,
+      paintScope: ['walls', 'ceilings'],
+      quickMeasurementUserOverrides: { paintScopeExterior: true },
+    });
+    expect(declined.paintScope).not.toEqual(
+      expect.arrayContaining(['exterior'])
+    );
+
+    const suggestion = resolveScopeItemSuggestedPricing(
+      'exterior_paint',
+      inputWith({
+        planImportTradeKey: 'painting',
+        floorAreaSqft: '2571',
+        wallPaintSqft: '3734',
+        ceilingPaintSqft: '2571',
+      }),
+      'painting',
+      { quantity: 0, unit: 'sqft', quantitySource: 'missing' }
+    );
+    expect(suggestion.fill).toBeNull();
+
+    const windowTrim = resolveScopeItemSuggestedPricing(
+      'exterior_trim_paint',
+      inputWith({
+        planImportTradeKey: 'painting',
+        exteriorDoorCount: '7',
+        windowCount: '0',
+      }),
+      'painting',
+      { quantity: 7, unit: 'each', quantitySource: 'inferred' }
+    );
+    expect(windowTrim.fill).toBeNull();
   });
 
   it('maps labeled plan quantities into paintScope without combining walls and ceilings', () => {
@@ -825,5 +1134,112 @@ describe('painting plan convergence', () => {
     );
     expect(combined.combinedPaintableAreaSqft).toBe('7680');
     expect(combined.paintAreaSqft).toBe('7680');
+  });
+});
+
+describe('painting plan confirm scope on the initial estimate and review', () => {
+  const applied = {
+    selectionStatus: 'accepted' as const,
+    pricingSourceKind: 'national_average' as const,
+    pricingSourceLabel: 'Selected',
+    pricingTypeLabel: 'Material + labor',
+  };
+
+  function paintingBid(): EstimateAiDraft {
+    return {
+      scopeAssumptionsConfirmed: true,
+      originalNotes:
+        'Architectural plans with exterior doors, interior doors, and interior paint.',
+      scopeChecklist: {
+        templateKey: 'painting',
+        items: [
+          { id: 'door_paint', label: 'Interior door paint', state: 'included' },
+          { id: 'interior_paint', label: 'Interior paint — walls', state: 'included' },
+          { id: 'ceiling_paint', label: 'Ceilings', state: 'included' },
+          { id: 'trim_paint', label: 'Trim paint', state: 'included' },
+          { id: 'prep', label: 'Paint prep & masking', state: 'included' },
+          {
+            id: 'exterior_door_install',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'painting',
+        planImportFingerprint: 'painting-plan',
+        wallPaintSqft: '1200',
+        ceilingPaintSqft: '800',
+        baseboardLf: '90',
+        interiorDoorCount: '4',
+        exteriorDoorCount: '2',
+        itemQuantities: {
+          door_paint__material: { quantity: '100', unit: 'allowance', quantitySource: 'user_entered' },
+          door_paint__labor: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint: { quantity: '1200', unit: 'sqft', quantitySource: 'user_entered' },
+          interior_paint__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__labor: { quantity: '800', unit: 'allowance', quantitySource: 'user_entered' },
+          ceiling_paint__material: { quantity: '100', unit: 'allowance', quantitySource: 'user_entered' },
+          ceiling_paint__labor: { quantity: '300', unit: 'allowance', quantitySource: 'user_entered' },
+          trim_paint__material: { quantity: '50', unit: 'allowance', quantitySource: 'user_entered' },
+          trim_paint__labor: { quantity: '150', unit: 'allowance', quantitySource: 'user_entered' },
+          prep: { quantity: '2000', unit: 'sqft', quantitySource: 'plan_vision' },
+        },
+        pricingAcceptance: {
+          door_paint: { ...applied, totalAmount: 500, materialAmount: 100, laborAmount: 400 },
+          interior_paint: { ...applied, totalAmount: 1000, materialAmount: 200, laborAmount: 800 },
+          ceiling_paint: { ...applied, totalAmount: 400, materialAmount: 100, laborAmount: 300 },
+          trim_paint: { ...applied, totalAmount: 200, materialAmount: 50, laborAmount: 150 },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+  }
+
+  it('lists the applied paint lines and leaves door installation off the initial estimate', () => {
+    const draft = paintingBid();
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview.map(row => row.name)).toEqual([
+      'Interior door paint',
+      'Interior paint',
+      'Ceilings',
+      'Trim paint',
+    ]);
+    expect(preview.map(row => row.amount)).toEqual([500, 1000, 400, 200]);
+    expect(preview.some(row => /door installation/i.test(row.name))).toBe(false);
+    expect(preview.some(row => /prep|masking/i.test(row.name))).toBe(false);
+    const appliedSum = preview.reduce((sum, row) => sum + row.amount, 0);
+    const packageSum = getScopePackagesForReview(draft).reduce(
+      (sum, pkg) => sum + scopePackagePricedAmount(pkg, draft),
+      0
+    );
+    expect(appliedSum).toBe(packageSum);
+  });
+
+  it('asks for the masking price until that card is applied', () => {
+    expect(lookupRuleKeyForPackage('Paint prep & masking')).toBe('prep');
+    const draft = paintingBid();
+    const prep = getScopePackagesForReview(draft).find(
+      pkg => pkg.checklistItemId === 'prep'
+    );
+    expect(prep).toBeTruthy();
+    expect(scopePackagePricedAmount(prep!, draft)).toBe(0);
+    expect(scopePackageReviewUnpricedLabel(prep!, draft)).toBe('Add price');
+
+    const acceptanceOnly = paintingBid();
+    acceptanceOnly.scopeMeasurements = {
+      ...acceptanceOnly.scopeMeasurements,
+      itemQuantities: {
+        interior_paint: { quantity: '1200', unit: 'sqft', quantitySource: 'plan_vision' },
+        prep: { quantity: '2000', unit: 'sqft', quantitySource: 'plan_vision' },
+      },
+      pricingAcceptance: {
+        interior_paint: { ...applied, totalAmount: 1000, materialAmount: 0, laborAmount: 0 },
+      },
+    } as EstimateAiDraft['scopeMeasurements'];
+    const covered = getScopePackagesForReview(acceptanceOnly).find(
+      pkg => pkg.checklistItemId === 'prep'
+    );
+    expect(scopePackageReviewUnpricedLabel(covered!, acceptanceOnly)).toBe('Add price');
   });
 });

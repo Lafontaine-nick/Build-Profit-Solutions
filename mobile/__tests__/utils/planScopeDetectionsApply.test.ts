@@ -215,6 +215,35 @@ describe('applyPlanImportToDraft', () => {
     expect(byId.mep_rough.state).toBe('included');
   });
 
+  test('keeps labeled bath rooms on a plumbing plan import', () => {
+    const draft = {
+      scopeChecklist: {
+        estimateTier: 'standard',
+        templateKey: 'plumbing',
+        title: 'Confirm scope',
+        intro: '',
+        items: [],
+      },
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      measurements: {},
+      rooms: [
+        { name: 'Primary Suite', areaSqft: 209 },
+        { name: 'Powder Bath', areaSqft: 23.5 },
+        { name: 'Primary Bath', areaSqft: 65.5 },
+        { name: 'Sauna', areaSqft: 43.5 },
+        { name: 'Garage', areaSqft: 505 },
+      ],
+    });
+    expect(next.scopeMeasurements?.planRooms?.map(room => room.name)).toEqual([
+      'Powder Bath',
+      'Primary Bath',
+    ]);
+    expect(next.scopeMeasurements?.bathroomFloorSqft).toBeUndefined();
+  });
+
   test('retains silent electrical fields when the same plan is imported again', () => {
     const draft = {
       scopeChecklist: {

@@ -653,6 +653,15 @@ describe('suggested card lines', () => {
       formatSuggestedCardRateLine(block({ total: 14375, basis: { quantity: 25, unit: 'squares' } }))
     ).toBe('25 squares × $575/square');
     expect(
+      formatSuggestedCardRateLine(
+        block({
+          total: 400,
+          helper: '$400 minimum applied',
+          basis: { quantity: 2, unit: 'lf' },
+        })
+      )
+    ).toBe('$400 minimum applied');
+    expect(
       formatSuggestedCardRateLine(block({ total: 1200, basis: { quantity: 1, unit: 'allowance' } }))
     ).toBeNull();
   });

@@ -3789,6 +3789,11 @@ function storyCountSupportedByAreas(claimed, areas, storyEvidence) {
   const total = positive(areas?.totalLivingSqft);
   const main = positive(areas?.mainFloorLivingSqft);
   const upstairs = positive(areas?.upstairsLivingSqft);
+  const oneFloorWithASmallCoverGap =
+    main != null &&
+    total != null &&
+    (total <= main + 1 || (total - main) / total < UPPER_FLOOR_LIVING_SHARE);
+  if (oneFloorWithASmallCoverGap) return 1;
   const upstairsIsReal =
     upstairs != null &&
     (total == null || upstairs / total >= UPPER_FLOOR_LIVING_SHARE);
@@ -3797,11 +3802,6 @@ function storyCountSupportedByAreas(claimed, areas, storyEvidence) {
   const gapIsReal =
     gap != null && total != null && gap / total >= UPPER_FLOOR_LIVING_SHARE;
   if (upstairsIsReal || gapIsReal) return stories;
-  const singleFloor =
-    main != null &&
-    (total == null ||
-      Math.abs(total - main) / Math.max(total, 1) < UPPER_FLOOR_LIVING_SHARE);
-  if (singleFloor) return 1;
   const text = Array.isArray(storyEvidence?.evidence)
     ? storyEvidence.evidence
         .map((entry) => `${entry?.sourceText || ""} ${entry?.label || ""}`)
@@ -3830,7 +3830,11 @@ function storyCountSupportedByAreas(claimed, areas, storyEvidence) {
   ) {
     return 1;
   }
-  return stories;
+  const namedSecondFloor =
+    /\b(?:2nd|second)\s+(?:floor|level|story|storey)\b|\b(?:two|2)\s*[-\s]?stor(?:y|ies)\b|\bupper\s+floor\s+living\b/i.test(
+      text,
+    );
+  return namedSecondFloor ? stories : 1;
 }
 
 function sanitizePlanFacts(raw, buildingAreas = {}) {
@@ -7062,10 +7066,9 @@ async function analyzePlanForMeasurements({
         normalizedSource: "FROM_PLAN",
       };
     }
-    if (
-      !(positive(tradeMeasurementInput.storyCount) > 0) &&
-      positive(planFacts?.storyCount)
-    ) {
+    if (positive(planFacts?.storyCount)) {
+      // The sanitized plan fact wins over a vision story count. A 2:12 pitch
+      // or a bare "2" with no upper floor is already one story here.
       tradeMeasurementInput.storyCount = positive(planFacts.storyCount);
       measurementProvenance.storyCount = {
         value: tradeMeasurementInput.storyCount,
@@ -7297,8 +7300,25 @@ async function analyzePlanForMeasurements({
   const keepPaintingRooms =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "painting";
-  const tradeRooms =
-    planSelection.mode === "selected_trade" && !keepPaintingRooms ? [] : rooms;
+  const plumbingBathRoom =
+    /^(?:powder(?:\s+bath)?|primary\s+bath|master\s+bath|guest\s+bath|hall\s+bath|jack\s+and\s+jill(?:\s+bath)?|bath(?:room)?(?:\s+\d+)?)$/i;
+  const plumbingBathRooms =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "plumbing"
+      ? rooms.filter((room) => {
+          const name = String(room?.name || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          return name && plumbingBathRoom.test(name);
+        })
+      : [];
+  const tradeRooms = keepPaintingRooms
+    ? rooms
+    : plumbingBathRooms.length
+      ? plumbingBathRooms
+      : planSelection.mode === "selected_trade"
+        ? []
+        : rooms;
   if (paintingSelected && rooms.length) {
     planFacts.interiorRooms = rooms.slice(0, 80);
   }

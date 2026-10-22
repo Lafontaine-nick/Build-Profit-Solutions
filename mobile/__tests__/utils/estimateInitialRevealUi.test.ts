@@ -36,6 +36,7 @@ import {
   notesDescribeGroundUpHome,
 } from '@/utils/scopeItemNoteHints';
 import {
+  countScopePricingReadiness,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
@@ -3573,7 +3574,6 @@ describe('estimateInitialRevealUi', () => {
 
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
       { name: 'Roof pitch', amount: 0, quantity: '2:12' },
-      { name: 'Stories', amount: 0, quantity: '2 stories' },
       {
         name: 'Roof surface area / squares',
         amount: 0,
@@ -3585,11 +3585,141 @@ describe('estimateInitialRevealUi', () => {
     ]);
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
       'Roof pitch · 2:12',
-      'Stories · 2 stories',
       'Roof surface area / squares · Needs measurement',
     ]);
+    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(
+      /Stories|Price needed/
+    );
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
-    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(3);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(2);
+  });
+
+  it('keeps a measured roofing plan on the roof, not a story price', () => {
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      whatAiDid: ['Detected roofing.'],
+      scopeChecklist: { templateKey: 'roofing', items: [] },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'roofing',
+        planImportFingerprint: 'shv-lot-49',
+        roofPitch: '2:12',
+        storyCount: 2,
+        roofSquares: 22,
+        roofingSystemChoice: 'concrete_clay_tile',
+        quickMeasurementSources: {
+          storyCount: 'plan_detected',
+          roofSquares: 'user_entered',
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Roof pitch', amount: 0, quantity: '2:12' },
+      { name: 'Clay tile', amount: 0, quantity: '22 squares' },
+    ]);
+    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(
+      /Stories|Price needed/
+    );
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(countInitialRevealAttentionItems(draft)).toBe(0);
+    expect(getInitialRevealTagline(draft)).toBe('Clay tile · 22 squares.');
+    expect(
+      getInitialRevealStatusLabel(draft, countInitialRevealAttentionItems(draft))
+        .label
+    ).toBe('Mostly ready');
+  });
+
+  it('keeps a clay tile price labeled clay tile when the choice field was dropped', () => {
+    const draft = {
+      projectType: 'roofing',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          { id: 'shingles_roofing', label: 'Clay tile', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'roofing',
+        planImportFingerprint: 'shv-lot-49',
+        roofPitch: '2:12',
+        roofSquares: 22,
+        storyCount: 2,
+        pricingAcceptance: {
+          shingles_roofing: { totalAmount: 33000 },
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe('Clay tile · 22 squares.');
+    expect(getInitialRevealChecklistScopePreview(draft)[0]).toEqual({
+      name: 'Clay tile',
+      amount: 33000,
+      quantity: '22 squares',
+    });
+    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(
+      /Stories|Shingles/
+    );
+  });
+
+  it('lists the priced roofing lines on the initial estimate', () => {
+    const draft = {
+      projectType: 'roofing',
+      projectTitle: 'Roofing Estimate Draft',
+      whatAiDid: ['Detected roofing job.'],
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          { id: 'permits', label: 'Permit responsibility', state: 'unsure' },
+          {
+            id: 'roofing',
+            label: 'Detailed roofing plan takeoff quantities',
+            state: 'included',
+          },
+          {
+            id: 'tear_off',
+            label: 'Tear-off and disposal requirements',
+            state: 'unsure',
+          },
+          {
+            id: 'overlay',
+            label: 'Tear-off or overlay requirements',
+            state: 'unsure',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'roofing',
+        planImportFingerprint: 'roof-plan',
+        roofSquares: 22,
+        roofRidgeVentLf: 2,
+        roofPipeBootCount: 2,
+        roofGutterLf: 5,
+        roofDownspoutCount: 2,
+        pricingAcceptance: {
+          shingles_roofing: { totalAmount: 12650 },
+          ridge_vent: { totalAmount: 250 },
+          pipe_boots: { totalAmount: 350 },
+          gutters: { totalAmount: 400 },
+          downspouts: { totalAmount: 250 },
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Shingles', amount: 12650, quantity: '22 squares' },
+      { name: 'Ridge vent', amount: 250, quantity: '2 each' },
+      { name: 'Pipe boots', amount: 350, quantity: '2 each' },
+      { name: 'Gutters', amount: 400, quantity: '5 LF' },
+      { name: 'Downspouts', amount: 250, quantity: '2 each' },
+    ]);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(5);
+    expect(getInitialRevealTagline(draft)).toBe('Shingles · 22 squares.');
   });
 
   it('keeps stucco plan export scope to plan facts and wall-area confirmation', () => {
@@ -3638,12 +3768,44 @@ describe('estimateInitialRevealUi', () => {
     ]);
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
     expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Exterior wall area — gross: needs measurement',
+    ]);
   });
 
-  it('keeps a flooring plan export from pricing living area as the finish quantity', () => {
+  it('prices one stucco wall after the contractor enters gross area', () => {
+    const draft = {
+      projectType: 'stucco',
+      requiresScopeConfirmation: true,
+      scopeChecklist: { templateKey: 'stucco', items: [] },
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'stucco',
+        planImportFingerprint: 'shv-lot-49',
+        stuccoGrossWallSqft: 22,
+        stuccoNetWallSqft: 22,
+        stuccoStories: 2,
+        stuccoWallHeightFt: 9.1,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      {
+        name: 'Stucco / exterior wall finish',
+        amount: 0,
+        quantity: '22 sqft',
+      },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+  });
+
+  it('names a flooring plan from the cover-sheet living area', () => {
     const draft = {
       projectType: 'flooring',
+      projectTitle: 'Flooring Estimate Draft',
       requiresScopeConfirmation: true,
+      whatAiDid: ['Detected flooring job.'],
       scopeChecklist: {
         templateKey: 'flooring',
         items: [
@@ -3661,15 +3823,26 @@ describe('estimateInitialRevealUi', () => {
       },
     } as EstimateAiDraft;
 
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Living area from the cover sheet.'
+    );
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
-      { name: 'Living area', amount: 0, quantity: '2,571 SF' },
-      { name: 'Flooring', amount: 0, quantity: 'Needs measurement' },
+      { name: 'Flooring', amount: 0, quantity: '2,571 SF' },
     ]);
-    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
-      'Flooring: needs measurement',
-    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
     expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
-    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(2);
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(1);
+  });
+
+  it('keeps a notes-only flooring job on the detected-job line', () => {
+    const draft = {
+      projectType: 'flooring',
+      whatAiDid: ['Detected flooring job.'],
+      scopeChecklist: { templateKey: 'flooring', items: [] },
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe('Detected flooring job.');
   });
 
   it('does not ask for a recessed-light price after the lighting card is applied', () => {
@@ -4381,5 +4554,264 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealTagline(draft)).toBe(
       'Living and garage areas from the cover sheet.'
     );
+  });
+
+  it('prices a framing plan on cover-sheet living plus garage', () => {
+    const draft = {
+      projectTitle: 'Framing Estimate Draft',
+      projectType: 'framing',
+      originalNotes: 'Detected framing.',
+      whatAiDid: [
+        'Detected framing job.',
+        'Preserved 3 room totals from your notes (unchanged).',
+      ],
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          {
+            id: 'framing',
+            label: 'Framing (lumber + labor)',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportTradeKey: 'framing',
+        planImportMode: 'selected_trade',
+        planImportFingerprint: 'lot-49',
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        framedAreaSqft: 3998,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Living and garage areas from the cover sheet.'
+    );
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Framing package', amount: 0, quantity: '3,998 SF' },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([]);
+  });
+
+  it('keeps the note summary for a framing job that is not a cover-sheet plan', () => {
+    const draft = {
+      projectTitle: 'Framing Estimate Draft',
+      projectType: 'framing',
+      originalNotes: '',
+      whatAiDid: [
+        'Detected framing job.',
+        'Preserved 3 room totals from your notes (unchanged).',
+      ],
+      scopeChecklist: { templateKey: 'framing', items: [] },
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      'Detected framing job.',
+      'Preserved 3 room totals from your notes (unchanged).',
+    ]);
+  });
+
+  it('lists insulation wall and attic areas and drops a leftover story count', () => {
+    const draft = {
+      projectTitle: 'Insulation Estimate Draft',
+      projectType: 'insulation',
+      originalNotes: 'Detected insulation.',
+      whatAiDid: ['Detected insulation.'],
+      scopeChecklist: { templateKey: 'insulation', items: [] },
+      scopeMeasurements: {
+        planImportTradeKey: 'insulation',
+        planImportMode: 'selected_trade',
+        planImportFingerprint: 'lot-49',
+        storyCount: 2,
+        exteriorWallInsulationSqft: 1555.1,
+        atticInsulationSqft: 2527,
+        quickMeasurementSources: {
+          storyCount: 'detected_from_plan',
+          exteriorWallInsulationSqft: 'planning_assumption',
+          atticInsulationSqft: 'planning_assumption',
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Wall and attic areas from the floor-plan footprint.'
+    );
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual([
+      'Exterior wall insulation · 1,555.1 SF',
+      'Attic / ceiling insulation · 2,527 SF',
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(countInitialRevealAttentionItems(draft)).toBe(0);
+    expect(getInitialRevealStatusLabel(draft, 0).label).toBe('Mostly ready');
+  });
+
+  it('names labeled baths when a plumbing plan prints no fixture or pipe counts', () => {
+    const draft = {
+      projectTitle: 'Plumbing Estimate Draft',
+      projectType: 'plumbing',
+      originalNotes: 'Plumbing Estimate Draft',
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
+          {
+            id: 'water_line',
+            label: 'Underground water service',
+            state: 'included',
+          },
+          {
+            id: 'sewer_line',
+            label: 'Underground sewer',
+            state: 'included',
+          },
+          {
+            id: 'plumbing_trim',
+            label: 'Plumbing fixtures & trim',
+            state: 'included',
+          },
+          {
+            id: 'gas_line',
+            label: 'Gas piping',
+            state: 'included',
+          },
+          {
+            id: 'water_heater',
+            label: 'Water heater',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportTradeKey: 'plumbing',
+        planImportMode: 'selected_trade',
+        planRooms: [
+          { name: 'Primary Suite' },
+          { name: 'Powder Bath' },
+          { name: 'Primary Bath' },
+          { name: 'Sauna' },
+          { name: 'Garage' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Powder bath and primary bath are on the floor plan. Fixture counts and pipe lengths are not printed.'
+    );
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual([
+      'Powder bath',
+      'Primary bath',
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(countInitialRevealAttentionItems(draft)).toBe(0);
+    expect(getInitialRevealStatusLabel(draft, 0).label).toBe('Mostly ready');
+    expect(
+      countScopePricingReadiness(
+        draft.scopeChecklist.items,
+        draft.scopeMeasurements,
+        'plumbing'
+      ).needsMeasurement
+    ).toBe(0);
+  });
+
+  it('keeps a printed plumbing count and still skips blank package cards', () => {
+    const draft = {
+      projectTitle: 'Plumbing Estimate Draft',
+      projectType: 'plumbing',
+      originalNotes: 'Plumbing Estimate Draft',
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportTradeKey: 'plumbing',
+        planImportMode: 'selected_trade',
+        plumbingRoughPointCount: 12,
+        planRooms: [{ name: 'Powder Bath' }],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft) || '').not.toMatch(/not printed/);
+    expect(countInitialRevealAttentionItems(draft)).toBe(0);
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview.some(row => /12/.test(`${row.name} ${row.quantity || ''}`))).toBe(
+      true
+    );
+  });
+
+  it('lists the priced plumbing cards after confirm', () => {
+    const draft = {
+      projectTitle: 'Plumbing Estimate Draft',
+      projectType: 'plumbing',
+      originalNotes: 'Plumbing Estimate Draft',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'water_line', label: 'Underground water service', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportTradeKey: 'plumbing',
+        planImportMode: 'selected_trade',
+        plumbingRoughPointCount: 10,
+        waterLineLf: 25,
+        pricingAcceptance: {
+          plumbing_rough: { totalAmount: 5350, selectionStatus: 'accepted' },
+          water_line: { totalAmount: 800, selectionStatus: 'accepted' },
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBeNull();
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Underground water service', amount: 800, quantity: '25 LF' },
+      { name: 'Plumbing rough-in', amount: 5350, quantity: '10 EA' },
+    ]);
+  });
+
+  it('still flags a notes plumbing rough-in that has no count', () => {
+    const draft = {
+      projectType: 'plumbing',
+      originalNotes: 'Plumbing rough-in for the new bath.',
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+      },
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealUnderstoodBullets(draft, 6).join(' ')).toMatch(
+      /rough-in/i
+    );
+    expect(
+      countScopePricingReadiness(
+        draft.scopeChecklist.items,
+        draft.scopeMeasurements,
+        'plumbing',
+        draft.originalNotes
+      ).needsMeasurement
+    ).toBeGreaterThan(0);
   });
 });

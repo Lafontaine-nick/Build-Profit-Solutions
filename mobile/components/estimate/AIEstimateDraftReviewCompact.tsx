@@ -26,8 +26,8 @@ import {
   getCompactProjectSummary,
   resolveScopePackageBudgetBreakdown,
   type ScopePackageBudgetBreakdown,
-  scopePackageNeedsManualPrice,
   scopePackagePricingHint,
+  scopePackageReviewUnpricedLabel,
   scopePackagePricedAmount,
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
@@ -530,8 +530,11 @@ export default function AIEstimateDraftReviewCompact({
           const rowCaption =
             [pricingSourceLabel, takeoffCaption].filter(Boolean).join(' · ') ||
             null;
-          const hint = !amount ? scopePackagePricingHint(pkg) : null;
-          const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
+          const unpricedLabel = !amount
+            ? scopePackageReviewUnpricedLabel(pkg, draft)
+            : null;
+          const needsPrice = unpricedLabel === 'Add price';
+          const hint = needsPrice ? scopePackagePricingHint(pkg) : null;
           const isEditingPricing = editingPricingFor === pkg.name;
           const canEditInline = Boolean(onUpdateScopeBudgetSplit);
           const liveSplit = isEditingPricing ? liveSplitByPackage[pkg.name] : undefined;
@@ -759,7 +762,7 @@ export default function AIEstimateDraftReviewCompact({
                             fontWeight: needsPrice ? '700' : '400',
                           }}
                         >
-                          {needsPrice ? 'Add price' : statusLabel}
+                          {unpricedLabel}
                         </Text>
                         </View>
                       </ReliableFlowPress>

@@ -1,6 +1,7 @@
 import {
   buildAcceptanceFromSuggestedBlock,
 } from '@/utils/acceptedPricingSummaryUi';
+import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { resyncAppliedScopePricingAfterMeasurementChanges, scaleSuggestedBlockToTakeoffQuantity } from '@/utils/confirmScopeAppliedPricingResync';
 import {
   sumConfirmScopeAppliedPricingBreakdown,
@@ -23,6 +24,62 @@ const plumbingItems: ScopeChecklistItem[] = [
 ];
 
 describe('confirmScopeAppliedPricingResync', () => {
+  it('reprices an applied shingle card when the roof material changes', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock({
+      material: 5500,
+      labor: 7150,
+      total: 12650,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: 'National Average',
+      helper: 'test',
+      mode: 'suggested_price',
+      benchmarkAction: 'price_ready',
+      basis: { quantity: 22, unit: 'squares' },
+    });
+    const previous = {
+      ...emptyQuickMeasurementInput(),
+      roofSquares: '22',
+      roofingSystemChoice: 'architectural_shingles' as const,
+      itemQuantities: {
+        shingles_roofing: {
+          quantity: '22',
+          unit: 'squares',
+          quantitySource: 'user_entered' as const,
+        },
+        shingles_roofing__material: {
+          quantity: '5500',
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        },
+        shingles_roofing__labor: {
+          quantity: '7150',
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        },
+        shingles_roofing__allowance: {
+          quantity: '12650',
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        },
+      },
+      pricingAcceptance: {
+        shingles_roofing: acceptance,
+      },
+    };
+    const synced = resyncAppliedScopePricingAfterMeasurementChanges({
+      previous,
+      next: {
+        ...previous,
+        roofingSystemChoice: 'concrete_clay_tile',
+      },
+      templateKey: 'roofing',
+    });
+    expect(synced.pricingAcceptance?.shingles_roofing?.totalAmount).toBe(33000);
+    expect(synced.pricingAcceptance?.shingles_roofing?.materialAmount).toBe(14300);
+    expect(synced.pricingAcceptance?.shingles_roofing?.laborAmount).toBe(18700);
+  });
+
   it('scales an Apply block onto a larger Quick Measurements LF', () => {
     const scaled = scaleSuggestedBlockToTakeoffQuantity(
       {

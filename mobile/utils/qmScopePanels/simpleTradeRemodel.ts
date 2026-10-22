@@ -1,3 +1,4 @@
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import type {
   QmPanelDefinition,
@@ -890,6 +891,84 @@ export const GROUND_UP_ROOFING_PLAN_CARD_IDS = [
 export const NEW_ROOF_SHINGLE_PRICE_INCLUDES =
   'Includes shingles, underlayment, drip edge, and ridge cap.';
 
+/** Residential roof coverings a new-build plan can price. Architectural is the default. */
+export const ROOF_MATERIAL_OPTIONS = [
+  { id: 'architectural_shingles', label: 'Architectural' },
+  { id: 'three_tab_shingles', label: '3-tab' },
+  { id: 'concrete_clay_tile', label: 'Clay tile' },
+  { id: 'standing_seam_metal', label: 'Standing seam' },
+  { id: 'exposed_fastener_metal', label: 'Metal panel' },
+] as const;
+
+export type RoofMaterialChoice = (typeof ROOF_MATERIAL_OPTIONS)[number]['id'];
+
+export function readRoofMaterialChoice(
+  measurements: { roofingSystemChoice?: string | null } | null | undefined
+): RoofMaterialChoice {
+  const raw = String(measurements?.roofingSystemChoice || '');
+  return ROOF_MATERIAL_OPTIONS.some(option => option.id === raw)
+    ? (raw as RoofMaterialChoice)
+    : 'architectural_shingles';
+}
+
+export function roofMaterialChoiceFromLabel(
+  label: string | null | undefined
+): RoofMaterialChoice | null {
+  const text = String(label || '').trim().toLowerCase();
+  if (!text) return null;
+  if (text.includes('clay') || text.includes('concrete tile')) {
+    return 'concrete_clay_tile';
+  }
+  if (text.includes('standing seam')) return 'standing_seam_metal';
+  if (text.includes('metal panel') || text.includes('exposed')) {
+    return 'exposed_fastener_metal';
+  }
+  if (text.includes('3-tab') || text.includes('three-tab') || text.includes('three tab')) {
+    return 'three_tab_shingles';
+  }
+  if (text === 'shingles' || text.includes('architectural')) {
+    return 'architectural_shingles';
+  }
+  return null;
+}
+
+/** The covering on the estimate. A saved card name survives when the choice field was dropped. */
+export function roofCoveringLabelForReveal(input: {
+  measurements?: { roofingSystemChoice?: string | null } | null;
+  checklistLabel?: string | null;
+}): string {
+  const explicit = String(input.measurements?.roofingSystemChoice || '');
+  if (ROOF_MATERIAL_OPTIONS.some(option => option.id === explicit)) {
+    return roofMaterialCardLabel(explicit);
+  }
+  const fromLabel = roofMaterialChoiceFromLabel(input.checklistLabel);
+  if (fromLabel) return roofMaterialCardLabel(fromLabel);
+  return roofMaterialCardLabel(readRoofMaterialChoice(input.measurements));
+}
+
+export function roofMaterialCardLabel(choice: string | null | undefined): string {
+  if (choice === 'concrete_clay_tile') return 'Clay tile';
+  if (choice === 'standing_seam_metal') return 'Standing seam';
+  if (choice === 'exposed_fastener_metal') return 'Metal panel';
+  if (choice === 'three_tab_shingles') return '3-tab shingles';
+  return 'Shingles';
+}
+
+export function roofMaterialPriceIncludes(
+  choice: string | null | undefined
+): string {
+  if (choice === 'concrete_clay_tile') {
+    return 'Clay or concrete tile. Includes underlayment. Priced per square.';
+  }
+  if (choice === 'standing_seam_metal' || choice === 'exposed_fastener_metal') {
+    return 'Metal roof. Includes underlayment. Priced per square.';
+  }
+  if (choice === 'three_tab_shingles') {
+    return '3-tab shingles. Includes underlayment, drip edge, and ridge cap.';
+  }
+  return NEW_ROOF_SHINGLE_PRICE_INCLUDES;
+}
+
 /** Remodel, upgrade, and site-specific chips. A new-construction plan must not turn these on. */
 const GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS = new Set([
   'tear_off',
@@ -925,8 +1004,11 @@ export function ensureGroundUpRoofingPlanChecklistItems<
     state?: string;
     noteBacked?: boolean;
   },
->(items: T[]): T[] {
+>(items: T[], materialChoice?: string | null): T[] {
   const byId = new Map(items.map(item => [item.id, item]));
+  const covering = readRoofMaterialChoice({
+    roofingSystemChoice: materialChoice,
+  });
   const cards = GROUND_UP_ROOFING_PLAN_CARD_IDS.map(id => {
     const option = ROOFING_OPTIONS.find(
       candidate => candidate.canonicalId === id || candidate.id === id
@@ -935,19 +1017,51 @@ export function ensureGroundUpRoofingPlanChecklistItems<
     return {
       ...(existing || ({} as T)),
       id,
-      label: existing?.label || option?.label || id,
+      label:
+        id === 'shingles_roofing'
+          ? roofMaterialCardLabel(covering)
+          : existing?.label || option?.label || id,
       helperText:
         id === 'shingles_roofing'
-          ? NEW_ROOF_SHINGLE_PRICE_INCLUDES
+          ? roofMaterialPriceIncludes(covering)
           : existing?.helperText || option?.measurementHelper,
       category: existing?.category || 'roofing',
       inputType: existing?.inputType || 'yes_no',
-      state: 'included' as const,
-      noteBacked: true,
+      state: contractorKeptScopeItemOut(existing)
+        ? ('excluded' as const)
+        : ('included' as const),
+      noteBacked: false,
     };
   });
   const extras = items.filter(item => String(item.id).startsWith('custom_'));
   return [...cards, ...extras];
+}
+
+/** Blank gutter, vent, and boot rows stay unpriced. They are not missing measurements. */
+export function groundUpRoofingAccessoryQuantityOptional(
+  itemId: string,
+  measurements: Record<string, unknown> | null | undefined,
+  notes?: string | null
+): boolean {
+  if (itemId === 'shingles_roofing') return false;
+  if (
+    !(GROUND_UP_ROOFING_PLAN_CARD_IDS as readonly string[]).includes(itemId)
+  ) {
+    return false;
+  }
+  return isGroundUpRoofingPlanImport(measurements || {}, notes);
+}
+
+/** The material chip already put this covering in the bid. */
+export function groundUpRoofingCoveringSettled(
+  itemId: string,
+  measurements: Record<string, unknown> | null | undefined,
+  notes?: string | null
+): boolean {
+  return (
+    itemId === 'shingles_roofing' &&
+    isGroundUpRoofingPlanImport(measurements || {}, notes)
+  );
 }
 
 /** Architectural plan import with no tear-off language is a new roof, not a reroof. */
@@ -2155,6 +2269,11 @@ function syncSimpleTrade(
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
   );
   let next = items.map(item => {
+    if (contractorKeptScopeItemOut(item)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' as const };
+    }
     if (spec.scopeKey === 'hvac' && isHvacQmGatedScopeItem(item.id)) {
       const active = isHvacQmScopeItemActive(item.id, measurements);
       if (active) {
@@ -2281,7 +2400,7 @@ export function expandHvacEquipmentScopeDisplayItems(
       helperText:
         'Additional / replacement equipment. Not part of the complete HVAC system package.',
       inputType: 'yes_no',
-      state: 'included',
+      state: contractorKeptScopeItemOut(existing) ? 'excluded' : 'included',
       category: 'System & Equipment',
       noteBacked: true,
     };

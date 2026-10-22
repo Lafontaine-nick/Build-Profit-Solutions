@@ -647,6 +647,32 @@ const STATUS_SHORT: Record<string, string> = {
   missing_price: 'Needs price',
 };
 
+function paintingAddonRuleKey(pkg: EstimateDraftScopePackage): string | null {
+  const direct = String(pkg.checklistItemId || pkg.costCode || '').trim();
+  if (direct) return direct;
+  return lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '');
+}
+
+/**
+ * Right-hand label for a review row that has no dollar amount.
+ * A separate masking card stays "Add price" until that card is applied.
+ */
+export function scopePackageReviewUnpricedLabel(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): string {
+  const ruleKey = paintingAddonRuleKey(pkg);
+  if (
+    ruleKey &&
+    draft &&
+    isPaintingAddonCoveredByAppliedSurfacePricing(ruleKey, draft)
+  ) {
+    return 'Included';
+  }
+  if (scopePackageNeedsManualPrice(pkg, draft)) return 'Add price';
+  return compactPackageStatusLabel(pkg, draft);
+}
+
 export function compactPackageStatusLabel(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null

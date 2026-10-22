@@ -274,6 +274,7 @@ export function AcceptedPricingSummary({
   darkMode,
   onEditPricing,
   onClearPricing,
+  onRemove,
   hideEditLink = false,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
@@ -294,6 +295,8 @@ export function AcceptedPricingSummary({
   onEditPricing: () => void;
   /** Clears applied price and restores the original Suggest / Apply card. */
   onClearPricing?: () => void;
+  /** Takes this line off the bid. The measurement stays. */
+  onRemove?: () => void;
   /** Hide the green Edit link (e.g. custom scope uses Change pricing only). */
   hideEditLink?: boolean;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
@@ -344,6 +347,8 @@ export function AcceptedPricingSummary({
 
   const opensScopeReviewSheet =
     secondaryAction?.kind === 'review_missing_scope' || secondaryAction?.kind === 'needs_separate_pricing';
+  const assumptionsBadgeOpensReview =
+    opensScopeReviewSheet && secondaryAction?.label === 'Review assumptions';
 
   const secondaryDisclosure = useMemo(() => {
     if (!secondaryAction || !secondaryOpen || opensScopeReviewSheet) return null;
@@ -518,7 +523,17 @@ export function AcceptedPricingSummary({
       ) : null}
       {primaryBadge ? (
         <View style={styles.badgeRow}>
-          {primaryBadge.kind === 'confidence' ? (
+          {assumptionsBadgeOpensReview &&
+          primaryBadge.label === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW ? (
+            <TouchableOpacity
+              onPress={() => setScopeReviewOpen(true)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Review assumptions"
+            >
+              <PricingConfidenceBadge label={primaryBadge.label} darkMode={darkMode} />
+            </TouchableOpacity>
+          ) : primaryBadge.kind === 'confidence' ? (
             <PricingConfidenceBadge label={primaryBadge.label} darkMode={darkMode} />
           ) : (
             <PricingSourceBadge label={primaryBadge.label} darkMode={darkMode} />
@@ -576,7 +591,21 @@ export function AcceptedPricingSummary({
             <Text style={styles.changePricingLink}>Change pricing</Text>
           </TouchableOpacity>
         ) : null}
-        {secondaryAction ? (
+        {onRemove ? (
+          <TouchableOpacity
+            onPress={onRemove}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Remove from bid"
+          >
+            <Text style={styles.removeLink}>Remove</Text>
+          </TouchableOpacity>
+        ) : null}
+        {secondaryAction &&
+        !(
+          assumptionsBadgeOpensReview &&
+          primaryBadge?.label === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW
+        ) ? (
           <TouchableOpacity
             onPress={() => {
               if (opensScopeReviewSheet) {
@@ -732,6 +761,11 @@ const styles = StyleSheet.create({
   },
   changePricingLink: {
     color: '#2dcc9a',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  removeLink: {
+    color: '#ff6b63',
     fontSize: 12,
     fontWeight: '700',
   },

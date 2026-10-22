@@ -645,6 +645,44 @@ describe('wetAreaScopeSync', () => {
     );
   });
 
+  test('a painting bid does not price exterior doors as window trim', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'exterior_paint',
+        label: 'Exterior paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_door_paint',
+        label: 'Exterior door paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Window trim & finish',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      templateKey: 'painting',
+      paintScope: ['walls', 'ceilings', 'doors', 'exterior'],
+      exteriorDoorCount: '7',
+      windowCount: '0',
+    });
+    expect(next.find(row => row.id === 'exterior_paint')?.state).toBe(
+      'included'
+    );
+    expect(next.find(row => row.id === 'exterior_door_paint')?.state).toBe(
+      'included'
+    );
+    expect(next.find(row => row.id === 'exterior_trim_paint')?.state).toBe(
+      'excluded'
+    );
+  });
+
   test('an interior paint scope leaves exterior cards off until the chip is selected', () => {
     const items: ScopeChecklistItem[] = [
       {

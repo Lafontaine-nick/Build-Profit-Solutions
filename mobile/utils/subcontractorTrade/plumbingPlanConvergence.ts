@@ -7,6 +7,7 @@
  * condition-specific adapters.
  */
 
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import type { ScopePricingBehavior } from './scopePricingBehavior';
 import {
   bathroomAffirmativeNotes,
@@ -285,6 +286,63 @@ const GROUND_UP_PLUMBING_PLAN_LABELS: Record<string, string> = {
   water_heater: 'Water heater',
   gas_line: 'Gas piping',
 };
+
+/** Labeled bath rooms. Suites, bedrooms, and showers are not fixture counts. */
+const PLUMBING_LABELED_BATH_ROOM =
+  /^(?:powder(?:\s+bath)?|primary\s+bath|master\s+bath|guest\s+bath|hall\s+bath|jack\s+and\s+jill(?:\s+bath)?|bath(?:room)?(?:\s+\d+)?)$/i;
+
+export function filterPlumbingLabeledBathRooms<
+  T extends { name?: string | null },
+>(rooms: T[] | null | undefined): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (const room of rooms || []) {
+    const raw = String(room?.name || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!raw || !PLUMBING_LABELED_BATH_ROOM.test(raw)) continue;
+    const key = raw.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(room);
+  }
+  return kept;
+}
+
+export function plumbingPlanLabeledBathNames(
+  rooms: Array<{ name?: string | null }> | null | undefined
+): string[] {
+  return filterPlumbingLabeledBathRooms(rooms).map(room => {
+    const key = String(room.name || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  });
+}
+
+export function plumbingPlanHasPrintedQuantity(
+  measurements: Record<string, unknown> | null | undefined
+): boolean {
+  if (!measurements) return false;
+  return PLUMBING_QUANTITY_KEYS.some(key => Number(measurements[key] || 0) > 0);
+}
+
+export function plumbingUnprintedPlanTagline(bathNames: string[]): string {
+  const counts = 'Fixture counts and pipe lengths are not printed.';
+  if (!bathNames.length) return counts;
+  const sentence = bathNames.map((name, index) =>
+    index === 0 ? name : name.charAt(0).toLowerCase() + name.slice(1)
+  );
+  const list =
+    sentence.length === 1
+      ? sentence[0]
+      : sentence.length === 2
+        ? `${sentence[0]} and ${sentence[1]}`
+        : `${sentence.slice(0, -1).join(', ')}, and ${sentence[sentence.length - 1]}`;
+  const verb = bathNames.length === 1 ? 'is' : 'are';
+  return `${list} ${verb} on the floor plan. ${counts}`;
+}
 
 /** Scope cards that can be confirmed from a ground-up/addition plan. */
 export const PLUMBING_PLAN_SCOPE_ALLOWLIST = [
@@ -2008,6 +2066,11 @@ export function syncPlumbingScopeItems<
   }
 
   return materialized.map(item => {
+    if (contractorKeptScopeItemOut(item)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' as const };
+    }
     if (fromQuantity.has(item.id)) {
       return item.state === 'included' ? item : { ...item, state: 'included' };
     }
@@ -2117,7 +2180,7 @@ export function ensurePlumbingPlanChecklistItems<
         category: existing?.category || card.groupId,
         inputType: existing?.inputType || 'yes_no',
         state,
-        ...(state === 'included' ? { noteBacked: true } : {}),
+        noteBacked: state === 'included' && existing?.noteBacked === true,
       },
     ];
   });

@@ -65,6 +65,7 @@ import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { filterPlumbingLabeledBathRooms } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   ELECTRICAL_CARDS,
   electricalPlanSheetCountBelongsInBid,
@@ -1154,9 +1155,15 @@ export default function EstimatePlanImportStrip({
       );
       const tradeRooms =
         selection.mode === 'selected_trade' &&
-        !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
-          ? []
-          : rooms;
+        selection.trade?.key === 'plumbing'
+          ? filterPlumbingLabeledBathRooms(rooms)
+          : selection.mode === 'selected_trade' &&
+              !keepSelectedTradePlanContext(
+                selection.mode,
+                selection.trade?.key
+              )
+            ? []
+            : rooms;
       const tradeScopeDetections =
         selection.mode === 'selected_trade' && selection.trade
           ? filterPlanScopesForTrade(
@@ -1436,15 +1443,25 @@ export default function EstimatePlanImportStrip({
             ? null
             : (takeoff.areaReconciliation ?? null),
         buildingAreas:
-          selection.mode === 'selected_trade' &&
-          !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
-            ? undefined
-            : takeoff.buildingAreas,
+          selection.trade?.key === 'stucco'
+            ? takeoff.buildingAreas
+            : selection.mode === 'selected_trade' &&
+                !keepSelectedTradePlanContext(
+                  selection.mode,
+                  selection.trade?.key
+                )
+              ? undefined
+              : takeoff.buildingAreas,
         planFacts:
-          selection.mode === 'selected_trade' &&
-          !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
-            ? undefined
-            : takeoff.planFacts,
+          selection.trade?.key === 'stucco'
+            ? takeoff.planFacts
+            : selection.mode === 'selected_trade' &&
+                !keepSelectedTradePlanContext(
+                  selection.mode,
+                  selection.trade?.key
+                )
+              ? undefined
+              : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
         quickMeasurementSources:
           hvacQuickMeasurementSources ||
