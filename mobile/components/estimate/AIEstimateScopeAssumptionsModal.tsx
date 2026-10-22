@@ -223,6 +223,7 @@ import {
   windowsDoorsPlanReviewFieldSet,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
+import { rememberAcceptedPlanSymbolCount } from '@/utils/acceptedPlanSymbolCounts';
 import {
   concreteFoundationPackageDollars,
   concreteStructureQuantityPrompt,
@@ -279,6 +280,7 @@ import {
   WET_AREA_DERIVED_ITEM_IDS,
   dedupeScopeChecklistItems,
   scopeChecklistSummaryCounts,
+  scopeChecklistUnsurePhrase,
   listScopeItemsNeedingConfirmation,
   finalizeDrywallScopeChecklistLayout,
   drywallFinishCrewSelection,
@@ -369,6 +371,7 @@ import {
   resolvePinnedDrywallFinishItem,
 } from '@/components/estimate/DrywallConfirmScopePanels';
 import {
+  drywallCoverSheetPackage,
   hydrateDrywallSpecialtyBoardMeasurements,
   isDrywallCompletePackageScope,
   isDrywallPlanExportCrewSplit,
@@ -582,6 +585,7 @@ import {
   quickMeasurementValuesMatch,
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
+  countGarageDoorPlanningEstimates,
   pinQuickMeasurementFieldInGroup,
   splitWetAreaQuickMeasurementFields,
   WET_AREA_QUICK_MEASUREMENT_KEYS,
@@ -1551,6 +1555,15 @@ function ScopeIntelligenceNotice({
     }
   );
   const formula = intelligence.formula;
+  const coverPackage = drywallCoverSheetPackage(measurements);
+  const pricedOnCoverPackage =
+    coverPackage != null &&
+    intelligence.quantity.value != null &&
+    Math.abs(Number(intelligence.quantity.value) - coverPackage.packageSqft) <=
+      1;
+  const formulaExplanation = pricedOnCoverPackage
+    ? coverPackage.explanation
+    : formula?.formulaExplanation;
   const calculatedActive = calculatedQuantityAlreadyActive(intelligence);
   const applyTarget = formula
     ? resolveFormulaQuantityApplyTarget({
@@ -1561,7 +1574,9 @@ function ScopeIntelligenceNotice({
   const formulaVariance =
     intelligence.formulaComparison?.variancePercent ?? null;
   const showFormulaDetails = Boolean(
-    formula && !calculatedActive && !suppressFormulaPlanning
+    (formula || pricedOnCoverPackage) &&
+      !calculatedActive &&
+      !suppressFormulaPlanning
   );
   const showCalculatedRevert =
     calculatedActive &&
@@ -1765,10 +1780,11 @@ function ScopeIntelligenceNotice({
                 { color: captionColor(darkMode, Colors) },
               ]}
             >
-              {formula!.formulaExplanation}
+              {formulaExplanation}
             </Text>
           )}
           {(warningExpanded || !warningFull) &&
+          !pricedOnCoverPackage &&
           formula!.expectedRange &&
           formulaVariance != null &&
           formulaVariance !== 0 &&
@@ -15130,6 +15146,7 @@ function CollapsibleQuickMeasurements({
   mixedScopeMode = false,
   insulationAssemblyCardActive = false,
   onSummaryChange,
+  onElectricalMeasurementsSettled,
   onWetAreaFinishChange,
   onWetAreaSteppersChange,
   onWetAreaExistingDemoChange,
@@ -15189,6 +15206,8 @@ function CollapsibleQuickMeasurements({
   /** The parent is rendering the assembly card, so legacy R-value fields are redundant. */
   insulationAssemblyCardActive?: boolean;
   onSummaryChange?: (summary: QuickMeasurementSummary) => void;
+  /** Electrical measurements are complete when the header says All set. */
+  onElectricalMeasurementsSettled?: (settled: boolean | null) => void;
   /** Keep checklist wet_area_install in sync when the QM finish chip changes. */
   onWetAreaFinishChange?: (finish: WetAreaFinishChoice | null) => void;
   /** Bathroom photo jobs — sync wet area + derived scope from stepper counts. */
@@ -17861,6 +17880,12 @@ function CollapsibleQuickMeasurements({
         })
       : fieldResultsForSummary;
     const next = summarizeQuickMeasurementFieldStates(visible);
+    const garagePlanningEstimates = countGarageDoorPlanningEstimates(
+      measurements,
+      visible
+    );
+    next.estimateAvailable += garagePlanningEstimates;
+    next.relevantTotal += garagePlanningEstimates;
     const planFloor = Number(
       String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
     );
@@ -19837,6 +19862,13 @@ function CollapsibleQuickMeasurements({
         ) {
           return prev;
         }
+        rememberAcceptedPlanSymbolCount(
+          typeof prev.planImportFingerprint === 'string'
+            ? prev.planImportFingerprint
+            : null,
+          key,
+          Number(nextValue)
+        );
         const nextItemQuantities = { ...(prev.itemQuantities || {}) };
         let nextPlumbingScope = prev.plumbingScope;
         const itemMapping: Partial<
@@ -20139,6 +20171,9 @@ function CollapsibleQuickMeasurements({
     fieldResults
       .filter(result => result.state === 'needs_confirmation')
       .every(result => result.filled);
+  const drywallCoverPackage = drywallCoverSheetPackage(
+    measurements as Record<string, unknown>
+  );
   const subtitle =
     headerSummary.relevantTotal > 0
       ? headerSummary.needsConfirmation > 0
@@ -20148,7 +20183,9 @@ function CollapsibleQuickMeasurements({
             ? 'Confirm the highlighted measurements before they are priced.'
             : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
-          ? 'Review planning estimates before they are priced.'
+          ? drywallCoverPackage
+            ? 'House and garage surfaces estimated from the cover sheet.'
+            : 'Planning estimates, separate from plan counts and scope cards.'
           : deckMissingPrompt ||
             concreteStructurePrompt ||
             'All set — measurements look complete.'
@@ -21784,13 +21821,22 @@ function CollapsibleQuickMeasurements({
   const electricalQmMeasurements = measurements as Record<string, unknown>;
   const patchElectricalQuantity = useCallback(
     (field: string, value: string) => {
+      if (!value.startsWith('release:')) {
+        rememberAcceptedPlanSymbolCount(
+          typeof measurements.planImportFingerprint === 'string'
+            ? measurements.planImportFingerprint
+            : null,
+          field,
+          Number(String(value).replace(/,/g, ''))
+        );
+      }
       setMeasurements(prev =>
         value.startsWith('release:')
           ? releaseElectricalQuickMeasurementSelection(prev, field)
           : applyElectricalQuickMeasurementPatch(prev, field, value)
       );
     },
-    [setMeasurements]
+    [measurements.planImportFingerprint, setMeasurements]
   );
   const electricalConflictFields = useMemo(
     () => [...unresolvedElectricalConflictFields(measurementConflicts)],
@@ -21821,6 +21867,13 @@ function CollapsibleQuickMeasurements({
     measurements.quickMeasurementUserOverrides,
     electricalVisibleMeasurementKeys,
   ]);
+  useEffect(() => {
+    onElectricalMeasurementsSettled?.(
+      electricalGroupSummary == null
+        ? null
+        : electricalGroupSummary.needsConfirmation === 0
+    );
+  }, [electricalGroupSummary, onElectricalMeasurementsSettled]);
   const electricalQuantityTakeoff = useMemo(
     () => (
       <ElectricalQuickMeasurementTakeoff
@@ -21936,7 +21989,9 @@ function CollapsibleQuickMeasurements({
             >
               {electricalGroupSummary
                 ? electricalQuickMeasurementSummaryLine(electricalGroupSummary)
-                : quickMeasurementSummaryLine(headerSummary)}
+                : drywallCoverPackage && headerSummary.estimateAvailable > 0
+                  ? `${headerSummary.estimateAvailable} planning estimates from the cover sheet`
+                  : quickMeasurementSummaryLine(headerSummary)}
             </Text>
           ) : null}
           {expanded ? (
@@ -23730,6 +23785,8 @@ export default function AIEstimateScopeAssumptionsModal({
       confirmed: 0,
       relevantTotal: 0,
     });
+  const [electricalMeasurementsSettled, setElectricalMeasurementsSettled] =
+    useState<boolean | null>(null);
   const footerQuickMeasurementSummaryRef = useRef(quickMeasurementSummary);
   const quickMeasurementsWasOpenRef = useRef(quickMeasurementsOpen);
   useEffect(() => {
@@ -23948,6 +24005,11 @@ export default function AIEstimateScopeAssumptionsModal({
     if (tradeKeyForPending === 'electrical') {
       // Confirmation counts are on the quick-measurement cards.
       return new Set<string>(['__electrical_cards__']);
+    }
+    if (tradeKeyForPending === 'concrete') {
+      // Cover-sheet patio and other flatwork quantities stay on the
+      // quick-measurement card.
+      return new Set<string>(['__concrete_cards__']);
     }
     const trade = tradeKeyForPending
       ? getPlanTradeConfiguration(tradeKeyForPending)
@@ -24642,7 +24704,8 @@ export default function AIEstimateScopeAssumptionsModal({
       // Whole-house rough-in stays, because those counts are not circuits.
       const restored = ensureWholeProjectGroundUpScopeItems(
         list,
-        currentUserNote
+        currentUserNote,
+        measurements as Record<string, unknown>
       );
       const notedFinish = areaOnlyExteriorFinishFromNotes(currentUserNote);
       const storedFinish = areaOnlyExteriorCladding(
@@ -24682,7 +24745,8 @@ export default function AIEstimateScopeAssumptionsModal({
             applyFinishScheduleToChecklistItems(
               ensureWholeProjectGroundUpScopeItems(
                 withExplicitTradeExclusionBoundary,
-                currentUserNote
+                currentUserNote,
+                measurements as Record<string, unknown>
               ),
               measurements.finishSchedule
             ),
@@ -28139,12 +28203,16 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleDrywallFinishLevelChange = useCallback((finishLevel: string) => {
     setMeasurementsSynced(prev => {
-      const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
-      delete pricingAcceptance.drywall;
+      const cleared = clearAcceptedScopeItemPricing({
+        itemId: 'texture',
+        itemQuantities: prev.itemQuantities || {},
+        pricingAcceptance: prev.pricingAcceptance,
+      });
       return {
         ...prev,
         drywallFinishLevel: finishLevel,
-        pricingAcceptance,
+        itemQuantities: cleared.itemQuantities,
+        pricingAcceptance: cleared.pricingAcceptance,
       };
     });
   }, []);
@@ -28289,6 +28357,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ? bucketWholeProjectScopeGroups(grouped, {
             seedGroundUpShell: showGroundUpPlanShell,
             notes: scopeNotes,
+            measurements: measurements as Record<string, unknown>,
           })
         : grouped;
     return filterGroupedItemsWithoutPinnedTexture(
@@ -33124,14 +33193,10 @@ export default function AIEstimateScopeAssumptionsModal({
               </>
             ) : null}
             {summary.unsure > 0 &&
-            !(
-              isElectricalConfirmScope &&
-              electricalGroupSummary != null &&
-              electricalGroupSummary.needsConfirmation === 0
-            ) ? (
+            !(isElectricalConfirmScope && electricalMeasurementsSettled) ? (
               <>
                 {' · '}
-                {summary.unsure} unsure
+                {scopeChecklistUnsurePhrase(summary.unsure)}
               </>
             ) : null}
           </Text>
@@ -33255,7 +33320,7 @@ export default function AIEstimateScopeAssumptionsModal({
             filledReadsAsBoxes={
               (measurements.planImportMode || planImport?.estimatingMode) ===
                 'selected_trade' &&
-              ['drywall', 'insulation', 'concrete'].includes(
+              ['drywall', 'insulation'].includes(
                 String(
                   singleTradeKey ||
                     measurements.planImportTradeKey ||
@@ -33350,6 +33415,7 @@ export default function AIEstimateScopeAssumptionsModal({
               insulationTemplateKey === 'insulation'
             }
             onSummaryChange={setQuickMeasurementSummary}
+            onElectricalMeasurementsSettled={setElectricalMeasurementsSettled}
             onHvacScopeSelectionChange={syncHvacQmScopeItems}
             stuccoSystemChoiceId={
               items.find(row => row.id === 'stucco')?.choiceId ?? null
@@ -33819,6 +33885,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   showerFloor: measurements.showerFloorTileSqft,
                   bathFloor: measurements.bathroomFloorSqft,
                   finish: measurements.drywallFinishIncluded,
+                  finishLevel: measurements.drywallFinishLevel,
                   acceptance: measurements.pricingAcceptance,
                   quantities: measurements.itemQuantities,
                 });
@@ -33852,6 +33919,14 @@ export default function AIEstimateScopeAssumptionsModal({
                     return false;
                   }
                   if (
+                    item.id === 'electrical_trim' &&
+                    electricalFixturesCoveredByDeviceLines(
+                      measurements as unknown as Record<string, unknown>
+                    )
+                  ) {
+                    return false;
+                  }
+                  if (
                     item.id === 'flooring' &&
                     regularItems.some(
                       row =>
@@ -33866,6 +33941,14 @@ export default function AIEstimateScopeAssumptionsModal({
                 const visibleItems = regularItems.filter(item => {
                   // Yes, or a selected finish, stays. No and Not sure come off.
                   if (!checklistItemInScope(item)) {
+                    return false;
+                  }
+                  if (
+                    item.id === 'electrical_trim' &&
+                    electricalFixturesCoveredByDeviceLines(
+                      measurements as unknown as Record<string, unknown>
+                    )
+                  ) {
                     return false;
                   }
                   if (

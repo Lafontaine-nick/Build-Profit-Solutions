@@ -2,6 +2,7 @@ import {
   buildDrywallStructuredMeasurements,
   copyDrywallQuantityFields,
   drywallReviewSurfaces,
+  drywallCoverSheetPackage,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
   hydrateDrywallComponentMeasurementsFromPlanContext,
@@ -750,5 +751,23 @@ describe('drywall plan convergence', () => {
       knockdown.total - orangePeel.total
     );
     expect(level5.total).toBeGreaterThan(skipTrowel.total);
+  });
+
+  it('explains a drywall plan package from the cover-sheet living and garage areas', () => {
+    const pack = drywallCoverSheetPackage({
+      planImportTradeKey: 'drywall',
+      floorAreaSqft: 2571,
+      garageSqft: 1427,
+      drywallWallSqft: 6428,
+      drywallCeilingSqft: 2571,
+      garageWallDrywallSqft: 1647.1,
+      garageCeilingDrywallSqft: 1427,
+    });
+    expect(pack?.houseInteriorSqft).toBe(8999);
+    expect(pack?.garageSurfaceSqft).toBe(3074);
+    expect(pack?.packageSqft).toBe(12073);
+    expect(pack?.explanation).toBe(
+      'House interior 8,999 sqft from the 2,571 sqft cover-sheet living area. Garage 3,074 sqft from the 1,427 sqft cover-sheet garage. Priced on 12,073 sqft.'
+    );
   });
 });

@@ -4860,7 +4860,19 @@ export function wholeProjectPlanQuickMeasurementRows(
       SCOPE_QUICK_MEASUREMENT_ROWS.ground_up
         .flat()
         .find(candidate => candidate.key === key);
-    return field ? [[field]] : [];
+    if (!field) return [];
+    if (key === 'recessedLightCount') {
+      return [
+        [
+          {
+            ...field,
+            label: 'Recessed lights',
+            helperText: 'Recessed lights counted on the plan.',
+          },
+        ],
+      ];
+    }
+    return [[field]];
   });
 }
 
@@ -5046,6 +5058,9 @@ export function quickMeasurementInfoText(
   let body = QUICK_MEASUREMENT_INFO[field.key];
   if (field.key === 'floorAreaSqft' && /room addition/i.test(label)) {
     body = 'The floor area of the new room, in square feet.';
+  }
+  if (field.key === 'recessedLightCount' && label === 'Recessed lights') {
+    body = 'How many recessed lights.';
   }
   if (!body) {
     const helper = String(field.helperText || quickMeasurementHelperText({

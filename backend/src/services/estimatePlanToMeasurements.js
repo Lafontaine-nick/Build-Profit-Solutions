@@ -1370,6 +1370,31 @@ const WINDOWS_DOORS_EVIDENCE_KEYS = {
   interior: "interiorDoorCount",
 };
 
+function boundedSymbolCount(value) {
+  const count = Math.round(Number(value));
+  return Number.isFinite(count) && count >= 1 && count <= 200 ? count : null;
+}
+
+/** Two reads of the same sheet. Matching counts can be priced. A mismatch stays a confirm. */
+function mergeRepeatedSymbolCounts(first, second, keys) {
+  const priced = {};
+  const confirm = {};
+  const disagreed = [];
+  for (const key of keys) {
+    const a = boundedSymbolCount(first?.[key]);
+    const b = boundedSymbolCount(second?.[key]);
+    if (a == null && b == null) continue;
+    if (a != null && a === b) {
+      priced[key] = a;
+    } else {
+      disagreed.push(key);
+      const shown = a != null ? a : b;
+      if (shown != null) confirm[key] = shown;
+    }
+  }
+  return { priced, confirm, disagreed };
+}
+
 const WINDOWS_DOORS_SHEET_CATEGORIES = {
   elevation: ["window", "exterior_swing", "sliding"],
   floor_plan: ["interior"],
@@ -1834,7 +1859,14 @@ function deriveInsulationMeasurementsFromPlanFacts(
   const perimeter =
     positive(planFacts?.exteriorPerimeterLf) ||
     positive(planFacts?.foundationPerimeterLf);
-  const stories = positive(planFacts?.storyCount);
+  const claimedStories = positive(planFacts?.storyCount);
+  const stories = claimedStories
+    ? storyCountSupportedByAreas(
+        claimedStories,
+        planFacts?.buildingAreas,
+        planFacts?.fieldEvidence?.storyCount,
+      )
+    : null;
   const wallHeight = perStoryWallHeightFromPlanFacts(planFacts, stories || 1);
   const grossWallArea =
     perimeter && stories && wallHeight
@@ -2085,7 +2117,7 @@ Extract BOTH:
 3. For selected-trade Stucco / Exterior Finish mode, inspect exterior elevations, wall sections, and exterior finish schedules in addition to floor plans. Extract a stucco quantity only when it is labeled or each elevation face has a labeled area or labeled width and height. Keep window/door openings separate from garage door openings. Story count and per-story plate or wall height are plan facts, not a wall-area formula. Never derive wall area from living area, footprint, foundation or exterior perimeter, plate height, or story count. Never use ridge height as wall height. If a quantity is not readable, omit it and list it in unreadableFields or missingInfo.
    - Treat parapet / raised-wall stucco surface as a separate quantity from the main vertical exterior wall area. Never include the same parapet SF in both quantities. If the parapet surface cannot be confidently read or derived from labeled dimensions, omit it and list stuccoParapetSqft in unreadableFields or missingInfo.
 4. Elevations / sections: use them for labeled exterior geometry and materials. Read every elevation separately (front, rear, left, right), identify stucco versus stone/brick/siding/wood/metal cladding, and capture visible openings by labeled dimensions. Do not invent geometry from visual proportions.
-5. Structured planFacts with evidence for each fact. Include only printed/labeled facts: story count/floor evidence, roof pitch, wall or plate heights, exterior/foundation perimeter LF, nonPainted exterior finish percent (stone/brick/stucco/masonry), covered-patio roof status, page/sheet, and supplied geometry. Never infer geometry or fabricate a quantity.
+5. Structured planFacts with evidence for each fact. Include only printed/labeled facts: story count/floor evidence, roof pitch, wall or plate heights, exterior/foundation perimeter LF, nonPainted exterior finish percent (stone/brick/stucco/masonry), covered-patio roof status, page/sheet, and supplied geometry. Never infer geometry or fabricate a quantity. storyCount is 1 when one floor plan's main living area is the whole house. Report 2 or 3 only when an upper floor has its own labeled living area, or the sheet prints "2 story" or "3 story". A small gap between the cover total and the main floor is not a second story. Omit storyCount when it is not printed. Never copy an example story count.
 
 Exhaustive rooms (required):
 - Include every labeled room you can read: bedrooms, primary suite, den/office, great room / living / family, dining, kitchen, pantry, laundry, mud, foyer/entry, hallways (when dimensioned), closets / WIC, powder, every bathroom (primary bath, guest bath, Jack & Jill, etc.), garage / RV garage / shop, covered patio / porch / deck, and similarly labeled spaces.
@@ -2153,7 +2185,7 @@ printed or calculated from the submitted plan pages.
     "roofDeckSqft": 331
   },
   "planFacts": {
-    "storyCount": 2,
+    "storyCount": null,
     "roofPitch": "5:12",
     "wallHeightFt": 9,
     "plateHeightFt": 9,
@@ -2188,11 +2220,11 @@ printed or calculated from the submitted plan pages.
       "fieldEvidence": {}
     },
     "fieldEvidence": {
-      "storyCount": {
-        "value": 2,
+      "roofPitch": {
+        "value": "5:12",
         "sourceType": "detected_from_plan",
         "confidence": "high",
-        "evidence": [{ "page": 2, "sheet": "A1.1", "label": "Upper Floor", "sourceText": "UPPER FLOOR LIVING 1209 SF", "sourceType": "plan_vision", "confidence": 0.95 }]
+        "evidence": [{ "page": 5, "sheet": "A-5", "label": "Roof pitch", "sourceText": "ROOF PITCH 5:12", "sourceType": "plan_vision", "confidence": 0.95 }]
       }
     }
   },
@@ -2312,7 +2344,7 @@ Counting contract (most important):
 - For every non-symbol quantity or explicitly labeled quantity, return electricalFieldEvidence[field] with the page/sheet and the printed label or source text. A quantity without a traceable field evidence reference cannot be Plan verified.
 - serviceAmperage ONLY when a printed amperage callout exists (200A, 125A, 150A). Never infer amperage from house size or from seeing a panel box. If it is not printed, omit it and list serviceAmperage in unreadableFields.
 - Do NOT invent homeruns, breaker counts, conduit LF, trench LF, rough/trim packages, job condition, or living SF. Device symbols do not create circuit relationships.
-- When total living area and/or story count is readable on cover sheets or floor plans, populate planFacts.buildingAreas.totalLivingSqft and planFacts.storyCount (1, 2, or 3) with fieldEvidence. These planFacts drive project-complexity labor adjustment in Confirm Scope only — never use living SF or story count to derive device/circuit quantities.
+- When total living area is readable, populate planFacts.buildingAreas.totalLivingSqft with fieldEvidence. Set planFacts.storyCount to 1 for a one-floor plan. Set 2 or 3 only when an upper floor is labeled or the sheet prints the story count. Never invent a second story from an example. These planFacts drive project-complexity labor adjustment in Confirm Scope only — never use living SF or story count to derive device/circuit quantities.
 - Leave rooms[] empty. Do not extract kitchen/bath/living square footage into measurements on this pass.
 - imageQuality: "good" if Electrical symbols or labels are visible, "partial" if some are, "unreadable" only if the attached images are blank or not Electrical sheets.
 - For every key in measurements, add fieldConfidence 0-1. Symbol counts you can see should be 0.7-0.95.
@@ -3388,6 +3420,7 @@ function hydrateSlidingCountFromOpeningEvidence(
     openingReconciliation?.uniqueCounts?.sliding,
   );
   if (slidingEvidence == null || slidingEvidence <= 0) return;
+  if (provenance.slidingDoorCount?.evidenceKind === "schedule") return;
   if (current != null && current >= slidingEvidence) return;
   next.slidingDoorCount = slidingEvidence;
   derived.add("slidingDoorCount");
@@ -3519,15 +3552,8 @@ function applyWindowsDoorsPlanTakeoff({
       windowsDoorsBoundedCount(vision?.[key]);
     let count = visionCount ?? scheduleCount;
     if (documented && scheduleCount != null) {
-      if (
-        visionCount != null &&
-        visionCount > scheduleCount &&
-        derived.has(key)
-      ) {
-        count = visionCount;
-      } else {
-        count = scheduleCount;
-      }
+      // A printed schedule is the count. A higher symbol guess does not replace it.
+      count = scheduleCount;
     } else if (visionCount != null && scheduleCount != null) {
       count = Math.max(visionCount, scheduleCount);
     }
@@ -3754,6 +3780,59 @@ function sanitizeCeilingBoundary(rawBoundary) {
   return Object.keys(out).length ? out : null;
 }
 
+const UPPER_FLOOR_LIVING_SHARE = 0.15;
+
+/** A second story needs an upper floor. A main floor that is the house is one story. */
+function storyCountSupportedByAreas(claimed, areas, storyEvidence) {
+  const stories = Math.max(1, Math.round(Number(claimed) || 1));
+  if (stories <= 1) return 1;
+  const total = positive(areas?.totalLivingSqft);
+  const main = positive(areas?.mainFloorLivingSqft);
+  const upstairs = positive(areas?.upstairsLivingSqft);
+  const upstairsIsReal =
+    upstairs != null &&
+    (total == null || upstairs / total >= UPPER_FLOOR_LIVING_SHARE);
+  const gap =
+    main != null && total != null && total > main + 1 ? total - main : null;
+  const gapIsReal =
+    gap != null && total != null && gap / total >= UPPER_FLOOR_LIVING_SHARE;
+  if (upstairsIsReal || gapIsReal) return stories;
+  const singleFloor =
+    main != null &&
+    (total == null ||
+      Math.abs(total - main) / Math.max(total, 1) < UPPER_FLOOR_LIVING_SHARE);
+  if (singleFloor) return 1;
+  const text = Array.isArray(storyEvidence?.evidence)
+    ? storyEvidence.evidence
+        .map((entry) => `${entry?.sourceText || ""} ${entry?.label || ""}`)
+        .join(" ")
+    : "";
+  const cited = [];
+  for (const match of text.matchAll(
+    /(\d{3,5}(?:,\d{3})?)\s*(?:sq\.?\s*ft|sf)\b/gi,
+  )) {
+    cited.push(Number(String(match[1]).replace(/,/g, "")));
+  }
+  const known = [
+    areas?.totalLivingSqft,
+    areas?.mainFloorLivingSqft,
+    areas?.upstairsLivingSqft,
+    areas?.garageSqft,
+    areas?.coveredPatioSqft,
+  ]
+    .map((value) => positive(value))
+    .filter((value) => value != null);
+  if (
+    cited.length &&
+    cited.some(
+      (value) => !known.some((knownValue) => Math.abs(knownValue - value) < 2),
+    )
+  ) {
+    return 1;
+  }
+  return stories;
+}
+
 function sanitizePlanFacts(raw, buildingAreas = {}) {
   const src = raw && typeof raw === "object" ? raw : {};
   const fieldEvidence = {};
@@ -3799,7 +3878,17 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     storyCount >= 1 &&
     storyCount <= 10
   ) {
-    out.storyCount = storyCount;
+    out.storyCount = storyCountSupportedByAreas(
+      storyCount,
+      out.buildingAreas,
+      fieldEvidence.storyCount,
+    );
+    if (fieldEvidence.storyCount && out.storyCount !== storyCount) {
+      fieldEvidence.storyCount = {
+        ...fieldEvidence.storyCount,
+        value: out.storyCount,
+      };
+    }
   }
   if (hasEvidence("roofPitch")) {
     const pitch = String(src.roofPitch || "")
@@ -5101,10 +5190,24 @@ async function analyzePlanForMeasurements({
             } = require("./planPdfTextTakeoff");
             const pages = selectWholeProjectSymbolPages(pdfTakeoff);
             if (!pages.length) return [];
-            return await renderWindowsDoorsPlanPages(pdfBuffers, pages, {
+            console.log(
+              "[plan symbol pages locked]",
+              pages.map((page) => ({
+                page: page.page,
+                role: page.sheetRole,
+              })),
+            );
+            const images = await renderWindowsDoorsPlanPages(pdfBuffers, pages, {
               maxPages: 6,
               maxDimension: 2200,
             });
+            const roleByPage = new Map(
+              pages.map((page) => [page.page, page.sheetRole || "unknown"]),
+            );
+            return images.map((image) => ({
+              ...image,
+              sheetRole: roleByPage.get(image.page) || "unknown",
+            }));
           } catch (err) {
             console.warn(
               "Whole-project symbol raster skipped:",
@@ -5400,47 +5503,124 @@ async function analyzePlanForMeasurements({
         },
       ],
     });
-  const createWholeProjectSymbolCompletion = (symbolImages) =>
-    createOpenAiChatCompletion(openai, {
-      model: aiModels.assistant.vision,
-      response_format: aiRuntime.assistant.vision.responseFormat,
-      temperature: 0,
-      reasoning_effort: "none",
-      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
-      messages: [
+  const wholeProjectKeysForSheet = (role) => {
+    if (role === "elevation") {
+      return ["windowCount", "exteriorDoorCount", "slidingDoorCount"];
+    }
+    if (role === "floor_plan") return ["interiorDoorCount"];
+    if (role === "electrical") return [...WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS];
+    if (role === "both") {
+      return [
+        "windowCount",
+        "exteriorDoorCount",
+        "slidingDoorCount",
+        "interiorDoorCount",
+      ];
+    }
+    return [...WHOLE_PROJECT_SYMBOL_KEYS];
+  };
+  const countWholeProjectSymbolsBySheet = async (symbolImages) => {
+    const sheets = await Promise.all(
+      symbolImages.map(async (page) => {
+        const keys = wholeProjectKeysForSheet(page.sheetRole || "unknown");
+        const readSheet = () =>
+          createOpenAiChatCompletion(openai, {
+            model: aiModels.assistant.vision,
+            response_format: aiRuntime.assistant.vision.responseFormat,
+            temperature: 0,
+            reasoning_effort: "none",
+            max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 1500),
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Count visible symbols on this one sheet. Return JSON only, with every count inside measurements. Omit a count when that symbol is not on this sheet. Never invent a count from living area or room count.",
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: [
+                      `Page ${page.page}. Role: ${page.sheetRole || "unknown"}.`,
+                      `Return only these keys: ${keys.join(", ")}.`,
+                      "Count framed window and door units, not panes or leaves. Switches, ceiling fans, and exhaust fans are device symbols, not recessed lights.",
+                      'Example: {"measurements":{"windowCount":4}}',
+                    ].join("\n\n"),
+                  },
+                  (() => {
+                    const part = toVisionContentPart(page);
+                    if (part?.image_url) part.image_url.detail = "high";
+                    return part;
+                  })(),
+                ],
+              },
+            ],
+          });
+        const [firstRaw, secondRaw] = await Promise.all([
+          readSheet(),
+          readSheet(),
+        ]);
+        const first = filterWholeProjectSymbolMeasurements(
+          parseVisionJsonPayload(firstRaw),
+        );
+        const second = filterWholeProjectSymbolMeasurements(
+          parseVisionJsonPayload(secondRaw),
+        );
+        return {
+          page: page.page,
+          role: page.sheetRole || "unknown",
+          ...mergeRepeatedSymbolCounts(first, second, keys),
+        };
+      }),
+    );
+    const disagreed = new Set();
+    const priced = {};
+    const confirm = {};
+    for (const sheet of sheets) {
+      for (const key of sheet.disagreed) disagreed.add(key);
+      for (const [key, value] of Object.entries(sheet.priced)) {
+        priced[key] = (priced[key] || 0) + value;
+      }
+      for (const [key, value] of Object.entries(sheet.confirm)) {
+        confirm[key] = (confirm[key] || 0) + value;
+      }
+    }
+    // A face is added only when both reads of that sheet match. One
+    // mismatch keeps the whole count visible and out of the price.
+    for (const key of disagreed) {
+      const shown = (confirm[key] || 0) + (priced[key] || 0);
+      delete priced[key];
+      if (shown > 0) confirm[key] = shown;
+    }
+    const measurements = { ...priced, ...confirm };
+    const symbolReadsDisagreed = [...disagreed];
+    console.log("[plan symbol agreement]", {
+      sheets: sheets.map((sheet) => ({
+        page: sheet.page,
+        role: sheet.role,
+        priced: sheet.priced,
+        confirm: sheet.confirm,
+        disagreed: sheet.disagreed,
+      })),
+      priced,
+      confirm,
+      symbolReadsDisagreed,
+    });
+    return {
+      choices: [
         {
-          role: "system",
-          content:
-            "Count visible opening and electrical symbols. Return JSON only, with every count inside measurements. A visible window, swing door, or interior door with no count is a failed takeoff. Omit a count only when that symbol is not on the attached sheets. Never invent a count from living area, room count, or garage square footage.",
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: [
-                `The attached images are the floor plan, exterior elevations, and electrical sheet (pages ${symbolImages
-                  .map((page) => page.page)
-                  .filter(Boolean)
-                  .join(", ")}).`,
-                "Count each physical opening once. Windows, exterior doors, and sliders come from the elevation sheets only. Do not add the same opening again from the floor plan. Interior doors come from the floor plan only. Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount.",
-                "Count framed units, not panes, lites, or door leaves. A double or French swing door is 1 exteriorDoorCount. Sidelights are not extra doors. Garage-door glass is not a window.",
-                "A floor-to-head multi-panel glazed door is 1 slidingDoorCount, even when the sheet does not print the word slider. Do not put that glass in windowCount. Omit slidingDoorCount only when no door like that is drawn.",
-                "Do not return garage door counts.",
-                "Switches, ceiling fans, and exhaust fans come from the electrical sheet only. Return singlePoleSwitchCount, threeWaySwitchCount, ceilingFanCount, and bathExhaustFanCount only for symbols you can see. Do not count a recessed light as a switch or a fan. Omit a device type that is not drawn.",
-                "Do not return recessedLightCount, drywall, paint, insulation, foundation, or excavation. Put every returned count in measurements and list those keys in geometryDerived.",
-                'Example shape: {"measurements":{"windowCount":12,"exteriorDoorCount":2,"interiorDoorCount":8,"singlePoleSwitchCount":10},"geometryDerived":["windowCount","exteriorDoorCount","interiorDoorCount","singlePoleSwitchCount"]}',
-              ].join("\n\n"),
-            },
-            ...symbolImages.map((page) => {
-              const part = toVisionContentPart(page);
-              if (part?.image_url) part.image_url.detail = "high";
-              return part;
+          message: {
+            content: JSON.stringify({
+              measurements,
+              symbolReadsDisagreed,
+              geometryDerived: Object.keys(priced),
             }),
-          ],
+          },
         },
       ],
-    });
+    };
+  };
   const createWindowsDoorsSheetCompletion = (page) => {
     const role = page?.sheetRole || "unknown";
     const task =
@@ -5481,44 +5661,6 @@ async function analyzePlanForMeasurements({
       ],
     });
   };
-  const createWindowsDoorsSheetCorrection = (page, rows) => {
-    const role = page?.sheetRole || "unknown";
-    const task =
-      role === "floor_plan"
-        ? "Keep one row per interior door that has a swing, pocket, or bifold. Delete exterior doors, garage doors, sliders, and openings with no door. A double door is one row."
-        : "Keep one row per frame. A window split into lites is one window, so delete the extra lite rows. Delete garage-door glass and sidelights. A floor-to-head multi-panel door is one sliding row, and it must reach the floor. A tall or fixed window is not a slider. A hinged or French pair is one exterior_swing. A tall window is not a swing door. Set reachesFloor true only when the opening meets the ground. Delete interior doors.";
-    return createOpenAiChatCompletion(openai, {
-      model: aiModels.assistant.vision,
-      response_format: aiRuntime.assistant.vision.responseFormat,
-      temperature: 0,
-      reasoning_effort: "none",
-      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
-      messages: [
-        {
-          role: "system",
-          content:
-            "Correct an opening list for this one sheet. Return JSON only. Fewer rows is correct when the first list split one frame into panes or leaves.",
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: [
-                `Page ${page?.page || ""}. ${task}`,
-                "This is the first list. Replace it with the corrected list.",
-                JSON.stringify({
-                  planFacts: { openingEvidence: rows.slice(0, 60) },
-                }),
-                'Example shape: {"planFacts":{"openingEvidence":[{"category":"window","panes":4,"location":"stone wall right of entry"}]}}',
-              ].join("\n\n"),
-            },
-            toVisionContentPart(page),
-          ],
-        },
-      ],
-    });
-  };
   const countWindowsDoorsBySheet = async (symbolImages) => {
     const sheets = (
       await Promise.all(
@@ -5528,34 +5670,38 @@ async function analyzePlanForMeasurements({
             const first = parseVisionJsonPayload(
               await createWindowsDoorsSheetCompletion(page),
             );
+            const second = parseVisionJsonPayload(
+              await createWindowsDoorsSheetCompletion(page),
+            );
             const firstRows = normalizeWindowsDoorsOpeningRows(
               windowsDoorsEvidenceRows(first),
               role,
             );
-            let chosenRows = firstRows;
-            if (windowsDoorsEvidenceRows(first).length) {
-              try {
-                const corrected = parseVisionJsonPayload(
-                  await createWindowsDoorsSheetCorrection(
-                    page,
-                    windowsDoorsEvidenceRows(first),
-                  ),
-                );
-                const correctedRows = normalizeWindowsDoorsOpeningRows(
-                  windowsDoorsEvidenceRows(corrected),
-                  role,
-                );
-                chosenRows = pickTighterOpeningRows(firstRows, correctedRows);
-              } catch (err) {
-                console.warn(
-                  `Windows & doors sheet correction failed for page ${page?.page}:`,
-                  err?.message || err,
-                );
+            const secondRows = normalizeWindowsDoorsOpeningRows(
+              windowsDoorsEvidenceRows(second),
+              role,
+            );
+            const categories =
+              WINDOWS_DOORS_SHEET_CATEGORIES[role] ||
+              WINDOWS_DOORS_SHEET_CATEGORIES.unknown;
+            const disagreedKeys = [];
+            for (const category of categories) {
+              const firstCount = windowsDoorsCategoryCount(
+                firstRows.filter((row) => row.category === category),
+              );
+              const secondCount = windowsDoorsCategoryCount(
+                secondRows.filter((row) => row.category === category),
+              );
+              if (firstCount !== secondCount && (firstCount > 0 || secondCount > 0)) {
+                const key = WINDOWS_DOORS_EVIDENCE_KEYS[category];
+                if (key) disagreedKeys.push(key);
               }
             }
+            const chosenRows = firstRows.length ? firstRows : secondRows;
             return {
               page: page.page,
               role,
+              disagreedKeys,
               payload: {
                 planFacts: { openingEvidence: chosenRows },
               },
@@ -5571,6 +5717,9 @@ async function analyzePlanForMeasurements({
       )
     ).filter(Boolean);
     const measurements = sumWindowsDoorsSheetCounts(sheets);
+    const symbolReadsDisagreed = [
+      ...new Set(sheets.flatMap((sheet) => sheet.disagreedKeys || [])),
+    ];
     console.log(
       "[plan symbol sheets]",
       sheets.map((sheet) => ({
@@ -5590,6 +5739,7 @@ async function analyzePlanForMeasurements({
           message: {
             content: JSON.stringify({
               measurements,
+              symbolReadsDisagreed,
               planFacts: {
                 openingEvidence: sheets.flatMap((sheet) => {
                   const allowed = new Set(
@@ -5607,7 +5757,9 @@ async function analyzePlanForMeasurements({
                     }));
                 }),
               },
-              geometryDerived: Object.keys(measurements),
+              geometryDerived: Object.keys(measurements).filter(
+                (key) => !symbolReadsDisagreed.includes(key),
+              ),
             }),
           },
         },
@@ -5617,6 +5769,7 @@ async function analyzePlanForMeasurements({
   let wholeProjectSymbolPass = false;
   let windowsDoorsSymbolPass = false;
   let wholeProjectElectricalSymbolKeys = [];
+  let symbolReadsDisagreedKeys = [];
   const tradeVisualPromise =
     planSelection.mode === "whole_project" || planSelection.trade
       ? (async () => {
@@ -5647,7 +5800,7 @@ async function analyzePlanForMeasurements({
           if (symbolImages.length && !windowsDoorsSelected) {
             try {
               wholeProjectSymbolPass = true;
-              return await createWholeProjectSymbolCompletion(symbolImages);
+              return await countWholeProjectSymbolsBySheet(symbolImages);
             } catch (err) {
               wholeProjectSymbolPass = false;
               console.warn(
@@ -5742,6 +5895,16 @@ async function analyzePlanForMeasurements({
         tradeVisualCompletion.choices?.[0]?.message?.content || "{}",
       );
       if (wholeProjectSymbolPass || windowsDoorsSymbolPass) {
+        if (Array.isArray(focused.symbolReadsDisagreed)) {
+          symbolReadsDisagreedKeys = [
+            ...new Set([
+              ...symbolReadsDisagreedKeys,
+              ...focused.symbolReadsDisagreed
+                .map((key) => String(key || "").trim())
+                .filter(Boolean),
+            ]),
+          ];
+        }
         console.log("[plan symbol count]", {
           topLevelKeys: Object.keys(focused || {}),
           measurementKeys: Object.keys(focused.measurements || {}),
@@ -5766,7 +5929,9 @@ async function analyzePlanForMeasurements({
               (key) => !WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
             ),
             ...symbolKeys.filter(
-              (key) => !WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
+              (key) =>
+                !WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key) &&
+                !symbolReadsDisagreedKeys.includes(key),
             ),
           ]),
         ];
@@ -6066,7 +6231,7 @@ async function analyzePlanForMeasurements({
           pdfTakeoff.electricalRelevantPages,
         );
         if (crops.length) {
-          const cropRecovery = await createOpenAiChatCompletion(openai, {
+          const requestCropCount = () => createOpenAiChatCompletion(openai, {
             model: aiModels.assistant.vision,
             response_format: aiRuntime.assistant.vision.responseFormat,
             temperature: planVisionTemperature,
@@ -6104,15 +6269,37 @@ async function analyzePlanForMeasurements({
               },
             ],
           });
-          const cropPayload = parseVisionJsonPayload(cropRecovery);
-          const cropTotals = sumElectricalSymbolCropCounts(
-            cropPayload,
+          const [firstCrop, secondCrop] = await Promise.all([
+            requestCropCount(),
+            requestCropCount(),
+          ]);
+          const repeatedCrops = mergeRepeatedSymbolCounts(
+            sumElectricalSymbolCropCounts(
+              parseVisionJsonPayload(firstCrop),
+              missingSymbolKeys,
+            ),
+            sumElectricalSymbolCropCounts(
+              parseVisionJsonPayload(secondCrop),
+              missingSymbolKeys,
+            ),
             missingSymbolKeys,
           );
+          symbolReadsDisagreedKeys = [
+            ...new Set([
+              ...symbolReadsDisagreedKeys,
+              ...repeatedCrops.disagreed,
+            ]),
+          ];
+          const cropTotals = {
+            ...repeatedCrops.priced,
+            ...repeatedCrops.confirm,
+          };
           applyRecoveredElectricalSymbolCounts(
             parsed,
             cropTotals,
-            "Symbol count recovered from zoomed electrical-sheet regions. Confirm before pricing.",
+            repeatedCrops.disagreed.length
+              ? "Two reads of the electrical sheet disagreed. Confirm before pricing."
+              : "Symbol count recovered from zoomed electrical-sheet regions. Confirm before pricing.",
           );
           logElectricalTakeoffStage("ELECTRICAL SYMBOL CROPS", {
             requested: missingSymbolKeys,
@@ -6742,6 +6929,22 @@ async function analyzePlanForMeasurements({
         ...windowsDoorsTakeoff.assumptions,
       ];
     }
+    for (const key of symbolReadsDisagreedKeys) {
+      if (measurementProvenance[key]?.evidenceKind === "schedule") continue;
+      const value = measurements[key];
+      if (!(Number(value) > 0)) continue;
+      measurementProvenance[key] = {
+        ...(measurementProvenance[key] || {}),
+        value,
+        source: "calculated_from_symbols",
+        normalizedSource: "NEEDS_CONFIRMATION",
+        evidenceKind: "elevation_symbols",
+        pricingEligible: false,
+        symbolReadsDisagreed: true,
+        reason:
+          "Two reads of this sheet disagreed. Confirm the count before it is priced.",
+      };
+    }
     lowConfidence = (lowConfidence || []).filter(
       (entry) =>
         !OPENING_COUNT_RESTORE_KEYS.includes(String(entry?.field || "")),
@@ -7334,6 +7537,7 @@ module.exports = {
   applyWindowsDoorsPlanTakeoff,
   filterWholeProjectSymbolMeasurements,
   sumWindowsDoorsSheetCounts,
+  mergeRepeatedSymbolCounts,
   WHOLE_PROJECT_SYMBOL_KEYS,
   buildItemQuantities,
   formatNotesBlock,

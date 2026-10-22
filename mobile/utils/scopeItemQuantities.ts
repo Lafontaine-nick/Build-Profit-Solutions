@@ -16258,6 +16258,68 @@ export function measuredWholeHomeTrimSuggestedFill(
   };
 }
 
+const OPENING_COUNT_KEYS_BY_ITEM: Record<string, string[]> = {
+  windows: ['windowCount'],
+  window_install: ['windowCount'],
+  windows_doors: [
+    'windowCount',
+    'exteriorDoorCount',
+    'slidingDoorCount',
+    'interiorDoorCount',
+  ],
+  exterior_doors: ['exteriorDoorCount'],
+  exterior_door_install: ['exteriorDoorCount'],
+  sliding_doors: ['slidingDoorCount'],
+  interior_doors: ['interiorDoorCount'],
+  interior_door_install: ['interiorDoorCount'],
+};
+
+function symbolCountAcceptedByContractor(
+  measurementsInput: { quickMeasurementSources?: unknown },
+  key: string
+): boolean {
+  const sources = measurementsInput.quickMeasurementSources;
+  if (!sources || typeof sources !== 'object') return false;
+  const source = String(
+    (sources as Record<string, unknown>)[key] || ''
+  );
+  return (
+    source === 'contractor_confirmed_from_plan_review' ||
+    source === 'user_entered' ||
+    source === 'manual_override' ||
+    source === 'user_confirmed_suggestion'
+  );
+}
+
+/** A symbol count stays out of the bid when the two reads of that sheet did not match. */
+function symbolReadsDisagreedForItem(
+  itemId: string,
+  measurementsInput: {
+    measurementProvenance?: unknown;
+    quickMeasurementSources?: unknown;
+  }
+): boolean {
+  const provenance = measurementsInput.measurementProvenance;
+  if (!provenance || typeof provenance !== 'object') return false;
+  const openingKeys = OPENING_COUNT_KEYS_BY_ITEM[itemId];
+  const card = ELECTRICAL_CARDS.find(row => row.itemId === itemId);
+  const keys =
+    openingKeys ||
+    (card && card.measurementKey !== 'recessedLightCount'
+      ? [card.measurementKey]
+      : []);
+  return keys.some(key => {
+    if (symbolCountAcceptedByContractor(measurementsInput, key)) return false;
+    const entry = (provenance as Record<string, unknown>)[key];
+    return Boolean(
+      entry &&
+        typeof entry === 'object' &&
+        (entry as { symbolReadsDisagreed?: boolean }).symbolReadsDisagreed ===
+          true
+    );
+  });
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -16278,6 +16340,7 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  if (symbolReadsDisagreedForItem(itemId, measurementsInput)) return empty;
   const notesText = String(originalNotes || '');
   if (
     wholeHomeRemodelSuppressesInventedPrice(
@@ -23283,9 +23346,11 @@ export function resolveScopeItemSuggestedPricing(
     materialRate = average?.material ?? materialRate;
     laborRate = average?.labor ?? laborRate;
     const measurementRecord = measurementsInput as Record<string, unknown>;
+    const textureChoice = itemId === 'texture' ? choiceId : null;
     const finishChoice = resolveDrywallFinishChoiceId(
       measurementRecord,
-      pricingContext?.checklistItems
+      pricingContext?.checklistItems,
+      textureChoice
     );
     const finishLaborMultiplier = drywallFinishLaborMultiplier(finishChoice);
     if (itemId === 'hang' && materialRate != null) {
@@ -23312,6 +23377,7 @@ export function resolveScopeItemSuggestedPricing(
           > | null,
           completePackage: true,
           checklistItems: pricingContext?.checklistItems,
+          explicitChoiceId: textureChoice,
         }
       );
       const siteLaborMultiplier =

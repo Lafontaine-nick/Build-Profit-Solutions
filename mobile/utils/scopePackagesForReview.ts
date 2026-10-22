@@ -177,11 +177,7 @@ export function buildConfirmScopeDisplayItems(
   ) {
     expanded = expanded.filter(row => row.id !== 'lighting');
   }
-  if (
-    scopeTemplate === 'ground_up' &&
-    hasDetailedElectricalTrimDeviceQuantities(measurements) &&
-    String(quantityRecord.electrical_trim?.unit || '').toLowerCase() !== 'each'
-  ) {
+  if (hasDetailedElectricalTrimDeviceQuantities(measurements)) {
     expanded = expanded.filter(row => row.id !== 'electrical_trim');
   }
   expanded = ensureMixedExteriorScopeItems(expanded, templateKey, noteText);
@@ -689,7 +685,11 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     ),
   });
   const displayBase = wholeProjectPlan
-    ? ensureWholeProjectGroundUpScopeItems(base, draft.originalNotes)
+    ? ensureWholeProjectGroundUpScopeItems(
+        base,
+        draft.originalNotes,
+        measurements
+      )
     : base;
   const displayItems = buildConfirmScopeDisplayItems(
     displayBase,

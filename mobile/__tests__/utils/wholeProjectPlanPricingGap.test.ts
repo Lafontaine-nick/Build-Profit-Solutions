@@ -131,6 +131,97 @@ describe('whole project plan pricing gap', () => {
 
     expect(priced('pour_flatwork').resolved.quantity).toBeNull();
     expect(priced('windows').total).toBeGreaterThan(0);
+    const disagreed = {
+      ...measurements,
+      windowCount: '42',
+      singlePoleSwitchCount: '68',
+      quickMeasurementSources: {
+        ...measurements.quickMeasurementSources,
+        windowCount: 'needs_confirmation',
+        singlePoleSwitchCount: 'needs_confirmation',
+      },
+      measurementProvenance: {
+        ...measurements.measurementProvenance,
+        windowCount: { symbolReadsDisagreed: true, pricingEligible: false },
+        singlePoleSwitchCount: {
+          symbolReadsDisagreed: true,
+          pricingEligible: false,
+        },
+      },
+    };
+    const disagreedWindows = resolveChecklistItemQuantity(
+      'windows',
+      disagreed,
+      { templateKey: 'ground_up', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'windows',
+        disagreed,
+        'ground_up',
+        disagreedWindows,
+        { checklistItems: items },
+        null,
+        notes
+      ).fill
+    ).toBeNull();
+    const disagreedItems = syncElectricalScopeItems(items, {
+      templateKey: 'ground_up',
+      notes,
+      quantities: disagreed,
+      electricalScope: disagreed.electricalScope,
+    });
+    expect(
+      disagreedItems.find(row => row.id === 'electrical_single_pole_switch')
+        ?.state
+    ).not.toBe('included');
+    const accepted = {
+      ...disagreed,
+      quickMeasurementSources: {
+        ...disagreed.quickMeasurementSources,
+        windowCount: 'contractor_confirmed_from_plan_review',
+        singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+      },
+    };
+    const acceptedWindows = resolveChecklistItemQuantity('windows', accepted, {
+      templateKey: 'ground_up',
+      notes,
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'windows',
+        accepted,
+        'ground_up',
+        acceptedWindows,
+        { checklistItems: items },
+        null,
+        notes
+      ).fill?.total
+    ).toBeGreaterThan(0);
+    const acceptedItems = syncElectricalScopeItems(items, {
+      templateKey: 'ground_up',
+      notes,
+      quantities: accepted,
+      electricalScope: accepted.electricalScope,
+    });
+    expect(
+      acceptedItems.find(row => row.id === 'electrical_single_pole_switch')
+        ?.state
+    ).toBe('included');
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'electrical_ceiling_fan',
+        disagreed,
+        'ground_up',
+        resolveChecklistItemQuantity('electrical_ceiling_fan', disagreed, {
+          templateKey: 'ground_up',
+          notes,
+        }),
+        { checklistItems: items },
+        null,
+        notes
+      ).fill?.total
+    ).toBeGreaterThan(0);
     expect(priced('electrical_single_pole_switch').total).toBeGreaterThan(0);
     expect(priced('electrical_recessed_light').total).toBeGreaterThan(0);
     expect(items.find(row => row.id === 'electrical_rough')?.state).toBe('included');
@@ -275,6 +366,41 @@ describe('whole project plan pricing gap', () => {
         true
       );
     }
+  });
+
+  it('drops the electrical fixtures card when the switch and light lines own that price', () => {
+    const notes =
+      'Ground-up new construction from imported architectural plans.';
+    const withDevices = ensureWholeProjectGroundUpScopeItems(
+      [
+        {
+          id: 'electrical_single_pole_switch',
+          label: 'Single-pole switch',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        {
+          id: 'electrical_trim',
+          label: 'Electrical fixtures',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+      ] as any,
+      notes,
+      { singlePoleSwitchCount: 47, recessedLightCount: 31 }
+    );
+    expect(withDevices.some(row => row.id === 'electrical_trim')).toBe(false);
+    expect(withDevices.some(row => row.id === 'electrical_rough')).toBe(true);
+    expect(
+      withDevices.some(row => row.id === 'electrical_single_pole_switch')
+    ).toBe(true);
+    const grouped = bucketWholeProjectScopeGroups(
+      [{ title: 'Scope', items: withDevices }],
+      { measurements: { singlePoleSwitchCount: 47, recessedLightCount: 31 } }
+    );
+    expect(
+      grouped.flatMap(group => group.items).some(row => row.id === 'electrical_trim')
+    ).toBe(false);
   });
 
   it('keeps the ground-up shell when Scope found already listed the allowances', () => {

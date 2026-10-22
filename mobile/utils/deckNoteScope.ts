@@ -41,6 +41,20 @@ export function notesDescribeDedicatedDeckJob(
   if (/\bconcrete\s+patio\b/i.test(text) && !/\bdeck(?:ing)?\b/i.test(text)) {
     return false;
   }
+  if (/\bconcrete plan imported\b/i.test(text)) return false;
+  // A cover-sheet covered patio is an area, not a deck bid.
+  if (
+    /\bcovered\s+patio\b/i.test(text) &&
+    !/\bdeck(?:ing)?\b/i.test(text) &&
+    !notesRequestDeckDemo(text) &&
+    !notesRequestDeckFootings(text) &&
+    !notesRequestDeckFraming(text) &&
+    !notesRequestDeckSurface(text) &&
+    !notesRequestDeckRailing(text) &&
+    !notesRequestDeckStairs(text)
+  ) {
+    return false;
+  }
   if (
     /\b(?:roof|roofing|shingles?)\b/i.test(text) &&
     /\bdeck(?:ing)?\b/i.test(text) &&

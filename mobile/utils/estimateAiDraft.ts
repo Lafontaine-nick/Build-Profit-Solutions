@@ -135,6 +135,7 @@ import type {
   ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { isPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
 import {
   PLUMBING_CARDS,
   PLUMBING_INVENTORY_DERIVED_ITEM_IDS,
@@ -2461,7 +2462,11 @@ export function repairDraftRatePricingFromNotes(
       stillNeededReview: [],
     };
   }
-  if (notesDescribeDedicatedDeckJob(text)) {
+  if (
+    notesDescribeDedicatedDeckJob(text) &&
+    String(repairedDraft.scopeMeasurements?.planImportTradeKey || '') !==
+      'concrete'
+  ) {
     const title = String(repairedDraft.projectTitle || '').trim();
     const seed = dedicatedDeckMeasurementSeed(text);
     const measurements = scrubDedicatedDeckMeasurements(text, {
@@ -3858,6 +3863,191 @@ function stripStalePlumbingInventoryDerivedFields(
   return updated;
 }
 
+const ELECTRICAL_SHEET_KEEP_WHEN_ABSENT = new Set([
+  'mainPanelCount',
+  'serviceAmperage',
+]);
+
+/** Typed or calculated counts stay when a new sheet simply does not list them. */
+const ELECTRICAL_SHEET_KEEP_ABSENT_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'calculated_confirmed',
+  'user_confirmed_suggestion',
+  'notes',
+]);
+
+function electricalPayloadConfirmsSheet(
+  payload: PlanImportPayload | null | undefined
+): boolean {
+  if (!payload || payload.selectedTrade !== 'electrical') return false;
+  const measurements = payload.measurements || {};
+  const sources = payload.quickMeasurementSources || {};
+  const provenance = payload.measurementProvenance || {};
+  return Object.entries(measurements).some(([key, value]) => {
+    if (!(Number(value) > 0)) return false;
+    return (
+      sources[key] === 'contractor_confirmed_from_plan_review' ||
+      isPlanReviewLockedProvenance(provenance[key])
+    );
+  });
+}
+
+/**
+ * A contractor-confirmed electrical takeoff replaces the saved device counts.
+ * Devices the new sheet does not list leave the bid. A silent plan re-read
+ * does not use this path, so an earlier confirmation stays put.
+ */
+function applyElectricalReviewedSheetToMeasurements(
+  next: Record<string, unknown>,
+  payload: PlanImportPayload
+): boolean {
+  if (!electricalPayloadConfirmsSheet(payload)) return false;
+  const measurements = payload.measurements || {};
+  const payloadSources = payload.quickMeasurementSources || {};
+  const payloadProvenance = payload.measurementProvenance || {};
+  const onSheet = new Set(
+    Object.entries(measurements)
+      .filter(([, value]) => Number(value) > 0)
+      .map(([key]) => key)
+  );
+  const sources = {
+    ...((next.quickMeasurementSources as Record<string, string> | undefined) ||
+      {}),
+  };
+  const provenance = {
+    ...((next.measurementProvenance as Record<string, unknown> | undefined) ||
+      {}),
+  };
+  const overrides = {
+    ...((next.quickMeasurementUserOverrides as
+      | Record<string, boolean>
+      | undefined) || {}),
+  };
+  const itemQuantities: Record<
+    string,
+    {
+      quantity?: number | null;
+      unit?: string;
+      quantitySource?: string;
+    }
+  > = {
+    ...((next.itemQuantities as
+      | Record<
+          string,
+          {
+            quantity?: number | null;
+            unit?: string;
+            quantitySource?: string;
+          }
+        >
+      | undefined) || {}),
+  };
+  let changed = false;
+  const replacedKeys = new Set<string>();
+
+  for (const key of onSheet) {
+    const confirmed =
+      payloadSources[key] === 'contractor_confirmed_from_plan_review' ||
+      isPlanReviewLockedProvenance(payloadProvenance[key]);
+    if (!confirmed) continue;
+    const card = ELECTRICAL_CARDS.find(row => row.measurementKey === key);
+    if (!card && key !== 'serviceAmperage') continue;
+    const quantity = Number(measurements[key]);
+    if (!(quantity > 0)) continue;
+    replacedKeys.add(key);
+    if (String(next[key] ?? '') !== String(quantity)) {
+      next[key] = String(quantity);
+      changed = true;
+    }
+    if (sources[key] !== 'contractor_confirmed_from_plan_review') {
+      sources[key] = 'contractor_confirmed_from_plan_review';
+      changed = true;
+    }
+    if (
+      payloadProvenance[key] != null &&
+      provenance[key] !== payloadProvenance[key]
+    ) {
+      provenance[key] = payloadProvenance[key];
+      changed = true;
+    }
+    if (!card) continue;
+    const existing = itemQuantities[card.itemId];
+    if (
+      !existing ||
+      Number(existing.quantity) !== quantity ||
+      existing.quantitySource !== 'contractor_confirmed_from_plan_review'
+    ) {
+      itemQuantities[card.itemId] = {
+        ...(existing || { unit: card.unit }),
+        quantity,
+        unit: existing?.unit || card.unit,
+        quantitySource: 'contractor_confirmed_from_plan_review',
+      };
+      changed = true;
+    }
+  }
+
+  const droppedItemIds = new Set<string>();
+  const droppedKeys = new Set<string>();
+  for (const card of ELECTRICAL_CARDS) {
+    if (ELECTRICAL_SHEET_KEEP_WHEN_ABSENT.has(card.measurementKey)) continue;
+    if (onSheet.has(card.measurementKey)) continue;
+    if (
+      ELECTRICAL_SHEET_KEEP_ABSENT_SOURCES.has(
+        String(sources[card.measurementKey] || '')
+      )
+    ) {
+      continue;
+    }
+    droppedKeys.add(card.measurementKey);
+    if (next[card.measurementKey] != null && next[card.measurementKey] !== '') {
+      delete next[card.measurementKey];
+      changed = true;
+    }
+    if (sources[card.measurementKey]) {
+      delete sources[card.measurementKey];
+      changed = true;
+    }
+    if (provenance[card.measurementKey]) {
+      delete provenance[card.measurementKey];
+      changed = true;
+    }
+    if (overrides[card.measurementKey]) {
+      delete overrides[card.measurementKey];
+      changed = true;
+    }
+    if (itemQuantities[card.itemId]) {
+      delete itemQuantities[card.itemId];
+      droppedItemIds.add(card.itemId);
+      changed = true;
+    }
+  }
+
+  next.quickMeasurementSources = sources;
+  next.measurementProvenance = provenance;
+  next.quickMeasurementUserOverrides = overrides;
+  next.itemQuantities = itemQuantities;
+  if (Array.isArray(next.electricalScope) && droppedItemIds.size) {
+    next.electricalScope = (next.electricalScope as string[]).filter(
+      itemId => !droppedItemIds.has(itemId)
+    );
+    changed = true;
+  }
+  if (Array.isArray(next.measurementConflicts)) {
+    const conflicts = next.measurementConflicts as Array<{ field?: string }>;
+    const filtered = conflicts.filter(conflict => {
+      const field = String(conflict?.field || '');
+      return !droppedKeys.has(field) && !replacedKeys.has(field);
+    });
+    if (filtered.length !== conflicts.length) {
+      next.measurementConflicts = filtered;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
  * Preserve reviewed plan metadata while Confirm Scope opens before the draft
  * persistence round-trip finishes. An explicit empty conflict list clears
@@ -4249,6 +4439,15 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
       ) {
         changed = true;
       }
+    }
+    if (
+      payload.selectedTrade === 'electrical' &&
+      applyElectricalReviewedSheetToMeasurements(
+        next as Record<string, unknown>,
+        payload
+      )
+    ) {
+      changed = true;
     }
   }
 
@@ -5833,6 +6032,34 @@ export function applyPlanImportToDraft(
       const previousNumber = Number(previous);
       const previousWasContractorConfirmed =
         previousSources[key] === 'contractor_confirmed_from_plan_review';
+      const reviewedElectricalSheet =
+        planImportTradeKey === 'electrical' &&
+        electricalPayloadConfirmsSheet(payload);
+      const incomingLocked =
+        reviewedElectricalSheet &&
+        (payload.quickMeasurementSources?.[key] ===
+          'contractor_confirmed_from_plan_review' ||
+          isPlanReviewLockedProvenance(payload.measurementProvenance?.[key]));
+      const absentFromReviewedSheet =
+        reviewedElectricalSheet &&
+        !ELECTRICAL_SHEET_KEEP_WHEN_ABSENT.has(key) &&
+        ELECTRICAL_CARDS.some(card => card.measurementKey === key) &&
+        (incoming == null ||
+          incoming === '' ||
+          !Number.isFinite(incomingNumber) ||
+          incomingNumber <= 0) &&
+        !ELECTRICAL_SHEET_KEEP_ABSENT_SOURCES.has(
+          String(previousSources[key] || '')
+        );
+      if (
+        absentFromReviewedSheet ||
+        (incomingLocked &&
+          Number.isFinite(incomingNumber) &&
+          incomingNumber > 0 &&
+          incomingNumber !== previousNumber)
+      ) {
+        continue;
+      }
       if (
         !previousWasContractorConfirmed &&
         Number.isFinite(previousNumber) &&
@@ -5896,6 +6123,30 @@ export function applyPlanImportToDraft(
         retainedSamePlanElectricalFields.add(key);
         repeatReviewElectricalFields.add(key);
       }
+    }
+    const acceptedTakeoffSources = new Set([
+      'contractor_confirmed_from_plan_review',
+      'user_entered',
+      'manual_override',
+      'user_confirmed_suggestion',
+      'plan_suggested',
+    ]);
+    for (const [key, source] of Object.entries(previousSources)) {
+      if (!acceptedTakeoffSources.has(String(source || ''))) continue;
+      const previous = previousMeasurements[key];
+      const previousNumber = Number(previous);
+      if (!Number.isFinite(previousNumber) || previousNumber <= 0) continue;
+      const incomingNumber = Number(rawMeasurements[key]);
+      if (
+        Number.isFinite(incomingNumber) &&
+        incomingNumber === previousNumber
+      ) {
+        continue;
+      }
+      // The contractor already accepted this count. A second read of the same
+      // PDF or note must not replace it or pull it out of the price.
+      rawMeasurements[key] = previous as number | string;
+      retainedSamePlanElectricalFields.add(key);
     }
     if (planImportTradeKey === 'drywall') {
       for (const key of DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS) {
@@ -6441,15 +6692,18 @@ export function applyPlanImportToDraft(
         };
       }
     }
-    scopeMeasurements = withConcreteGroundUpStructurePrompts(
-      scopeMeasurements as Record<string, unknown>
-    ) as typeof scopeMeasurements;
+    scopeMeasurements = withConcreteGroundUpStructurePrompts({
+      ...(scopeMeasurements as Record<string, unknown>),
+      concreteGroundUpStructurePrompted: false,
+    }) as typeof scopeMeasurements;
     const planMeasurementRecord = payload.measurements as
       | Record<string, unknown>
       | undefined;
     scopeMeasurements = withConcreteGroundUpFlatworkPrompts(
       {
         ...(scopeMeasurements as Record<string, unknown>),
+        concreteGroundUpFlatworkPrompted: false,
+        concreteRvGaragePrompted: false,
         ...(planMeasurementRecord?.concreteRvGarageLabeled === true
           ? { concreteRvGarageLabeled: true }
           : {}),
@@ -6583,11 +6837,16 @@ export function applyPlanImportToDraft(
       } else if (previousSources[key]) {
         scopeMeasurements.quickMeasurementSources[key] = previousSources[key];
       }
-      if (
-        !repeatReviewElectricalFields.has(key) &&
-        previousProvenance[key] !== undefined
-      ) {
-        scopeMeasurements.measurementProvenance[key] = previousProvenance[key];
+      if (!repeatReviewElectricalFields.has(key)) {
+        const previousEntry = previousProvenance[key];
+        const base =
+          previousEntry !== undefined
+            ? previousEntry
+            : scopeMeasurements.measurementProvenance?.[key];
+        scopeMeasurements.measurementProvenance[key] = {
+          ...(base && typeof base === 'object' ? base : {}),
+          keptFromAcceptedTakeoff: true,
+        };
       }
     }
   }
@@ -6960,6 +7219,28 @@ export function applyPlanImportToDraft(
         }),
         items: syncedAfterNotes,
       },
+    };
+  }
+
+  if (
+    planImportTradeKey === 'concrete' &&
+    ((next.whatAiDid || []).some(line => /detected deck\/patio/i.test(line)) ||
+      String(next.projectType || '') === 'deck_patio' ||
+      String(next.scopeChecklist?.templateKey || '') === 'deck_patio')
+  ) {
+    next = {
+      ...next,
+      projectType: 'concrete',
+      whatAiDid: ['Covered patio from the cover sheet.'],
+      scopeChecklist: next.scopeChecklist
+        ? {
+            ...next.scopeChecklist,
+            templateKey: 'concrete',
+            title: /deck/i.test(String(next.scopeChecklist.title || ''))
+              ? 'Concrete — confirm project scope'
+              : next.scopeChecklist.title,
+          }
+        : next.scopeChecklist,
     };
   }
 

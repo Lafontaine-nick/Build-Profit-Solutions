@@ -208,20 +208,42 @@ export function drywallFinishLaborBucketLabel(
   return `${prefix} ${textureName} texture labor`;
 }
 
-/** Embedded finish picker — persisted on scopeMeasurements.drywallFinishLevel. */
+const DRYWALL_FINISH_CHOICE_IDS = new Set([
+  'orange_peel',
+  'knockdown',
+  'skip_trowel',
+  'smooth_level_4',
+  'smooth_level_5',
+  'custom_specialty',
+]);
+
+function knownDrywallFinishChoice(value: unknown): string | null {
+  const choice = String(value || '')
+    .trim()
+    .toLowerCase();
+  return DRYWALL_FINISH_CHOICE_IDS.has(choice) ? choice : null;
+}
+
+/**
+ * Finish on the texture card wins. A saved drywallFinishLevel can lag the chip
+ * the contractor is looking at, and that lag was pricing skip-trowel labor on
+ * an Orange peel card.
+ */
 export function resolveDrywallFinishChoiceId(
   measurements?: Record<string, unknown> | null,
-  checklistItems?: Array<{ id: string; choiceId?: string | null }> | null
+  checklistItems?: Array<{ id: string; choiceId?: string | null }> | null,
+  explicitChoiceId?: string | null
 ): string {
-  const fromMeasurements = String(
-    measurements?.drywallFinishLevel || ''
-  ).trim();
-  if (fromMeasurements && fromMeasurements !== 'unsure') {
-    return fromMeasurements;
-  }
-  const legacy = checklistItems?.find(item => item.id === 'texture')?.choiceId;
-  const legacyChoice = String(legacy || '').trim();
-  if (legacyChoice && legacyChoice !== 'unsure') return legacyChoice;
+  const explicit = knownDrywallFinishChoice(explicitChoiceId);
+  if (explicit) return explicit;
+  const fromMeasurements = knownDrywallFinishChoice(
+    measurements?.drywallFinishLevel
+  );
+  if (fromMeasurements) return fromMeasurements;
+  const legacy = knownDrywallFinishChoice(
+    checklistItems?.find(item => item.id === 'texture')?.choiceId
+  );
+  if (legacy) return legacy;
   return 'orange_peel';
 }
 
@@ -389,11 +411,13 @@ export function resolveDrywallPackageLaborMultiplier(
     planFacts?: Record<string, unknown> | null;
     completePackage?: boolean;
     checklistItems?: Array<{ id: string; choiceId?: string | null }> | null;
+    explicitChoiceId?: string | null;
   }
 ): number {
   const finishChoice = resolveDrywallFinishChoiceId(
     measurements,
-    options?.checklistItems
+    options?.checklistItems,
+    options?.explicitChoiceId
   );
   return (
     resolveDrywallBoardLaborMultiplier(measurements, packageSqft, options) *
@@ -1088,6 +1112,52 @@ export function resolveConditionedCeilingSqftFromPlan(
     positiveNumber(buildingAreas?.totalLivingSqft) ??
     null
   );
+}
+
+/** Cover-sheet living and garage areas, plus the estimated drywall package they produce. */
+export function drywallCoverSheetPackage(
+  measurements: Record<string, unknown> | null | undefined
+): {
+  livingSqft: number;
+  garageFloorSqft: number;
+  houseInteriorSqft: number;
+  garageSurfaceSqft: number;
+  packageSqft: number;
+  explanation: string;
+} | null {
+  if (!measurements) return null;
+  if (String(measurements.planImportTradeKey || '') !== 'drywall') return null;
+  const planFacts = measurements.planFacts as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const buildingAreas = planFacts?.buildingAreas as
+    | Record<string, unknown>
+    | undefined;
+  const living =
+    positiveNumber(measurements.floorAreaSqft) ??
+    positiveNumber(buildingAreas?.totalLivingSqft) ??
+    positiveNumber(measurements.totalLivingSqft);
+  const garageFloor =
+    positiveNumber(measurements.garageSqft) ??
+    positiveNumber(buildingAreas?.garageSqft);
+  if (living == null || garageFloor == null) return null;
+  const surfaces = drywallReviewSurfaces(measurements);
+  if (!(surfaces.houseInteriorSqft > 0) || !(surfaces.garageSqft > 0)) {
+    return null;
+  }
+  const packageSqft = rounded(
+    surfaces.houseInteriorSqft + surfaces.garageSqft
+  );
+  const fmt = (value: number) => Math.round(value).toLocaleString('en-US');
+  return {
+    livingSqft: living,
+    garageFloorSqft: garageFloor,
+    houseInteriorSqft: surfaces.houseInteriorSqft,
+    garageSurfaceSqft: surfaces.garageSqft,
+    packageSqft,
+    explanation: `House interior ${fmt(surfaces.houseInteriorSqft)} sqft from the ${fmt(living)} sqft cover-sheet living area. Garage ${fmt(surfaces.garageSqft)} sqft from the ${fmt(garageFloor)} sqft cover-sheet garage. Priced on ${fmt(packageSqft)} sqft.`,
+  };
 }
 
 /** Total conditioned living floor area for the 3.5× planning multiplier. */

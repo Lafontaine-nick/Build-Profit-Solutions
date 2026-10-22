@@ -1,3 +1,4 @@
+import { keptAcceptedPlanSymbolCount } from '@/utils/acceptedPlanSymbolCounts';
 import { WHOLE_PROJECT_DRAWING_COUNT_KEYS } from '@/utils/planScopeRecords';
 import { drywallReviewSurfaces } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
@@ -869,6 +870,17 @@ export function planFieldEvidenceLabel(entry: unknown): string | undefined {
   return [derived, location, source].filter(Boolean).join(' · ') || undefined;
 }
 
+/** Cover-sheet covered patio copied onto the concrete patio line. */
+export function concreteCoverPatioProvenance(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const record = entry as { source?: unknown; reason?: unknown };
+  const source = String(record.source || '').toLowerCase();
+  const reason = String(record.reason || '');
+  return (
+    source.includes('plan_fact') || /cover sheet patio area/i.test(reason)
+  );
+}
+
 export function planReviewProvenanceFlags(input: {
   key: string;
   provenanceEntry?: unknown;
@@ -1054,6 +1066,39 @@ export function planReviewProvenanceFlags(input: {
   };
 }
 
+const AGREED_OPENING_COUNT_KEYS = new Set([
+  'windowCount',
+  'exteriorDoorCount',
+  'slidingDoorCount',
+  'interiorDoorCount',
+]);
+
+/** Both reads matched, so this symbol count is in the price. */
+function agreedSheetSymbolCount(key: string, provenanceEntry: unknown): boolean {
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
+  const record = provenanceEntry as { evidenceKind?: string; source?: string };
+  const evidence = String(record.evidenceKind || '').toLowerCase();
+  const source = String(record.source || '').toLowerCase();
+  if (
+    evidence === 'schedule' ||
+    evidence === 'explicit_label' ||
+    evidence === 'instance_tags'
+  ) {
+    return false;
+  }
+  if (AGREED_OPENING_COUNT_KEYS.has(key)) {
+    return (
+      evidence === 'elevation_symbols' ||
+      evidence === 'opening_evidence' ||
+      source.includes('calculated_from_symbols')
+    );
+  }
+  if (ELECTRICAL_PLAN_REVIEW_KEYS.has(key)) {
+    return evidence === 'symbols' || source.includes('calculated_from_symbols');
+  }
+  return false;
+}
+
 export function buildPlanReviewMeasurementRowState(input: {
   key: string;
   provenanceEntry?: unknown;
@@ -1143,12 +1188,33 @@ export function buildPlanReviewMeasurementRowState(input: {
   } else if (electricalSymbolCount) {
     pricingEligible = false;
   }
+  const coverPatioOffer =
+    input.tradeKey === 'concrete' &&
+    input.key === 'concretePatioSqft' &&
+    concreteCoverPatioProvenance(input.provenanceEntry);
   if (
     !input.hasConflict &&
     !flooringLivingProxy &&
+    !coverPatioOffer &&
     input.tradeKey !== 'electrical' &&
     Number(input.value) > 0
   ) {
+    pricingEligible = true;
+  }
+  const keptFromPriorTakeoff = keptAcceptedPlanSymbolCount(
+    input.key,
+    input.provenanceEntry
+  );
+  const symbolReadsDisagreed =
+    !keptFromPriorTakeoff &&
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    (input.provenanceEntry as { symbolReadsDisagreed?: boolean })
+      .symbolReadsDisagreed === true;
+  if (symbolReadsDisagreed) {
+    pricingEligible = false;
+  }
+  if (keptFromPriorTakeoff) {
     pricingEligible = true;
   }
   const provenanceFlags = planReviewProvenanceFlags({
@@ -1184,7 +1250,15 @@ export function buildPlanReviewMeasurementRowState(input: {
     input.tradeKey === 'roofing' &&
     (input.key === 'roofPitch' || input.key === 'storyCount') &&
     provenance.status === 'plan_verified';
-  const displayProvenance = garageDoorTypePlanningEstimate
+  const displayProvenance = coverPatioOffer
+    ? {
+        ...provenance,
+        status: 'needs_review' as const,
+        label: 'Covered patio on the cover sheet',
+        reason:
+          'Cover sheet patio area. Confirm the slab thickness before pricing.',
+      }
+    : garageDoorTypePlanningEstimate
     ? {
         ...provenance,
         status: 'planning_estimate' as const,
@@ -1242,24 +1316,51 @@ export function buildPlanReviewMeasurementRowState(input: {
                     : provenance.label,
         }
       : provenance;
+  const shownProvenance = keptFromPriorTakeoff
+    ? {
+        status: 'user_confirmed' as const,
+        label: planProvenanceLabel('user_confirmed'),
+        confidence: 'high' as const,
+        reason: 'Kept from your takeoff of this plan.',
+      }
+    : symbolReadsDisagreed
+    ? {
+        ...displayProvenance,
+        status: 'from_plan_symbols' as const,
+        label: planProvenanceLabel('from_plan_symbols'),
+        reason:
+          'Two reads of this sheet disagreed. Confirm the count before it is priced.',
+      }
+    : !input.tradeKey &&
+        pricingEligible &&
+        !garageDoorTypePlanningEstimate &&
+        agreedSheetSymbolCount(input.key, input.provenanceEntry)
+      ? {
+          ...displayProvenance,
+          status: 'ai_verified' as const,
+          label: planProvenanceLabel('ai_verified'),
+          reason: 'Both reads of this sheet matched.',
+        }
+      : displayProvenance;
   return {
     pricingEligible,
-    provenance: displayProvenance,
+    provenance: shownProvenance,
     includeDefault:
-      !flooringLivingProxy &&
-      !input.hasConflict &&
-      (!electricalSymbolCount || electricalSheetBid) &&
-      (Number(input.value) > 0 ||
-        (input.tradeKey !== 'windows_doors' &&
-          input.tradeKey !== 'garage_doors' &&
-          (input.tradeKey === 'electrical'
-            ? pricingEligible
-            : pricingEligible ||
-              input.validationField?.deterministicRepeatedImportStable ===
-                false ||
-              input.tradeKey === 'plumbing' ||
-              input.tradeKey === 'framing' ||
-              input.tradeKey === 'drywall'))),
+      keptFromPriorTakeoff ||
+      (!flooringLivingProxy &&
+        !input.hasConflict &&
+        (!electricalSymbolCount || electricalSheetBid) &&
+        (Number(input.value) > 0 ||
+          (input.tradeKey !== 'windows_doors' &&
+            input.tradeKey !== 'garage_doors' &&
+            (input.tradeKey === 'electrical'
+              ? pricingEligible
+              : pricingEligible ||
+                input.validationField?.deterministicRepeatedImportStable ===
+                  false ||
+                input.tradeKey === 'plumbing' ||
+                input.tradeKey === 'framing' ||
+                input.tradeKey === 'drywall')))),
   };
 }
 
@@ -1291,6 +1392,110 @@ export function planReviewCheckboxBlockedMessage(
         confirmLabel: `Use ${row.value}`,
       };
   }
+}
+
+const REVIEW_TAKEOFF_CAPTIONS = new Set([
+  'Planning estimate',
+  'From plan — confirm',
+  'Needs confirmation',
+  'Needs review',
+  'AI inferred — confirm',
+]);
+
+const OPENING_REVIEW_KEYS: Record<string, readonly string[]> = {
+  windows: ['windowCount'],
+  exterior_doors: ['exteriorDoorCount'],
+  sliding_doors: ['slidingDoorCount'],
+  interior_doors: ['interiorDoorCount'],
+  garage_doors: [
+    'garageDoorSingleCount',
+    'garageDoorDoubleCount',
+    'garageDoorRvCount',
+  ],
+};
+
+const OPENING_REVIEW_NAMES: Record<string, readonly string[]> = {
+  windows: OPENING_REVIEW_KEYS.windows,
+  'exterior doors': OPENING_REVIEW_KEYS.exterior_doors,
+  'sliding doors': OPENING_REVIEW_KEYS.sliding_doors,
+  'sliding / patio doors': OPENING_REVIEW_KEYS.sliding_doors,
+  'interior doors': OPENING_REVIEW_KEYS.interior_doors,
+  'garage doors': OPENING_REVIEW_KEYS.garage_doors,
+  'garage door': OPENING_REVIEW_KEYS.garage_doors,
+};
+
+function measurementKeysForReviewPackage(pkg: {
+  checklistItemId?: string | null;
+  name?: string | null;
+}): string[] {
+  const id = String(pkg.checklistItemId || '').trim();
+  if (OPENING_REVIEW_KEYS[id]) return [...OPENING_REVIEW_KEYS[id]];
+  const card = ELECTRICAL_CARDS.find(entry => entry.itemId === id);
+  if (card) return [card.measurementKey];
+  const name = String(pkg.name || '').trim().toLowerCase();
+  if (OPENING_REVIEW_NAMES[name]) return [...OPENING_REVIEW_NAMES[name]];
+  const byLabel = ELECTRICAL_CARDS.find(
+    entry => entry.label.toLowerCase() === name
+  );
+  return byLabel ? [byLabel.measurementKey] : [];
+}
+
+/** Takeoff words on a priced Review row. The amount stays the priced line. */
+export function reviewPackageTakeoffCaption(
+  pkg: { checklistItemId?: string | null; name?: string | null },
+  draft: {
+    scopeMeasurements?: {
+      planImportMode?: string | null;
+      planImportTradeKey?: string | null;
+      floorAreaSqft?: unknown;
+      quickMeasurementSources?: Record<string, string | undefined> | null;
+      measurementProvenance?: Record<string, unknown> | null;
+    } | null;
+  } | null | undefined
+): string | null {
+  const measurements = draft?.scopeMeasurements;
+  if (!measurements) return null;
+  const keys = measurementKeysForReviewPackage(pkg);
+  if (!keys.length) return null;
+  const record = measurements as Record<string, unknown>;
+  const tradeKey =
+    String(measurements.planImportMode || '') === 'selected_trade'
+      ? String(measurements.planImportTradeKey || '') || null
+      : null;
+  const sources = measurements.quickMeasurementSources || {};
+  const provenance = measurements.measurementProvenance || {};
+  const labels: string[] = [];
+  let kept = false;
+  for (const key of keys) {
+    const value = Number(String(record[key] ?? '').replace(/,/g, ''));
+    if (!(value > 0)) continue;
+    const entry = provenance[key];
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      (entry as { keptFromAcceptedTakeoff?: boolean }).keptFromAcceptedTakeoff
+    ) {
+      kept = true;
+    }
+    const row = buildPlanReviewMeasurementRowState({
+      key,
+      provenanceEntry: entry,
+      tradeKey,
+      value,
+      livingSqft: Number(String(measurements.floorAreaSqft ?? '').replace(/,/g, '')) || null,
+    });
+    if (REVIEW_TAKEOFF_CAPTIONS.has(row.provenance.label)) {
+      labels.push(row.provenance.label);
+    }
+    if (String(sources[key] || '') === 'plan_suggested' && key.startsWith('garageDoor')) {
+      labels.push('Planning estimate');
+    }
+  }
+  const primary = labels.includes('Planning estimate')
+    ? 'Planning estimate'
+    : labels[0] || null;
+  const parts = [primary, kept ? 'Kept from your takeoff' : null].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 function paintingQuantityNote(
@@ -1991,7 +2196,10 @@ export function planReviewFieldHelperText(input: {
   helperText?: string | null;
   provenanceStatus?: string | null;
   value?: number | string | null;
+  /** Cover-sheet patio already names itself. The slab-only helper fights that. */
+  omitHelper?: boolean;
 }): string | null {
+  if (input.omitHelper) return null;
   const helper = String(input.helperText || '').trim();
   if (!helper || input.key === 'flooringSqft') return null;
   if (input.key !== 'stuccoStories') return helper;
@@ -2734,11 +2942,12 @@ export function wholeProjectDrawingCountApply(
     const quantity = Number(row.value);
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     values[row.key] = String(quantity);
-    // A checked row is confirmed, including counts the sheet reader marked
-    // needs-review. Unchecked rows stay on Confirm Scope as a count to verify.
-    sources[row.key] = row.include
-      ? 'contractor_confirmed_from_plan_review'
-      : 'needs_confirmation';
+    // A checked, priceable row is confirmed. A row the two sheet reads
+    // disagreed on stays a confirm count until the contractor accepts it.
+    sources[row.key] =
+      row.include && row.pricingEligible
+        ? 'contractor_confirmed_from_plan_review'
+        : 'needs_confirmation';
   }
   return { values, sources };
 }
@@ -2859,7 +3068,10 @@ export function confirmedPlanTakeoffLines(input: {
     const label = (
       tradeKey === 'framing' && !wholeProject && key === 'framedAreaSqft'
         ? 'Framing (lumber + labor)'
-        : planTakeoffLabel(key, value, living)
+        : key === 'concretePatioSqft' &&
+            concreteCoverPatioProvenance(input.provenance?.[key])
+          ? 'Covered patio'
+          : planTakeoffLabel(key, value, living)
     ).trim();
     if (!label) return [];
     return [`${label} · ${planTakeoffQuantityText(key, value)}`];

@@ -49,6 +49,7 @@ import {
   uniqueUnreadablePlanFields,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
+import { keptAcceptedPlanSymbolCount } from '@/utils/acceptedPlanSymbolCounts';
 import type {
   PlanToMeasurementsResult,
   PhotoScopeDetection,
@@ -92,6 +93,7 @@ import {
   plumbingInventoryDerivedProvenance,
   plumbingMeasurementDisplayUnit,
   sumPlumbingFixtureInventoryPoints,
+  concreteCoverPatioProvenance,
   planFieldEvidenceLabel,
   planReviewCheckboxBlockedMessage,
   resolvePlanAreaReconciliation,
@@ -1117,7 +1119,12 @@ export default function PlanTakeoffReviewModal({
           ceilingBoundary?.calculatedSqft != null &&
           Math.abs(Number(value) - ceilingBoundary.calculatedSqft) <=
             Math.max(25, ceilingBoundary.calculatedSqft * 0.02);
-        const sourceLabel = semanticsOn
+        const coverPatioOffer =
+          key === 'concretePatioSqft' &&
+          concreteCoverPatioProvenance(takeoff.measurementProvenance?.[key]);
+        const sourceLabel = coverPatioOffer
+          ? null
+          : semanticsOn
           ? roofQuantityNeedsConfirmation
             ? 'Not found on plan — enter roof squares'
             : stuccoQuantityNeedsEntry
@@ -1230,13 +1237,15 @@ export default function PlanTakeoffReviewModal({
         const openingCountTrade =
           effectiveTradeKey === 'windows_doors' ||
           effectiveTradeKey === 'garage_doors';
-        const windowsDoorsTier = openingCountTrade
-          ? resolveWindowsDoorsReviewTier({
-              value,
-              provenanceEntry,
-              scheduleDocumented,
-            })
-          : null;
+        const windowsDoorsTier =
+          openingCountTrade &&
+          !keptAcceptedPlanSymbolCount(key, provenanceEntry)
+            ? resolveWindowsDoorsReviewTier({
+                value,
+                provenanceEntry,
+                scheduleDocumented,
+              })
+            : null;
         const windowsDoorsProvenance = windowsDoorsTier
           ? {
               ...rowState.provenance,
@@ -1275,13 +1284,26 @@ export default function PlanTakeoffReviewModal({
                 helperText: fieldDef?.helperText,
                 provenanceStatus: rowState.provenance.status,
                 value,
+                omitHelper: coverPatioOffer,
               }),
               ceilingBoundaryText,
             ]
               .filter(Boolean)
               .join(' · ') || null,
           sourceLabel:
-            [sourceLabel, evidenceLabel].filter(Boolean).join(' · ') || null,
+            [
+              sourceLabel,
+              evidenceLabel,
+              (
+                takeoff.measurementProvenance?.[key] as
+                  | { keptFromAcceptedTakeoff?: boolean }
+                  | undefined
+              )?.keptFromAcceptedTakeoff
+                ? 'Kept from your takeoff'
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || null,
           unit:
             effectiveTradeKey === 'plumbing'
               ? plumbingMeasurementDisplayUnit(key, meta.unit)

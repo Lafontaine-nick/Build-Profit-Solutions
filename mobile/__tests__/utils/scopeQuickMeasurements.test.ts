@@ -587,6 +587,20 @@ describe('scopeQuickMeasurements', () => {
     ]);
   });
 
+  it('names whole-house recessed lights the same way as takeoff', () => {
+    const rows = wholeProjectPlanQuickMeasurementRows({
+      recessedLightCount: 31,
+      quickMeasurementSources: {
+        recessedLightCount: 'contractor_confirmed_from_plan_review',
+      },
+    });
+    const recessed = rows.flat().find(field => field.key === 'recessedLightCount');
+    expect(recessed?.label).toBe('Recessed lights');
+    expect(quickMeasurementInfoText(recessed!, { displayLabel: recessed!.label })).toBe(
+      'How many recessed lights.'
+    );
+  });
+
   it('uses the whole-home layout for a general-contractor plan export', () => {
     expect(
       resolveEffectiveQuickMeasurementTemplateKey({

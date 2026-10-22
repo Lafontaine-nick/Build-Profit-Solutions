@@ -185,11 +185,47 @@ describe('insulationEnvelopeQuantity', () => {
     expect(wall?.source).toBe('planning_assumption');
     expect(wall?.quantity).toBe(1538);
     expect(wall?.formula).toMatch(/201 LF/);
+  });
+
+  it('does not double a one-floor house when a read says two stories', () => {
+    const facts = {
+      storyCount: 2,
+      plateHeightFt: 9.1,
+      buildingAreas: {
+        totalLivingSqft: 2571,
+        mainFloorLivingSqft: 2527,
+      },
+    };
+    const result = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(facts, 2571, {
+        storyCount: 2,
+        allowConditionedAreaCeilingSuggestion: true,
+      })
+    );
+    const wall = result?.components.find(
+      component => component.key === 'exteriorWallInsulationSqft'
+    );
+    expect(wall?.quantity).toBe(1555.1);
+    expect(wall?.formula).toMatch(/1 story/);
     expect(
       result?.components.find(
         component => component.key === 'atticInsulationSqft'
       )?.quantity
     ).toBe(2527);
+  });
+
+  it('keeps two stories when the upper floor is a real share of the house', () => {
+    const facts = {
+      storyCount: 2,
+      wallHeightFt: 10,
+      buildingAreas: {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+    };
+    const inputs = insulationEnvelopeInputsFromPlanFacts(facts, 3660);
+    expect(inputs.storyCount).toBe(2);
   });
 
   it('uses main-floor living as the single-story ceiling when the cover gap is only a sliver', () => {

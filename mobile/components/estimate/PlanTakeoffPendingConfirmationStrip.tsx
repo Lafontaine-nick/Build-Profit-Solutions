@@ -25,6 +25,7 @@ import {
   unconfirmPendingPlanConfirmationRead,
   type PendingPlanConfirmationRead,
 } from '@/utils/planMeasurementConflictUi';
+import { rememberAcceptedPlanSymbolCount } from '@/utils/acceptedPlanSymbolCounts';
 import { applyHvacScopeSelectionForConfirmedField } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import {
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
@@ -100,6 +101,13 @@ export function PlanTakeoffPendingConfirmationStrip({
   );
 
   const commitPlanReadConfirmation = (field: string, value: number) => {
+    rememberAcceptedPlanSymbolCount(
+      typeof measurements.planImportFingerprint === 'string'
+        ? measurements.planImportFingerprint
+        : null,
+      field,
+      value
+    );
     setLocalSelections(prev => ({ ...prev, [field]: value }));
     enqueueMeasurementUpdate(prev => {
       const base = confirmPendingPlanConfirmationRead(prev, field, value);

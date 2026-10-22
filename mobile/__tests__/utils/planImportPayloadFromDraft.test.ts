@@ -256,4 +256,37 @@ describe('planImportPayloadFromDraft', () => {
       'needs_confirmation'
     );
   });
+
+  it('keeps an accepted takeoff count when the same PDF is read again', () => {
+    const first = applyPlanImportToDraft(baseDraft(), {
+      estimatingMode: 'whole_project',
+      planImportFingerprint: 'lot-49',
+      measurements: { windowCount: 36, singlePoleSwitchCount: 47 },
+    });
+    first.scopeMeasurements = {
+      ...(first.scopeMeasurements || {}),
+      quickMeasurementSources: {
+        ...(first.scopeMeasurements?.quickMeasurementSources || {}),
+        windowCount: 'contractor_confirmed_from_plan_review',
+        singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+      },
+    };
+    const second = applyPlanImportToDraft(first, {
+      estimatingMode: 'whole_project',
+      planImportFingerprint: 'lot-49',
+      measurements: { windowCount: 30, singlePoleSwitchCount: 41 },
+    });
+    expect(second.scopeMeasurements?.windowCount).toBe(36);
+    expect(second.scopeMeasurements?.singlePoleSwitchCount).toBe(47);
+    expect(second.scopeMeasurements?.quickMeasurementSources?.windowCount).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(
+      (
+        second.scopeMeasurements?.measurementProvenance?.windowCount as
+          | { keptFromAcceptedTakeoff?: boolean }
+          | undefined
+      )?.keptFromAcceptedTakeoff
+    ).toBe(true);
+  });
 });

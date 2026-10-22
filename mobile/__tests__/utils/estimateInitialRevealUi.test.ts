@@ -47,6 +47,7 @@ import {
   bucketWholeProjectScopeGroups,
   checklistDisplayHelper,
   groupScopeChecklistItems,
+  scopeChecklistUnsurePhrase,
 } from '@/utils/estimateScopeChecklistUi';
 import { applyAtticInsulationWithDrywallCards } from '@/utils/insulationNoteScope';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
@@ -510,6 +511,9 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealStatusLabel(draft, 2).label).toBe(
       'Mostly ready · 2 to check'
     );
+    expect(scopeChecklistUnsurePhrase(6)).toBe('6 cards not sure');
+    expect(scopeChecklistUnsurePhrase(1)).toBe('1 card not sure');
+    expect(scopeChecklistUnsurePhrase(0)).toBeNull();
   });
 
   it('shows confirmed plan quantities on Scope found instead of inferred soft costs', () => {
@@ -651,7 +655,7 @@ describe('estimateInitialRevealUi', () => {
     expect(
       getInitialRevealStatusLabel(draft, countInitialRevealAttentionItems(draft))
         .label
-    ).toBe('Mostly ready · 3 to check');
+    ).toBe('Mostly ready · 3 plan counts');
   });
 
   it('after confirm, a whole-house plan lists accepted allowances with the counted scope', () => {
@@ -4327,5 +4331,55 @@ describe('estimateInitialRevealUi', () => {
       filterRoofingRevealAttentionItems(draft, draft.stillNeededReview || [])
     ).toEqual([]);
     expect(getInitialRevealConfirmItems(draft).pricingScope).toHaveLength(0);
+  });
+
+  it('names a concrete cover-sheet patio instead of a deck', () => {
+    const draft = {
+      projectTitle: 'Concrete Patio Estimate',
+      projectType: 'deck_patio',
+      originalNotes: 'Covered Patio: 322 SqFt.',
+      whatAiDid: ['Detected deck/patio.'],
+      scopeChecklist: { templateKey: 'deck_patio', items: [] },
+      scopeMeasurements: {
+        planImportTradeKey: 'concrete',
+        planImportFingerprint: 'lot-49',
+        planImportMode: 'selected_trade',
+        concretePatioSqft: 322,
+        measurementProvenance: {
+          concretePatioSqft: {
+            source: 'plan_facts',
+            reason: 'Cover sheet patio area.',
+          },
+        },
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Covered patio from the cover sheet.'
+    );
+  });
+
+  it('names cover-sheet living and garage areas for a drywall plan', () => {
+    const draft = {
+      projectTitle: 'Drywall Planning Estimate',
+      projectType: 'drywall',
+      originalNotes: 'Hang and finish drywall.',
+      whatAiDid: ['Detected drywall job.'],
+      scopeChecklist: { templateKey: 'drywall', items: [] },
+      scopeMeasurements: {
+        planImportTradeKey: 'drywall',
+        planImportMode: 'selected_trade',
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        drywallWallSqft: 6428,
+        drywallCeilingSqft: 2571,
+        garageWallDrywallSqft: 1647.1,
+        garageCeilingDrywallSqft: 1427,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Living and garage areas from the cover sheet.'
+    );
   });
 });

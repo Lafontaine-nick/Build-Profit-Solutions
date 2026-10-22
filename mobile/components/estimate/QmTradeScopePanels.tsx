@@ -101,6 +101,7 @@ import {
   notesNameConcretePatioWithSod,
 } from '@/utils/foundationPlanningMeasurements';
 import {
+  CONCRETE_PLAN_FLATWORK_AREA_KEYS,
   withConcreteGroundUpFlatworkPrompts,
   withConcreteGroundUpStructurePrompts,
 } from '@/utils/subcontractorTrade/concretePlanConvergence';
@@ -5340,13 +5341,38 @@ export function QmConcreteScopePanels({
   useEffect(() => {
     if (!promptGroundUpStructure) return;
     setMeasurements(prev => {
-      const withStructure = prev.concreteGroundUpStructurePrompted
+      const scopeIds = new Set(
+        Array.isArray(prev.concreteScope)
+          ? prev.concreteScope.map(String)
+          : []
+      );
+      const structureOn = [
+        'reinforcement',
+        'pour_foundation',
+        'house_slab',
+        'garage_slab',
+      ].some(id => scopeIds.has(id));
+      const flatworkOn = ['driveways', 'walkways'].some(id => scopeIds.has(id));
+      const structureBase = structureOn
         ? prev
+        : ({
+            ...prev,
+            concreteGroundUpStructurePrompted: false,
+          } as ScopeMeasurementsInputExtended);
+      const withStructure = structureBase.concreteGroundUpStructurePrompted
+        ? structureBase
         : (withConcreteGroundUpStructurePrompts(
-            prev as Record<string, unknown>
+            structureBase as Record<string, unknown>
           ) as ScopeMeasurementsInputExtended);
+      const flatworkBase = flatworkOn
+        ? withStructure
+        : ({
+            ...withStructure,
+            concreteGroundUpFlatworkPrompted: false,
+            concreteRvGaragePrompted: false,
+          } as ScopeMeasurementsInputExtended);
       const withFlatwork = withConcreteGroundUpFlatworkPrompts(
-        withStructure as Record<string, unknown>,
+        flatworkBase as Record<string, unknown>,
         { notes }
       ) as ScopeMeasurementsInputExtended;
       if (
@@ -6185,13 +6211,21 @@ export function QmConcreteScopePanels({
                       at ${nationalFlatworkRate.toFixed(2)}/sqft for a{' '}
                       {selectedThickness}" slab.
                     </Text>
-                    {selectedFlatworkOptions.map(option => (
+                    {selectedFlatworkOptions.map(option => {
+                      const planAreaKey = Object.entries(
+                        CONCRETE_PLAN_FLATWORK_AREA_KEYS
+                      ).find(([, type]) => type === option.id)?.[0];
+                      const planArea = planAreaKey
+                        ? (measurements as Record<string, unknown>)[planAreaKey]
+                        : '';
+                      return (
                       <React.Fragment key={option.id}>
                         <QmSqftMeasurementRow
                           label={`${option.label} area`}
                           helperText={`Area for this ${option.label.toLowerCase()} only.`}
                           value={String(
                             concreteAreaByType[option.id] ??
+                              planArea ??
                               (selectedFlatworkOptions.length === 1
                                 ? measurements.concreteSqft || ''
                                 : '')
@@ -6247,7 +6281,8 @@ export function QmConcreteScopePanels({
                           })}
                         </View>
                       </React.Fragment>
-                    ))}
+                      );
+                    })}
                     {selectedFlatworkOptions.length > 1 &&
                     flatworkAreaTotal <= 0 ? (
                       <Text

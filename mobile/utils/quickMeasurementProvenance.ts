@@ -180,6 +180,63 @@ export function quickMeasurementEstimateBadgeLabel(
   return base;
 }
 
+const GARAGE_DOOR_PLANNING_KEYS = [
+  'garageDoorSingleCount',
+  'garageDoorDoubleCount',
+  'garageDoorRvCount',
+] as const;
+
+const GARAGE_DOOR_ACCEPTED_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'user_confirmed_suggestion',
+  'contractor_confirmed_from_plan_review',
+  'plan_detected',
+  'detected_from_plan',
+  'plan_verified',
+  'measured_from_geometry',
+  'ai_verified',
+]);
+
+/**
+ * Garage door steppers sit outside the quick-measurement rows. A positive
+ * bay allowance still belongs in the planning-estimate count.
+ */
+export function countGarageDoorPlanningEstimates(
+  measurements: object | null | undefined,
+  alreadyListed: ReadonlyArray<{ key: string }> = []
+): number {
+  const record = measurements as {
+    quickMeasurementSources?: Record<string, unknown> | null;
+    measurementProvenance?: Record<
+      string,
+      { status?: string } | undefined
+    > | null;
+    [key: string]: unknown;
+  } | null;
+  if (!record) return 0;
+  const listed = new Set(alreadyListed.map(row => row.key));
+  let count = 0;
+  for (const key of GARAGE_DOOR_PLANNING_KEYS) {
+    if (listed.has(key)) continue;
+    const qty = Number(String(record[key] ?? '').replace(/,/g, ''));
+    if (!(qty > 0)) continue;
+    const source = String(record.quickMeasurementSources?.[key] || '');
+    if (GARAGE_DOOR_ACCEPTED_SOURCES.has(source)) continue;
+    const status = String(
+      record.measurementProvenance?.[key]?.status || ''
+    );
+    if (
+      status === 'planning_estimate' ||
+      source === 'plan_suggested' ||
+      source === 'estimated_from_formula'
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 const PLANNING_ESTIMATE_NOTE = 'Planning estimate';
 const ENTERED_MEASUREMENT_NOTE = 'Entered';
 

@@ -124,6 +124,7 @@ import {
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
+  mergeLivePlanImportIntoScopeMeasurements,
   planImportPayloadFromDraft,
   removeScopePackageFromDraft,
   syncConfirmScopeMeasurementsFromPackages,
@@ -5102,10 +5103,18 @@ export default function EstimateGeneratorScreen() {
       scopeMeasurements: mergedMeasurements,
     });
   }, []);
-  const aiDraftSyncedForReview = useMemo(
-    () => (aiDraft ? syncDraftWithLatestScopeMeasurements(aiDraft) : null),
-    [aiDraft, syncDraftWithLatestScopeMeasurements]
-  );
+  const aiDraftSyncedForReview = useMemo(() => {
+    if (!aiDraft) return null;
+    const synced = syncDraftWithLatestScopeMeasurements(aiDraft);
+    if (!aiLastPlanImport?.measurements) return synced;
+    return {
+      ...synced,
+      scopeMeasurements: mergeLivePlanImportIntoScopeMeasurements(
+        synced.scopeMeasurements || {},
+        aiLastPlanImport
+      ),
+    };
+  }, [aiDraft, aiLastPlanImport, syncDraftWithLatestScopeMeasurements]);
   /** Ask AI refine/clarify — persist pricing into scope snapshot before sync. */
   const applyAskAiDraftResult = useCallback(
     (draft) => {

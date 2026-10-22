@@ -48,6 +48,8 @@ import {
   electricalChecklistGroups,
   syncElectricalScopeItems,
   electricalCardForItemId,
+  hasDetailedElectricalTrimDeviceQuantities,
+  isPlanElectricalDeviceCard,
   ELECTRICAL_ROUGH_CARD_HELPER,
   ELECTRICAL_ROUGH_CARD_LABEL,
   ELECTRICAL_TRIM_CARD_HELPER,
@@ -1724,7 +1726,9 @@ export function applyDrywallScopeCardLayout(
     ensureCrewCard(
       'finish_tape',
       'Tape and mud',
-      'Tape, mud, and sanding. Turn on in Quick measurements.'
+      crewSelection.tape
+        ? 'Tape, mud, and sanding.'
+        : 'Tape, mud, and sanding. Turn on in Quick measurements.'
     );
     next = next.map(item =>
       item.id === 'finish_tape'
@@ -1744,7 +1748,9 @@ export function applyDrywallScopeCardLayout(
         ? {
             ...item,
             label: 'Texture',
-            helperText: 'Texture crew. Turn on in Quick measurements.',
+            helperText: crewSelection.texture
+              ? 'Texture crew.'
+              : 'Texture crew. Turn on in Quick measurements.',
             state: (crewSelection.texture ? 'included' : 'excluded') as
               | 'included'
               | 'excluded',
@@ -2078,9 +2084,29 @@ const WHOLE_PROJECT_PLAN_SCOPE_CARDS: Array<{
  * print a quantity stay planning allowances. Note-mentioned cards must not
  * replace the rest of the build.
  */
+function deviceLinesOwnElectricalFixtures(
+  items: ScopeChecklistItem[],
+  measurements?: Record<string, unknown> | null
+): boolean {
+  if (hasDetailedElectricalTrimDeviceQuantities(measurements)) return true;
+  return items.some(
+    item => isPlanElectricalDeviceCard(item.id) && item.state !== 'excluded'
+  );
+}
+
+/** Switch, light, and fan lines already own this money. The package card is a second row. */
+export function omitElectricalTrimCoveredByDeviceLines(
+  items: ScopeChecklistItem[],
+  measurements?: Record<string, unknown> | null
+): ScopeChecklistItem[] {
+  if (!deviceLinesOwnElectricalFixtures(items, measurements)) return items;
+  return items.filter(item => item.id !== 'electrical_trim');
+}
+
 export function ensureWholeProjectGroundUpScopeItems(
   items: ScopeChecklistItem[],
-  notes?: string | null
+  notes?: string | null,
+  measurements?: Record<string, unknown> | null
 ): ScopeChecklistItem[] {
   let next = migrateGroundUpTakeoffScopeItems(items, 'ground_up');
   for (const card of WHOLE_PROJECT_PLAN_SCOPE_CARDS) {
@@ -2160,7 +2186,7 @@ export function ensureWholeProjectGroundUpScopeItems(
       category: 'structure',
     });
   }
-  return next;
+  return omitElectricalTrimCoveredByDeviceLines(next, measurements);
 }
 
 export function isWholeProjectPlanExport(input: {
@@ -7817,7 +7843,11 @@ export function scopeItemHiddenOnGroundUpHouseBid(
 /** Collapse a whole-home contractor checklist into priced summary groups. */
 export function bucketWholeProjectScopeGroups(
   groups: Array<{ title: string; items: ScopeChecklistItem[] }>,
-  options?: { seedGroundUpShell?: boolean; notes?: string | null }
+  options?: {
+    seedGroundUpShell?: boolean;
+    notes?: string | null;
+    measurements?: Record<string, unknown> | null;
+  }
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
   if (notesNameConcretePatioWithSod(options?.notes)) return groups;
   if (notesNameShowerTileWithFlooring(options?.notes)) return groups;
@@ -7841,7 +7871,11 @@ export function bucketWholeProjectScopeGroups(
     !notesDescribeMeasuredWholeHomeRemodel(options?.notes) &&
     (options?.seedGroundUpShell ||
       checklistHasWholeHouseOpeningPackage(flat, { notes: options?.notes }))
-      ? ensureWholeProjectGroundUpScopeItems(flat)
+      ? ensureWholeProjectGroundUpScopeItems(
+          flat,
+          options?.notes,
+          options?.measurements
+        )
       : flat;
   const buckets = WHOLE_PROJECT_PRICE_GROUPS.map(group => ({
     title: group.title,
@@ -8212,6 +8246,12 @@ export function scopeChecklistSummaryCounts(
     else excluded += 1;
   }
   return { included, unsure, excluded, needsMeasurement };
+}
+
+/** Yes/No cards still on Not sure. Separate from plan counts and quick measurements. */
+export function scopeChecklistUnsurePhrase(unsure: number): string | null {
+  if (!(unsure > 0)) return null;
+  return unsure === 1 ? '1 card not sure' : `${unsure} cards not sure`;
 }
 
 function itemNeedsMeasurement(

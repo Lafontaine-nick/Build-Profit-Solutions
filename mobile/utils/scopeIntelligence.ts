@@ -1459,6 +1459,14 @@ export function resolveScopeItemIntelligence(params: {
       pricingAcceptance: params.pricingAcceptance,
     }
   );
+  const measurementRecord = params.measurements as unknown as Record<string, unknown>;
+  const drywallCrewSplit =
+    String(params.templateKey || '').toLowerCase() !== 'ground_up' &&
+    String(measurementRecord?.planImportMode || '') === 'selected_trade' &&
+    String(measurementRecord?.planImportTradeKey || '') === 'drywall' &&
+    (params.scopeKey === 'hang' ||
+      params.scopeKey === 'finish_tape' ||
+      params.scopeKey === 'texture');
   const overlapRisk = detectActualDuplicatePricingConflicts({
     scopeKey: params.scopeKey,
     activeScopeKeys: params.activeScopeKeys || [],
@@ -1466,6 +1474,9 @@ export function resolveScopeItemIntelligence(params: {
     pricingAcceptance: params.pricingAcceptance,
     benchmarkProfile: benchmarkScopeProfile,
     scopeGapResolutions: params.scopeGapResolutions,
+    suppressedOverlapScopeKeys: drywallCrewSplit
+      ? ['hang', 'finish_tape', 'texture', 'drywall']
+      : undefined,
   });
   const confidenceReasons = buildConfidenceReasons({
     quantity,
@@ -1624,16 +1635,20 @@ export function detectActualDuplicatePricingConflicts(params: {
   >;
   benchmarkProfile?: BenchmarkScopeAssumptionProfile | null;
   scopeGapResolutions?: ScopeGapResolutionsLike;
+  /** Crew-split cards price these scopes on purpose. They are not duplicates. */
+  suppressedOverlapScopeKeys?: string[];
 }): OverlapRisk {
   const relatedKeys: string[] = [];
   const messages: string[] = [];
   const active = new Set(params.activeScopeKeys);
+  const suppressed = new Set(params.suppressedOverlapScopeKeys || []);
   const currentAccepted = scopeHasAcceptedPricing(params.scopeKey, params.pricingAcceptance);
 
   for (const overlap of params.overlaps) {
     const pricedRelated = overlap.relatedScopeKeys.filter(
       (key) =>
         key !== params.scopeKey &&
+        !suppressed.has(key) &&
         active.has(key) &&
         scopeHasAcceptedPricing(key, params.pricingAcceptance)
     );
@@ -1656,6 +1671,7 @@ export function detectActualDuplicatePricingConflicts(params: {
       const relatedScopeKey = assumption.scopeKey;
       if (
         active.has(relatedScopeKey) &&
+        !suppressed.has(relatedScopeKey) &&
         scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance) &&
         relatedScopeKey !== params.scopeKey &&
         !bothPricesComeFromNotes(params.scopeKey, relatedScopeKey, params.pricingAcceptance)
@@ -1679,6 +1695,7 @@ export function detectActualDuplicatePricingConflicts(params: {
       for (const relatedScopeKey of [componentKey, ...(params.overlaps[0]?.relatedScopeKeys || [])]) {
         if (
           relatedScopeKey !== params.scopeKey &&
+          !suppressed.has(relatedScopeKey) &&
           active.has(relatedScopeKey) &&
           scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance) &&
           !bothPricesComeFromNotes(params.scopeKey, relatedScopeKey, params.pricingAcceptance)

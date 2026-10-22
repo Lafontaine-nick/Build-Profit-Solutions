@@ -72,6 +72,28 @@ describe('drywall scope card layout', () => {
     expect(items.find(i => i.id === 'hang')?.label).toBe('Drywall install');
     expect(items.find(i => i.id === 'finish_tape')?.label).toBe('Tape and mud');
     expect(items.find(i => i.id === 'texture')?.label).toBe('Texture');
+    expect(items.find(i => i.id === 'finish_tape')?.helperText).toMatch(
+      /Turn on in Quick measurements/
+    );
+  });
+
+  it('drops the quick-measurement prompt once tape and texture are on', () => {
+    const items = applyDrywallScopeCardLayout([], 'drywall', {
+      measurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'drywall',
+        drywallTapeIncluded: true,
+        drywallTextureIncluded: true,
+      },
+    } as any);
+    expect(items.find(i => i.id === 'finish_tape')?.helperText).toBe(
+      'Tape, mud, and sanding.'
+    );
+    expect(items.find(i => i.id === 'texture')?.helperText).toBe(
+      'Texture crew.'
+    );
+    expect(items.find(i => i.id === 'finish_tape')?.state).toBe('included');
+    expect(items.find(i => i.id === 'texture')?.state).toBe('included');
   });
 
   it('keeps the three crews when plan import metadata lives on normalized measurements', () => {
@@ -281,6 +303,47 @@ describe('drywall scope card layout', () => {
     expect(texture.fill?.total).toBeGreaterThan(0);
     expect(knockdownMud.fill?.total).toBeCloseTo(mud.fill!.total, 0);
     expect(knockdownTexture.fill!.total).toBeGreaterThan(texture.fill!.total);
+  });
+
+  it('prices texture from the selected chip when a saved finish level is skip trowel', () => {
+    const measurements = {
+      drywallSqft: 12073,
+      floorAreaSqft: 2571,
+      drywallFinishLevel: 'skip_trowel',
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'drywall',
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity('texture', measurements, {
+      templateKey: 'drywall',
+    });
+    const orangePeel = resolveScopeItemSuggestedPricing(
+      'texture',
+      measurements,
+      'drywall',
+      resolved,
+      {
+        checklistItems: [
+          { id: 'texture', state: 'included', choiceId: 'orange_peel' },
+        ],
+      },
+      'orange_peel'
+    );
+    const skipTrowel = resolveScopeItemSuggestedPricing(
+      'texture',
+      measurements,
+      'drywall',
+      resolved,
+      {
+        checklistItems: [
+          { id: 'texture', state: 'included', choiceId: 'skip_trowel' },
+        ],
+      },
+      'skip_trowel'
+    );
+    expect(orangePeel.fill?.total).toBeGreaterThan(0);
+    expect(skipTrowel.fill!.total).toBeGreaterThan(orangePeel.fill!.total);
+    expect(skipTrowel.fill!.labor / orangePeel.fill!.labor).toBeCloseTo(1.23, 2);
   });
 
   it('remodel hang + finish split rates sum to the production assembly baseline', () => {

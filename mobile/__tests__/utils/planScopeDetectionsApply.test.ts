@@ -589,6 +589,83 @@ describe('live plan-review handoff to Confirm Scope', () => {
     expect(next.measurementConflicts).toEqual([]);
   });
 
+  test('replaces a saved electrical sheet when the contractor applies a new takeoff', () => {
+    const confirmed = (quantity: number) => ({
+      quantity,
+      unit: 'each',
+      quantitySource: 'contractor_confirmed_from_plan_review' as const,
+    });
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        standardReceptacleCount: '86',
+        gfciReceptacleCount: '10',
+        singlePoleSwitchCount: '47',
+        recessedLightCount: '31',
+        ceilingFanCount: '7',
+        rangeHookupCount: '1',
+        dryerHookupCount: '1',
+        dishwasherHookupCount: '1',
+        planImportFingerprint: 'lot-49',
+        planImportTradeKey: 'electrical',
+        quickMeasurementSources: {
+          standardReceptacleCount: 'contractor_confirmed_from_plan_review',
+          gfciReceptacleCount: 'contractor_confirmed_from_plan_review',
+          singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+          recessedLightCount: 'contractor_confirmed_from_plan_review',
+          ceilingFanCount: 'contractor_confirmed_from_plan_review',
+          rangeHookupCount: 'contractor_confirmed_from_plan_review',
+          dryerHookupCount: 'contractor_confirmed_from_plan_review',
+          dishwasherHookupCount: 'contractor_confirmed_from_plan_review',
+        },
+        itemQuantities: {
+          electrical_standard_receptacle: confirmed(86),
+          electrical_gfci_receptacle: confirmed(10),
+          electrical_single_pole_switch: confirmed(47),
+          electrical_recessed_light: confirmed(31),
+          electrical_ceiling_fan: confirmed(7),
+          electrical_range_hookup: confirmed(1),
+          electrical_dryer_hookup: confirmed(1),
+          electrical_dishwasher_hookup: confirmed(1),
+        },
+      },
+      {
+        planImportFingerprint: 'lot-49',
+        selectedTrade: 'electrical',
+        measurements: {
+          standardReceptacleCount: '118',
+          gfciReceptacleCount: '19',
+          singlePoleSwitchCount: '58',
+          recessedLightCount: '31',
+          ceilingFanCount: '5',
+        },
+        quickMeasurementSources: {
+          standardReceptacleCount: 'contractor_confirmed_from_plan_review',
+          gfciReceptacleCount: 'contractor_confirmed_from_plan_review',
+          singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+          recessedLightCount: 'contractor_confirmed_from_plan_review',
+          ceilingFanCount: 'contractor_confirmed_from_plan_review',
+        },
+      }
+    );
+
+    expect(next.standardReceptacleCount).toBe('118');
+    expect(next.gfciReceptacleCount).toBe('19');
+    expect(next.singlePoleSwitchCount).toBe('58');
+    expect(next.recessedLightCount).toBe('31');
+    expect(next.ceilingFanCount).toBe('5');
+    expect(next.rangeHookupCount).toBeUndefined();
+    expect(next.dryerHookupCount).toBeUndefined();
+    expect(next.dishwasherHookupCount).toBeUndefined();
+    expect(next.itemQuantities?.electrical_standard_receptacle?.quantity).toBe(
+      118
+    );
+    expect(next.itemQuantities?.electrical_ceiling_fan?.quantity).toBe(5);
+    expect(next.itemQuantities?.electrical_range_hookup).toBeUndefined();
+    expect(next.itemQuantities?.electrical_dryer_hookup).toBeUndefined();
+    expect(next.itemQuantities?.electrical_dishwasher_hookup).toBeUndefined();
+    expect(next.quickMeasurementSources?.rangeHookupCount).toBeUndefined();
+  });
+
   test('preserves insulation takeoff locks when the plan fingerprint matches', () => {
     const next = mergeLivePlanImportIntoScopeMeasurements(
       {

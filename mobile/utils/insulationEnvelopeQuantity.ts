@@ -26,6 +26,40 @@ export const INSULATION_PERIMETER_FROM_LIVING_FACTOR = 4;
  */
 export const INSULATION_MIN_UPPER_FLOOR_SHARE = 0.15;
 
+/**
+ * A story count above 1 needs an upper floor. A labeled main floor that is
+ * the whole living area is one story, even when a read says otherwise.
+ * A cover that only prints total living area can still be two stories.
+ */
+export function storyCountSupportedByBuildingAreas(
+  claimed: number | null | undefined,
+  areas?: {
+    totalLivingSqft?: number | null;
+    mainFloorLivingSqft?: number | null;
+    upstairsLivingSqft?: number | null;
+  } | null
+): number {
+  const stories = Math.max(1, Math.round(n(claimed) || 1));
+  if (stories <= 1) return 1;
+  const total = n(areas?.totalLivingSqft);
+  const main = n(areas?.mainFloorLivingSqft);
+  const upstairs = credibleUpstairsLivingSqft(
+    n(areas?.upstairsLivingSqft),
+    total
+  );
+  if (upstairs != null) return stories;
+  if (insulationUpperFloorGapSqft(main, total) != null) return stories;
+  if (
+    main != null &&
+    (total == null ||
+      Math.abs(total - main) / Math.max(total, 1) <
+        INSULATION_MIN_UPPER_FLOOR_SHARE)
+  ) {
+    return 1;
+  }
+  return stories;
+}
+
 /** Null when the cover-versus-main gap is too small to be an upper floor. */
 export function insulationUpperFloorGapSqft(
   mainFloor: number | null,
@@ -223,7 +257,10 @@ function credibleUpstairsLivingSqft(
 function isMultiStoryCeilingPlanFacts(
   facts: PlanFacts | null | undefined
 ): boolean {
-  const stories = n(facts?.storyCount);
+  const stories = storyCountSupportedByBuildingAreas(
+    facts?.storyCount,
+    facts?.buildingAreas
+  );
   const totalLiving = n(facts?.buildingAreas?.totalLivingSqft);
   const upstairs = credibleUpstairsLivingSqft(
     n(facts?.buildingAreas?.upstairsLivingSqft),
@@ -231,7 +268,7 @@ function isMultiStoryCeilingPlanFacts(
   );
   const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
   return (
-    (stories ?? 0) > 1 ||
+    stories > 1 ||
     upstairs != null ||
     insulationUpperFloorGapSqft(mainFloor, totalLiving) != null
   );
@@ -291,7 +328,8 @@ export function resolveConditionedCeilingAreaSqft(
   const inferredUpstairs =
     upstairs ?? insulationUpperFloorGapSqft(mainFloor, totalLiving);
   const multiStory =
-    (n(facts?.storyCount) ?? 0) > 1 ||
+    storyCountSupportedByBuildingAreas(facts?.storyCount, facts?.buildingAreas) >
+      1 ||
     upstairs != null ||
     insulationUpperFloorGapSqft(mainFloor, totalLiving) != null;
 
@@ -341,14 +379,25 @@ export function insulationEnvelopeInputsFromPlanFacts(
     ...overrides,
   };
   const noted = notedStoryCount(merged.scopeNotes);
-  const recorded =
-    (n(facts?.storyCount) && n(facts?.storyCount)! > 1
-      ? n(facts?.storyCount)
-      : null) ||
-    (n(overrides?.storyCount) && n(overrides?.storyCount)! > 1
-      ? n(overrides?.storyCount)
-      : null);
-  const storyCount = Math.max(1, Math.round(recorded || noted || stories));
+  const overrideRecord = overrides as
+    | (Partial<InsulationEnvelopeInputs> & {
+        quickMeasurementUserOverrides?: Record<string, unknown>;
+        quickMeasurementSources?: Record<string, unknown>;
+      })
+    | undefined;
+  const storySource = String(
+    overrideRecord?.quickMeasurementSources?.storyCount || ''
+  );
+  const contractorTypedStory =
+    overrideRecord?.quickMeasurementUserOverrides?.storyCount === true ||
+    storySource === 'user_entered' ||
+    storySource === 'manual_override' ||
+    storySource === 'user_confirmed_suggestion';
+  const contractorStories = contractorTypedStory ? n(overrides?.storyCount) : null;
+  const claimed = n(facts?.storyCount) || noted || stories;
+  const storyCount = contractorStories
+    ? Math.max(1, Math.round(contractorStories))
+    : storyCountSupportedByBuildingAreas(claimed, facts?.buildingAreas);
   const labeledMain = n(facts?.buildingAreas?.mainFloorLivingSqft);
   const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
   const mainEqualsLiving =

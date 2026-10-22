@@ -1187,6 +1187,52 @@ describe('scopeIntelligence', () => {
     expect(noConflict.hasOverlapRisk).toBe(false);
   });
 
+  it('does not call a drywall crew split a duplicate of hang', () => {
+    const profile = {
+      sourceRecordId: 'national_average:drywall:sqft',
+      pricingSource: 'national_average' as const,
+      scopeAssumptionsDefined: true,
+      scopeProfileSource: 'bps_standard_assumption' as const,
+      scopeAssumptions: [
+        {
+          scopeKey: 'hang',
+          status: 'included' as const,
+          displayLabel: 'Hang drywall',
+        },
+        {
+          scopeKey: 'finish_tape',
+          status: 'included' as const,
+          displayLabel: 'Tape and finish',
+        },
+      ],
+    };
+    const conflict = detectActualDuplicatePricingConflicts({
+      scopeKey: 'finish_tape',
+      activeScopeKeys: ['hang', 'finish_tape', 'texture'],
+      overlaps: [],
+      pricingAcceptance: {
+        hang: { selectionStatus: 'accepted', totalAmount: 9464 },
+        finish_tape: { selectionStatus: 'accepted', totalAmount: 7326 },
+      },
+      benchmarkProfile: profile,
+      suppressedOverlapScopeKeys: ['hang', 'finish_tape', 'texture', 'drywall'],
+    });
+    expect(conflict.hasOverlapRisk).toBe(false);
+
+    const stillWarns = detectActualDuplicatePricingConflicts({
+      scopeKey: 'finish_tape',
+      activeScopeKeys: ['hang', 'finish_tape'],
+      overlaps: [],
+      pricingAcceptance: {
+        hang: { selectionStatus: 'accepted', totalAmount: 9464 },
+        finish_tape: { selectionStatus: 'accepted', totalAmount: 7326 },
+      },
+      benchmarkProfile: profile,
+    });
+    expect(stillWarns.hasOverlapRisk).toBe(true);
+    expect(stillWarns.reason).toMatch(/Hang drywall is included/i);
+  });
+
   it('does not call two note prices a duplicate inclusion', () => {
     const overlap = {
       key: 'cabinets_countertops',

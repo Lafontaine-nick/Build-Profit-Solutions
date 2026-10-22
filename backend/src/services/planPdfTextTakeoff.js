@@ -2018,6 +2018,21 @@ function selectWindowsDoorsSymbolPages(pdfTakeoff) {
   }));
 }
 
+function sheetRoleFromReasons(reasons) {
+  const list = (Array.isArray(reasons) ? reasons : []).map(reason =>
+    String(reason || '').toLowerCase()
+  );
+  const elevation = list.includes('elevation');
+  const floor = list.includes('floor plan');
+  if (elevation && floor) return 'both';
+  if (elevation) return 'elevation';
+  if (floor) return 'floor_plan';
+  if (list.some(reason => /electrical|fixture|device|lighting|panel/.test(reason))) {
+    return 'electrical';
+  }
+  return 'unknown';
+}
+
 function selectWholeProjectSymbolPages(pdfTakeoff) {
   const openings = (Array.isArray(pdfTakeoff?.windowsDoorsRelevantPages)
     ? pdfTakeoff.windowsDoorsRelevantPages
@@ -2033,7 +2048,14 @@ function selectWholeProjectSymbolPages(pdfTakeoff) {
     if (!Number.isInteger(pageNumber) || pageNumber < 1) continue;
     if (!byPage.has(pageNumber)) byPage.set(pageNumber, page);
   }
-  return [...byPage.values()].sort((a, b) => a.page - b.page);
+  // Same PDF, same sheets. Page order is the lock; the first 6 stay the set.
+  return [...byPage.values()]
+    .sort((a, b) => a.page - b.page)
+    .slice(0, 6)
+    .map(page => ({
+      ...page,
+      sheetRole: sheetRoleFromReasons(page?.reasons),
+    }));
 }
 
 function scoreWindowsDoorsRelevantPage(text) {
@@ -2328,6 +2350,9 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
   ]
     .sort((a, b) => a - b)
     .slice(0, options.maxPages || 12);
+  if (pageNumbers.length) {
+    console.log('[plan pages locked]', pageNumbers.join(','));
+  }
   const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
   if (!pageNumbers.length || !buffers.length) return [];
 
@@ -2452,6 +2477,9 @@ async function renderElectricalSymbolCrops(pdfBuffers, electricalPages, options 
   ]
     .sort((a, b) => a - b)
     .slice(0, maxPages);
+  if (pageNumbers.length) {
+    console.log('[plan pages locked]', pageNumbers.join(','));
+  }
   const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
   if (!pageNumbers.length || !buffers.length) return [];
 

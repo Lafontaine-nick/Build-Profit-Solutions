@@ -1242,6 +1242,7 @@ export function syncElectricalScopeItems<
             normalizedSource?: string;
             pricingEligible?: boolean;
             evidenceKind?: string;
+            symbolReadsDisagreed?: boolean;
           }
         >)
       : {};
@@ -1253,6 +1254,18 @@ export function syncElectricalScopeItems<
   const needsPlanConfirmation = (key: string) => {
     if (quantityOverrides[key]) return false;
     const source = String(quantitySources[key] || '');
+    const entry = quantityProvenance[key];
+    // Apply on the plan review, or a tap on Confirm Scope, is the
+    // contractor's acceptance. A leftover disagreement flag must not keep
+    // that accepted count off the price card.
+    if (
+      source === 'contractor_confirmed_from_plan_review' ||
+      source === 'user_entered' ||
+      source === 'manual_override'
+    ) {
+      return false;
+    }
+    if (entry?.symbolReadsDisagreed === true) return true;
     if (
       key === 'bathExhaustFanCount' &&
       source !== 'user_entered' &&
@@ -1273,16 +1286,6 @@ export function syncElectricalScopeItems<
         return true;
       }
     }
-    // Apply on the plan review is the contractor's confirmation. A leftover
-    // needs-review flag must not keep the count off the price card.
-    if (
-      source === 'contractor_confirmed_from_plan_review' ||
-      source === 'user_entered' ||
-      source === 'manual_override'
-    ) {
-      return false;
-    }
-    const entry = quantityProvenance[key];
     if (
       entry?.evidenceKind === 'instance_tags' &&
       String(entry.status || '').toLowerCase() === 'plan_verified'

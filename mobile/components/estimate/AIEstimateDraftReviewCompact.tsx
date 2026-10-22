@@ -10,8 +10,11 @@ import {
   Keyboard,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatPlanningMoney } from '@/utils/estimateAiDraft';
+import { reviewPackageTakeoffCaption } from '@/utils/planTakeoffReviewUi';
+import {
+  formatPlanningMoney,
+  type EstimateAiDraft,
+} from '@/utils/estimateAiDraft';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   compactPackageAmount,
@@ -523,6 +526,10 @@ export default function AIEstimateDraftReviewCompact({
           const budgetBreakdown = isSoftCost ? null : resolvedBreakdown;
           const statusLabel = compactPackageStatusLabel(pkg, draft);
           const pricingSourceLabel = compactPackagePricingSourceLabel(pkg, draft);
+          const takeoffCaption = reviewPackageTakeoffCaption(pkg, draft);
+          const rowCaption =
+            [pricingSourceLabel, takeoffCaption].filter(Boolean).join(' · ') ||
+            null;
           const hint = !amount ? scopePackagePricingHint(pkg) : null;
           const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
           const isEditingPricing = editingPricingFor === pkg.name;
@@ -667,11 +674,11 @@ export default function AIEstimateDraftReviewCompact({
                               color="#2dcc9a"
                             />
                           </View>
-                          {pricingSourceLabel ? (
+                          {rowCaption ? (
                             <Text
                               style={{
                                 color: compactPackagePricingSourceColor(
-                                  pricingSourceLabel,
+                                  pricingSourceLabel || takeoffCaption || '',
                                   darkMode,
                                   Colors.sub
                                 ),
@@ -680,7 +687,7 @@ export default function AIEstimateDraftReviewCompact({
                                 marginTop: 3,
                               }}
                             >
-                              {pricingSourceLabel}
+                              {rowCaption}
                             </Text>
                           ) : showStatus ? (
                             <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 3 }}>
@@ -700,11 +707,11 @@ export default function AIEstimateDraftReviewCompact({
                           >
                             {rowAmount}
                           </Text>
-                          {pricingSourceLabel ? (
+                          {rowCaption ? (
                             <Text
                               style={{
                                 color: compactPackagePricingSourceColor(
-                                  pricingSourceLabel,
+                                  pricingSourceLabel || takeoffCaption || '',
                                   darkMode,
                                   Colors.sub
                                 ),
@@ -713,7 +720,7 @@ export default function AIEstimateDraftReviewCompact({
                                 marginTop: 2,
                               }}
                             >
-                              {pricingSourceLabel}
+                              {rowCaption}
                             </Text>
                           ) : showStatus ? (
                             <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>

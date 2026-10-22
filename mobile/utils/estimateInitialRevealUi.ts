@@ -207,7 +207,11 @@ import {
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
-import { confirmedPlanTakeoffLines } from '@/utils/planTakeoffReviewUi';
+import {
+  concreteCoverPatioProvenance,
+  confirmedPlanTakeoffLines,
+} from '@/utils/planTakeoffReviewUi';
+import { drywallCoverSheetPackage } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 
 export type InitialRevealStatusTone = 'ready' | 'mostly' | 'review';
 
@@ -1878,9 +1882,7 @@ function revealChecklistItemVisible(
   }
   if (
     item.id === 'electrical_trim' &&
-    String(draft.scopeChecklist?.templateKey || '').toLowerCase() === 'ground_up' &&
-    hasDetailedElectricalTrimDeviceQuantities(measurements) &&
-    String(quantityRecord.electrical_trim?.unit || '').toLowerCase() !== 'each'
+    hasDetailedElectricalTrimDeviceQuantities(measurements)
   ) {
     return false;
   }
@@ -4801,6 +4803,15 @@ export function getInitialRevealStatusLabel(
   if (attentionCount === 0) {
     return { label: 'Mostly ready', tone: 'mostly' };
   }
+  if (wholeHousePlanExport(draft)) {
+    return {
+      label:
+        attentionCount === 1
+          ? 'Mostly ready · 1 plan count'
+          : `Mostly ready · ${attentionCount} plan counts`,
+      tone: 'review',
+    };
+  }
   if (attentionCount === 1) {
     return { label: 'Mostly ready · 1 to check', tone: 'review' };
   }
@@ -5144,6 +5155,30 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   ).toLowerCase();
   if (wholeHousePlanExport(draft)) {
     return 'Read from the plan. Unprinted trades are planning allowances.';
+  }
+  const concreteMeasurements = draft.scopeMeasurements as
+    | {
+        planImportTradeKey?: string | null;
+        concretePatioSqft?: number | string | null;
+        measurementProvenance?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined;
+  if (
+    String(concreteMeasurements?.planImportTradeKey || '') === 'concrete' &&
+    Number(concreteMeasurements?.concretePatioSqft) > 0 &&
+    concreteCoverPatioProvenance(
+      concreteMeasurements?.measurementProvenance?.concretePatioSqft
+    )
+  ) {
+    return 'Covered patio from the cover sheet.';
+  }
+  if (
+    drywallCoverSheetPackage(
+      draft.scopeMeasurements as Record<string, unknown> | null
+    )
+  ) {
+    return 'Living and garage areas from the cover sheet.';
   }
   if (
     notesDescribeGroundUpHome(draft.originalNotes) &&

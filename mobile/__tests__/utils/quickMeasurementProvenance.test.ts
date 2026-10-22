@@ -7,6 +7,7 @@ import {
 import {
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
+  countGarageDoorPlanningEstimates,
   quickMeasurementPlanningEstimateNote,
   quickMeasurementSummaryLine,
   quickMeasurementValuesMatch,
@@ -973,5 +974,37 @@ describe('quickMeasurementPlanningEstimateNote', () => {
     ).toBeNull();
     expect(quickMeasurementValuesMatch('1,400', 1400)).toBe(true);
     expect(quickMeasurementValuesMatch('', 1400)).toBe(false);
+  });
+});
+
+describe('countGarageDoorPlanningEstimates', () => {
+  test('counts bay allowances that are not already quick-measurement rows', () => {
+    expect(
+      countGarageDoorPlanningEstimates({
+        garageDoorSingleCount: 0,
+        garageDoorDoubleCount: 1,
+        garageDoorRvCount: 1,
+        quickMeasurementSources: {
+          garageDoorDoubleCount: 'plan_suggested',
+          garageDoorRvCount: 'plan_suggested',
+        },
+      })
+    ).toBe(2);
+  });
+
+  test('leaves a confirmed garage door and a listed row out of the extra count', () => {
+    expect(
+      countGarageDoorPlanningEstimates(
+        {
+          garageDoorDoubleCount: 1,
+          garageDoorRvCount: 1,
+          quickMeasurementSources: {
+            garageDoorDoubleCount: 'contractor_confirmed_from_plan_review',
+            garageDoorRvCount: 'plan_suggested',
+          },
+        },
+        [{ key: 'garageDoorRvCount' }]
+      )
+    ).toBe(0);
   });
 });

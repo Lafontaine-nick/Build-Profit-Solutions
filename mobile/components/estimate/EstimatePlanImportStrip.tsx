@@ -83,6 +83,11 @@ import {
 } from '@/utils/planMeasurementConflictUi';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 import {
+  applyAcceptedPlanSymbolCounts,
+  loadAcceptedPlanSymbolCounts,
+  rememberAcceptedPlanSymbolCounts,
+} from '@/utils/acceptedPlanSymbolCounts';
+import {
   isPlanReviewLockedProvenance,
   tagPlanReviewLockedQuickMeasurementSources,
 } from '@/utils/planReviewMeasurementLock';
@@ -771,10 +776,14 @@ export default function EstimatePlanImportStrip({
           previousPlanImport,
           fingerprint
         );
-        const stabilized =
+        const stabilizedBase =
           selectedTrade === 'insulation'
             ? stabilizeInsulationTakeoff(afterRepeatStability)
             : afterRepeatStability;
+        const stabilized = applyAcceptedPlanSymbolCounts(
+          stabilizedBase,
+          await loadAcceptedPlanSymbolCounts(fingerprint)
+        );
         const nextPlanSnapshot = {
           fingerprint,
           measurements: {
@@ -1294,6 +1303,16 @@ export default function EstimatePlanImportStrip({
         const provenanceRecord = appliedProvenance as Record<string, unknown>;
         for (const [key, field] of Object.entries(validationFields)) {
           if (field?.pricingEligible === false && tradeMeasurements[key] != null) {
+            const keptFromPriorTakeoff =
+              provenanceRecord?.[key] != null &&
+              typeof provenanceRecord[key] === 'object' &&
+              (provenanceRecord[key] as { keptFromAcceptedTakeoff?: boolean })
+                .keptFromAcceptedTakeoff === true;
+            if (keptFromPriorTakeoff) {
+              mergedQuickMeasurementSources[key] =
+                'contractor_confirmed_from_plan_review';
+              continue;
+            }
             const listedOnSheet =
               isPlanReviewLockedProvenance(provenanceRecord?.[key]) ||
               electricalPlanSheetCountBelongsInBid(key, {
@@ -1399,6 +1418,10 @@ export default function EstimatePlanImportStrip({
             })
           : null;
 
+      rememberAcceptedPlanSymbolCounts(
+        takeoff.planImportFingerprint,
+        tradeMeasurements
+      );
       onApplied({
         measurements: tradeMeasurements,
         planImportFingerprint: takeoff.planImportFingerprint,

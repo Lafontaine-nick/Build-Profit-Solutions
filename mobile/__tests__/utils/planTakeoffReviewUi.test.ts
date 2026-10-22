@@ -27,6 +27,8 @@ import {
   planReviewRowHasSelectableQuantity,
   planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
+  wholeProjectDrawingCountApply,
+  reviewPackageTakeoffCaption,
   planReviewCheckboxBlockedMessage,
   planReviewProvenanceFlags,
   hydratePlumbingPlanMeasurementsFromInventory,
@@ -816,6 +818,37 @@ describe('plan takeoff review UI polish', () => {
         wholeProject: false,
       })
     ).toEqual(['Patio area · 322 SF']);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'concrete',
+          concretePatioSqft: 322,
+        },
+        sources: {
+          concretePatioSqft: 'needs_confirmation',
+        },
+        provenance: {
+          concretePatioSqft: {
+            source: 'plan_facts',
+            reason: 'Cover sheet patio area. Confirm this flatwork quantity before pricing.',
+          },
+        },
+        wholeProject: false,
+      })
+    ).toEqual(['Covered patio · 322 SF']);
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'concretePatioSqft',
+        tradeKey: 'concrete',
+        value: 322,
+        provenanceEntry: {
+          source: 'plan_facts',
+          pricingEligible: false,
+          reason:
+            'Cover sheet patio area. Confirm this flatwork quantity before pricing.',
+        },
+      }).provenance.label
+    ).toBe('Covered patio on the cover sheet');
     expect(
       confirmedPlanTakeoffLines({
         measurements: { concreteSqft: 500 },
@@ -1737,7 +1770,125 @@ describe('plan takeoff review UI polish', () => {
         key: 'windowCount',
         value: 34,
         provenanceEntry: elevation,
+      }).provenance
+    ).toMatchObject({
+      status: 'ai_verified',
+      label: 'AI verified',
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'ceilingFanCount',
+        value: 5,
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          evidenceKind: 'symbols',
+          status: 'needs_review',
+          pricingEligible: false,
+        },
       }).provenance.label
+    ).toBe('AI verified');
+  });
+
+  it('keeps a disagreed symbol read visible and out of the price', () => {
+    const row = buildPlanReviewMeasurementRowState({
+      key: 'windowCount',
+      value: 42,
+      provenanceEntry: {
+        source: 'calculated_from_symbols',
+        evidenceKind: 'elevation_symbols',
+        normalizedSource: 'NEEDS_CONFIRMATION',
+        pricingEligible: false,
+        symbolReadsDisagreed: true,
+      },
+    });
+    expect(row.pricingEligible).toBe(false);
+    expect(row.provenance).toMatchObject({
+      status: 'from_plan_symbols',
+      label: 'From plan — confirm',
+    });
+    const switches = buildPlanReviewMeasurementRowState({
+      key: 'singlePoleSwitchCount',
+      value: 68,
+      provenanceEntry: {
+        source: 'calculated_from_symbols',
+        symbolReadsDisagreed: true,
+        pricingEligible: false,
+      },
+    });
+    expect(switches.pricingEligible).toBe(false);
+    expect(switches.provenance.label).toBe('From plan — confirm');
+    const kept = buildPlanReviewMeasurementRowState({
+      key: 'windowCount',
+      value: 38,
+      provenanceEntry: {
+        source: 'contractor_confirmed_from_plan_review',
+        evidenceKind: 'accepted_takeoff',
+        symbolReadsDisagreed: true,
+        pricingEligible: true,
+        keptFromAcceptedTakeoff: true,
+      },
+    });
+    expect(kept.pricingEligible).toBe(true);
+    expect(kept.includeDefault).toBe(true);
+    expect(kept.provenance).toMatchObject({
+      status: 'user_confirmed',
+      label: 'User confirmed',
+    });
+    const applied = wholeProjectDrawingCountApply([
+      { key: 'windowCount', value: '42', include: true, pricingEligible: false },
+      { key: 'slidingDoorCount', value: '1', include: true, pricingEligible: true },
+      { key: 'singlePoleSwitchCount', value: '68', include: true, pricingEligible: false },
+    ]);
+    expect(applied.sources).toMatchObject({
+      windowCount: 'needs_confirmation',
+      slidingDoorCount: 'contractor_confirmed_from_plan_review',
+      singlePoleSwitchCount: 'needs_confirmation',
+    });
+  });
+
+  it('puts the takeoff badge on the priced review line', () => {
+    expect(
+      reviewPackageTakeoffCaption(
+        { checklistItemId: 'garage_doors', name: 'Garage doors' },
+        {
+          scopeMeasurements: {
+            planImportMode: 'whole_project',
+            garageDoorDoubleCount: 1,
+            garageDoorRvCount: 1,
+            quickMeasurementSources: {
+              garageDoorDoubleCount: 'plan_suggested',
+              garageDoorRvCount: 'plan_suggested',
+            },
+            measurementProvenance: {
+              garageDoorDoubleCount: {
+                source: 'calculated_from_symbols',
+                evidenceKind: 'elevation_symbols',
+                normalizedSource: 'NEEDS_CONFIRMATION',
+                keptFromAcceptedTakeoff: true,
+              },
+            },
+          },
+        }
+      )
+    ).toBe('Planning estimate · Kept from your takeoff');
+    expect(
+      reviewPackageTakeoffCaption(
+        { checklistItemId: 'windows', name: 'Windows' },
+        {
+          scopeMeasurements: {
+            planImportMode: 'whole_project',
+            windowCount: 36,
+            measurementProvenance: {
+              windowCount: {
+                source: 'calculated_from_symbols',
+                evidenceKind: 'elevation_symbols',
+                normalizedSource: 'NEEDS_CONFIRMATION',
+                symbolReadsDisagreed: true,
+              },
+            },
+          },
+        }
+      )
     ).toBe('From plan — confirm');
   });
 

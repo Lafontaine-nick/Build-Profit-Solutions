@@ -8,6 +8,7 @@ const {
   sanitizeUnreadableFields,
   applyConfidenceFloor,
   applyWindowsDoorsPlanTakeoff,
+  mergeRepeatedSymbolCounts,
   sanitizeOpeningEvidence,
   reconcileOpeningEvidence,
   mergePlanMeasurementsIntoExisting,
@@ -637,6 +638,59 @@ describe("estimatePlanToMeasurements", () => {
     );
   });
 
+  test("two agreeing symbol reads can be priced and a mismatch stays a confirm", () => {
+    expect(
+      mergeRepeatedSymbolCounts(
+        { windowCount: 32, singlePoleSwitchCount: 47 },
+        { windowCount: 32, singlePoleSwitchCount: 41 },
+        ["windowCount", "singlePoleSwitchCount"],
+      ),
+    ).toEqual({
+      priced: { windowCount: 32 },
+      confirm: { singlePoleSwitchCount: 47 },
+      disagreed: ["singlePoleSwitchCount"],
+    });
+  });
+
+  test("a documented window and door schedule wins over a higher elevation count", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { windowCount: 36, exteriorDoorCount: 6, slidingDoorCount: 3 },
+      rawVisionMeasurements: {
+        windowCount: 36,
+        exteriorDoorCount: 6,
+        slidingDoorCount: 3,
+      },
+      geometryDerived: ["windowCount", "exteriorDoorCount", "slidingDoorCount"],
+      openingSchedules: {
+        windows: [
+          { mark: "W1", sizeCode: "3050", quantity: 20 },
+          { mark: "W2", sizeCode: "4040", quantity: 12 },
+        ],
+        exteriorDoors: [
+          { mark: "D1", type: "entry", quantity: 2 },
+          { mark: "D2", type: "entry", quantity: 2 },
+        ],
+        slidingDoors: [
+          { mark: "S1", type: "slider", quantity: 1, widthFt: 6, heightFt: 8 },
+        ],
+      },
+      openingReconciliation: {
+        uniqueCounts: { sliding: 3, window: 36, exterior_swing: 6 },
+      },
+    });
+    expect(restored.measurements.windowCount).toBe(32);
+    expect(restored.measurements.exteriorDoorCount).toBe(4);
+    expect(restored.measurements.slidingDoorCount).toBe(1);
+    expect(restored.measurementProvenance.windowCount).toMatchObject({
+      evidenceKind: "schedule",
+      normalizedSource: "FROM_PLAN",
+      pricingEligible: true,
+    });
+    expect(restored.measurementProvenance.slidingDoorCount.evidenceKind).toBe(
+      "schedule",
+    );
+  });
+
   test("sanitizes opening evidence and builds a conservative Lot 58 reconciliation", () => {
     const raw = [
       {
@@ -1197,6 +1251,60 @@ describe("estimatePlanToMeasurements", () => {
     });
     expect(facts.geometry).toHaveLength(1);
     expect(facts.geometry[0].id).toBe("supplied-plane");
+  });
+
+  test("a main floor that is the whole house is one story even when the read says two", () => {
+    const facts = sanitizePlanFacts(
+      {
+        storyCount: 2,
+        plateHeightFt: 9.1,
+        fieldEvidence: {
+          storyCount: {
+            value: 2,
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [
+              {
+                page: 2,
+                sheet: "A1.1",
+                sourceText: "UPPER FLOOR LIVING 1209 SF",
+              },
+            ],
+          },
+          plateHeightFt: {
+            value: 9.1,
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 6, sourceText: "TOP OF PLATE 9.1" }],
+          },
+        },
+      },
+      { totalLivingSqft: 2571, mainFloorLivingSqft: 2527, garageSqft: 1427 },
+    );
+    expect(facts.storyCount).toBe(1);
+    expect(facts.plateHeightFt).toBe(9.1);
+  });
+
+  test("keeps two stories when the upper floor is labeled", () => {
+    const facts = sanitizePlanFacts(
+      {
+        storyCount: 2,
+        fieldEvidence: {
+          storyCount: {
+            value: 2,
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 3, sourceText: "UPPER FLOOR LIVING 1613 SF" }],
+          },
+        },
+      },
+      {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+    );
+    expect(facts.storyCount).toBe(2);
   });
 
   test.each(

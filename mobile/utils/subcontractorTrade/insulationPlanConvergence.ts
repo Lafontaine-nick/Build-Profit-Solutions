@@ -13,6 +13,7 @@ import {
   INSULATION_MIN_UPPER_FLOOR_SHARE,
   insulationCeilingBoundaryBreakdownFromPlanFacts,
   insulationUpperFloorGapSqft,
+  storyCountSupportedByBuildingAreas,
 } from '@/utils/insulationEnvelopeQuantity';
 import {
   enrichPlanFactsWithSouthernUtahBarometer,
@@ -158,9 +159,9 @@ export function expectedInsulationGrossWallSqft(
   const perimeter =
     positiveNumber(planFacts?.exteriorPerimeterLf) ??
     positiveNumber(planFacts?.foundationPerimeterLf);
-  const stories = Math.max(
-    1,
-    Math.round(positiveNumber(planFacts?.storyCount) ?? 1)
+  const stories = storyCountSupportedByBuildingAreas(
+    planFacts?.storyCount,
+    planFacts?.buildingAreas
   );
   const height =
     positiveNumber(planFacts?.wallHeightFt) ??
@@ -223,7 +224,10 @@ export function insulationAtticMateriallyDiffersFromCeilingBoundary(
 export function isMultiStoryInsulationPlanFacts(
   planFacts?: PlanFacts | null
 ): boolean {
-  const stories = positiveNumber(planFacts?.storyCount);
+  const stories = storyCountSupportedByBuildingAreas(
+    planFacts?.storyCount,
+    planFacts?.buildingAreas
+  );
   const upstairs = positiveNumber(planFacts?.buildingAreas?.upstairsLivingSqft);
   const mainFloor = positiveNumber(planFacts?.buildingAreas?.mainFloorLivingSqft);
   const totalLiving = positiveNumber(planFacts?.buildingAreas?.totalLivingSqft);
@@ -234,7 +238,7 @@ export function isMultiStoryInsulationPlanFacts(
       ? upstairs
       : null;
   return (
-    (stories ?? 0) > 1 ||
+    stories > 1 ||
     credibleUpstairs != null ||
     insulationUpperFloorGapSqft(mainFloor, totalLiving) != null
   );

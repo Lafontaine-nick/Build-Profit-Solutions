@@ -32,6 +32,11 @@ describe('dedicated deck note', () => {
     ).toBe(false);
     expect(
       notesDescribeDedicatedDeckJob(
+        'Covered Patio: 322 SqFt. Concrete plan imported and ready to generate. Bottom of footing.'
+      )
+    ).toBe(false);
+    expect(
+      notesDescribeDedicatedDeckJob(
         'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage and a 240 sqft covered patio. Brick exterior. Standard builder-grade finishes.'
       )
     ).toBe(false);
