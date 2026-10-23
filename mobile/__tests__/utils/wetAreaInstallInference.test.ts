@@ -7,6 +7,16 @@ import {
 import { hydrateWetAreaStepperCounts } from '../../utils/planBathRooms';
 
 describe('wetAreaInstallInference', () => {
+  test('put-back tile after a shower-floor tear-out is a mud pan', () => {
+    const inferred = inferWetAreaInstallSteppersFromIntent({
+      notes:
+        'I need to make an estimate for a bathroom remodel. Tear out bathroom floor and shower floor and shower walls. Put back new tile. Remove bathroom window and install new one. Install new insulation in the walls. New vanity and countertop',
+    });
+    expect(inferred.bathCount).toBe(1);
+    expect(inferred.tilePanBathCount).toBe(1);
+    expect(inferred.prefabBathCount).toBeNull();
+  });
+
   test('tile walls + tile shower floor from explicit notes', () => {
     const inferred = inferWetAreaInstallSteppersFromIntent({
       notes: 'Demo shower and tile the walls and tile the shower floor.',

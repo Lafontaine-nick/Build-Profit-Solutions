@@ -8,7 +8,10 @@
  * ground-up stage ids (paint_trim, cabinets_counters, tile_flooring) so
  * Confirm Scope grouping stays accurate across templates.
  */
-import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import {
+  bathroomAffirmativeNotes,
+  bathroomNoteTakeoff,
+} from '@/utils/bathroomNoteScope';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
 import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
@@ -269,6 +272,7 @@ export function getMeasurementRelevance(params: {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
   const notesText = String(params.notes || '');
+  const noteTakeoff = bathroomNoteTakeoff(params.notes);
   if (
     measurementKey === 'floorAreaSqft' &&
     notesDescribeDedicatedFlooringJob(notesText)
@@ -337,7 +341,7 @@ export function getMeasurementRelevance(params: {
           'Shower floor tile is not used when keeping the existing tub/shower.',
       };
     }
-    if (splitTile) {
+    if (splitTile && !noteTakeoff.showerFloorSqft) {
       const tilePan = Number(params.tilePanBathCount);
       if (!(Number.isFinite(tilePan) && tilePan > 0)) {
         return {
@@ -362,7 +366,11 @@ export function getMeasurementRelevance(params: {
   }
 
   // Bathroom photo/notes — shower wall SF only while Tile shower walls stepper is on.
-  if (measurementKey === 'showerWallTileSqft' && splitTile) {
+  if (
+    measurementKey === 'showerWallTileSqft' &&
+    splitTile &&
+    !noteTakeoff.showerWallSqft
+  ) {
     const walls = Number(params.bathCount);
     if (!(Number.isFinite(walls) && walls > 0)) {
       return {

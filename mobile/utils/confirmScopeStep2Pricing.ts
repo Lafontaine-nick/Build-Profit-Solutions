@@ -407,13 +407,6 @@ export function step2TierNeedsInlineTakeoffEntry(
     // Wall area is entered in Quick measurements. The card prices that sqft as stud-wall LF.
     return false;
   }
-  if (
-    itemId === 'shower_floor_tile' &&
-    template === 'bathroom'
-  ) {
-    // Shower floor tile SF is entered in Wet area install Quick Measurements.
-    return false;
-  }
   if (itemId === 'shower_pan' && template === 'bathroom') {
     // A mud-pan install needs its own area basis even when no existing pan
     // demo was selected. Keep the field on the Confirm Scope card.

@@ -1,5 +1,6 @@
 import {
   bathroomChecklistItemNamedInNotes,
+  bathroomNoteTakeoff,
   bathroomScopeLines,
   filterDedicatedBathroomConfirmItems,
   notesAskForSeparateHaulOff,
@@ -7,7 +8,18 @@ import {
   notesMentionStructuralFraming,
   shouldLimitBathroomChecklistToNotes,
 } from '../../utils/bathroomNoteScope';
-import { hydrateScopeChecklistFromNotes } from '../../utils/estimateScopeChecklistUi';
+import {
+  ensureBathroomVisiblePricingCards,
+  hydrateScopeChecklistFromNotes,
+  syncWindowInstallScopeFromNotes,
+} from '../../utils/estimateScopeChecklistUi';
+import { emptyQuickMeasurementInput } from '../../utils/scopeQuickMeasurements';
+import { applyContractorRemovedScopeItems } from '../../utils/contractorRemovedScope';
+import {
+  checklistItemInScope,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '../../utils/scopeItemQuantities';
 
 const TILE =
   'Remodel the bathroom. Tear out the shower walls and the tile shower pan. Demo the bathroom floor. Install new shower wall tile, a new tile shower pan, and new bathroom floor tile.';
@@ -164,7 +176,7 @@ describe('bathroom note checklist', () => {
         'Remove tile shower pan',
         'Shower tile demo / tear-out',
         'Shower wall tile',
-        'Tile shower pan',
+        'Build shower pan',
         'Wet area install',
       ].sort()
     );
@@ -265,7 +277,7 @@ describe('bathroom note checklist', () => {
         'Shower tile demo / tear-out',
         'Shower wall tile',
         'Shower waterproofing & backer board',
-        'Tile shower pan',
+        'Build shower pan',
         'Wet area install',
       ].sort()
     );
@@ -330,7 +342,7 @@ describe('bathroom note checklist', () => {
         'Remove tile shower pan',
         'Shower floor tile',
         'Shower pan waterproofing',
-        'Tile shower pan',
+        'Build shower pan',
         'Wet area install',
       ].sort()
     );
@@ -356,7 +368,7 @@ describe('bathroom note checklist', () => {
         'Remove tile shower pan',
         'Shower tile demo / tear-out',
         'Shower wall tile',
-        'Tile shower pan',
+        'Build shower pan',
         'Wet area install',
       ].sort()
     );
@@ -380,7 +392,7 @@ describe('bathroom note checklist', () => {
         'Shower niche',
         'Shower wall tile',
         'Shower waterproofing & backer board',
-        'Tile shower pan',
+        'Build shower pan',
         'Wet area install',
       ].sort()
     );
@@ -444,6 +456,230 @@ describe('bathroom note checklist', () => {
       }
     );
     expect(filtered.map(item => item.id)).toEqual(['floor_tile']);
+  });
+
+  it('opens a measurement box for every priced line the note kept', () => {
+    const notes =
+      'I need to make an estimate for a bathroom remodel. Tear out bathroom floor and shower floor and shower walls.Put back new tile. Remove bathroom window and install new one. Install new insulation in the walls. New vanity and countertop';
+    expect(bathroomNoteTakeoff(notes)).toEqual({
+      showerWallDemo: true,
+      showerWallSqft: true,
+      showerFloorSqft: true,
+      bathFloorDemo: true,
+      bathFloorSqft: true,
+      wallInsulationSqft: true,
+      windowCount: true,
+    });
+    expect(
+      bathroomNoteTakeoff(
+        'Remodel the bathroom. Demo the bathroom floor tile only. Install new bathroom floor tile wall to wall. The tub, the shower walls, the vanity, and the toilet all stay in place. No paint and no new lighting.'
+      )
+    ).toMatchObject({
+      showerWallSqft: false,
+      showerFloorSqft: false,
+      bathFloorSqft: true,
+      windowCount: false,
+      wallInsulationSqft: false,
+    });
+  });
+
+  it('prices the tile that goes back, plus a bathroom window and wall insulation', () => {
+    const notes =
+      'I need to make an estimate for a bathroom remodel. Tear out bathroom floor and shower floor and shower walls.Put back new tile. Remove bathroom window and install new one. Install new insulation in the walls. New vanity and countertop';
+    expect(bathroomScopeLines(notes).map(line => line.label).sort()).toEqual(
+      [
+        'Bath floor tile',
+        'Demo bath floor tile',
+        'Shower floor tile',
+        'Shower tile demo / tear-out',
+        'Build shower pan',
+        'Shower wall tile',
+        'Vanity',
+        'Vanity top',
+        'Wall insulation',
+        'Wet area install',
+        'Window removal and install',
+      ].sort()
+    );
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [
+        { id: 'demo', inputType: 'yes_no', label: 'Demo', state: 'included' },
+        {
+          id: 'floor_demo',
+          inputType: 'yes_no',
+          label: 'Floor demo',
+          state: 'included',
+        },
+        {
+          id: 'shower_tile',
+          inputType: 'yes_no',
+          label: 'Shower tile',
+          state: 'included',
+        },
+        { id: 'vanity', inputType: 'yes_no', label: 'Vanity', state: 'included' },
+        {
+          id: 'countertops',
+          inputType: 'yes_no',
+          label: 'Counters',
+          state: 'included',
+        },
+      ],
+      'bathroom',
+      notes
+    );
+    const kept = syncWindowInstallScopeFromNotes(hydrated, {
+      notes,
+      templateKey: 'bathroom',
+      windowCount: 1,
+    });
+    expect(
+      kept
+        .filter(item =>
+          [
+            'floor_tile',
+            'shower_floor_tile',
+            'shower_pan',
+            'window_install',
+            'insulation',
+          ].includes(item.id)
+        )
+        .map(item => item.id)
+        .sort()
+    ).toEqual(
+      [
+        'floor_tile',
+        'insulation',
+        'shower_floor_tile',
+        'shower_pan',
+        'window_install',
+      ].sort()
+    );
+    const fromGenericWindow = ensureBathroomVisiblePricingCards(
+      [{ id: 'windows', inputType: 'yes_no', label: 'Window install', state: 'included' }],
+      notes,
+      'bathroom',
+      { windowCount: '1' }
+    );
+    expect(fromGenericWindow.some(item => item.id === 'windows')).toBe(false);
+    expect(fromGenericWindow.some(item => item.id === 'window_install')).toBe(
+      true
+    );
+    expect(fromGenericWindow.some(item => item.id === 'shower_pan')).toBe(true);
+    expect(
+      filterDedicatedBathroomConfirmItems(fromGenericWindow, {
+        notes,
+        templateKey: 'bathroom',
+        scopeMode: 'dedicated',
+      }).map(item => item.id)
+    ).toEqual(
+      expect.arrayContaining([
+        'window_install',
+        'shower_pan',
+        'shower_floor_tile',
+        'insulation',
+      ])
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      bathroomFloorSqft: '120',
+      showerFloorTileSqft: '20',
+      windowCount: '1',
+      exteriorWallInsulationSqft: '50',
+    };
+    for (const id of [
+      'floor_tile',
+      'shower_floor_tile',
+      'shower_pan',
+      'window_install',
+      'insulation',
+    ]) {
+      const resolved = resolveChecklistItemQuantity(id, measurements, {
+        templateKey: 'bathroom',
+      });
+      const pricing = resolveScopeItemSuggestedPricing(
+        id,
+        measurements,
+        'bathroom',
+        resolved,
+        null,
+        null,
+        notes
+      );
+      expect(Number(resolved.quantity)).toBeGreaterThan(0);
+      expect(pricing.fill?.total).toBeGreaterThan(0);
+    }
+  });
+
+  it('prices a replaced bathroom window from the entered count', () => {
+    const notes = 'Guest bath remodel. Replace the window.';
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      windowCount: '1',
+      itemQuantities: {
+        window_install: {
+          quantity: 0,
+          unit: 'each',
+          quantitySource: 'user_entered' as const,
+        },
+      },
+    };
+    const resolved = resolveChecklistItemQuantity('window_install', measurements, {
+      templateKey: 'bathroom',
+      notes,
+    });
+    expect(resolved.quantity).toBe(1);
+    expect(resolved.unit).toBe('each');
+    expect(resolved.pricingReady).toBe(true);
+    const pricing = resolveScopeItemSuggestedPricing(
+      'window_install',
+      measurements,
+      'bathroom',
+      resolved,
+      null,
+      null,
+      notes
+    );
+    expect(pricing.fill?.total).toBeGreaterThan(0);
+    const withoutCount = resolveChecklistItemQuantity(
+      'window_install',
+      emptyQuickMeasurementInput(),
+      { templateKey: 'bathroom', notes }
+    );
+    expect(withoutCount.quantity == null || Number(withoutCount.quantity) <= 0).toBe(
+      true
+    );
+  });
+
+  it('keeps a removed bathroom window off the bid when the count is still entered', () => {
+    const notes = 'Guest bath remodel. Replace the window.';
+    const removed = {
+      id: 'window_install',
+      inputType: 'yes_no' as const,
+      label: 'Window replacement',
+      helperText:
+        'Remove the existing bathroom window and install the new one. Enter the count.',
+      state: 'excluded' as const,
+      contractorRemoved: true,
+    };
+    const synced = syncWindowInstallScopeFromNotes(
+      [removed, { id: 'windows', inputType: 'yes_no', label: 'Windows', state: 'included' }],
+      { notes, templateKey: 'bathroom', windowCount: 1 }
+    );
+    expect(synced.find(item => item.id === 'window_install')).toMatchObject({
+      state: 'excluded',
+      contractorRemoved: true,
+    });
+    const visible = ensureBathroomVisiblePricingCards(synced, notes, 'bathroom', {
+      windowCount: '1',
+    });
+    const windowCard = applyContractorRemovedScopeItems(visible, [
+      'window_install',
+    ]).find(item => item.id === 'window_install');
+    expect(windowCard).toMatchObject({
+      state: 'excluded',
+      contractorRemoved: true,
+    });
+    expect(checklistItemInScope(windowCard!)).toBe(false);
   });
 
   it('names the vanity, top, faucet, and toilet a fixture note asks for', () => {

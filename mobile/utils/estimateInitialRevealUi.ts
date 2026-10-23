@@ -4181,13 +4181,17 @@ function getInitialRevealScopeRows(
     ),
     wholeHome: wholeHomeRemodelContext,
   };
+  const bathroomAlignedRows = alignDedicatedBathroomScopeRows(
+    filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
+    bathroomScopeParams
+  );
+  const bathroomRevealRows = shouldLimitBathroomChecklistToNotes(bathroomScopeParams)
+    ? bathroomAlignedRows.filter(row => row.id !== 'wet_area_install')
+    : bathroomAlignedRows;
   const revealRows = filterDedicatedDeckConfirmItems(
     filterDedicatedFlooringConfirmItems(
     filterDedicatedKitchenConfirmItems(
-      alignDedicatedBathroomScopeRows(
-        filterDedicatedBathroomConfirmItems(rows, bathroomScopeParams),
-        bathroomScopeParams
-      ),
+      bathroomRevealRows,
       {
         notes,
         templateKey: draft.scopeChecklist?.templateKey,

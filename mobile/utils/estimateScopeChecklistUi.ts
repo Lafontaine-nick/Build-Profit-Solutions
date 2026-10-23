@@ -12,6 +12,7 @@ import {
 import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 import {
   bathroomAffirmativeNotes,
+  bathroomChecklistItemNamedInNotes,
   notesAskForSeparateHaulOff,
   notesNameShowerTileWithFlooring,
   notesReuseExistingShowerDoor,
@@ -483,16 +484,28 @@ export function dedupeScopeChecklistItems(
     }
 
     const existing = result[existingIndex];
+    const removedRow = item.contractorRemoved
+      ? item
+      : existing.contractorRemoved
+        ? existing
+        : null;
     const winner =
-      stateRank[item.state] > stateRank[existing.state] ? item : existing;
+      removedRow ||
+      (stateRank[item.state] > stateRank[existing.state] ? item : existing);
     result[existingIndex] = {
       ...winner,
       // Preserve useful metadata when duplicate rows came from different
-      // inference paths.
+      // inference paths. A confirmed removal stays off the bid.
       helperText: winner.helperText || existing.helperText || item.helperText,
       noteBacked: Boolean(existing.noteBacked || item.noteBacked),
       options: winner.options || existing.options || item.options,
       choiceId: winner.choiceId || existing.choiceId || item.choiceId,
+      contractorRemoved: Boolean(
+        existing.contractorRemoved || item.contractorRemoved
+      ),
+      ...(existing.contractorRemoved || item.contractorRemoved
+        ? { state: 'excluded' as const }
+        : {}),
     };
   });
 
@@ -1166,8 +1179,37 @@ export function syncWindowInstallScopeFromNotes(
 ): ScopeChecklistItem[] {
   const templateKey = String(params.templateKey || '').toLowerCase();
   if (templateKey && templateKey !== 'painting') {
-    // Windows/doors and whole-project flows already own this pricing card
-    // through `windows`; window_install is a painting-specific card.
+    // A bathroom window is one card: the old unit comes out and the new one
+    // goes in. A filled window count is enough even when the note phrasing
+    // never says "replacement."
+    if (templateKey === 'bathroom') {
+      const namedWindow = bathroomChecklistItemNamedInNotes(
+        'window_install',
+        params.notes
+      );
+      const countedWindow = positiveMeasurementCount(params.windowCount);
+      if (!namedWindow && !countedWindow) {
+        return items.filter(item => item.id !== 'window_install');
+      }
+      const withoutGenericWindow = items.filter(item => item.id !== 'windows');
+      const existingBathroomWindow = withoutGenericWindow.find(
+        item => item.id === 'window_install'
+      );
+      if (existingBathroomWindow) {
+        return withoutGenericWindow;
+      }
+      const row: ScopeChecklistItem = {
+        id: 'window_install',
+        inputType: 'yes_no',
+        label: 'Window removal and install',
+        helperText:
+          'Remove the existing bathroom window and install the new one. Enter the count.',
+        category: 'openings',
+        state: 'included',
+        noteBacked: true,
+      };
+      return [...withoutGenericWindow, row];
+    }
     return items.filter(item => item.id !== 'window_install');
   }
   const notes = String(params.notes || '');
@@ -1193,6 +1235,9 @@ export function syncWindowInstallScopeFromNotes(
       : items;
   const existing = normalizedItems.find(item => item.id === 'window_install');
   if (existing) {
+    if (existing.contractorRemoved || existing.state === 'excluded') {
+      return normalizedItems;
+    }
     return normalizedItems.map(item =>
       item.id === 'window_install'
         ? { ...item, state: 'included' as const }
@@ -1218,6 +1263,132 @@ export function syncWindowInstallScopeFromNotes(
     row,
     ...normalizedItems.slice(insertAt),
   ];
+}
+
+function positiveScopeMeasurement(value: unknown): boolean {
+  const count = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0;
+}
+
+function bathroomPricingRow(
+  id: string,
+  label: string,
+  helperText: string,
+  category: string
+): ScopeChecklistItem {
+  return {
+    id,
+    inputType: 'yes_no',
+    label,
+    helperText,
+    category,
+    state: 'included',
+    noteBacked: true,
+  };
+}
+
+/**
+ * A bathroom note or a filled Quick Measurement has to produce the priced
+ * card. Remove can take a wrong card off. A missing card has no way back.
+ */
+export function ensureBathroomVisiblePricingCards(
+  items: ScopeChecklistItem[],
+  notes?: string | null,
+  templateKey?: string | null,
+  measurements?: {
+    windowCount?: unknown;
+    exteriorWallInsulationSqft?: unknown;
+    showerFloorTileSqft?: unknown;
+    bathroomFloorSqft?: unknown;
+  } | null
+): ScopeChecklistItem[] {
+  const template = String(templateKey || '').toLowerCase();
+  const text = String(notes || '');
+  const bathroomJob =
+    template === 'bathroom' ||
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text) ||
+    /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(text);
+  if (!bathroomJob) return items;
+  const wanted: ScopeChecklistItem[] = [];
+  if (
+    bathroomChecklistItemNamedInNotes('window_install', text) ||
+    positiveScopeMeasurement(measurements?.windowCount)
+  ) {
+    wanted.push(
+      bathroomPricingRow(
+        'window_install',
+        'Window removal and install',
+        'Remove the existing bathroom window and install the new one. Enter the count.',
+        'openings'
+      )
+    );
+  }
+  if (
+    bathroomChecklistItemNamedInNotes('insulation', text) ||
+    positiveScopeMeasurement(measurements?.exteriorWallInsulationSqft)
+  ) {
+    wanted.push(
+      bathroomPricingRow(
+        'insulation',
+        'Wall insulation',
+        'New insulation in the bathroom walls. Enter the wall sqft.',
+        'mep'
+      )
+    );
+  }
+  if (bathroomChecklistItemNamedInNotes('floor_tile', text)) {
+    wanted.push(
+      bathroomPricingRow(
+        'floor_tile',
+        'Bath floor tile',
+        'Bathroom floor tile labor and materials.',
+        'finishes'
+      )
+    );
+  }
+  const showerFloorTile =
+    bathroomChecklistItemNamedInNotes('shower_floor_tile', text) ||
+    positiveScopeMeasurement(measurements?.showerFloorTileSqft);
+  if (showerFloorTile) {
+    wanted.push(
+      bathroomPricingRow(
+        'shower_floor_tile',
+        'Shower floor tile',
+        'Floor tile on the new shower pan. Enter the shower floor sqft.',
+        'shower'
+      )
+    );
+    if (!/\bprefab\b/i.test(text)) {
+      wanted.push(
+        bathroomPricingRow(
+          'shower_pan',
+          'Build shower pan',
+          'Mud pan for the new shower floor tile — liner, mud bed, curb, and drain. Enter the shower floor sqft.',
+          'shower'
+        )
+      );
+    }
+  }
+  if (!wanted.length) return items;
+  const wantedIds = new Set(wanted.map(row => row.id));
+  let next = items.filter(
+    item => !(item.id === 'windows' && wantedIds.has('window_install'))
+  );
+  for (const row of wanted) {
+    const existing = next.find(item => item.id === row.id);
+    if (!existing) {
+      next = [...next, row];
+      continue;
+    }
+    if (existing.contractorRemoved || existing.state === 'excluded') continue;
+    if (existing.state === 'included') continue;
+    next = next.map(item =>
+      item.id === row.id
+        ? { ...item, state: 'included' as const, noteBacked: true }
+        : item
+    );
+  }
+  return next;
 }
 
 /** Hide excluded cards on existing-shell conversions — finish-out scope only. */
@@ -4359,7 +4530,7 @@ function ensureBathroomNoteBackedScopeItems(
     },
     {
       id: 'shower_pan',
-      label: 'Tile shower pan installation',
+      label: 'Build shower pan',
       helperText:
         'Shower pan / mud pan build — enter pan area or confirm pricing.',
       pattern: /\b(?:shower\s+pan|mud\s+pan|tile\s+pan)\b/,
@@ -4424,6 +4595,22 @@ function ensureBathroomNoteBackedScopeItems(
         'Door installation mentioned in notes; confirm interior or exterior type and quantity.',
       pattern: /\bdoors?\b/,
     },
+    {
+      id: 'window_install',
+      label: 'Window removal and install',
+      helperText:
+        'Remove the existing bathroom window and install the new one. Enter the count.',
+      pattern:
+        /\b(?:remove|demo|tear[\s-]?out|replace|replacement)\b[^.]{0,50}\b(?:bathroom\s+)?windows?\b/,
+    },
+    {
+      id: 'insulation',
+      label: 'Wall insulation',
+      helperText:
+        'New insulation in the bathroom walls. Enter the wall sqft.',
+      pattern:
+        /\binsulat(?:e|ion|ed)\b[^.]{0,40}\bwalls?\b|\bwalls?\b[^.]{0,40}\binsulat(?:e|ion|ed)\b/,
+    },
   ];
   const existing = new Set(items.map(item => item.id));
   const matchedIds = new Set(
@@ -4433,6 +4620,15 @@ function ensureBathroomNoteBackedScopeItems(
       )
       .map(entry => entry.id)
   );
+  for (const id of [
+    'floor_tile',
+    'shower_floor_tile',
+    'shower_pan',
+    'window_install',
+    'insulation',
+  ]) {
+    if (bathroomChecklistItemNamedInNotes(id, notes)) matchedIds.add(id);
+  }
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(text) &&
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(text);
@@ -4459,11 +4655,15 @@ function ensureBathroomNoteBackedScopeItems(
       category:
         entry.id === 'plumbing_rough' || entry.id === 'plumbing_trim'
           ? 'plumbing'
-          : entry.id === 'marble_threshold'
-            ? 'finishes'
-            : entry.id.includes('tile') || entry.id === 'shower_pan'
-              ? 'shower'
-              : 'fixtures',
+          : entry.id === 'insulation'
+            ? 'mep'
+            : entry.id === 'window_install'
+              ? 'openings'
+              : entry.id === 'marble_threshold'
+                ? 'finishes'
+                : entry.id.includes('tile') || entry.id === 'shower_pan'
+                  ? 'shower'
+                  : 'fixtures',
       state: 'included' as const,
       noteBacked: true,
     }));
@@ -5394,6 +5594,15 @@ export function hydrateScopeChecklistFromNotes(
           return has(/\b(?:install|replace|new)\b[^.;,\n]{0,50}\bcabinets?\b/i);
         if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
         if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
+        if (
+          id === 'floor_tile' ||
+          id === 'shower_floor_tile' ||
+          id === 'shower_tile' ||
+          id === 'shower_pan' ||
+          id === 'wet_area_install'
+        ) {
+          return bathroomChecklistItemNamedInNotes(id, notes);
+        }
         if (id === 'framing')
           return (
             has(
@@ -5686,7 +5895,7 @@ const WET_AREA_INSTALL_DERIVED: Record<
   },
   tile_pan: {
     id: 'shower_pan',
-    label: 'Shower mud pan build',
+    label: 'Build shower pan',
     helperText:
       'Liner, mud bed, drain, and entry curb — substrate only. Floor tile is a separate Shower floor tile line.',
   },
@@ -6810,6 +7019,7 @@ export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
 };
 
 export const BATHROOM_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
+  shower_pan: 'Build shower pan',
   plumbing_rough: 'Plumbing rough-in (shower / tub)',
   drywall: 'Drywall repair / patching + texture',
   paint_repair: 'Interior painting/patch and repair',

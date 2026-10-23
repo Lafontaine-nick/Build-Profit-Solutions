@@ -1581,8 +1581,20 @@ export function sumStep3ReviewBudgetTotals(
 
     // Ask AI / Step 3 manual rows not on the Confirm Scope checklist (e.g. Disposal Bid).
     // Do not add stale AI package prices for checklist rows that never got Applied pricing.
+    // A template row Step 2 left off the bid stays off the total, even if it has a stored price.
     if (!isUserProvidedScopePackage(pkg)) continue;
     if (ruleKey && seenExtraRuleKeys.has(ruleKey)) continue;
+    const fullChecklist =
+      draft.confirmedAssumptions?.length
+        ? draft.confirmedAssumptions
+        : draft.scopeChecklist?.items || [];
+    if (
+      ruleKey &&
+      fullChecklist.some(item => item.id === ruleKey) &&
+      !items.some(item => item.id === ruleKey)
+    ) {
+      continue;
+    }
 
     const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
     extra.material += buckets.material;

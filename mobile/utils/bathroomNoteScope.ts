@@ -46,6 +46,8 @@ const BATHROOM_TEMPLATE_IDS = new Set([
   'drywall',
   'drywall_demo',
   'framing',
+  'window_install',
+  'insulation',
 ]);
 
 /** Drop sentences that name work the note is leaving alone, plus "do not" and "no paint/lighting". */
@@ -137,6 +139,33 @@ const BATH_FLOOR_TILE =
 const SHOWER_WALL_TILE =
   /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile)\b/i;
 
+/** "Put back new tile" covers every surface the same note just tore out. */
+function notesPutTileBackGenerically(notes: string): boolean {
+  return /\bput\s+back\b[^.]{0,40}\b(?:the\s+|new\s+)?tile\b|\bretile\b|\bre-tile\b/i.test(
+    notes
+  );
+}
+
+function notesTearOutShowerFloor(notes: string): boolean {
+  return /\b(?:tear[\s-]?out|remove|demo|demolition|rip[\s-]?out)\b[^.]{0,80}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,40}\b(?:tear[\s-]?out|remove|demo|demolition|rip[\s-]?out)\b/i.test(
+    notes
+  );
+}
+
+function notesNameBathroomWindowReplacement(notes: string): boolean {
+  return (
+    /\b(?:remove|demo|tear[\s-]?out|replace|replacement)\b[^.]{0,50}\b(?:bathroom\s+)?windows?\b/i.test(
+      notes
+    ) && /\b(?:install|replacement|replace|new)\b/i.test(notes)
+  );
+}
+
+function notesNameWallInsulation(notes: string): boolean {
+  return /\binsulat(?:e|ion|ed)\b[^.]{0,40}\bwalls?\b|\bwalls?\b[^.]{0,40}\binsulat(?:e|ion|ed)\b/i.test(
+    notes
+  );
+}
+
 function named(pattern: RegExp, notes: string): boolean {
   return pattern.test(notes);
 }
@@ -195,10 +224,10 @@ export function bathroomScopeLines(
     push('shower_enclosure_demo', 'Remove existing prefab shower enclosure');
   }
   if (namedInNotes('shower_tile')) push('shower_tile', 'Shower wall tile');
-  if (namedInNotes('shower_pan')) push('shower_pan', 'Tile shower pan');
   if (namedInNotes('shower_floor_tile')) {
     push('shower_floor_tile', 'Shower floor tile');
   }
+  if (namedInNotes('shower_pan')) push('shower_pan', 'Build shower pan');
   if (namedInNotes('waterproofing')) {
     push(
       'waterproofing',
@@ -289,7 +318,42 @@ export function bathroomScopeLines(
   if (/\bmarble\s+thresholds?\b/i.test(affirmative)) {
     push('marble_threshold', 'Marble threshold');
   }
+  if (namedInNotes('window_install')) {
+    push('window_install', 'Window removal and install');
+  }
+  if (namedInNotes('insulation')) push('insulation', 'Wall insulation');
   return lines;
+}
+
+/**
+ * Measurement boxes that must appear because a scope line is on the bid.
+ * Cards, Quick Measurements, and Confirm scope all read this. A second
+ * phrase list must not hide a box for a line this note already kept.
+ */
+export type BathroomNoteTakeoff = {
+  showerWallDemo: boolean;
+  showerWallSqft: boolean;
+  showerFloorSqft: boolean;
+  bathFloorDemo: boolean;
+  bathFloorSqft: boolean;
+  wallInsulationSqft: boolean;
+  windowCount: boolean;
+};
+
+export function bathroomNoteTakeoff(
+  notes: string | null | undefined
+): BathroomNoteTakeoff {
+  const ids = new Set(bathroomScopeLines(notes).map(line => line.id));
+  return {
+    showerWallDemo: ids.has('demo'),
+    showerWallSqft: ids.has('shower_tile'),
+    showerFloorSqft:
+      ids.has('shower_floor_tile') || ids.has('shower_pan'),
+    bathFloorDemo: ids.has('floor_demo'),
+    bathFloorSqft: ids.has('floor_tile'),
+    wallInsulationSqft: ids.has('insulation'),
+    windowCount: ids.has('window_install'),
+  };
 }
 
 export function bathroomChecklistItemNamedInNotes(
@@ -343,11 +407,24 @@ export function bathroomChecklistItemNamedInNotes(
         text
       );
     case 'shower_pan':
-      return named(TILE_PAN, text);
+      // A new tile shower floor is a mud pan. A prefab pan is a different card.
+      if (/\bprefab\b/i.test(text)) return named(TILE_PAN, text);
+      return (
+        named(TILE_PAN, text) ||
+        (notesPutTileBackGenerically(text) && notesTearOutShowerFloor(text)) ||
+        /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b|\b(?:tile|tiled)\b[^.]{0,40}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,30}\b(?:tile|tiled)\b/i.test(
+          text
+        )
+      );
     case 'shower_tile':
       return named(SHOWER_WALL_TILE, text);
     case 'shower_floor_tile':
-      return /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b/i.test(text);
+      return (
+        /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b|\b(?:tile|tiled)\b[^.]{0,40}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,30}\b(?:tile|tiled)\b/i.test(
+          text
+        ) ||
+        (notesPutTileBackGenerically(text) && notesTearOutShowerFloor(text))
+      );
     case 'shower_niche':
       return /\bniche\b/i.test(text);
     case 'shower_bench':
@@ -358,7 +435,14 @@ export function bathroomChecklistItemNamedInNotes(
     case 'glass_door_reuse_install':
       return notesReuseExistingShowerDoor(notes);
     case 'floor_tile':
-      return named(BATH_FLOOR_TILE, text);
+      return (
+        named(BATH_FLOOR_TILE, text) ||
+        (notesPutTileBackGenerically(text) && named(BATH_FLOOR_DEMO, text))
+      );
+    case 'window_install':
+      return notesNameBathroomWindowReplacement(text);
+    case 'insulation':
+      return notesNameWallInsulation(text);
     case 'marble_threshold':
       return /\bmarble\s+thresholds?\b/i.test(text);
     case 'toilet':
@@ -703,6 +787,30 @@ export function filterDedicatedBathroomConfirmItems<T extends { id?: string | nu
   });
 }
 
+/** Step 3 and the initial estimate use the same note lines Step 2 priced. */
+export function applyDedicatedBathroomConfirmScope<
+  T extends { id?: string | null; label?: string | null },
+>(
+  items: T[],
+  params: {
+    notes?: string | null;
+    templateKey?: string | null;
+    projectType?: string | null;
+    scopeMode?: string | null;
+    planBacked?: boolean;
+    wholeHome?: boolean;
+  }
+): T[] {
+  const kept = filterDedicatedBathroomConfirmItems(items, params);
+  if (!shouldLimitBathroomChecklistToNotes(params)) return kept;
+  const lines = bathroomScopeLines(params.notes);
+  return kept.map(item => {
+    const line = bathroomScopeLineForId(String(item.id || ''), lines);
+    if (!line?.label || line.label === item.label) return item;
+    return { ...item, label: line.label };
+  });
+}
+
 function bathroomScopeLineForId(
   id: string,
   lines: BathroomScopeLine[]
@@ -711,6 +819,9 @@ function bathroomScopeLineForId(
   if (direct) return direct;
   if (id === 'paint' || id === 'interior_paint') {
     return lines.find(line => line.id === 'paint_repair');
+  }
+  if (id === 'windows' || id === 'windows_doors') {
+    return lines.find(line => line.id === 'window_install');
   }
   return undefined;
 }

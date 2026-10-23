@@ -1,5 +1,5 @@
 import { inferBathroomVanityCountertopMaterialFromNotes } from '@/utils/bathroomVanityCountertopPricing';
-import { resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
+import { checklistItemInScope, resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   inferBathroomFixtureInstallFromIntent,
@@ -225,6 +225,39 @@ describe('bathroomFixturesQm', () => {
       label: 'Remove countertop',
       state: 'included',
     });
+  });
+
+  test('a removed vanity top stays off the bid when the counter count is set', () => {
+    const removed = {
+      ...item('countertops', 'excluded'),
+      contractorRemoved: true,
+      choiceId: 'prefab_quartz_stone',
+      inputType: 'choice' as const,
+    };
+    const measurements = {
+      bathroomInstallCounterCount: 1,
+      bathroomVanityCountertopMaterialType: 'prefab_quartz_stone',
+    };
+    const synced = syncBathroomFixtureQmScopeItems([removed], measurements);
+    expect(synced.find((r) => r.id === 'countertops')).toMatchObject({
+      state: 'excluded',
+      contractorRemoved: true,
+    });
+    const expanded = expandBathroomFixtureScopeDisplayItems(
+      [removed, item('vanity', 'included')],
+      measurements,
+      'bathroom'
+    );
+    const countertops = expanded.find((r) => r.id === 'countertops');
+    expect(countertops).toMatchObject({
+      state: 'excluded',
+      contractorRemoved: true,
+    });
+    expect(checklistItemInScope(countertops!)).toBe(false);
+    expect(
+      bathroomFixtureScopeCardVisible('countertops', measurements, expanded)
+    ).toBe(false);
+    expect(expanded.find((r) => r.id === 'vanity')?.state).toBe('included');
   });
 
   test('vanity, quartz top, toilet, and faucet note fills the counts the note names', () => {

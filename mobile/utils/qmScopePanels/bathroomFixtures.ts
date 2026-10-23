@@ -1,4 +1,5 @@
 import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { inferChoiceFromNotes, inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import {
@@ -131,6 +132,9 @@ export function bathroomFixtureScopeCardVisible(
 ): boolean {
   if (!BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
 
+  const row = items?.find((r) => r.id === itemId);
+  if (row && contractorKeptScopeItemOut(row)) return false;
+
   const install = readBathroomInstallFixtureCounts(measurements);
   const demo = readBathroomDemoFixtureCounts(measurements);
   if (itemId === 'vanity' && positiveCount(install.bathroomInstallVanityCount) != null) return true;
@@ -142,7 +146,6 @@ export function bathroomFixtureScopeCardVisible(
     return true;
   }
 
-  const row = items?.find((r) => r.id === itemId);
   return Boolean(row && checklistRowInScope(row));
 }
 
@@ -221,6 +224,8 @@ export function expandBathroomFixtureScopeDisplayItems(
     const copy = FIXTURE_QM_SCOPE_LABELS[id];
     const idx = next.findIndex((r) => r.id === id);
     const base = idx >= 0 ? next[idx] : defaultBathroomFixtureScopeRow(id);
+    // A confirmed Remove stays off the bid. The Quick Measurement count remains.
+    if (contractorKeptScopeItemOut(base)) continue;
     let row: ScopeChecklistItem = {
       ...base,
       ...patch,
@@ -257,12 +262,19 @@ export function expandBathroomFixtureScopeDisplayItems(
   }
   if (positiveCount(measurements.bathroomInstallToiletCount) != null) {
     const idx = next.findIndex((r) => r.id === 'toilet');
-    if (idx >= 0 && (!next[idx].choiceId || next[idx].choiceId === 'unsure')) {
+    if (
+      idx >= 0 &&
+      !contractorKeptScopeItemOut(next[idx]) &&
+      (!next[idx].choiceId || next[idx].choiceId === 'unsure')
+    ) {
       next[idx] = { ...next[idx], state: 'included', choiceId: 'replacing' };
     }
   }
   if (positiveCount(measurements.bathroomInstallFaucetCount) != null) {
     const idx = next.findIndex((r) => r.id === 'sink_faucet');
+    if (idx >= 0 && contractorKeptScopeItemOut(next[idx])) {
+      return next;
+    }
     const row: ScopeChecklistItem = {
       ...(idx >= 0 ? next[idx] : {
         id: 'sink_faucet',
@@ -536,6 +548,7 @@ export function syncBathroomFixtureQmScopeItems(
   const demo = readBathroomDemoFixtureCounts(m);
   let changed = false;
   const next = items.map((row) => {
+    if (contractorKeptScopeItemOut(row)) return row;
     if (row.id === 'vanity') {
       if (positiveCount(install.bathroomInstallVanityCount) != null) {
         if (row.state !== 'included' || row.choiceId !== 'replacing') {

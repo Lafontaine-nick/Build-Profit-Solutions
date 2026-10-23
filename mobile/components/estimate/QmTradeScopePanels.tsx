@@ -927,6 +927,7 @@ export function QmSqftMeasurementRow({
   sectionLead = false,
   sectionEnd = false,
   reserveHelperSpace = false,
+  helperGap,
 }: {
   label: string;
   helperText?: string;
@@ -946,6 +947,8 @@ export function QmSqftMeasurementRow({
   sectionLead?: boolean;
   sectionEnd?: boolean;
   reserveHelperSpace?: boolean;
+  /** Space between the helper line and the measurement box. */
+  helperGap?: number;
 }) {
   const defaultPlaceholder =
     unitLabel.toLowerCase() === 'lf' ? 'Enter LF' : 'Enter sqft';
@@ -1100,7 +1103,7 @@ export function QmSqftMeasurementRow({
             color: captionColor(darkMode, Colors),
             fontSize: 11,
             lineHeight: 15,
-            marginBottom: 8,
+            marginBottom: helperGap ?? 8,
           }}
         >
           {helperText}
@@ -4495,18 +4498,20 @@ export const QmBathroomFixturesPanels = React.memo(
             rowBelowContent={{
               bathroomInstallVanityCount:
                 install.bathroomInstallVanityCount != null ? (
-                  <View style={{ marginTop: 4, marginBottom: 14 }}>
+                  <View style={{ marginTop: 10, marginBottom: 14 }}>
                     <QmSqftMeasurementRow
                       label='Vanity cabinet LF'
                       helperText='Cabinet run length for this vanity — LF, not fixture count.'
                       value={cabinetLfDraft}
-                      placeholder='Enter LF'
+                      placeholder='0'
                       unitLabel='LF'
+                      helperGap={14}
+                      sectionLead
+                      sectionEnd
                       onChangeText={handleVanityLfChange}
                       applying={applying}
                       darkMode={darkMode}
                       Colors={Colors}
-                      compact
                     />
                   </View>
                 ) : null,

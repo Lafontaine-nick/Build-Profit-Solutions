@@ -8490,6 +8490,14 @@ function resolveDraftPackagesForApply(
     // Same checklist trade under a different room name must not apply twice.
     if (ruleKey && seenRuleKeys.has(ruleKey)) continue;
 
+    // A checklist line Confirm Scope left off the bid stays off the PDF.
+    if (confirmedFromScope && ruleKey) {
+      const fullChecklist = draft.confirmedAssumptions?.length
+        ? draft.confirmedAssumptions
+        : draft.scopeChecklist?.items || [];
+      if (fullChecklist.some(item => item.id === ruleKey)) continue;
+    }
+
     if (confirmedFromScope && applyConfirmedOnly) {
       const userOwned = Boolean(
         room.priceProvidedByUser || room.packageStatus === 'user_provided'

@@ -8393,6 +8393,16 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     missingMessage:
       'Select work type and plumbing exposure, or enter shower/tub rough-in pricing.',
   },
+  window_install: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'windowCount',
+    measurementKeys: ['windowCount'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Window count from Quick Measurements. One count covers removal and the new window.',
+    missingMessage: 'Enter window quantity before pricing.',
+  },
   drywall: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
     quantityHelper:
@@ -25613,6 +25623,24 @@ function resolveChecklistItemQuantityCore(
     return resolveCustomScopeChecklistItemQuantity(itemId, measurements);
   }
   let rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
+  if (itemId === 'window_install') {
+    const measuredWindowCount = Number(
+      String(measurements.windowCount ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(measuredWindowCount) && measuredWindowCount > 0) {
+      return {
+        quantity: measuredWindowCount,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Window quantity',
+        pricingReady: true,
+        quantityHelper:
+          'Window count from Quick Measurements. One count covers removal and the new window.',
+        missingMessage: 'Enter window quantity before pricing.',
+        showInput: true,
+      };
+    }
+  }
   const drywallDemoScope =
     itemId === 'demo' &&
     String(ctx.templateKey || '').toLowerCase() === 'room_remodel' &&
@@ -26419,6 +26447,38 @@ function resolveChecklistItemQuantityCore(
         quantityHelper: rule.quantityHelper,
         showInput: true,
       };
+    }
+  }
+
+  if (itemId === 'shower_pan' || itemId === 'shower_floor_tile') {
+    const sharedSqft = Number(
+      String(measurements.showerFloorTileSqft ?? '').replace(/,/g, '')
+    );
+    const siblingId =
+      itemId === 'shower_pan' ? 'shower_floor_tile' : 'shower_pan';
+    const sibling = parseStoredItemQuantity(measurements, siblingId);
+    const siblingSqft =
+      sibling &&
+      !['allowance', 'lump_sum'].includes(String(sibling.unit || '')) &&
+      Number(sibling.quantity) > 0
+        ? Number(sibling.quantity)
+        : 0;
+    const sqft =
+      Number.isFinite(sharedSqft) && sharedSqft > 0 ? sharedSqft : siblingSqft;
+    if (sqft > 0) {
+      return applyPricingReadyFlags(
+        {
+          quantity: sqft,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+          sourceLabel: 'Quick Measurements · shower floor',
+          pricingReady: true,
+          quantityHelper: rule.quantityHelper,
+          showInput: true,
+        },
+        itemId,
+        ctx
+      );
     }
   }
 
@@ -27374,23 +27434,27 @@ export function resolveChecklistItemQuantity(
   }
   if (itemId === 'window_install') {
     const stored = measurements.itemQuantities?.window_install;
-    const notes = String(ctx.notes || '');
-    const notesHaveWindowCount =
-      /\b(?:\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\b[^.;\n]{0,20}\bwindows?\b|\bwindows?\b[^.;\n]{0,20}\b(?:\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
-        notes
-      );
-    const notesAreReplacementOnly =
-      /\b(?:replace|replacement|install|installation|new)\b[^.;\n]{0,40}\bwindows?\b|\bwindows?\b[^.;\n]{0,40}\b(?:replace|replacement|install|installation)\b/i.test(
-        notes
-      ) && !notesHaveWindowCount;
-    const storedUserCount =
-      stored?.quantitySource === 'user_entered' ? stored.quantity : null;
-    const windowCount = Number(
-      String(
-        storedUserCount ??
-          (notesAreReplacementOnly ? '' : (measurements.windowCount ?? ''))
-      ).replace(/,/g, '')
+    const storedPositive =
+      stored &&
+      ['user_entered', 'manual_override', 'calculated_confirmed'].includes(
+        String(stored.quantitySource || '')
+      ) &&
+      !['allowance', 'lump_sum', 'sqft'].includes(
+        String(stored.unit || '').toLowerCase()
+      )
+        ? Number(String(stored.quantity ?? '').replace(/,/g, ''))
+        : NaN;
+    const measuredWindowCount = Number(
+      String(measurements.windowCount ?? '').replace(/,/g, '')
     );
+    // "Replace the window" has no number in the text. Keep the count the
+    // contractor typed. A stored 0 must not beat that count.
+    const windowCount =
+      Number.isFinite(measuredWindowCount) && measuredWindowCount > 0
+        ? measuredWindowCount
+        : Number.isFinite(storedPositive) && storedPositive > 0
+          ? storedPositive
+          : NaN;
     const hasCount = Number.isFinite(windowCount) && windowCount > 0;
     return {
       quantity: hasCount ? windowCount : null,
@@ -28367,7 +28431,9 @@ export function checklistItemInScope(item: {
   state?: string;
   choiceId?: string | null;
   choiceIds?: string[];
+  contractorRemoved?: boolean;
 }): boolean {
+  if (item.contractorRemoved) return false;
   if (item.inputType === 'multi_choice') {
     const ids = item.choiceIds ?? [];
     if (!ids.length || ids.includes('not_in_scope') || ids.includes('unsure'))
@@ -32367,11 +32433,12 @@ export function initialScopeMeasurementInputExtended(
 
     // A generic bathroom floor-tile measurement belongs to the bath floor.
     // Clear any stale shower-floor value unless the notes explicitly attach
-    // a sqft quantity to the shower floor or pan.
+    // a sqft quantity to the shower floor or pan, or the contractor typed one.
     if (
       key === 'showerFloorTileSqft' &&
       String(draft?.scopeChecklist?.templateKey || '').toLowerCase() ===
         'bathroom' &&
+      !measurementHasProtectedSource(key) &&
       !/(?:\b(?:shower\s+floor|shower\s+pan)\b[^.;\n]{0,35}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:shower\s+floor|shower\s+pan)\b)/i.test(
         scopeNotes
       )

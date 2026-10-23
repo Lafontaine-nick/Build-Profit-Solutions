@@ -25,10 +25,27 @@ function showerJobContext(n: string): boolean {
   return /\b(shower|tub[\s-]to[\s-]shower|wet\s+area|bathroom\s+remodel)\b/.test(n);
 }
 
+function notesPutTileBack(n: string): boolean {
+  return /\bput\s+back\b[^.]{0,40}\b(?:the\s+|new\s+)?tile\b|\bretile\b|\bre-tile\b/.test(
+    n
+  );
+}
+
+function notesTearOutShowerFloor(n: string): boolean {
+  return /\b(?:tear[\s-]?out|remove|demo|demolition|rip[\s-]?out)\b[^.]{0,80}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,40}\b(?:tear[\s-]?out|remove|demo|demolition|rip[\s-]?out)\b/.test(
+    n
+  );
+}
+
 function notesMentionTileShowerWalls(n: string): boolean {
+  if (/\bleave\b[^.]{0,50}\bshower\s+walls?\b/.test(n)) return false;
   return (
     /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower(?:\s+walls?)?|new\s+shower\s+tile)\b/.test(n) ||
-    (showerJobContext(n) && /\btile\s+(?:the\s+)?(?:shower\s+)?walls?\b/.test(n))
+    (showerJobContext(n) && /\btile\s+(?:the\s+)?(?:shower\s+)?walls?\b/.test(n)) ||
+    (showerJobContext(n) &&
+      /\bshower\s+walls?\b/.test(n) &&
+      (notesPutTileBack(n) ||
+        /\b(?:tear[\s-]?out|remove|demo|demolition)\b/.test(n)))
   );
 }
 
@@ -65,7 +82,10 @@ function notesMentionTileShowerPan(n: string): boolean {
     (notesMentionTileShowerWalls(n) &&
       /\b(?:install|new|with|and)\b[^.]{0,45}\bshower\s+pan\b/.test(n) &&
       !notesMentionPrefabPan(n)) ||
-    (showerJobContext(n) && /\btile\s+(?:the\s+)?shower\s+floor\b/.test(n))
+    (showerJobContext(n) && /\btile\s+(?:the\s+)?shower\s+floor\b/.test(n)) ||
+    (notesPutTileBack(n) &&
+      notesTearOutShowerFloor(n) &&
+      !/\bprefab\b/.test(n))
   );
 }
 

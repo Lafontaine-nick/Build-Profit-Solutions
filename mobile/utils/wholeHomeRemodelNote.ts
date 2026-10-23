@@ -158,6 +158,7 @@ type WholeHomeItem = {
   category?: string | null;
   choiceId?: string | null;
   choiceIds?: string[] | null;
+  contractorRemoved?: boolean;
 };
 
 const DUPLICATE_SCOPE_IDS: string[][] = [
@@ -292,6 +293,7 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
           : {}),
       };
     }
+    if (item.contractorRemoved) return item;
     const included = {
       ...item,
       state: 'included' as const,

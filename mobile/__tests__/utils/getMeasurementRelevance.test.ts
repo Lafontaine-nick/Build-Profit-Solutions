@@ -506,6 +506,16 @@ describe('getMeasurementRelevance', () => {
         tilePanBathCount: 1,
       }).relevant
     ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'showerFloorTileSqft',
+        includedScopeKeys: ['shower_floor_tile', 'shower_pan'],
+        templateKey: 'bathroom',
+        tilePanBathCount: null,
+        notes:
+          'Tear out bathroom floor and shower floor and shower walls. Put back new tile.',
+      }).relevant
+    ).toBe(true);
   });
 
   test('roofing accessory measurements are irrelevant until that scope chip is included', () => {

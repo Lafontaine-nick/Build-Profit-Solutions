@@ -58,9 +58,26 @@ import {
   resolveEffectiveQuickMeasurementTemplateKey,
 } from '@/utils/scopeQuickMeasurements';
 import {
+  applyDedicatedBathroomConfirmScope,
   bathroomAffirmativeNotes,
+  notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
+import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
+import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
+import {
+  filterDedicatedFlooringConfirmItems,
+  selectedFlooringProductItemIds,
+} from '@/utils/flooringNoteScope';
+import { filterDedicatedElectricalConfirmItems } from '@/utils/electricalNoteScope';
+import { filterDedicatedWindowsDoorsConfirmItems } from '@/utils/windowsDoorsNoteScope';
+import { filterDedicatedInsulationConfirmItems } from '@/utils/insulationNoteScope';
+import {
+  filterDedicatedStuccoConfirmItems,
+  filterStuccoWithWindowsConfirmItems,
+} from '@/utils/stuccoNoteScope';
+import { paintingPlanAssumesNewConstruction } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import { filterDedicatedPlumbingConfirmItems } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { checklistItemInScope, lookupRuleKeyForPackage, ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
 import {
   hasDetailedElectricalTrimDeviceQuantities,
@@ -75,6 +92,9 @@ import {
   finalizeWetAreaInstallScopeFromMeasurements,
 } from '@/utils/wetAreaInstallScopeGate';
 import {
+  collectRoofingInferenceNotes,
+  ensureNamedRoofingConfirmItems,
+  filterDedicatedRoofingConfirmItems,
   namedFinishReplacesExteriorPaint,
   notesExcludeElectricalServiceUpgrade,
 } from '@/utils/scopeItemNoteHints';
@@ -640,6 +660,105 @@ export function buildConfirmScopeDisplayItems(
   return dedupeScopeChecklistItems([...expanded, stageCard]);
 }
 
+function wholeHomeMixedRemodelNote(notes: string): boolean {
+  return (
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      notes
+    ) &&
+    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
+      notes
+    )
+  );
+}
+
+/**
+ * Same note boundary Confirm Scope uses before Continue.
+ * Step 3, the initial-estimate total, and the PDF all read this list.
+ */
+export function applyStep2NoteScopeFilters(
+  items: ScopeChecklistItem[],
+  draft: EstimateAiDraft,
+  measurements: Record<string, unknown>,
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  const notes = String(draft.originalNotes || '');
+  const noteScopeParams = {
+    notes,
+    templateKey: draft.scopeChecklist?.templateKey || templateKey,
+    projectType: draft.projectType,
+    scopeMode: draft.scopeMode || draft.classification?.scopeMode || null,
+    planBacked: Boolean(
+      measurements.planImportMode || measurements.planImportFingerprint
+    ),
+    wholeHome: wholeHomeMixedRemodelNote(notes),
+  };
+  const roofingNoteParams = {
+    ...noteScopeParams,
+    notes: collectRoofingInferenceNotes(draft, notes),
+    selectedIds: (
+      measurements.tradeScopeSelections as { roofing?: string[] } | undefined
+    )?.roofing,
+  };
+  const bathroomPricedItems = filterDedicatedPlumbingConfirmItems(items, notes);
+  let filtered = filterStuccoWithWindowsConfirmItems(
+    filterDedicatedStuccoConfirmItems(
+      filterDedicatedInsulationConfirmItems(
+        filterDedicatedWindowsDoorsConfirmItems(
+          filterDedicatedElectricalConfirmItems(
+            filterDedicatedFlooringConfirmItems(
+              ensureNamedRoofingConfirmItems(
+                filterDedicatedRoofingConfirmItems(
+                  filterDedicatedKitchenConfirmItems(
+                    applyDedicatedBathroomConfirmScope(
+                      bathroomPricedItems,
+                      noteScopeParams
+                    ),
+                    noteScopeParams
+                  ),
+                  roofingNoteParams
+                ),
+                roofingNoteParams
+              ),
+              notes,
+              selectedFlooringProductItemIds(measurements)
+            ),
+            notes,
+            { planBacked: noteScopeParams.planBacked }
+          ),
+          notes,
+          { planBacked: noteScopeParams.planBacked }
+        ),
+        notes,
+        { planBacked: noteScopeParams.planBacked }
+      ),
+      notes,
+      { planBacked: noteScopeParams.planBacked }
+    ),
+    notes,
+    { planBacked: noteScopeParams.planBacked }
+  );
+  if (paintingPlanAssumesNewConstruction(measurements, notes)) {
+    filtered = filtered.filter(item => item.id !== 'prep');
+  }
+  if (notesWaterproofPanNotWalls(notes)) {
+    filtered = filtered.map(item =>
+      item.id === 'waterproofing'
+        ? {
+            ...item,
+            label: 'Shower pan waterproofing',
+            helperText:
+              'Membrane on the new mud pan. The walls stay, so this is not backer board or wall-cavity insulation.',
+          }
+        : item
+    );
+  }
+  const removedIds = measurements.contractorRemovedScopeItemIds;
+  return applyContractorRemovedScopeItems(
+    filtered,
+    Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+  );
+}
+
 /** Checklist rows for Applied-pricing math after Continue — mirrors Step 2 displayItems. */
 export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): ScopeChecklistItem[] {
   const base = draft.confirmedAssumptions?.length
@@ -703,15 +822,16 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
   // Confirm Scope hydrates through the same electrical sync. The estimate
   // total has to price that list, including whole-house rough-in and excluding
   // a rough package the electrical estimator already replaced with devices.
-  if (wholeProjectPlan || checklistTemplate === 'electrical' || checklistTemplate === 'ground_up') {
-    return syncElectricalScopeItems(displayItems, {
-      templateKey: wholeProjectPlan ? 'ground_up' : checklistTemplate || templateKey,
-      notes: draft.originalNotes,
-      quantities: measurements as never,
-      electricalScope: measurements.electricalScope as string[] | null | undefined,
-    });
-  }
-  return displayItems;
+  const synced =
+    wholeProjectPlan || checklistTemplate === 'electrical' || checklistTemplate === 'ground_up'
+      ? syncElectricalScopeItems(displayItems, {
+          templateKey: wholeProjectPlan ? 'ground_up' : checklistTemplate || templateKey,
+          notes: draft.originalNotes,
+          quantities: measurements as never,
+          electricalScope: measurements.electricalScope as string[] | null | undefined,
+        })
+      : displayItems;
+  return applyStep2NoteScopeFilters(synced, draft, measurements, templateKey);
 }
 
 /** QM embed context — same template resolution as Confirm Scope Step 2. */

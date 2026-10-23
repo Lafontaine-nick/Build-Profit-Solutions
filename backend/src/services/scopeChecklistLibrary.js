@@ -274,7 +274,7 @@ const CHECKLIST_TEMPLATES = {
       {
         id: "shower_pan",
         inputType: "yes_no",
-        label: "Tile shower pan (mud pan build)",
+        label: "Build shower pan",
         helperText:
           "Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.",
         category: "shower",

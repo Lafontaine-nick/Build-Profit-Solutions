@@ -4,6 +4,7 @@
  */
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
+  bathroomNoteTakeoff,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   notesWithoutWetAreaFraming,
@@ -2935,6 +2936,8 @@ export function quickMeasurementRowsForTemplate(
   );
   const bathroomNoteText = String(notes || '');
   const bathroomHasNotes = Boolean(bathroomNoteText.trim());
+  const bathroomTakeoff =
+    key === 'bathroom' ? bathroomNoteTakeoff(notes) : null;
   const bathroomShowerTileWork =
     /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|shower\s+tile)\b/i.test(
       bathroomNoteText
@@ -2962,13 +2965,20 @@ export function quickMeasurementRowsForTemplate(
             );
           }
           if (!bathroomHasNotes) return field.key !== 'baseboardLf';
-          if (
-            field.key === 'showerWallTileSqft' ||
-            field.key === 'showerFloorTileSqft'
-          ) {
-            return bathroomShowerTileWork;
+          if (field.key === 'showerWallTileSqft') {
+            return (
+              bathroomShowerTileWork || Boolean(bathroomTakeoff?.showerWallSqft)
+            );
           }
-          if (field.key === 'bathroomFloorSqft') return bathroomFloorWork;
+          if (field.key === 'showerFloorTileSqft') {
+            return (
+              bathroomShowerTileWork ||
+              Boolean(bathroomTakeoff?.showerFloorSqft)
+            );
+          }
+          if (field.key === 'bathroomFloorSqft') {
+            return bathroomFloorWork || Boolean(bathroomTakeoff?.bathFloorSqft);
+          }
           if (
             field.key === 'wallPaintSqft' ||
             field.key === 'ceilingPaintSqft'
@@ -2981,7 +2991,10 @@ export function quickMeasurementRowsForTemplate(
             );
           }
           if (field.key === 'exteriorWallInsulationSqft') {
-            return /\binsulat(?:e|ion|ed)\b/i.test(bathroomNoteText);
+            return (
+              /\binsulat(?:e|ion|ed)\b/i.test(bathroomNoteText) ||
+              Boolean(bathroomTakeoff?.wallInsulationSqft)
+            );
           }
           return true;
         })
@@ -4309,13 +4322,15 @@ export function quickMeasurementRowsForInput(
     const bathroomExteriorDoorWork = /\b(?:exterior|outside)\s+doors?\b/i.test(
       bathroomNotes
     );
+    const mixedBathroomTakeoff = bathroomNoteTakeoff(bathroomNotes);
     const keepBathroomField = (field: QuickMeasurementFieldDef) => {
       switch (field.key) {
         case 'bathroomFloorSqft':
-          return bathroomFloorWork;
+          return bathroomFloorWork || mixedBathroomTakeoff.bathFloorSqft;
         case 'showerWallTileSqft':
+          return wetAreaWork || mixedBathroomTakeoff.showerWallSqft;
         case 'showerFloorTileSqft':
-          return wetAreaWork;
+          return wetAreaWork || mixedBathroomTakeoff.showerFloorSqft;
         case 'wallPaintSqft':
         case 'ceilingPaintSqft':
           return bathroomPaintWork;
@@ -4325,7 +4340,7 @@ export function quickMeasurementRowsForInput(
         case 'baseboardLf':
           return bathroomBaseboardWork;
         case 'windowCount':
-          return bathroomWindowWork;
+          return bathroomWindowWork || mixedBathroomTakeoff.windowCount;
         case 'exteriorDoorCount':
           return bathroomExteriorDoorWork;
         case 'plumbingRerouteLf':
@@ -4333,7 +4348,10 @@ export function quickMeasurementRowsForInput(
             bathroomNotes
           );
         case 'exteriorWallInsulationSqft':
-          return /\binsulat(?:e|ion|ed)\b/i.test(bathroomNotes);
+          return (
+            /\binsulat(?:e|ion|ed)\b/i.test(bathroomNotes) ||
+            mixedBathroomTakeoff.wallInsulationSqft
+          );
         default:
           return true;
       }

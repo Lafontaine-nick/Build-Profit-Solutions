@@ -20,6 +20,10 @@ import {
 } from '@/utils/scopeItemQuantities';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { applyDraftToEstimate } from '@/utils/estimateAiDraft';
+import {
+  sumAppliedScopePricingFromDraft,
+  sumStep3ReviewBudgetTotals,
+} from '@/utils/benchmarkReasonablenessContext';
 
 function bathroomChecklistFromGroups(): ScopeChecklistItem[] {
   return SCOPE_CHECKLIST_GROUPS.bathroom!.flatMap((group) =>
@@ -969,7 +973,7 @@ describe('scopePackagesForReview', () => {
     const names = packages.map((p) => p.name);
     expect(names.filter((n) => /drywall repair/i.test(n))).toHaveLength(1);
     expect(names.filter((n) => /wet area install/i.test(n))).toHaveLength(0);
-    expect(names.filter((n) => /tile shower pan|mud pan build/i.test(n))).toHaveLength(1);
+    expect(names.filter((n) => /tile shower pan|mud pan build|build shower pan/i.test(n))).toHaveLength(1);
     expect(names.filter((n) => /prefabricated quartz/i.test(n))).toHaveLength(1);
     expect(packages.length).toBeLessThanOrEqual(8);
     expect(packages.find((p) => p.name === 'Cleanup, haul-off & disposal')?.price).toBeNull();
@@ -1271,5 +1275,146 @@ describe('scopePackagesForReview', () => {
       expect.arrayContaining(['roofing_system', 'tear_off'])
     );
     expect(step3Rows.map((row) => row.id)).not.toContain('shingles_roofing');
+  });
+});
+
+describe('dedicated bathroom Step 3 matches the note Step 2 priced', () => {
+  const notes =
+    'Guest bath remodel. Remove the tub and demo the old bathroom floor tile. Put in a tiled shower with shower wall tile and shower floor tile. Tile the bathroom floor. New vanity with a countertop. Replace the window. Insulation in the walls. New toilet. No paint.';
+
+  function guestBathItem(
+    id: string,
+    label: string
+  ): ScopeChecklistItem {
+    return { id, label, state: 'included', inputType: 'yes_no' };
+  }
+
+  it('drops note-excluded rows and keeps the Step 2 shower demo name', () => {
+    const items = [
+      guestBathItem('demo', 'Existing flooring removal'),
+      guestBathItem('floor_demo', 'Bathroom floor demo / removal'),
+      guestBathItem('tub_demo', 'Remove existing tub'),
+      guestBathItem('shower_tile', 'Shower wall tile'),
+      guestBathItem('shower_floor_tile', 'Shower floor tile'),
+      guestBathItem('shower_pan', 'Build shower pan'),
+      guestBathItem('floor_tile', 'Bath floor tile'),
+      guestBathItem('vanity', 'Vanity'),
+      guestBathItem('countertops', 'Vanity top'),
+      guestBathItem('window_install', 'Window removal and install'),
+      guestBathItem('insulation', 'Wall insulation'),
+      guestBathItem('toilet', 'Toilet'),
+      guestBathItem('waterproofing', 'Shower waterproofing & backer board'),
+      guestBathItem('interior_paint', 'Interior painting'),
+      guestBathItem('exterior_trim_paint', 'Exterior trim paint'),
+      guestBathItem('exterior_prep', 'Exterior Prep & Masking'),
+      guestBathItem('wet_area_install', 'Wet area install'),
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeMode: 'dedicated',
+      projectType: 'bathroom',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'bathroom', items },
+      confirmedAssumptions: items,
+      scopeMeasurements: {
+        itemQuantities: {
+          toilet: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+          toilet__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+          toilet__labor: { quantity: '700', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          toilet: {
+            status: 'accepted',
+            totalAmount: 900,
+            materialAmount: 200,
+            laborAmount: 700,
+          },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Exterior trim paint',
+          scope: '1 each',
+          checklistItemId: 'exterior_trim_paint',
+          price: 180,
+          knownSubtotal: 180,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+        {
+          name: 'Exterior Prep & Masking',
+          scope: '1 each',
+          checklistItemId: 'exterior_prep',
+          price: 125,
+          knownSubtotal: 125,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const packages = reconcileScopePackagesForReview(draft);
+    const ids = packages.map(pkg => pkg.checklistItemId);
+    expect(ids).toContain('demo');
+    expect(ids).not.toContain('waterproofing');
+    expect(ids).not.toContain('interior_paint');
+    expect(ids).not.toContain('exterior_trim_paint');
+    expect(ids).not.toContain('exterior_prep');
+    expect(ids).not.toContain('wet_area_install');
+    expect(packages.find(pkg => pkg.checklistItemId === 'demo')?.name).toBe(
+      'Shower tile demo / tear-out'
+    );
+
+    const applied = sumAppliedScopePricingFromDraft(draft);
+    const hero = sumStep3ReviewBudgetTotals(draft);
+    expect(hero?.total).toBe(applied?.total);
+    expect(hero?.total).toBe(900);
+  });
+});
+
+describe('every note copies Step 2 onto Step 3 and the PDF', () => {
+  it('keeps a named kitchen note off rows the note never priced', () => {
+    const notes = 'Kitchen remodel. Replace the cabinets.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'cabinets', label: 'Cabinets', state: 'included', inputType: 'yes_no' },
+      { id: 'interior_paint', label: 'Interior painting', state: 'included', inputType: 'yes_no' },
+      { id: 'toilet', label: 'Toilet', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeMode: 'dedicated',
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen', items },
+      confirmedAssumptions: items,
+      scopeMeasurements: {},
+      scopePackages: [],
+      rooms: [
+        {
+          name: 'Interior painting',
+          scope: 'Walls',
+          checklistItemId: 'interior_paint',
+          price: 800,
+          priceProvidedByUser: true,
+          packageStatus: 'user_provided',
+        },
+      ],
+    } as unknown as EstimateAiDraft;
+
+    const packages = reconcileScopePackagesForReview(draft);
+    const ids = packages.map(pkg => pkg.checklistItemId);
+    expect(ids).toContain('cabinets');
+    expect(ids).not.toContain('interior_paint');
+    expect(ids).not.toContain('toilet');
+
+    const { bid } = applyDraftToEstimate({}, draft);
+    const scope = String(bid.scopeDescription || '');
+    expect(scope).toContain('Cabinets');
+    expect(scope).not.toMatch(/Interior painting/i);
+    const labor = (bid.laborLineItems || []) as Array<{ name?: string }>;
+    expect(labor.some(line => /interior painting/i.test(String(line.name || '')))).toBe(
+      false
+    );
   });
 });
