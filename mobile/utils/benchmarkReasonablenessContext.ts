@@ -32,6 +32,7 @@ import {
   scrubDedicatedFlooringMeasurements,
 } from '@/utils/flooringNoteScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import { wholeHomeRemodelSuppressesInventedPrice } from '@/utils/wholeHomeRemodelNote';
 import {
   hasDetailedElectricalTrimDeviceQuantities,
   isPlanElectricalDeviceCard,
@@ -1208,6 +1209,15 @@ function displayedTotalForGroupItem(
   }
 ): number {
   if (!landscapingChoiceCountsInGroupTotal(item)) return 0;
+  if (
+    wholeHomeRemodelSuppressesInventedPrice(
+      item.id,
+      params.notes,
+      params.measurements as unknown as Record<string, unknown>
+    )
+  ) {
+    return 0;
+  }
   const appliedTotal = applied.get(item.id);
   if (
     appliedTotal != null &&

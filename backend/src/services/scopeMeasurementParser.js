@@ -1562,6 +1562,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     });
     if (mixedInteriorFlooringNote && !explicitFlooringQuantity) return null;
     if (additionFloorArea) return additionFloorArea;
+    const { notesDescribeMeasuredWholeHomeRemodel, statedWholeHomeSizeSqft } = require("./scopeChecklistLibrary");
+    if (notesDescribeMeasuredWholeHomeRemodel(text)) {
+      const houseSize = statedWholeHomeSizeSqft(text);
+      if (houseSize) return houseSize;
+    }
     if (explicitHomeInterior) return explicitHomeInterior;
     if (livingAreaSqft) return livingAreaSqft;
     if (allowsHomeFloorInference) {

@@ -159,11 +159,28 @@ function appliedPricingRuleKeysForPackage(pkg: EstimateDraftScopePackage): strin
   return expandInteriorPaintSurfaceAliases(keys);
 }
 
+const DISTINCT_TILE_SCOPE_IDS = new Set([
+  'shower_tile',
+  'shower_floor_tile',
+  'floor_tile',
+]);
+
 function checklistItemAllowsAppliedRuleKey(
   ruleKey: string,
   primaryId: string | null | undefined,
   items: ReturnType<typeof confirmScopeDisplayItemsFromDraft>
 ): boolean {
+  // Wall tile, shower floor tile, and bath floor tile are separate cards.
+  // A sibling that is still on the bid keeps its own dollars.
+  if (
+    primaryId &&
+    ruleKey !== primaryId &&
+    DISTINCT_TILE_SCOPE_IDS.has(primaryId) &&
+    DISTINCT_TILE_SCOPE_IDS.has(ruleKey) &&
+    items.some(row => row.id === ruleKey && checklistItemInScope(row))
+  ) {
+    return false;
+  }
   const item = items.find((row) => row.id === ruleKey);
   if (item) {
     if (checklistItemInScope(item)) return true;

@@ -7455,6 +7455,24 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Casing, finish, and paint are not included.',
     missingMessage: 'Enter sliding door count or pricing.',
   },
+  kitchen_updates: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper:
+      'Kitchen work named in the notes. Cabinet, counter, and finish quantities were not stated.',
+    missingMessage: 'Enter a kitchen update price.',
+  },
+  bathroom_updates: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper:
+      'Bathroom work named in the notes. Fixture and finish quantities were not stated.',
+    missingMessage: 'Enter a bathroom update price.',
+  },
   garage_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
@@ -31702,6 +31720,8 @@ export function prepareScopeMeasurementsInputForUi(
 export type ScopeMeasurementsInputExtended = ReturnType<
   typeof emptyQuickMeasurementInput
 > & {
+  /** Bathroom vanity run. Kitchen cabinets stay on cabinetLf. */
+  bathroomVanityCabinetLf?: string | number | null;
   /** Checklist ids the contractor removed. Counts stay; the line stays off the bid. */
   contractorRemovedScopeItemIds?: string[];
   /** Room-addition exterior finish. Empty string means the contractor cleared it. */

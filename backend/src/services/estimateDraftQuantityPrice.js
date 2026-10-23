@@ -666,7 +666,11 @@ function classifyScopeFromNotes(notes, projectType) {
     nonTrimTrades.length >= 2 &&
     (!/\b(?:bath(?:room)?|shower|tub|vanity|toilet)\b/i.test(text) ||
       hasFraming);
-  const inferredProjectType = inferProjectTypeFromNotes(text, projectType);
+  const { notesDescribeMeasuredWholeHomeRemodel } = require('./scopeChecklistLibrary');
+  const measuredWholeHome = notesDescribeMeasuredWholeHomeRemodel(text);
+  const inferredProjectType = measuredWholeHome
+    ? 'other'
+    : inferProjectTypeFromNotes(text, projectType);
   const notePrimaryProjectType =
     detectedTrades.length === 1
       ? NOTE_TRADE_PROJECT_TYPES[detectedTrades[0]] || null
@@ -689,7 +693,7 @@ function classifyScopeFromNotes(notes, projectType) {
     ['new_build', 'home_addition', 'room_addition', 'adu', 'garage_conversion'].includes(
       resolvedProjectType
     );
-  const isMixed = hasMixedTradeIntent && !isDedicatedStructure;
+  const isMixed = measuredWholeHome || (hasMixedTradeIntent && !isDedicatedStructure);
   const normalizedTrades = detectedTrades.length
     ? detectedTrades
     : resolvedProjectType && resolvedProjectType !== 'other'

@@ -115,6 +115,7 @@ import {
   inferChoicesFromNotes,
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
+  notesDoorMentionIsPaintOrKeepOnly,
 } from '@/utils/scopeItemNoteHints';
 import { migrateKitchenDemoSplit } from '@/utils/qmScopePanels/kitchenRemodel';
 import {
@@ -4632,7 +4633,7 @@ function ensureBathroomNoteBackedScopeItems(
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(text) &&
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(text);
-  if (hasGenericDoorMention) {
+  if (hasGenericDoorMention && !notesDoorMentionIsPaintOrKeepOnly(text)) {
     matchedIds.add('interior_door_install');
   }
   const hasSpecificDoorType =
@@ -8031,7 +8032,11 @@ const WHOLE_PROJECT_PRICE_GROUPS: Array<{
     test: id =>
       /drywall|floor|tile|cabinet|counter|paint|trim|door|appliance|vanity|backsplash|glass_door|hang|interior_finishes/.test(
         id
-      ) || id === 'prep',
+      ) ||
+      id === 'prep' ||
+      id === 'kitchen_updates' ||
+      id === 'bathroom_updates' ||
+      id === 'toilet',
   },
   {
     title: 'Drywall finish',

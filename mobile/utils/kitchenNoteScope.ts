@@ -1,3 +1,5 @@
+import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+
 /**
  * Dedicated kitchen notes only show the lines the note names.
  * A bare "kitchen remodel" still gets the full questionnaire.
@@ -286,6 +288,12 @@ export function kitchenNoteNamesSurfaceDemo(
 export function kitchenNoteIncludesFloorWork(notes: string | null | undefined): boolean {
   const text = String(notes || '');
   if (!text.trim()) return false;
+  if (
+    notesDescribeMeasuredWholeHomeRemodel(text) &&
+    !/\bkitchen\s+floor(?:ing)?\b/i.test(text)
+  ) {
+    return false;
+  }
   if (/\bfloor(?:ing)?\s+protection\b/i.test(text)) return false;
   if (
     text.split(/[.\n]/).some(

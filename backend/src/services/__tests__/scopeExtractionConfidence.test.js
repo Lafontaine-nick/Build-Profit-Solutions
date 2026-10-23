@@ -49,6 +49,17 @@ describe('scopeExtractionConfidence', () => {
     );
   });
 
+  test('does not ask the paint question when the sqft belongs to the house or the flooring', () => {
+    const result = evaluate(
+      'Whole house remodel. The house is 2,400 sqft. Kitchen and bathroom updates, 1,800 sqft flooring, and paint the interior. Keep the windows and doors.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+
+    expect(result.clarificationQuestions.map((q) => q.question)).not.toContain(
+      'Does the sqft refer to floor area or paintable wall and ceiling area?'
+    );
+  });
+
   test('does not ask unnecessary clarification questions for explicit paintable area', () => {
     const result = evaluate('Paint walls and ceiling 800 sqft lump sum $2,400.', {
       templateKey: 'painting',

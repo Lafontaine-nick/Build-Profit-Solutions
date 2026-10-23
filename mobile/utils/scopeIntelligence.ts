@@ -1,5 +1,9 @@
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  notesStatePaintArea,
+} from '@/utils/wholeHomeRemodelNote';
+import {
   dedicatedDeckRailingLf,
   notesDescribeDedicatedDeckJob,
 } from '@/utils/deckNoteScope';
@@ -1353,13 +1357,17 @@ export function resolveScopeItemIntelligence(params: {
   const enteredInteriorPaint =
     (params.scopeKey === 'interior_paint' || params.scopeKey === 'paint') &&
     Number(String(params.measurements.wallPaintSqft ?? '').replace(/,/g, '')) > 0;
+  const unstatedWholeHomePaint =
+    (params.scopeKey === 'interior_paint' || params.scopeKey === 'paint') &&
+    notesDescribeMeasuredWholeHomeRemodel(params.notes) &&
+    !notesStatePaintArea(params.notes);
   const areaOnlyDrywallSurface =
     (params.scopeKey === 'drywall' ||
       params.scopeKey === 'hang' ||
       params.scopeKey === 'finish_tape') &&
     notesDescribeAreaOnlyAddition(params.notes) &&
     Number(String(params.measurements.drywallSqft ?? '').replace(/,/g, '')) > 0;
-  const formula = statedDrywallHang || statedFlooringArea || statedDeckRailingLength || enteredInteriorPaint || areaOnlyDrywallSurface
+  const formula = statedDrywallHang || statedFlooringArea || statedDeckRailingLength || enteredInteriorPaint || areaOnlyDrywallSurface || unstatedWholeHomePaint
     ? null
     : calculateFormulaForScope({
         scopeKey: params.scopeKey,

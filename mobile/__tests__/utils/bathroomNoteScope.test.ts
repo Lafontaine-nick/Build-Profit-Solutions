@@ -51,7 +51,7 @@ function namedIds(notes: string) {
 }
 
 describe('bathroom note checklist', () => {
-  it('keeps the full list for empty notes, mixed scope, and plan import', () => {
+  it('keeps the full list for empty notes and plan import', () => {
     expect(
       shouldLimitBathroomChecklistToNotes({
         notes: '',
@@ -64,7 +64,17 @@ describe('bathroom note checklist', () => {
         templateKey: 'bathroom',
         scopeMode: 'mixed',
       })
-    ).toBe(false);
+    ).toBe(true);
+    const filtered = filterDedicatedBathroomConfirmItems(
+      [
+        { id: 'tub_demo' },
+        { id: 'wet_area_install' },
+        { id: 'shower_tile' },
+        { id: 'flooring' },
+      ],
+      { notes: TUB, templateKey: 'bathroom', scopeMode: 'mixed' }
+    );
+    expect(filtered.map(item => item.id)).toEqual(['tub_demo', 'flooring']);
     expect(
       shouldLimitBathroomChecklistToNotes({
         notes: TUB,

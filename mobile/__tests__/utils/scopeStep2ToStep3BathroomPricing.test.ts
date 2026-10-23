@@ -1,8 +1,15 @@
 import {
   syncSelectedScopePricing,
   getScopePackages,
+  applyDraftToEstimate,
+  sumEstimateLineTotals,
   type EstimateAiDraft,
 } from '@/utils/estimateAiDraft';
+import {
+  applyStep2NoteScopeFilters,
+  buildConfirmScopeDisplayItems,
+  confirmScopeDisplayItemsFromDraft,
+} from '@/utils/scopePackagesForReview';
 import {
   initialScopeMeasurementInputExtended,
   lookupRuleKeyForPackage,
@@ -240,6 +247,55 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     const tileRemoval = byChecklistId(packages, 'floor_demo');
     expect(scopePackagePricedAmount(tileRemoval, draft)).toBe(660);
     expect(scopePackageNeedsManualPrice(tileRemoval, draft)).toBe(false);
+  });
+
+  it('keeps the Confirm Scope list, its labels, and the applied total on the bid', () => {
+    const notes =
+      'Bathroom remodel. Tear out the shower wall tile, install shower floor tile on a new mud pan, and paint the walls.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'demo', label: 'Demolition', state: 'included', inputType: 'yes_no' },
+      { id: 'paint', label: 'Paint', state: 'included', inputType: 'yes_no' },
+      {
+        id: 'interior_door_install',
+        label: 'Interior door installation',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+    const draft = {
+      originalNotes: notes,
+      projectType: 'bathroom',
+      scopeMode: 'dedicated',
+      scopeChecklist: { templateKey: 'bathroom', items },
+      scopeMeasurements: {},
+    } as unknown as EstimateAiDraft;
+    const display = buildConfirmScopeDisplayItems(items, {}, 'bathroom', notes);
+    const screen = applyStep2NoteScopeFilters(display, draft, {}, 'bathroom');
+    const later = confirmScopeDisplayItemsFromDraft(draft);
+    const identity = (rows: ScopeChecklistItem[]) =>
+      rows.map(row => `${row.id}|${row.label}|${row.state}`);
+
+    expect(identity(later)).toEqual(identity(screen));
+    expect(screen.find(row => row.id === 'interior_door_install')).toBeUndefined();
+    expect(screen.find(row => row.id === 'demo')?.label).toBe(
+      'Shower tile demo / tear-out'
+    );
+    expect(screen.some(row => row.id === 'shower_floor_tile')).toBe(true);
+    expect(screen.some(row => row.id === 'shower_pan')).toBe(true);
+  });
+
+  it('writes the applied bathroom total onto the bid the summary and PDF read', () => {
+    const draft = bathroomDraftWithAppliedPricing();
+    const applied = sumAppliedScopePricingFromDraft(draft);
+    const { bid } = applyDraftToEstimate({}, draft, { applyConfirmedOnly: true });
+    const lines = sumEstimateLineTotals(bid.materialLineItems, bid.laborLineItems);
+    const allowances = (
+      (bid.allowanceLineItems as Array<{ amount?: number; total?: number }>) || []
+    ).reduce((sum, row) => sum + (Number(row.amount ?? row.total) || 0), 0);
+
+    expect(applied?.total).toBeGreaterThan(0);
+    expect(lines.material + lines.labor + allowances).toBeCloseTo(applied!.total, 2);
+    expect(sumStep3ReviewBudgetTotals(draft)?.total).toBeCloseTo(applied!.total, 2);
   });
 
   it('hero total matches Confirm Scope applied pricing (Step 2 footer)', () => {

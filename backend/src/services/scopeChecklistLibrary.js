@@ -2763,9 +2763,9 @@ const CHECKLIST_YES_HINTS = {
   tile_flooring: /\b(tile|flooring|floors?|lvp|laminate|carpet|hardwood)\b/,
   paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
   trim_paint:
-    /\b(paint|trim|baseboards?|base\s*board|casing|crown|moulding|molding)\b/,
+    /\b(?:paint(?:ing)?|prime|prep|repaint)\b[^.;\n]{0,40}\b(?:baseboards?|base\s*board|trim|casing|crown|moulding|molding)\b|\b(?:baseboards?|base\s*board|trim|casing|crown|moulding|molding)\b[^.;\n]{0,40}\b(?:paint(?:ing)?|prime|prep|repaint)\b/,
   interior_paint:
-    /\b(interior\s+paint|paint\s+(?:walls?|ceilings?|interior)|paint\s*\/\s*stain)\b/,
+    /\b(?:interior\s+paint(?:ing)?|paint(?:ing)?\b[^.;\n]{0,40}\b(?:walls?|ceilings?|interior)|paint\s*\/\s*stain)\b/,
   prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
   door_paint:
     /\b(?:paint|painting)\b[^.;]{0,60}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,60}\b(?:paint|painting)\b/i,
@@ -2802,7 +2802,8 @@ const CHECKLIST_YES_HINTS = {
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
-  interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
+  interior_paint:
+    /\b(?:interior\s+paint(?:ing)?|paint(?:ing)?\b[^.;\n]{0,40}\b(?:walls?|ceilings?|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
   exterior_trim_paint:
     /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/,
@@ -2867,6 +2868,63 @@ const CONCRETE_FLATWORK_NOTES =
 
 const CONCRETE_FLATWORK_CONTEXT =
   /\b(?:forms?|rebar|thickened\s+edge|broom\s+finish|pump\s+truck|gravel\s+base|dig\s+out|mesh|control\s+joints?)\b/i;
+
+const WHOLE_HOME_SQFT =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i;
+const WHOLE_HOME_TRADE_SQFT =
+  /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
+
+function wholeHomeSqftTouchesTrade(text, index, raw) {
+  const before = text.slice(Math.max(0, index - 36), index);
+  const after = text.slice(index + raw.length, index + raw.length + 36);
+  return WHOLE_HOME_TRADE_SQFT.test(before) || WHOLE_HOME_TRADE_SQFT.test(after);
+}
+
+/** House size the note stated. A flooring or paint sqft is not the house size. */
+function statedWholeHomeSizeSqft(notes) {
+  const text = String(notes || "");
+  const adjacent = text.match(
+    new RegExp(`${WHOLE_HOME_SQFT.source}\\s+(?:home|house)\\b`, "i"),
+  );
+  if (adjacent?.[1]) return Number(adjacent[1].replace(/,/g, ""));
+  const homeThen = text.match(
+    new RegExp(
+      `\\b(?:home|house|living(?:\\s+area)?)\\b[^.;\\n]{0,32}?${WHOLE_HOME_SQFT.source}`,
+      "i",
+    ),
+  );
+  if (!homeThen?.[1]) return null;
+  const at = homeThen.index ?? 0;
+  if (
+    WHOLE_HOME_TRADE_SQFT.test(homeThen[0]) ||
+    wholeHomeSqftTouchesTrade(text, at, homeThen[0])
+  ) {
+    return null;
+  }
+  const size = Number(homeThen[1].replace(/,/g, ""));
+  return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+/**
+ * A measured whole-home remodel. "The house is 2,400 sqft" counts.
+ * A bathroom remodel that mentions the house size does not.
+ */
+function notesDescribeMeasuredWholeHomeRemodel(notes) {
+  const text = String(notes || "");
+  if (!/\bremodel/i.test(text) || statedWholeHomeSizeSqft(text) == null) {
+    return false;
+  }
+  if (
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  return /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+    text,
+  );
+}
 
 /** New-home notes such as "New 1,960 sqft single-story home". */
 function notesDescribeGroundUpHome(notes) {
@@ -3134,6 +3192,7 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   }
   // "Stucco exterior" on a new house is the wall finish. The bid stays the house.
   if (notesDescribeGroundUpHome(notes)) return "ground_up";
+  if (notesDescribeMeasuredWholeHomeRemodel(notes)) return "room_remodel";
   // Stucco notes often mention that painting beyond the stucco finish is
   // excluded. Keep that exclusion from routing the job to the paint checklist.
   if (dedicatedStuccoIntent) {
@@ -3194,6 +3253,12 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   if (estimateTier === "ground_up") return "ground_up";
   if (estimateTier === "addition") return "addition";
   if (detectAdditionConversionIntent(projectType, notes)) return "addition";
+  const { normalizeScopeIntent } = require("./scopeIntent");
+  const intentItems = normalizeScopeIntent(draft?.scopeIntent, notes).items;
+  const intentKeepsMixedScope =
+    intentItems.some((item) => /floor|lvp|appliance/.test(item.id)) &&
+    intentItems.some((item) => /window|door/.test(item.id));
+  if (intentKeepsMixedScope) return "room_remodel";
   const dedicatedWindowsDoorsIntent =
     projectType === "windows_doors" ||
     projectType === "windows_and_doors" ||
@@ -3389,6 +3454,28 @@ function inferTrimStateFromNotes(n) {
   return "unsure";
 }
 
+/** "Paint the doors" and "keep the doors" are not a door install. */
+function notesDoorMentionIsPaintOrKeepOnly(notes) {
+  const text = String(notes || "");
+  if (!/\bdoors?\b/i.test(text)) return false;
+  const doorSentences = text
+    .split(/[.\n;]+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => /\bdoors?\b/i.test(sentence));
+  if (!doorSentences.length) return false;
+  return doorSentences.every((sentence) => {
+    const paintOrKeepOnDoors =
+      /\b(?:keep|keeping|leaving|leave|exclude|excluding|paint|painting|repaint|prime|prep)\b(?:\s+\w+){0,5}\s+doors?\b/i.test(
+        sentence,
+      );
+    const installOnDoors =
+      /\b(?:install|replace|replacing|hang|swap)\b(?:\s+\w+){0,5}\s+(?:interior\s+)?doors?\b/i.test(
+        sentence,
+      ) || /\b\d+\s+interior\s+doors?\b/i.test(sentence);
+    return paintOrKeepOnDoors && !installOnDoors;
+  });
+}
+
 function inferItemStateFromNotes(itemId, notes) {
   const ownerCategory = OWNER_HANDLED_SCOPE_ITEM_CATEGORIES[itemId];
   if (ownerCategory && notesOwnerHandlesScopeCategory(notes, ownerCategory)) {
@@ -3414,6 +3501,7 @@ function inferItemStateFromNotes(itemId, notes) {
   }
   if (itemId === "trim") return inferTrimStateFromNotes(n);
   if (itemId === "interior_door_install") {
+    if (notesDoorMentionIsPaintOrKeepOnly(notes)) return "unsure";
     const hasInteriorDoorMention = /\binterior\s+doors?\b/.test(n);
     const hasGenericDoorMention =
       /\bdoors?\b/.test(n) &&
@@ -4117,8 +4205,11 @@ module.exports = {
   notesImplyConcreteFlatwork,
   notesImplyMixedExteriorHardscape,
   notesDescribeGroundUpHome,
+  notesDescribeMeasuredWholeHomeRemodel,
+  statedWholeHomeSizeSqft,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
+  notesDoorMentionIsPaintOrKeepOnly,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   choiceToState,

@@ -24,6 +24,7 @@ import {
   notesDescribeDedicatedDeckJob,
 } from '@/utils/deckNoteScope';
 import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
+import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 
 const AIR_SEALING_SYNONYM_RE =
   /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i;
@@ -2202,10 +2203,7 @@ export function parseScopeMeasurementsFromNotes(
     templateKey === 'kitchen' ||
     projectType === 'kitchen' ||
     /\bkitchen\b/i.test(blob);
-  const wholeHomeFlooring =
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-      blob
-    );
+  const wholeHomeFlooring = notesDescribeMeasuredWholeHomeRemodel(blob);
   const explicitKitchenFloor = /\bkitchen\s+floor(?:ing)?\b/i.test(blob);
   if (
     flooringSqft &&

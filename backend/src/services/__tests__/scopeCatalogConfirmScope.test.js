@@ -42,4 +42,34 @@ describe("catalog-driven Confirm Scope pilot", () => {
       noteBacked: true,
     });
   });
+
+  test("paints doors and walls without installing doors or painting trim", () => {
+    const notes = "Paint the doors and walls.";
+    const checklist = buildScopeChecklist(
+      { projectType: "painting", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const state = (id) => checklist.items.find((item) => item.id === id)?.state;
+
+    expect(state("door_paint")).toBe("included");
+    expect(state("interior_paint")).toBe("included");
+    expect(state("trim_paint")).not.toBe("included");
+    expect(state("interior_door_install")).not.toBe("included");
+  });
+
+  test("does not install doors the note only paints or keeps", () => {
+    const notes =
+      "Whole house remodel. Paint all walls and ceilings. Keep the windows and doors.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const doors = checklist.items.find(
+      (item) => item.id === "interior_door_install",
+    );
+
+    expect(doors?.state).not.toBe("included");
+  });
 });

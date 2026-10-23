@@ -2,17 +2,69 @@
  * A measured whole-home remodel names the house size and the trades.
  * "Kitchen and bathroom updates" is a work area, not a kitchen-floor takeoff.
  * "Fixtures" in a removal list is fixture demo, not a plumbing fixture package.
+ * "Whole house remodel. The house is 2,400 sqft" is the same bid as
+ * "Remodel a 2,400 sqft home". A flooring sqft in that note is not the house size.
  */
+
+const HOUSE_SQFT =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i;
+const TRADE_SQFT =
+  /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
+
+function sqftTouchesTrade(text: string, index: number, raw: string): boolean {
+  const before = text.slice(Math.max(0, index - 36), index);
+  const after = text.slice(index + raw.length, index + raw.length + 36);
+  return TRADE_SQFT.test(before) || TRADE_SQFT.test(after);
+}
+
+/** House size the note stated. A trade quantity such as flooring sqft is not one. */
+export function statedWholeHomeSizeSqft(
+  notes: string | null | undefined
+): number | null {
+  const text = String(notes || '');
+  const adjacent = text.match(
+    new RegExp(
+      `${HOUSE_SQFT.source}\\s+(?:home|house)\\b`,
+      'i'
+    )
+  );
+  if (adjacent?.[1]) return Number(adjacent[1].replace(/,/g, ''));
+  const homeThen = text.match(
+    new RegExp(
+      `\\b(?:home|house|living(?:\\s+area)?)\\b[^.;\\n]{0,32}?${HOUSE_SQFT.source}`,
+      'i'
+    )
+  );
+  if (!homeThen?.[1]) return null;
+  const at = homeThen.index ?? 0;
+  if (TRADE_SQFT.test(homeThen[0]) || sqftTouchesTrade(text, at, homeThen[0])) {
+    return null;
+  }
+  const size = Number(homeThen[1].replace(/,/g, ''));
+  return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+function notesNameWholeHome(notes: string): boolean {
+  return /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+    notes
+  );
+}
 
 export function notesDescribeMeasuredWholeHomeRemodel(
   notes: string | null | undefined
 ): boolean {
   const text = String(notes || '');
-  return (
+  if (!/\bremodel/i.test(text) || statedWholeHomeSizeSqft(text) == null) {
+    return false;
+  }
+  if (
     /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
       text
-    ) && /\bremodel/i.test(text)
-  );
+    )
+  ) {
+    return true;
+  }
+  return notesNameWholeHome(text);
 }
 
 /**
@@ -36,11 +88,54 @@ function removalOf(notes: string, term: string): boolean {
   return notesNameRemovalOf(notes, term);
 }
 
+/**
+ * A measured whole-home note that names a kitchen remodel without a takeoff.
+ * Confirm Scope uses the kitchen remodel panel, not a lump updates card.
+ */
+export function notesNameKitchenRemodelPanel(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    notesDescribeMeasuredWholeHomeRemodel(text) &&
+    /\bkitchen\b/i.test(text) &&
+    /\b(?:updat(?:e|es|ing)|remodel|renovation|reno)\b/i.test(text)
+  );
+}
+
+/**
+ * A measured whole-home note that names a bathroom remodel without a takeoff.
+ * Confirm Scope uses the bathroom remodel panel, not a lump updates card.
+ */
+export function notesNameBathroomRemodelPanel(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    notesDescribeMeasuredWholeHomeRemodel(text) &&
+    /\bbath(?:room)?s?\b/i.test(text) &&
+    /\b(?:updat(?:e|es|ing)|remodel|renovation|reno)\b/i.test(text)
+  );
+}
+
 /** A paint area the note actually stated. "Paint the interior" is not one. */
 export function notesStatePaintArea(notes: string | null | undefined): boolean {
-  return /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:paint(?:ing)?|repaint)\b|\b(?:paint(?:ing)?|repaint)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
-    String(notes || '')
-  );
+  const text = String(notes || '');
+  const otherTrade =
+    /\b(?:floor(?:ing)?|tile|drywall|sheetrock|cabinet|counter(?:top)?s?|backsplash|roof(?:ing)?|insulation|siding|stucco)\b/i;
+  const gapIsPaint = (gap: string) => !otherTrade.test(gap);
+  const forward =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b([^.;\n]{0,35})\b(?:paint(?:ing)?|repaint)\b/gi;
+  const backward =
+    /\b(?:paint(?:ing)?|repaint)\b([^.;\n]{0,35})\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = forward.exec(text))) {
+    if (gapIsPaint(match[1] || '')) return true;
+  }
+  while ((match = backward.exec(text))) {
+    if (gapIsPaint(match[1] || '')) return true;
+  }
+  return false;
 }
 
 /** Install length next to cabinets. The removal length is a different number. */
@@ -64,6 +159,33 @@ export function statedCabinetInstallLf(
     if (Number.isFinite(qty) && qty > 0) return qty;
   }
   return null;
+}
+
+/** "Keep the windows" is not a window install. "Replace 3 windows" still is. */
+export function notesOpeningMentionIsKeepOnly(
+  notes: string | null | undefined,
+  opening: 'doors' | 'windows'
+): boolean {
+  const term = opening === 'doors' ? 'doors?' : 'windows?';
+  const text = String(notes || '');
+  const mention = new RegExp(`\\b${term}\\b`, 'i');
+  if (!mention.test(text)) return false;
+  const sentences = text
+    .split(/[.\n;]+/)
+    .map(sentence => sentence.trim())
+    .filter(sentence => mention.test(sentence));
+  if (!sentences.length) return false;
+  return sentences.every(sentence => {
+    const kept = new RegExp(
+      `\\b(?:keep|keeping|leaving|leave|exclude|excluding)\\b(?:\\s+\\w+){0,6}\\s+${term}\\b`,
+      'i'
+    ).test(sentence);
+    const installed = new RegExp(
+      `\\b(?:install|replace|replacing|hang|swap|new)\\b(?:\\s+\\w+){0,6}\\s+(?:interior\\s+|exterior\\s+)?${term}\\b|\\b\\d+\\s+(?:interior\\s+|exterior\\s+)?${term}\\b`,
+      'i'
+    ).test(sentence);
+    return kept && !installed;
+  });
 }
 
 function notesNameFraming(notes: string): boolean {
@@ -94,7 +216,10 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('drywall');
     ids.add('patch_repair');
   }
-  if (/\bwindows?\b/i.test(text)) {
+  if (
+    /\bwindows?\b/i.test(text) &&
+    !notesOpeningMentionIsKeepOnly(text, 'windows')
+  ) {
     ids.add('window_install');
     ids.add('windows');
   }
@@ -145,6 +270,24 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('door_casing_paint');
   }
   if (notesNameTrimPaint(text)) ids.add('trim_paint');
+  // "Kitchen and bathroom updates" is the work. It is not a cabinet count
+  // or a kitchen-floor quantity.
+  if (
+    /\bkitchen\b/i.test(text) &&
+    /\bupdat(?:e|es|ing)\b/i.test(text) &&
+    !ids.has('cabinets')
+  ) {
+    ids.add('kitchen_updates');
+  }
+  if (
+    /\bbath(?:room)?s?\b/i.test(text) &&
+    /\bupdat(?:e|es|ing)\b/i.test(text) &&
+    !ids.has('vanity') &&
+    !ids.has('shower_tile') &&
+    !ids.has('floor_tile')
+  ) {
+    ids.add('bathroom_updates');
+  }
   return ids;
 }
 
@@ -244,6 +387,18 @@ const NAMED_CARDS: Record<
     helperText: 'Interior trim length named in the notes.',
     category: 'finishes',
   },
+  kitchen_updates: {
+    label: 'Kitchen updates',
+    helperText:
+      'Kitchen work named in the notes. Cabinet, counter, and finish quantities were not stated.',
+    category: 'kitchen',
+  },
+  bathroom_updates: {
+    label: 'Bathroom updates',
+    helperText:
+      'Bathroom work named in the notes. Fixture and finish quantities were not stated.',
+    category: 'bath',
+  },
 };
 
 /** Both wall and attic were named, with no area. */
@@ -262,9 +417,124 @@ export function wholeHomeWallAndAtticInsulationLabel(
   return wall && attic ? 'Wall & attic insulation' : null;
 }
 
+const ENTERED_REMODEL_CARDS: Array<{
+  id: string;
+  measurement: string;
+  label: string;
+  helperText: string;
+  category: string;
+}> = [
+  {
+    id: 'cabinets',
+    measurement: 'cabinetLf',
+    label: 'Cabinets',
+    helperText: 'Cabinet run length for this kitchen.',
+    category: 'kitchen',
+  },
+  {
+    id: 'countertops',
+    measurement: 'countertopSqft',
+    label: 'Countertops',
+    helperText: 'Perimeter countertop area.',
+    category: 'kitchen',
+  },
+  {
+    id: 'backsplash',
+    measurement: 'backsplashSqft',
+    label: 'Backsplash',
+    helperText: 'Backsplash tile area.',
+    category: 'tile',
+  },
+  {
+    id: 'vanity',
+    measurement: 'bathroomInstallVanityCount',
+    label: 'Vanity',
+    helperText: 'Vanity count for this bathroom.',
+    category: 'bath',
+  },
+  {
+    id: 'toilet',
+    measurement: 'bathroomInstallToiletCount',
+    label: 'Toilet',
+    helperText: 'Toilet count for this bathroom.',
+    category: 'bath',
+  },
+  {
+    id: 'shower_tile',
+    measurement: 'showerWallTileSqft',
+    label: 'Shower wall tile',
+    helperText: 'Shower wall tile area.',
+    category: 'bath',
+  },
+  {
+    id: 'shower_floor_tile',
+    measurement: 'showerFloorTileSqft',
+    label: 'Shower floor tile',
+    helperText: 'Shower floor tile area.',
+    category: 'bath',
+  },
+  {
+    id: 'floor_tile',
+    measurement: 'bathroomFloorSqft',
+    label: 'Bath floor tile',
+    helperText: 'Bathroom floor tile area. Separate from house flooring.',
+    category: 'bath',
+  },
+];
+
+function enteredRemodelQuantity(
+  measurements: Record<string, unknown> | null | undefined,
+  key: string
+): boolean {
+  const parsed = Number(String(measurements?.[key] ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+/**
+ * A typed kitchen or bathroom takeoff becomes its own card.
+ * Vanity length is not a kitchen cabinet length, so it does not add cabinets.
+ */
+export function includeEnteredRemodelCards<T extends WholeHomeItem>(
+  items: T[],
+  measurements?: Record<string, unknown> | null
+): T[] {
+  if (!measurements) return items;
+  let next = items.slice();
+  for (const card of ENTERED_REMODEL_CARDS) {
+    const entered = enteredRemodelQuantity(measurements, card.measurement);
+    const index = next.findIndex(item => item.id === card.id);
+    if (!entered) {
+      if (index >= 0 && next[index].noteBacked !== true && next[index].state === 'included') {
+        next[index] = { ...next[index], state: 'excluded' as const };
+      }
+      continue;
+    }
+    if (index >= 0) {
+      if (next[index].state !== 'included') {
+        next[index] = {
+          ...next[index],
+          state: 'included' as const,
+        };
+      }
+      continue;
+    }
+    next.push({
+      id: card.id,
+      inputType: 'yes_no',
+      label: card.label,
+      helperText: card.helperText,
+      category: card.category,
+      state: 'included',
+      noteBacked: false,
+    } as T);
+  }
+  return next;
+}
+
 export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
   items: T[],
-  notes: string | null | undefined
+  notes: string | null | undefined,
+  measurements?: Record<string, unknown> | null
 ): T[] {
   const allowed = wholeHomeRemodelNamedItemIds(notes);
   if (!allowed) return items;
@@ -352,7 +622,7 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
       noteBacked: true,
     } as T);
   }
-  return DUPLICATE_SCOPE_IDS.reduce((rows, group) => {
+  const deduped = DUPLICATE_SCOPE_IDS.reduce((rows, group) => {
     const keeper = group.find(id =>
       rows.some(item => item.id === id && item.state === 'included')
     );
@@ -363,6 +633,7 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
         : item
     );
   }, next);
+  return includeEnteredRemodelCards(deduped, measurements);
 }
 
 function positiveMeasurement(value: unknown): number | null {
@@ -431,6 +702,9 @@ export function wholeHomeRemodelSuppressesInventedPrice(
       String(notes || '')
     );
   }
+  if (itemId === 'kitchen_updates' || itemId === 'bathroom_updates') {
+    return true;
+  }
   if (itemId === 'insulation') {
     const statedSurface =
       positiveMeasurement(stored.exteriorWallInsulationSqft) != null ||
@@ -444,6 +718,32 @@ export function wholeHomeRemodelSuppressesInventedPrice(
         String(notes || '')
       );
     return !statedSurface;
+  }
+  // A house-wide package (shower tile, appliances, roofing) is not this note
+  // unless the note named that trade. Leave stated lines such as air sealing.
+  if (itemId === 'shower_tile' && positiveMeasurement(stored.showerWallTileSqft)) {
+    return false;
+  }
+  if (
+    itemId === 'shower_floor_tile' &&
+    positiveMeasurement(stored.showerFloorTileSqft)
+  ) {
+    return false;
+  }
+  if (itemId === 'floor_tile' && positiveMeasurement(stored.bathroomFloorSqft)) {
+    return false;
+  }
+  if (
+    itemId === 'shower_tile' ||
+    itemId === 'shower_floor_tile' ||
+    itemId === 'glass_door' ||
+    itemId === 'appliances' ||
+    itemId === 'roofing' ||
+    itemId === 'stucco' ||
+    itemId === 'brick'
+  ) {
+    const named = wholeHomeRemodelNamedItemIds(notes);
+    return !named || !named.has(itemId);
   }
   return false;
 }
@@ -494,12 +794,7 @@ export function scrubWholeHomeRemodelMeasurements<
     drop('framedAreaSqft');
     drop('wallFramingLf');
   }
-  const homeSizeMatch = text.match(
-    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i
-  );
-  const homeSize = homeSizeMatch?.[1]
-    ? Number(homeSizeMatch[1].replace(/,/g, ''))
-    : null;
+  const homeSize = statedWholeHomeSizeSqft(text);
   const removalNamesItsOwnArea =
     /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+(?:of\s+)?(?:existing\s+)?(?:floor|flooring)\b/i.test(
       text
@@ -526,6 +821,32 @@ export function scrubWholeHomeRemodelMeasurements<
       changed = true;
     }
   }
+  const flooringQty = Number(String(next.flooringSqft ?? '').replace(/,/g, ''));
+  const dropBorrowedTileArea = (
+    key: 'bathroomFloorSqft' | 'showerWallTileSqft' | 'showerFloorTileSqft',
+    namedInNote: boolean
+  ) => {
+    if (namedInNote || userHeld(measurements, key)) return;
+    const qty = Number(String(next[key] ?? '').replace(/,/g, ''));
+    if (!(qty > 0)) return;
+    if (qty === flooringQty || (homeSize != null && qty === homeSize)) {
+      drop(key);
+    }
+  };
+  dropBorrowedTileArea(
+    'bathroomFloorSqft',
+    /\bbath(?:room)?\s+floor(?:\s+tile)?\b|(?<!shower\s)floor\s+tile\b/i.test(
+      text
+    )
+  );
+  dropBorrowedTileArea(
+    'showerWallTileSqft',
+    /\bshower\s+wall(?:\s+tile)?\b|\bwall\s+tile\b/i.test(text)
+  );
+  dropBorrowedTileArea(
+    'showerFloorTileSqft',
+    /\bshower\s+floor(?:\s+tile)?\b/i.test(text)
+  );
   if (!/\bkitchen\s+floor(?:ing)?\b/i.test(text)) {
     const itemQuantities = {
       ...((next.itemQuantities as Record<string, unknown> | undefined) || {}),

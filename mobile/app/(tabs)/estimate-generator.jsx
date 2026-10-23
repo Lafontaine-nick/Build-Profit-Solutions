@@ -138,6 +138,16 @@ import {
 import { buildWetAreaInstallPdfMeasurementCard } from '../../utils/wetAreaInstallPdfExport';
 import { buildElectricalPdfMeasurementCard } from '../../utils/electricalPdfExport';
 import {
+  proposalAcceptanceForLine,
+  proposalAllowanceLineName,
+  proposalMaterialSource,
+  proposalUsesWholeHomeWetArea,
+} from '../../utils/proposalExportScope';
+import {
+  confirmedProposalExportParts,
+  confirmedProposalScopeLists,
+} from '../../utils/scopePackagesForReview';
+import {
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
   notesSuggestPlumbingBid,
@@ -11383,17 +11393,23 @@ export default function EstimateGeneratorScreen() {
   // Build Contract Document from Bid Data (optional profile snapshot for PDF export = fresh branding)
   const buildDocFromBid = (bidData, calcData, profileSnapshot = null) => {
     const cp = profileSnapshot || contractorProfile;
+    const proposalDraft = bidData.aiEstimateDraftSnapshot?.draft;
     const paintingMeasurementLines = buildPaintingPdfMeasurementLines(
-      bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements
+      proposalDraft?.scopeMeasurements
     );
-    const draftMeasurements =
-      bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements;
+    const draftMeasurements = proposalDraft?.scopeMeasurements;
+    const proposalLists = confirmedProposalScopeLists(proposalDraft);
     const wetAreaInstallCard = buildWetAreaInstallPdfMeasurementCard({
       measurements: draftMeasurements,
-      checklistItems: bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.items,
+      checklistItems: proposalDraft?.scopeChecklist?.items,
       templateKey:
-        bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.templateKey ||
-        bidData.projectType,
+        proposalDraft?.scopeChecklist?.templateKey || bidData.projectType,
+      wholeHomeLayout: proposalUsesWholeHomeWetArea({
+        templateKey: proposalDraft?.scopeChecklist?.templateKey,
+        projectType: proposalDraft?.projectType || bidData.projectType,
+        planImportMode: draftMeasurements?.planImportMode,
+        planImportTradeKey: draftMeasurements?.planImportTradeKey,
+      }),
     });
     const electricalMeasurementCard =
       buildElectricalPdfMeasurementCard(draftMeasurements);
@@ -11404,9 +11420,19 @@ export default function EstimateGeneratorScreen() {
       paintingMeasurementLines.length > 0
         ? paintingMeasurementLines
         : strippedScope.measurementLines;
-    const measurementCards = [wetAreaInstallCard, electricalMeasurementCard].filter(
-      Boolean
-    );
+    const snapshotExport = confirmedProposalExportParts(proposalDraft, {
+      paintingLines: measurementLines,
+      wetAreaCard: wetAreaInstallCard,
+      electricalCard: electricalMeasurementCard,
+      allowances: Array.isArray(bidData.allowanceLineItems)
+        ? bidData.allowanceLineItems
+        : [],
+    });
+    const snapshotMeasurementLines = snapshotExport.paintingLines;
+    const measurementCards = [
+      snapshotExport.wetAreaCard,
+      snapshotExport.electricalCard,
+    ].filter(Boolean);
     const scopeDescription = strippedScope.description;
     const scopeBullets = scopeDescription
       ? scopeDescription.split('\n').filter(line => line.trim())
@@ -11417,10 +11443,11 @@ export default function EstimateGeneratorScreen() {
     const savedMaterialLines = Array.isArray(bidData.materialLineItems)
       ? bidData.materialLineItems
       : [];
-    const materialSource =
-      savedMaterialLines.length > 0
-        ? savedMaterialLines
-        : (materialsCart || []);
+    const materialSource = proposalMaterialSource(
+      savedMaterialLines,
+      materialsCart || [],
+      Boolean(proposalDraft)
+    );
     const materialLineItems = materialSource.length > 0
       ? materialSource.map(item => {
           const quantity = Number(item.qty || item.quantity || 1) || 1;
@@ -11431,7 +11458,10 @@ export default function EstimateGeneratorScreen() {
             Number(item.unitPrice) ||
             (quantity > 0 ? total / quantity : total);
           return {
-            description: item.name || item.description || 'Material',
+            description: proposalAllowanceLineName(
+              item.name || item.description || 'Material',
+              proposalAcceptanceForLine(proposalDraft, item)
+            ),
             unit: item.unit || 'ea',
             quantity,
             unitPrice,
@@ -11442,24 +11472,24 @@ export default function EstimateGeneratorScreen() {
             section: item.section || item.category || 'General Materials',
           };
         })
-      : ((calcData?.materials || 0) > 0 ? [{
+      : !proposalDraft && (calcData?.materials || 0) > 0
+        ? [{
           description: 'Materials & Supplies',
           unit: 'total',
           quantity: 1,
           materials: calcData.materials,
           labor: 0,
           category: 'Materials'
-        }] : []);
+        }]
+        : [];
 
-    const allowanceLineItems = Array.isArray(bidData.allowanceLineItems)
-      ? bidData.allowanceLineItems
-          .map(item => ({
-            name: item.name || item.description || 'Allowance',
-            amount: Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0,
-            description: item.description || undefined,
-          }))
-          .filter(item => item.amount > 0)
-      : [];
+    const allowanceLineItems = snapshotExport.allowances
+      .map(item => ({
+        name: item.name || item.description || 'Allowance',
+        amount: Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0,
+        description: item.description || undefined,
+      }))
+      .filter(item => item.amount > 0);
 
     const exportedMaterialsTotal = materialLineItems.reduce(
       (sum, item) => sum + (Number(item.materials) || 0),
@@ -11547,16 +11577,19 @@ export default function EstimateGeneratorScreen() {
       scope: {
         bullets: scopeBullets,
         description: scopeDescription,
-        inclusions: [],
-        exclusions: [],
+        inclusions: proposalLists.inclusions,
+        exclusions: proposalLists.exclusions,
         ownerResponsibilities: [],
         materialLineItems: materialLineItems,
-        measurementLines,
+        measurementLines: snapshotMeasurementLines,
         measurementCards,
         laborLineItems: (bidData.laborLineItems || []).map(item => {
           const resolved = resolveLaborContractLineItem(item, bidData.sqft);
           return {
-            description: item.name || item.description || item.category || 'Labor',
+            description: proposalAllowanceLineName(
+              item.name || item.description || item.category || 'Labor',
+              proposalAcceptanceForLine(proposalDraft, item)
+            ),
             unit: resolved.unit,
             quantity: resolved.quantity,
             unitPrice: resolved.unitPrice,

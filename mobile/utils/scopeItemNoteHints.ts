@@ -45,7 +45,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   garbage_disposal: /\b(garbage\s+disposal|disposal\s+install|new\s+disposal)\b/,
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
   paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
-  trim_paint: /\b(paint|trim|baseboards?|base\s*board|casing|crown|moulding|molding)\b/,
+  trim_paint:
+    /\b(?:paint(?:ing)?|prime|prep|repaint)\b[^.;\n]{0,40}\b(?:baseboards?|base\s*board|trim|casing|crown|moulding|molding)\b|\b(?:baseboards?|base\s*board|trim|casing|crown|moulding|molding)\b[^.;\n]{0,40}\b(?:paint(?:ing)?|prime|prep|repaint)\b/,
   tile_flooring: /\b(tile\s+(?:and\s+)?flooring|flooring|lvp|laminate|vinyl\s+plank|carpet)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
@@ -110,7 +111,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
-  interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
+  interior_paint:
+    /\b(?:interior\s+paint(?:ing)?|paint(?:ing)?\b[^.;\n]{0,40}\b(?:walls?|ceilings?|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
   permits:
     /\b(include\s+permits?|permits?\s+included|pull\s+permits?|contractor\s+pulls?\s+permits?|permits?\s+in\s+(?:the\s+)?(?:bid|price|scope)|permit\s+fees?\s+included)\b/i,
@@ -472,6 +474,30 @@ export function hvacNotesLeaveOptionAlone(
   return !namedAsWork;
 }
 
+/** "Paint the doors" and "keep the doors" are not a door install. */
+export function notesDoorMentionIsPaintOrKeepOnly(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!/\bdoors?\b/i.test(text)) return false;
+  const doorSentences = text
+    .split(/[.\n;]+/)
+    .map(sentence => sentence.trim())
+    .filter(sentence => /\bdoors?\b/i.test(sentence));
+  if (!doorSentences.length) return false;
+  return doorSentences.every(sentence => {
+    const paintOrKeepOnDoors =
+      /\b(?:keep|keeping|leaving|leave|exclude|excluding|paint|painting|repaint|prime|prep)\b(?:\s+\w+){0,5}\s+doors?\b/i.test(
+        sentence
+      );
+    const installOnDoors =
+      /\b(?:install|replace|replacing|hang|swap)\b(?:\s+\w+){0,5}\s+(?:interior\s+)?doors?\b/i.test(
+        sentence
+      ) || /\b\d+\s+interior\s+doors?\b/i.test(sentence);
+    return paintOrKeepOnDoors && !installOnDoors;
+  });
+}
+
 export function inferItemStateFromNotes(
   itemId: string,
   notes: string | null | undefined
@@ -489,6 +515,7 @@ export function inferItemStateFromNotes(
   if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
   if (itemId === 'trim') return inferTrimStateFromNotes(n);
   if (itemId === 'interior_door_install') {
+    if (notesDoorMentionIsPaintOrKeepOnly(notes)) return 'unsure';
     const hasInteriorDoorMention = /\binterior\s+doors?\b/.test(n);
     const hasGenericDoorMention =
       /\bdoors?\b/.test(n) &&

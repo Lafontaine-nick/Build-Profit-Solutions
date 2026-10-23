@@ -37,7 +37,10 @@ function isKeepingExistingWetArea(
   return row?.choiceId === 'staying';
 }
 
-function hasWetAreaInstallMeasurements(measurements: Record<string, unknown>): boolean {
+function hasWetAreaInstallMeasurements(
+  measurements: Record<string, unknown>,
+  wholeHomeLayout: boolean
+): boolean {
   return (
     positiveCount(measurements.tilePanBathCount) != null ||
     positiveCount(measurements.prefabBathCount) != null ||
@@ -45,7 +48,10 @@ function hasWetAreaInstallMeasurements(measurements: Record<string, unknown>): b
     positiveCount(measurements.tubBathCount) != null ||
     positiveSqft(measurements.showerWallTileSqft) != null ||
     positiveSqft(measurements.bathroomFloorSqft) != null ||
-    positiveCount(measurements.showerDoorCount) != null
+    positiveCount(measurements.showerDoorCount) != null ||
+    (wholeHomeLayout &&
+      (positiveCount(measurements.bathCount) != null ||
+        positiveSqft(measurements.showerFloorTileSqft) != null))
   );
 }
 
@@ -58,15 +64,15 @@ export function buildWetAreaInstallPdfMeasurementCard(params: {
 }): PdfMeasurementCard | null {
   const measurements = params.measurements || {};
   const templateKey = String(params.templateKey || 'bathroom').toLowerCase();
-  if (
-    !isSplitTileWetAreaCounts({
-      templateKey,
-      wholeHomeLayout: params.wholeHomeLayout ?? false,
-    })
-  ) {
+  const wholeHomeLayout = Boolean(params.wholeHomeLayout);
+  const splitLayout = isSplitTileWetAreaCounts({
+    templateKey,
+    wholeHomeLayout: false,
+  });
+  if (!splitLayout && !wholeHomeLayout) {
     return null;
   }
-  if (!hasWetAreaInstallMeasurements(measurements)) {
+  if (!hasWetAreaInstallMeasurements(measurements, wholeHomeLayout)) {
     return null;
   }
 
@@ -88,6 +94,14 @@ export function buildWetAreaInstallPdfMeasurementCard(params: {
     if (n == null) return;
     fixtureLines.push({ label, quantity: formatQty(n, 'each') });
   };
+
+  if (!keepingExisting && wholeHomeLayout) {
+    const baths = positiveCount(measurements.bathCount);
+    if (baths != null) {
+      lines.push({ label: 'BATHS', quantity: '', sectionHeader: true });
+      lines.push({ label: 'Baths', quantity: formatQty(baths, 'each') });
+    }
+  }
 
   if (!keepingExisting) {
     addCount('Mud pan (tile shower)', measurements.tilePanBathCount);
@@ -112,8 +126,25 @@ export function buildWetAreaInstallPdfMeasurementCard(params: {
       quantity: formatQty(sqft, 'sqft'),
     });
   }
+  if (wholeHomeLayout) {
+    const floorTile = positiveSqft(measurements.showerFloorTileSqft);
+    if (floorTile != null) {
+      tileLines.push({
+        label: 'Shower floor tile',
+        quantity: formatQty(floorTile, 'sqft'),
+      });
+    }
+  }
   if (tileLines.length) {
-    lines.push({ label: 'SHOWER WALL TILE', quantity: '', sectionHeader: true });
+    lines.push({
+      label:
+        wholeHomeLayout &&
+        tileLines.some((line) => line.label === 'Shower floor tile')
+          ? 'SHOWER TILE'
+          : 'SHOWER WALL TILE',
+      quantity: '',
+      sectionHeader: true,
+    });
     lines.push(...tileLines);
   }
 

@@ -36,6 +36,66 @@ describe('estimateDraftFromNotes sqft × allowance pricing', () => {
     expect(draft.whatAiDid[0]).toContain('Mixed-scope construction');
   });
 
+  test('asks the live draft to clarify ambiguous paint area', () => {
+    const draft = normalizeDraft(
+      { projectType: 'painting', rooms: [] },
+      { originalNotes: 'Paint the room, about 250 sqft.' }
+    );
+
+    expect(draft.extractionConfidence.requiresClarification).toBe(true);
+    expect(draft.extractionConfidence.overallConfidence).not.toBe('high');
+    expect(draft.classification.confidence).toBe(
+      draft.extractionConfidence.overallConfidence
+    );
+    expect(draft.missingInfo).toContain(
+      'Does the sqft refer to floor area or paintable wall and ceiling area?'
+    );
+  });
+
+  test('keeps a whole-house remodel on the mixed checklist when the size is not written as sqft home', () => {
+    const notes =
+      'Whole house remodel. The house is 2,400 sqft. Kitchen and bathroom updates, 1,800 sqft flooring, and paint the interior. Keep the windows and doors.';
+    const draft = normalizeDraft(
+      { projectType: 'other', rooms: [] },
+      { originalNotes: notes }
+    );
+    const included = (draft.scopeChecklist?.items || [])
+      .filter((item) => item.state === 'included')
+      .map((item) => item.id);
+    const doors = (draft.scopeChecklist?.items || []).find(
+      (item) => item.id === 'interior_door_install'
+    );
+
+    expect(draft.projectType).toBe('other');
+    expect(draft.scopeMode).toBe('mixed');
+    expect(draft.scopeChecklist.templateKey).toBe('room_remodel');
+    expect(included).toEqual(expect.arrayContaining(['flooring', 'paint']));
+    expect(doors?.state).not.toBe('included');
+    const windows = (draft.scopeChecklist?.items || []).find(
+      (item) => item.id === 'window_install' || item.id === 'windows'
+    );
+    expect(draft.scopeMeasurements.floorAreaSqft).toBe(2400);
+    expect(draft.scopeMeasurements.flooringSqft).toBe(1800);
+    expect(draft.scopeMeasurements.kitchenFloorSqft).toBeUndefined();
+    expect(draft.scopeMeasurements.paintAreaSqft).toBeUndefined();
+    expect(windows?.state).not.toBe('included');
+    expect(
+      (draft.extractionConfidence?.clarificationQuestions || []).map((q) => q.question)
+    ).not.toContain(
+      'Does the sqft refer to floor area or paintable wall and ceiling area?'
+    );
+  });
+
+  test('does not ask for clarification when the paintable area is explicit', () => {
+    const draft = normalizeDraft(
+      { projectType: 'painting', rooms: [] },
+      { originalNotes: 'Paint walls and ceiling 800 sqft lump sum $2,400.' }
+    );
+
+    expect(draft.extractionConfidence.requiresClarification).toBe(false);
+    expect(draft.extractionConfidence.clarificationQuestions).toHaveLength(0);
+  });
+
   test('builds framing notes into only the note-supported mixed scope cards', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';

@@ -425,7 +425,8 @@ function enrichDraft(draftInput, options = {}) {
       savedTemplates: options.savedTemplates || [],
     });
   }
-  return merged;
+  const { attachScopeExtractionConfidence } = require("./scopeExtractionConfidence");
+  return attachScopeExtractionConfidence(merged);
 }
 
 module.exports = {

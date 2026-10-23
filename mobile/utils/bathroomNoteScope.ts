@@ -1,6 +1,7 @@
 /**
- * Dedicated bathroom notes only show the checklist rows the note names.
- * Empty notes, mixed scope, plan import, and whole-home stay on the full list.
+ * Bathroom notes only show the checklist rows the note names.
+ * Empty notes, plan import, and whole-home stay on the full list.
+ * A mixed note keeps trades that are not bathroom cards.
  */
 import { notesMentionDemoShowerDoor } from '@/utils/wetAreaExistingDemo';
 
@@ -755,7 +756,6 @@ export function shouldLimitBathroomChecklistToNotes(params: {
   wholeHome?: boolean;
 }): boolean {
   if (params.planBacked || params.wholeHome) return false;
-  if (String(params.scopeMode || '').toLowerCase() !== 'dedicated') return false;
   const notes = String(params.notes || '').trim();
   if (!notes) return false;
   const template = String(params.templateKey || params.projectType || '')
@@ -780,9 +780,11 @@ export function filterDedicatedBathroomConfirmItems<T extends { id?: string | nu
 ): T[] {
   if (!shouldLimitBathroomChecklistToNotes(params)) return items;
   const lines = bathroomScopeLines(params.notes);
+  const mixed = String(params.scopeMode || '').toLowerCase() === 'mixed';
   return items.filter(item => {
     const id = String(item.id || '');
     if (id.startsWith('custom_')) return true;
+    if (mixed && !BATHROOM_TEMPLATE_IDS.has(id)) return true;
     return Boolean(bathroomScopeLineForId(id, lines));
   });
 }

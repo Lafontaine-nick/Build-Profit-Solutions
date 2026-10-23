@@ -36,6 +36,10 @@ import {
   kitchenNoteNamesCounterWork,
   kitchenNoteNamesSurfaceDemo,
 } from '@/utils/kitchenNoteScope';
+import {
+  notesNameBathroomRemodelPanel,
+  notesNameKitchenRemodelPanel,
+} from '@/utils/wholeHomeRemodelNote';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
   roofingStoryCountForReview,
@@ -1563,10 +1567,18 @@ export function QmKitchenScopePanels({
   const hasExplicitKitchenFloorScope = kitchenNoteIncludesFloorWork(notes);
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
   const kitchenNoteText = String(notes || '');
+  const openKitchenRemodel =
+    notesNameKitchenRemodelPanel(kitchenNoteText) &&
+    !kitchenNoteNamesCabinetWork(kitchenNoteText) &&
+    !kitchenNoteNamesCounterWork(kitchenNoteText) &&
+    !kitchenNoteNamesBacksplash(kitchenNoteText);
   const condensedKitchenScope = {
-    cabinets: kitchenNoteNamesCabinetWork(kitchenNoteText),
-    counters: kitchenNoteNamesCounterWork(kitchenNoteText),
-    backsplash: kitchenNoteNamesBacksplash(kitchenNoteText),
+    cabinets:
+      kitchenNoteNamesCabinetWork(kitchenNoteText) || openKitchenRemodel,
+    counters:
+      kitchenNoteNamesCounterWork(kitchenNoteText) || openKitchenRemodel,
+    backsplash:
+      kitchenNoteNamesBacksplash(kitchenNoteText) || openKitchenRemodel,
     flooring: /\b(?:flooring|lvp|vinyl|laminate|tile)\b/i.test(kitchenNoteText),
     island: /\bisland\b/i.test(kitchenNoteText),
     appliances:
@@ -3697,6 +3709,16 @@ function bathroomExistingCountsSame(
   );
 }
 
+function vanityCabinetLengthStored(
+  measurements: { cabinetLf?: unknown; bathroomVanityCabinetLf?: unknown },
+  notes?: string | null
+): string {
+  if (notesNameKitchenRemodelPanel(notes)) {
+    return String(measurements.bathroomVanityCabinetLf ?? '').trim();
+  }
+  return String(measurements.cabinetLf ?? '').trim();
+}
+
 function bathroomInstallCountsSame(
   left: BathroomInstallFixtureCounts,
   right: BathroomInstallFixtureCounts
@@ -3830,27 +3852,29 @@ export const QmBathroomFixturesPanels = React.memo(
           ) ?? inferBathroomVanityCountertopMaterialFromNotes(notes)
         );
       const materialWritePendingRef = useRef(false);
-      const cabinetLfRef = useRef(String(measurements.cabinetLf ?? '').trim());
+      const cabinetLfRef = useRef(vanityCabinetLengthStored(measurements, notes));
       const countertopSqftRef = useRef(
         String(measurements.countertopSqft ?? '').trim()
       );
       const materialRef = useRef(selectedCountertopMaterial);
       materialRef.current = selectedCountertopMaterial;
       const [cabinetLfDraft, setCabinetLfDraft] = useState(() =>
-        String(measurements.cabinetLf ?? '').trim()
+        vanityCabinetLengthStored(measurements, notes)
       );
       const [countertopSqftDraft, setCountertopSqftDraft] = useState(() =>
         String(measurements.countertopSqft ?? '').trim()
       );
 
+      const vanityLengthSeparate = notesNameKitchenRemodelPanel(notes);
+      const vanityLengthExternal = vanityCabinetLengthStored(measurements, notes);
       useEffect(() => {
-        const external = String(measurements.cabinetLf ?? '').trim();
+        const external = vanityLengthExternal;
         if (genRef.current !== appliedRef.current) return;
         if (external !== cabinetLfRef.current) {
           cabinetLfRef.current = external;
           setCabinetLfDraft(external);
         }
-      }, [measurements.cabinetLf]);
+      }, [vanityLengthExternal]);
 
       useEffect(() => {
         const external = String(measurements.countertopSqft ?? '').trim();
@@ -4069,7 +4093,12 @@ export const QmBathroomFixturesPanels = React.memo(
             ...nextExisting,
             ...nextInstall,
             ...mergedDemo,
-            cabinetLf: cabinetLf ?? prev.cabinetLf,
+            ...(vanityLengthSeparate
+              ? {
+                  bathroomVanityCabinetLf:
+                    cabinetLf ?? prev.bathroomVanityCabinetLf,
+                }
+              : { cabinetLf: cabinetLf ?? prev.cabinetLf }),
             countertopSqft: countertopSqft ?? prev.countertopSqft,
             bathroomVanityCountertopMaterialType:
               materialType !== undefined
@@ -4083,7 +4112,7 @@ export const QmBathroomFixturesPanels = React.memo(
             demo: mergedDemo,
           });
         });
-      }, [onBathroomFixturesQmChange, setMeasurements]);
+      }, [onBathroomFixturesQmChange, setMeasurements, vanityLengthSeparate]);
 
       const scheduleParentFlush = useCallback(() => {
         if (parentFlushTimerRef.current) {
@@ -4275,9 +4304,13 @@ export const QmBathroomFixturesPanels = React.memo(
           const cleaned = String(text || '').replace(/[^\d.]/g, '');
           cabinetLfRef.current = cleaned;
           setCabinetLfDraft(cleaned);
-          setMeasurements(prev => ({ ...prev, cabinetLf: cleaned }));
+          setMeasurements(prev =>
+            vanityLengthSeparate
+              ? { ...prev, bathroomVanityCabinetLf: cleaned }
+              : { ...prev, cabinetLf: cleaned }
+          );
         },
-        [setMeasurements]
+        [setMeasurements, vanityLengthSeparate]
       );
 
       const handleCountertopSqftChange = useCallback(
@@ -4411,13 +4444,23 @@ export const QmBathroomFixturesPanels = React.memo(
         /\b(?:existing|remove|removal|demo|replace|replacement)\b[^.;\n]{0,50}\b(?:vanit(?:y|ies)|countertops?|counters?)\b|\b(?:vanit(?:y|ies)|countertops?|counters?)\b[^.;\n]{0,50}\b(?:existing|remove|removal|demo|replace|replacement)\b/i.test(
           noteText
         );
-      const visibleBathroomInstallRows = BATHROOM_INSTALL_FIXTURE_ROWS.filter(
-        row =>
-          row.key === 'bathroomInstallVanityCount'
-            ? notesMentionVanity || install.bathroomInstallVanityCount != null
-            : notesMentionCountertop ||
-              install.bathroomInstallCounterCount != null
-      );
+      const openBathroomRemodel =
+        notesNameBathroomRemodelPanel(notes) &&
+        !notesMentionVanity &&
+        !/\btoilets?\b/i.test(noteText) &&
+        !/\b(?:shower|tub|bathtub)\b/i.test(noteText);
+      const visibleBathroomInstallRows = openBathroomRemodel
+        ? BATHROOM_INSTALL_FIXTURE_ROWS.filter(
+            row => row.key === 'bathroomInstallVanityCount'
+          )
+        : BATHROOM_INSTALL_FIXTURE_ROWS.filter(
+            row =>
+              row.key === 'bathroomInstallVanityCount'
+                ? notesMentionVanity ||
+                  install.bathroomInstallVanityCount != null
+                : notesMentionCountertop ||
+                  install.bathroomInstallCounterCount != null
+          );
       const visibleBathroomExistingRows = BATHROOM_EXISTING_FIXTURE_ROWS.filter(
         row =>
           row.key === 'bathroomExistingVanityCount'
@@ -4597,7 +4640,8 @@ export const QmBathroomFixturesPanels = React.memo(
             }}
           />
           ) : null}
-          {toiletFaucet.bathroomDemoToiletCount != null ||
+          {openBathroomRemodel ||
+          toiletFaucet.bathroomDemoToiletCount != null ||
           toiletFaucet.bathroomInstallToiletCount != null ||
           toiletFaucet.bathroomInstallFaucetCount != null ? (
             <QmScopePanelSection
@@ -4608,7 +4652,8 @@ export const QmBathroomFixturesPanels = React.memo(
                 ...(toiletFaucet.bathroomDemoToiletCount != null
                   ? [{ key: 'bathroomDemoToiletCount', label: 'Remove toilet' }]
                   : []),
-                ...(toiletFaucet.bathroomInstallToiletCount != null
+                ...(openBathroomRemodel ||
+                toiletFaucet.bathroomInstallToiletCount != null
                   ? [{ key: 'bathroomInstallToiletCount', label: 'New toilet' }]
                   : []),
                 ...(toiletFaucet.bathroomInstallFaucetCount != null

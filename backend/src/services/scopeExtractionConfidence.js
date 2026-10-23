@@ -91,10 +91,18 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
     measurementScore -= 20;
   }
 
+  const paintSentenceHasLooseSqft = String(raw)
+    .split(/[.\n;]+/)
+    .some((sentence) => {
+      if (!/\bpaint\b/i.test(sentence)) return false;
+      const sqft = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+      if (!sqft.test(sentence)) return false;
+      return !/\b(?:wall|walls|ceiling|ceilings|paintable|flooring|floors?|house|home)\b/i.test(
+        sentence
+      );
+    });
   if (
-    /\bpaint\b/.test(text) &&
-    SQFT_RE.test(raw) &&
-    !/\b(wall|walls|ceiling|paintable)\b/.test(text) &&
+    paintSentenceHasLooseSqft &&
     !/\b(drywall|patch|repair|texture)\b/.test(text)
   ) {
     addUnique(flags, 'ambiguous_sqft');
@@ -282,6 +290,42 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
   };
 }
 
+function attachScopeExtractionConfidence(draft) {
+  const notes = String(draft?.originalNotes || "").trim();
+  if (!notes || !draft || typeof draft !== "object") return draft;
+  const { parseScopeMeasurementsFromNotes } = require("./scopeMeasurementParser");
+  const templateKey = draft.scopeChecklist?.templateKey || draft.projectType || null;
+  let parsed = {};
+  try {
+    parsed =
+      parseScopeMeasurementsFromNotes(notes, {
+        templateKey,
+        projectType: draft.projectType,
+      }) || {};
+  } catch {
+    parsed = {};
+  }
+  const extractionConfidence = evaluateScopeExtractionConfidence(notes, parsed, {
+    templateKey,
+    projectType: draft.projectType,
+  });
+  const missingInfo = [...(draft.missingInfo || [])];
+  for (const question of extractionConfidence.clarificationQuestions || []) {
+    const text = String(question?.question || "").trim();
+    if (text && !missingInfo.includes(text)) missingInfo.push(text);
+  }
+  return {
+    ...draft,
+    extractionConfidence,
+    missingInfo,
+    classification: {
+      ...(draft.classification || {}),
+      confidence: extractionConfidence.overallConfidence,
+    },
+  };
+}
+
 module.exports = {
   evaluateScopeExtractionConfidence,
+  attachScopeExtractionConfidence,
 };

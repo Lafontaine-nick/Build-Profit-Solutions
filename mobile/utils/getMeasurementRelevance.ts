@@ -109,6 +109,8 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
       'insulation',
     ],
     cabinetLf: ['cabinets', 'cabinets_counters'],
+    kitchenUpdatesQty: ['kitchen_updates'],
+    bathroomUpdatesQty: ['bathroom_updates'],
     cabinetDemoLf: ['cabinet_demo'],
     countertopSqft: ['countertops', 'cabinets_counters'],
     showerWallTileSqft: [
@@ -396,6 +398,20 @@ export function getMeasurementRelevance(params: {
   }
 
   const includedSet = new Set(params.includedScopeKeys);
+  if (
+    measurementKey === 'kitchenUpdatesQty' ||
+    measurementKey === 'bathroomUpdatesQty'
+  ) {
+    const relevant = relatedScopeKeys.some(id => includedSet.has(id));
+    return {
+      relevant,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: relevant
+        ? 'Named in the notes. Quantity was not stated.'
+        : undefined,
+    };
+  }
   const explicitDrywallNotes = /\b(?:drywall|sheetrock|gypsum)\b/i.test(
     notesText
   );

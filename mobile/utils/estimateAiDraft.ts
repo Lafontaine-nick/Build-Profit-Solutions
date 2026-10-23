@@ -1,4 +1,5 @@
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
+import { applyStructuredScopeIntentToMeasurements } from '@/utils/scopeIntent';
 import {
   clearStalePricingWhenNotesUnpriced,
   parseScopeMeasurementsFromNotes,
@@ -96,6 +97,7 @@ import {
   getScopePackagesForReview,
   withReconciledScopePackages,
   confirmScopeDisplayItemsFromDraft,
+  confirmedProposalScopeLists,
 } from '@/utils/scopePackagesForReview';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
 import { applyExistingFeaturesToMeasurements } from '@/utils/wetAreaExistingDemo';
@@ -249,6 +251,22 @@ export type EstimateDraftConfidence = {
   label: string;
   summary: string;
   reasons?: string[];
+};
+
+export type ScopeExtractionClarification = {
+  id: string;
+  question: string;
+};
+
+export type ScopeExtractionConfidence = {
+  overallConfidence: 'high' | 'medium' | 'low' | string;
+  scopeConfidence?: string;
+  measurementConfidence?: string;
+  pricingConfidence?: string;
+  ambiguityFlags?: string[];
+  requiresAiFallback?: boolean;
+  requiresClarification?: boolean;
+  clarificationQuestions?: ScopeExtractionClarification[];
 };
 
 export type EstimateRoughEstimateRange = {
@@ -545,6 +563,8 @@ export type ScopeMeasurements = {
   /** Kitchen QM — island counter area rolled into countertops pricing when island install is on. */
   kitchenIslandCounterSqft?: number | null;
   cabinetLf?: number | null;
+  /** Bathroom vanity run. Separate from kitchen cabinetLf. */
+  bathroomVanityCabinetLf?: number | null;
   cabinetDemoLf?: number | null;
   wallDemoSqft?: number | null;
   wallDemoLf?: number | null;
@@ -1203,6 +1223,16 @@ export type EstimateAiDraft = {
   bidCompletenessGood?: string[];
   bidCompletenessNeedsReview?: string[];
   estimateConfidence?: EstimateDraftConfidence | null;
+  extractionConfidence?: ScopeExtractionConfidence | null;
+  scopeIntent?: {
+    items?: Array<{
+      id: string;
+      state: 'included' | 'excluded' | 'uncertain' | string;
+      quantity?: number | null;
+      unit?: string | null;
+      evidence?: string;
+    }>;
+  } | null;
   whatAiDid?: string[];
   noteProfile?: EstimateNoteProfile | null;
   noPricingDetected?: boolean;
@@ -1626,14 +1656,17 @@ export function repairDraftRatePricingFromNotes(
     (draft.scopeMeasurements || {}) as Record<string, unknown>,
     parsed as Record<string, unknown>
   );
-  let mergedScopeMeasurements: ScopeMeasurements = stripUnstatedPlumbingNoteMeasurements(
-    {
-      ...(draft.scopeMeasurements || {}),
-      ...parsedKeepingPlanReads,
-      itemQuantities: mergedItemQuantities,
-    },
-    text
-  ) as ScopeMeasurements;
+  let mergedScopeMeasurements: ScopeMeasurements = applyStructuredScopeIntentToMeasurements(
+    stripUnstatedPlumbingNoteMeasurements(
+      {
+        ...(draft.scopeMeasurements || {}),
+        ...parsedKeepingPlanReads,
+        itemQuantities: mergedItemQuantities,
+      },
+      text
+    ) as ScopeMeasurements,
+    draft.scopeIntent
+  );
   if (
     draft.scopeChecklist?.templateKey === 'roofing' ||
     draft.projectType === 'roofing'
@@ -8192,17 +8225,21 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     );
   }
 
-  const inclusions = draft.inclusions || [];
-  if (inclusions.length > 0) {
+  const scopeLists = useChecklistScopeOrder
+    ? confirmedProposalScopeLists(draft)
+    : {
+        inclusions: draft.inclusions || [],
+        exclusions: draft.exclusions || [],
+      };
+  if (scopeLists.inclusions.length > 0) {
     parts.push(
-      ['Inclusions', ...inclusions.map(line => `• ${line}`)].join('\n')
+      ['Inclusions', ...scopeLists.inclusions.map(line => `• ${line}`)].join('\n')
     );
   }
 
-  const exclusions = draft.exclusions || [];
-  if (exclusions.length > 0) {
+  if (scopeLists.exclusions.length > 0) {
     parts.push(
-      ['Exclusions', ...exclusions.map(line => `• ${line}`)].join('\n')
+      ['Exclusions', ...scopeLists.exclusions.map(line => `• ${line}`)].join('\n')
     );
   }
 
@@ -9244,6 +9281,18 @@ export function tradeBudgetRollupFromEstimate(bid: {
   );
 }
 
+/** Questions the note scorer wants answered before a weak note is treated as firm scope. */
+export function scopeExtractionClarificationQuestions(
+  draft: EstimateAiDraft | null | undefined
+): ScopeExtractionClarification[] {
+  const confidence = draft?.extractionConfidence;
+  if (!confidence?.requiresClarification) return [];
+  return (confidence.clarificationQuestions || []).filter(
+    (question): question is ScopeExtractionClarification =>
+      Boolean(question?.id && String(question.question || '').trim())
+  );
+}
+
 export function draftHasApprovedSuggestions(
   draft: EstimateAiDraft | null
 ): boolean {
@@ -9377,5 +9426,19 @@ export function getScopePackagesRaw(
 export function getScopePackages(
   draft: EstimateAiDraft
 ): EstimateDraftScopePackage[] {
-  return getScopePackagesForReview(draft);
+  const packages = getScopePackagesForReview(draft);
+  const measurements = draft?.scopeMeasurements;
+  if (!measurements?.itemQuantities && !measurements?.pricingAcceptance) {
+    return packages;
+  }
+  // A checklist row with no package of its own is a stub. Copy the Applied
+  // price onto that stub so the summary and PDF bill the same dollars.
+  // Rows that already have a price keep it — a second stamp rewrites quantity.
+  return packages.map(pkg => {
+    const amount = Number(
+      pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+    );
+    if (amount > 0) return pkg;
+    return applySelectedPricingToScopePackage(pkg, draft);
+  });
 }

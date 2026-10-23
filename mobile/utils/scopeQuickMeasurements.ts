@@ -72,6 +72,8 @@ export type QuickMeasurementFieldKey =
   | 'countertopLf'
   | 'cabinetLf'
   | 'cabinetDemoLf'
+  | 'kitchenUpdatesQty'
+  | 'bathroomUpdatesQty'
   | 'showerWallTileSqft'
   | 'showerFloorTileSqft'
   | 'wallDemoSqft'
@@ -362,6 +364,24 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'interior',
     undefined,
     'Linear feet of existing cabinets named for removal.'
+  ),
+  kitchenUpdatesQty: F(
+    'kitchenUpdatesQty',
+    'Kitchen updates',
+    'Enter',
+    '',
+    'interior',
+    undefined,
+    'Kitchen work named in the notes. Cabinet, counter, and finish quantities were not stated.'
+  ),
+  bathroomUpdatesQty: F(
+    'bathroomUpdatesQty',
+    'Bathroom updates',
+    'Enter',
+    '',
+    'interior',
+    undefined,
+    'Bathroom work named in the notes. Fixture and finish quantities were not stated.'
   ),
   showerWallTileSqft: F(
     'showerWallTileSqft',
@@ -5140,6 +5160,8 @@ export function emptyQuickMeasurementInput(): Record<
     countertopLf: '',
     cabinetLf: '',
     cabinetDemoLf: '',
+    kitchenUpdatesQty: '',
+    bathroomUpdatesQty: '',
     showerWallTileSqft: '',
     showerFloorTileSqft: '',
     wallDemoSqft: '',

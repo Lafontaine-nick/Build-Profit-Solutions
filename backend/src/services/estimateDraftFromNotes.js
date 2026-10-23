@@ -735,6 +735,8 @@ function normalizeDraft(raw, options = {}) {
   const missingInfo = Array.isArray(draft.missingInfo)
     ? draft.missingInfo.map((s) => String(s).trim()).filter(Boolean)
     : [];
+  const { normalizeScopeIntent } = require('./scopeIntent');
+  const scopeIntent = normalizeScopeIntent(draft.scopeIntent, originalNotes || '');
 
   const statedTotal =
     draft.statedTotal != null && draft.statedTotal !== ''
@@ -776,6 +778,7 @@ function normalizeDraft(raw, options = {}) {
     exclusions,
     statedTotal,
     missingInfo,
+    scopeIntent,
     contractScope: draft.contractScope ? String(draft.contractScope).trim() : null,
     suggestedPaymentSchedule,
     pricingWarnings: [],
@@ -820,6 +823,7 @@ CRITICAL RULES:
 12. projectDescription: concise summary of the overall project.
 13. customerName: extract if obvious (e.g. "Ruth bid" → customer Ruth, title Ruth bid). Otherwise null.
 14. missingInfo: list anything important not provided (customer phone, start date, payment terms, labor vs material breakdown when only lump sums given, etc.)
+15. scopeIntent.items: one row per trade the notes mention. state is "included" only for work the notes clearly request, "excluded" when the notes say keep, leave, exclude, or not included, and "uncertain" when the read is ambiguous. quantity and unit ONLY when the note writes that number; otherwise null. evidence must be an exact short phrase copied from the notes. Do not invent trades or quantities.
 
 Return ONLY valid JSON with this shape:
 {
@@ -833,6 +837,7 @@ Return ONLY valid JSON with this shape:
   "exclusions": string[],
   "statedTotal": number | null,
   "missingInfo": string[],
+  "scopeIntent": { "items": [{ "id": string, "state": "included" | "excluded" | "uncertain", "quantity": number | null, "unit": string | null, "evidence": string }] },
   "contractScope": string | null,
   "suggestedPaymentSchedule": [{ "label": string, "amount": number | null, "percentage": number | null, "dueTiming": string }] | null
 }`;
@@ -962,13 +967,38 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
   }
 
   const builderMode = inferBuilderMode(trimmed, parsed);
-  return normalizeDraft(parsed, {
+  let draft = normalizeDraft(parsed, {
     builderMode,
     originalNotes: trimmed,
     userId: options.userId,
     savedTemplates: options.savedTemplates || [],
   });
+  const { draftNeedsScopeIntentPass, mergeScopeIntentPass } = require('./scopeIntent');
+  if (draftNeedsScopeIntentPass(draft)) {
+    try {
+      const intentCompletion = await createChatCompletionWithRetry(openai, {
+        model: aiModels.assistant.estimate,
+        response_format: aiRuntime.assistant.estimate.responseFormat,
+        reasoning_effort: 'none',
+        temperature: 0,
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: SCOPE_INTENT_PROMPT },
+          { role: 'user', content: trimmed },
+        ],
+      });
+      const intentParsed = parseDraftModelJson(draftCompletionText(intentCompletion));
+      draft = mergeScopeIntentPass(draft, intentParsed?.scopeIntent || intentParsed, trimmed);
+    } catch (err) {
+      console.warn('[estimate-draft-from-notes] scope intent pass skipped', err?.message || err);
+    }
+  }
+  return draft;
 }
+
+const SCOPE_INTENT_PROMPT = `Read contractor notes and return ONLY JSON:
+{ "items": [{ "id": string, "state": "included" | "excluded" | "uncertain", "quantity": number | null, "unit": string | null, "evidence": string }] }
+included = the notes clearly request that work. excluded = the notes say keep, leave, exclude, or not included. uncertain = the note is ambiguous. quantity only when the note writes that number, otherwise null. evidence must be an exact phrase copied from the notes. Do not invent trades or quantities.`;
 
 module.exports = {
   createEstimateDraftFromNotes,

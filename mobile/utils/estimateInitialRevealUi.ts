@@ -35,9 +35,12 @@ import { separateJobRevealRows } from '@/utils/noteClauseReader';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameRemovalOf,
+  notesOpeningMentionIsKeepOnly,
   statedCabinetInstallLf,
+  wholeHomeRemodelNamedItemIds,
   wholeHomeWallAndAtticInsulationLabel,
 } from '@/utils/wholeHomeRemodelNote';
+import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
 import { estimatedIceWaterShieldSqft } from '@/utils/roofingPlanningMeasurements';
 import { roofCoveringLabelForReveal } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
@@ -473,6 +476,19 @@ export function getInitialRevealConfirmItems(
       return false;
     }
     if (ownerHandledRevealItem(notes, item)) return false;
+    if (
+      notesOpeningMentionIsKeepOnly(notes, 'windows') &&
+      /\bwindows?\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      (notesDoorMentionIsPaintOrKeepOnly(notes) ||
+        notesOpeningMentionIsKeepOnly(notes, 'doors')) &&
+      /\bdoors?\b/i.test(item)
+    ) {
+      return false;
+    }
     if (
       notesDescribeGroundUpHome(notes) &&
       /\bdrywall\s+finish\b/i.test(item)
@@ -913,10 +929,7 @@ function collectInitialRevealConfirmItems(
       draft.scopeMeasurements?.planImportMode ||
         draft.scopeMeasurements?.planImportFingerprint
     ),
-    wholeHome:
-      /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-        String(draft.originalNotes || '')
-      ),
+    wholeHome: notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes),
   });
   if (draftNeedsScopeConfirmation(draft) && bathroomNoteLimit) {
     const packages = getScopePackagesForReview(draft);
@@ -943,10 +956,7 @@ function collectInitialRevealConfirmItems(
       draft.scopeMeasurements?.planImportMode ||
         draft.scopeMeasurements?.planImportFingerprint
     ),
-    wholeHome:
-      /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-        String(draft.originalNotes || '')
-      ),
+    wholeHome: notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes),
   });
   if (draftNeedsScopeConfirmation(draft) && kitchenNoteLimit) {
     const packages = getScopePackagesForReview(draft);
@@ -986,6 +996,37 @@ function collectInitialRevealConfirmItems(
         unpricedScope.map(row => `Pricing for ${row.name}`)
       );
     }
+  }
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes)
+  ) {
+    const suggestedMeasurements = initialScopeMeasurementInputExtended(
+      draft,
+      draft.originalNotes
+    );
+    const templateKey = draft.scopeChecklist?.templateKey ?? null;
+    const notes = String(draft.originalNotes || '');
+    const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
+      const resolved = resolveChecklistItemQuantity(
+        row.id,
+        suggestedMeasurements,
+        { templateKey, notes }
+      );
+      const suggested = resolveScopeItemSuggestedPricing(
+        row.id,
+        suggestedMeasurements,
+        templateKey,
+        resolved,
+        null,
+        null,
+        notes
+      );
+      return !(Number(suggested.fill?.total) > 0);
+    });
+    return splitInitialRevealConfirmItems(
+      unpricedScope.map(row => `Pricing for ${row.name}`)
+    );
   }
   // Stucco plus a window count already has national averages on Confirm Scope.
   if (
@@ -2826,13 +2867,7 @@ function getInitialRevealScopeRows(
       ...(row.quantity ? { quantityOverride: row.quantity } : {}),
     }));
   }
-  const wholeHomeMixedRemodelNote =
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-      notes
-    ) &&
-    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
-      notes
-    );
+  const wholeHomeMixedRemodelNote = notesDescribeMeasuredWholeHomeRemodel(notes);
   const wholeHomeRemodelContext =
     wholeHomeMixedRemodelNote ||
     /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
@@ -3435,7 +3470,10 @@ function getInitialRevealScopeRows(
     } else if (/\b(?:install|new|replace)\b[^.;\n]{0,40}\bcabinets?\b/i.test(notes)) {
       addMixedRow('cabinets', 'Cabinet installation');
     }
-    if (/\b(?:two|2)\s+windows?\b|\bwindows?\b/i.test(notes)) {
+    if (
+      (/\b(?:two|2)\s+windows?\b|\bwindows?\b/i.test(notes)) &&
+      !notesOpeningMentionIsKeepOnly(notes, 'windows')
+    ) {
       addMixedRow('windows', 'Window install');
     }
     if (/\bpaint(?:ing)?\b/i.test(notes)) {
@@ -3478,6 +3516,8 @@ function getInitialRevealScopeRows(
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(notes) &&
     !deniesInteriorDoors &&
+    !notesDoorMentionIsPaintOrKeepOnly(notes) &&
+    !notesOpeningMentionIsKeepOnly(notes, 'doors') &&
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
   if (hasGenericDoorMention) {
     rows = rows.filter(row => row.id !== 'doors');
@@ -3491,9 +3531,27 @@ function getInitialRevealScopeRows(
   if (
     roomRemodelReveal &&
     /\binterior\s+doors?\b/i.test(notes) &&
+    !notesDoorMentionIsPaintOrKeepOnly(notes) &&
+    !notesOpeningMentionIsKeepOnly(notes, 'doors') &&
     !rows.some(row => row.id === 'interior_door_install')
   ) {
     rows.push({ id: 'interior_door_install', name: 'Interior door installation' });
+  }
+  if (notesOpeningMentionIsKeepOnly(notes, 'windows')) {
+    rows = rows.filter(
+      row => row.id !== 'windows' && row.id !== 'window_install'
+    );
+  }
+  if (
+    notesDoorMentionIsPaintOrKeepOnly(notes) ||
+    notesOpeningMentionIsKeepOnly(notes, 'doors')
+  ) {
+    rows = rows.filter(
+      row =>
+        row.id !== 'interior_door_install' &&
+        row.id !== 'doors' &&
+        row.id !== 'interior_doors'
+    );
   }
   if (roomRemodelReveal) {
     const addRoomRemodelRow = (id: string, name: string) => {
@@ -4221,11 +4279,54 @@ function getInitialRevealScopeRows(
           /door\s*\/\s*window openings|rough openings/i.test(row.name)
       )
     : framingRevealRows;
-  const visibleRevealRows = scopedRevealRows.length
-    ? scopedRevealRows
-    : notesNameRoughOpeningsOnly(notes)
-      ? [{ id: 'openings', name: 'Door / window openings' }]
-      : scopedRevealRows;
+  const namedWholeHomeIds = wholeHomeRemodelNamedItemIds(notes);
+  const withRoomUpdates = (() => {
+    const base = scopedRevealRows.length
+      ? scopedRevealRows
+      : notesNameRoughOpeningsOnly(notes)
+        ? [{ id: 'openings', name: 'Door / window openings' }]
+        : scopedRevealRows;
+    if (!namedWholeHomeIds) return base;
+    const next = [...base];
+    if (
+      namedWholeHomeIds.has('kitchen_updates') &&
+      !next.some(row => row.id === 'kitchen_updates' || row.id === 'cabinets')
+    ) {
+      next.push({ id: 'kitchen_updates', name: 'Kitchen updates' });
+    }
+    if (
+      namedWholeHomeIds.has('bathroom_updates') &&
+      !next.some(
+        row =>
+          row.id === 'bathroom_updates' ||
+          row.id === 'vanity' ||
+          row.id === 'shower_tile'
+      )
+    ) {
+      next.push({ id: 'bathroom_updates', name: 'Bathroom updates' });
+    }
+    return next;
+  })();
+  const visibleRevealRows = withRoomUpdates.filter(row => {
+    if (notesOpeningMentionIsKeepOnly(notes, 'windows')) {
+      if (row.id === 'windows' || row.id === 'window_install') return false;
+      if (/^window install\b/i.test(row.name)) return false;
+    }
+    if (
+      notesDoorMentionIsPaintOrKeepOnly(notes) ||
+      notesOpeningMentionIsKeepOnly(notes, 'doors')
+    ) {
+      if (
+        row.id === 'interior_door_install' ||
+        row.id === 'doors' ||
+        row.id === 'interior_doors'
+      ) {
+        return false;
+      }
+      if (/^interior door installation\b/i.test(row.name)) return false;
+    }
+    return true;
+  });
   const wallFloorRevealRows = notesNameWallAreaFramingWithFlooring(notes)
     ? (() => {
         const framingQty =
@@ -4909,6 +5010,23 @@ export function getInitialRevealChecklistScopePreview(
   }
   const scopeRows = getInitialRevealScopeRows(draft).filter(row => {
     if (hideUnnamedBathroomPaintScopeRow(draft, row)) return false;
+    if (notesOpeningMentionIsKeepOnly(draft.originalNotes, 'windows')) {
+      if (row.id === 'windows' || row.id === 'window_install') return false;
+      if (/^window install\b/i.test(row.name)) return false;
+    }
+    if (
+      notesDoorMentionIsPaintOrKeepOnly(draft.originalNotes) ||
+      notesOpeningMentionIsKeepOnly(draft.originalNotes, 'doors')
+    ) {
+      if (
+        row.id === 'interior_door_install' ||
+        row.id === 'doors' ||
+        row.id === 'interior_doors'
+      ) {
+        return false;
+      }
+      if (/^interior door installation\b/i.test(row.name)) return false;
+    }
     if (!notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes)) return true;
     if (row.id === 'air_sealing') return false;
     if (/\bair\s*sealing\b/i.test(row.name)) return false;
@@ -4971,6 +5089,25 @@ export function getInitialRevealChecklistScopePreview(
       return false;
     }
     const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
+    const name = String(pkg.name || pkg.scope || '');
+    if (
+      notesOpeningMentionIsKeepOnly(draft.originalNotes, 'windows') &&
+      (id === 'windows' ||
+        id === 'window_install' ||
+        /^window install\b/i.test(name))
+    ) {
+      return false;
+    }
+    if (
+      (notesDoorMentionIsPaintOrKeepOnly(draft.originalNotes) ||
+        notesOpeningMentionIsKeepOnly(draft.originalNotes, 'doors')) &&
+      (id === 'interior_door_install' ||
+        id === 'doors' ||
+        id === 'interior_doors' ||
+        /^interior door installation\b/i.test(name))
+    ) {
+      return false;
+    }
     return !inScopeIds.size || (id && inScopeIds.has(id));
   });
   if (packages.length > 0) {
@@ -5417,6 +5554,16 @@ function getRevealClassification(draft: EstimateAiDraft) {
       }
       if (/\blandscap/.test(normalized)) return 'Landscaping';
       if (
+        /windows?\s*&\s*doors?|windows?\s+and\s+doors?|^windows?$/.test(
+          normalized
+        ) &&
+        notesOpeningMentionIsKeepOnly(notes, 'windows') &&
+        (notesDoorMentionIsPaintOrKeepOnly(notes) ||
+          notesOpeningMentionIsKeepOnly(notes, 'doors'))
+      ) {
+        return null;
+      }
+      if (
         /windows?\s*&\s*doors?|windows?\s+and\s+doors?/.test(normalized) &&
         !/\bwindows?\b/i.test(notes)
       ) {
@@ -5535,7 +5682,25 @@ export function getInitialRevealPriorityItems(
       )
     )
   );
-  const visible = prioritized.slice(0, max).map(plainLanguageReviewItem);
+  const visible = prioritized
+    .filter(item => {
+      if (
+        notesOpeningMentionIsKeepOnly(draft.originalNotes, 'windows') &&
+        /window install/i.test(item)
+      ) {
+        return false;
+      }
+      if (
+        (notesDoorMentionIsPaintOrKeepOnly(draft.originalNotes) ||
+          notesOpeningMentionIsKeepOnly(draft.originalNotes, 'doors')) &&
+        /interior door/i.test(item)
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, max)
+    .map(plainLanguageReviewItem);
   const hidden = Math.max(0, prioritized.length - max) + overflow;
   return { items: visible, overflow: hidden };
 }

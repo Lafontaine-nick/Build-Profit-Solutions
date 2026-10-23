@@ -30,6 +30,33 @@ describe('scopeItemNoteHints trim inference', () => {
   const BATH_REMODEL =
     'Bathroom remodel. Tile shower walls, new shower pan, move rough plumbing, shower door. Final plumbing trim (faucets, toilet set, hookups) with new fixtures.';
 
+  test('paint or keep on doors does not include a door install', () => {
+    expect(
+      inferItemStateFromNotes('interior_door_install', 'Paint the doors and walls.')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes('door_paint', 'Paint the doors and walls.')
+    ).toBe('included');
+    expect(
+      inferItemStateFromNotes('interior_paint', 'Paint the doors and walls.')
+    ).toBe('included');
+    expect(
+      inferItemStateFromNotes('trim_paint', 'Paint the doors and walls.')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes(
+        'interior_door_install',
+        'Keep the windows and doors. Paint all walls and ceilings.'
+      )
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes(
+        'interior_door_install',
+        'Replace 3 interior doors and paint the ceilings.'
+      )
+    ).toBe('included');
+  });
+
   test('plumbing trim does not include trim & baseboard scope', () => {
     expect(inferItemStateFromNotes('trim', BATH_REMODEL)).toBe('unsure');
     expect(inferItemStateFromNotes('plumbing_trim', BATH_REMODEL)).toBe(

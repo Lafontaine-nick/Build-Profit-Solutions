@@ -49,6 +49,26 @@ describe('wetAreaInstallPdfExport', () => {
     expect(card?.lines.some((line) => line.label === 'Mud pan (tile shower)')).toBe(false);
   });
 
+  test('prints whole-home baths and shower floor tile', () => {
+    const card = buildWetAreaInstallPdfMeasurementCard({
+      templateKey: 'ground_up',
+      wholeHomeLayout: true,
+      measurements: {
+        bathCount: 2,
+        showerWallTileSqft: '180',
+        showerFloorTileSqft: '40',
+      },
+    });
+    expect(card?.lines.map((line) => line.label)).toEqual([
+      'BATHS',
+      'Baths',
+      'SHOWER TILE',
+      'Shower wall tile',
+      'Shower floor tile',
+    ]);
+    expect(card?.lines.find((line) => line.label === 'Baths')?.quantity).toBe('2 each');
+  });
+
   test('returns null when no wet area measurements are set', () => {
     expect(
       buildWetAreaInstallPdfMeasurementCard({
@@ -94,5 +114,42 @@ describe('wetAreaInstallPdfExport', () => {
     expect(html).toMatch(/NEW PAN \/ TUB \/ ENCLOSURE/);
     expect(html).toMatch(/90 sqft/);
     expect(html).toMatch(/measurements-card/);
+  });
+
+  test('prints the wet area card and the paint lines together', () => {
+    const card = buildWetAreaInstallPdfMeasurementCard({
+      templateKey: 'bathroom',
+      measurements: { showerWallTileSqft: '90' },
+    });
+    const html = buildProposalHtml(
+      {
+        summary: {
+          contractId: 'B-2',
+          projectName: 'Bath and paint',
+          siteAddress: '1 Main St',
+          totalBid: 12000,
+          durationDays: 14,
+          startDate: '2026-09-01',
+        },
+        contractor: {},
+        owner: { legalName: 'Client' },
+        scope: {
+          bullets: ['Bathroom remodel'],
+          description: 'Bathroom remodel',
+          measurementCards: card ? [card] : [],
+          measurementLines: [{ label: 'Wall paint', quantity: '400 sqft' }],
+          exclusions: ['Interior door installation'],
+        },
+        milestones: [],
+        terms: {},
+      } as ContractDoc,
+      { projectType: 'bathroom' }
+    );
+    expect(html).toMatch(/WET AREA INSTALL/);
+    expect(html).toMatch(/PAINTING/);
+    expect(html).toMatch(/Wall paint/);
+    expect(html).toMatch(/400 sqft/);
+    expect(html).toMatch(/Excluded/);
+    expect(html).toMatch(/Interior door installation/);
   });
 });

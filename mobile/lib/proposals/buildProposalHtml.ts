@@ -122,22 +122,12 @@ function renderMeasurementCardsHtml(
     .join("")}`;
 }
 
-function renderMeasurementLinesHtml(
-  lines: NonNullable<ContractDoc["scope"]["measurementLines"]>
-): string {
-  if (!lines.length) return "";
-  return `<h3 class="appendix-context-title">Measurements</h3>
-        <div class="measurements-card">
-          <div class="measurements-columns">${lines
-            .map(
-              (line) => `
-            <div class="measurements-row">
-              <span class="measurements-label">${esc(line.label)}</span>
-              <span class="measurements-value">${esc(line.quantity)}</span>
-            </div>`
-            )
-            .join("")}</div>
-        </div>`;
+function renderNamedScopeList(title: string, items?: string[]): string {
+  const rows = (items || []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!rows.length) return "";
+  return `<h3 class="appendix-context-title">${esc(title)}</h3><ul class="bullet-list flush">${rows
+    .map((item) => `<li>${esc(item)}</li>`)
+    .join("")}</ul>`;
 }
 
 function dedupeScopeBulletsForDisplay(bullets: string[]): string[] {
@@ -340,11 +330,18 @@ function coverQuantityRows(
       .filter((line) => !line.sectionHeader && !line.note && String(line.quantity || "").trim())
       .map((line) => ({ label: line.label, quantity: String(line.quantity) })),
   );
-  if (fromCards.length) return fromCards.slice(0, 10);
-  return (doc.scope.measurementLines || [])
+  const fromLines = (doc.scope.measurementLines || [])
     .filter((line) => String(line.quantity || "").trim())
-    .slice(0, 10)
     .map((line) => ({ label: line.label, quantity: String(line.quantity) }));
+  const seen = new Set<string>();
+  const rows: Array<{ label: string; quantity: string }> = [];
+  for (const row of [...fromCards, ...fromLines]) {
+    const key = row.label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+  }
+  return rows.slice(0, 10);
 }
 
 const hasMeaningfulLicenseNumber = (value?: string) => {
@@ -964,13 +961,25 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     const includedWorkHtml = renderScopeForPdf(displayScopeBullets);
     const showScopeNarrative = !includedWorkHtml;
     const measurementLines = sanitizedDoc.scope.measurementLines || [];
-    const measurementCards = sanitizedDoc.scope.measurementCards || [];
-    const measurementsHtml =
-      measurementCards.length > 0
-        ? renderMeasurementCardsHtml(measurementCards)
-        : measurementLines.length > 0
-          ? renderMeasurementLinesHtml(measurementLines)
-          : "";
+    const measurementCards = [
+      ...(sanitizedDoc.scope.measurementCards || []),
+      ...(measurementLines.length > 0
+        ? [
+            {
+              title: "Painting",
+              lines: measurementLines.map((line) => ({
+                label: line.label,
+                quantity: line.quantity,
+              })),
+            },
+          ]
+        : []),
+    ];
+    const measurementsHtml = renderMeasurementCardsHtml(measurementCards);
+    const scopeListHtml = `${renderNamedScopeList(
+      "Included",
+      sanitizedDoc.scope.inclusions,
+    )}${renderNamedScopeList("Excluded", sanitizedDoc.scope.exclusions)}`;
 
     return `
     <section class="page page--scope-pricing-flow appendix-page">
@@ -987,6 +996,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         <h3 class="appendix-context-title">Scope &amp; included work</h3>
         ${showScopeNarrative ? `<p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>` : ""}
         ${includedWorkHtml}
+        ${scopeListHtml}
       </div>
       ${measurementsHtml ? `<div class="measurements-block">${measurementsHtml}</div>` : ""}
 

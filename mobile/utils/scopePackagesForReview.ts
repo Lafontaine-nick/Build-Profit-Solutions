@@ -1,7 +1,13 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { getScopePackagesRaw } from '@/utils/estimateAiDraft';
 import {
+  filterProposalExportToSnapshot,
+  proposalScopeLists,
+} from '@/utils/proposalExportScope';
+import { applyStructuredScopeIntentToItems } from '@/utils/scopeIntent';
+import {
   ensureBathroomChecklistItems,
+  ensureBathroomVisiblePricingCards,
   ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
   expandWetAreaDerivedScopeItems,
@@ -22,6 +28,11 @@ import {
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
+import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  notesOpeningMentionIsKeepOnly,
+} from '@/utils/wholeHomeRemodelNote';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
 import { isDrywallCompletePackageScope } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
@@ -661,14 +672,7 @@ export function buildConfirmScopeDisplayItems(
 }
 
 function wholeHomeMixedRemodelNote(notes: string): boolean {
-  return (
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-      notes
-    ) &&
-    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
-      notes
-    )
-  );
+  return notesDescribeMeasuredWholeHomeRemodel(notes);
 }
 
 /**
@@ -688,7 +692,9 @@ export function applyStep2NoteScopeFilters(
     projectType: draft.projectType,
     scopeMode: draft.scopeMode || draft.classification?.scopeMode || null,
     planBacked: Boolean(
-      measurements.planImportMode || measurements.planImportFingerprint
+      measurements.planImportMode ||
+        measurements.planImportFingerprint ||
+        measurements.planImportSession
     ),
     wholeHome: wholeHomeMixedRemodelNote(notes),
   };
@@ -699,7 +705,12 @@ export function applyStep2NoteScopeFilters(
       measurements.tradeScopeSelections as { roofing?: string[] } | undefined
     )?.roofing,
   };
-  const bathroomPricedItems = filterDedicatedPlumbingConfirmItems(items, notes);
+  const bathroomPricedItems = ensureBathroomVisiblePricingCards(
+    filterDedicatedPlumbingConfirmItems(items, notes),
+    notes,
+    noteScopeParams.templateKey,
+    measurements
+  );
   let filtered = filterStuccoWithWindowsConfirmItems(
     filterDedicatedStuccoConfirmItems(
       filterDedicatedInsulationConfirmItems(
@@ -752,9 +763,27 @@ export function applyStep2NoteScopeFilters(
         : item
     );
   }
+  const keepWindows = notesOpeningMentionIsKeepOnly(notes, 'windows');
+  const keepDoors =
+    notesDoorMentionIsPaintOrKeepOnly(notes) ||
+    notesOpeningMentionIsKeepOnly(notes, 'doors');
+  if (keepWindows || keepDoors) {
+    filtered = filtered.map(item => {
+      const id = String(item.id || '');
+      const dropWindow =
+        keepWindows && (id === 'windows' || id === 'window_install');
+      const dropDoor =
+        keepDoors &&
+        (id === 'interior_door_install' ||
+          id === 'doors' ||
+          id === 'interior_doors');
+      if (!dropWindow && !dropDoor) return item;
+      return { ...item, state: 'excluded' as const, noteBacked: false };
+    });
+  }
   const removedIds = measurements.contractorRemovedScopeItemIds;
   return applyContractorRemovedScopeItems(
-    filtered,
+    applyStructuredScopeIntentToItems(filtered, draft.scopeIntent),
     Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
   );
 }
@@ -1341,6 +1370,73 @@ export function reconcileScopePackagesForReview(
 
 export function getScopePackagesForReview(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
   return reconcileScopePackagesForReview(draft);
+}
+
+/**
+ * PDF inclusions and exclusions from the same Confirm Scope rows the screen shows.
+ * A line the screen dropped cannot stay on the Included list.
+ */
+export function confirmedProposalScopeLists(draft: EstimateAiDraft | null | undefined): {
+  inclusions: string[];
+  exclusions: string[];
+} {
+  if (!draft) return proposalScopeLists(null);
+  const visible = confirmScopeDisplayItemsFromDraft(draft);
+  const visibleIds = new Set(visible.map(item => item.id));
+  const raw = draft.scopeChecklist?.items?.length
+    ? draft.scopeChecklist.items
+    : draft.confirmedAssumptions || [];
+  const dropped = new Set(
+    raw
+      .filter(item => item.id && !visibleIds.has(item.id))
+      .map(item => String(item.label || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  return proposalScopeLists({
+    inclusions: (draft.inclusions || []).filter(
+      line => !dropped.has(String(line || '').trim().toLowerCase())
+    ),
+    exclusions: draft.exclusions,
+    scopeChecklist: {
+      ...(draft.scopeChecklist || {}),
+      items: visible,
+    },
+    scopeIntent: draft.scopeIntent,
+    scopeMeasurements: draft.scopeMeasurements,
+    projectType: draft.projectType,
+  });
+}
+
+/** PDF measurements and allowances for the rows Confirm Scope still shows. */
+export function confirmedProposalExportParts<TCard, TAllowance extends {
+  checklistItemId?: string | null;
+  costCode?: string | null;
+  sourceItemId?: string | null;
+  name?: string | null;
+}>(
+  draft: EstimateAiDraft | null | undefined,
+  parts: {
+    paintingLines?: Array<{ label: string; quantity: string }> | null;
+    wetAreaCard?: TCard | null;
+    electricalCard?: TCard | null;
+    allowances?: TAllowance[] | null;
+  }
+) {
+  const confirmed = Boolean(
+    draft?.scopeAssumptionsConfirmed || draft?.confirmedAssumptions?.length
+  );
+  const items = confirmed
+    ? confirmScopeDisplayItemsFromDraft(draft as EstimateAiDraft)
+    : draft?.scopeChecklist?.items || [];
+  return filterProposalExportToSnapshot({
+    items,
+    confirmed,
+    planImportTradeKey: draft?.scopeMeasurements?.planImportTradeKey,
+    paintingLines: parts.paintingLines,
+    wetAreaCard: parts.wetAreaCard,
+    electricalCard: parts.electricalCard,
+    allowances: parts.allowances,
+  });
 }
 
 /** Persist checklist-ordered scopePackages after Confirm Scope. */

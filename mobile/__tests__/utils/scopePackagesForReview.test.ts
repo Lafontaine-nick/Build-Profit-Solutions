@@ -1,5 +1,7 @@
 import {
   getScopePackagesForReview,
+  confirmedProposalScopeLists,
+  confirmedProposalExportParts,
   flattenChecklistDisplayOrder,
   flattenConfirmScopeVisibleRows,
   buildConfirmScopeDisplayItems,
@@ -19,7 +21,7 @@ import {
   ruleKeysToTryForPackage,
 } from '@/utils/scopeItemQuantities';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { applyDraftToEstimate } from '@/utils/estimateAiDraft';
+import { applyDraftToEstimate, sumEstimateLineTotals } from '@/utils/estimateAiDraft';
 import {
   sumAppliedScopePricingFromDraft,
   sumStep3ReviewBudgetTotals,
@@ -1314,6 +1316,7 @@ describe('dedicated bathroom Step 3 matches the note Step 2 priced', () => {
       scopeMode: 'dedicated',
       projectType: 'bathroom',
       originalNotes: notes,
+      inclusions: ['Interior painting', 'Exterior trim paint', 'Labor and materials'],
       scopeChecklist: { templateKey: 'bathroom', items },
       confirmedAssumptions: items,
       scopeMeasurements: {
@@ -1370,6 +1373,40 @@ describe('dedicated bathroom Step 3 matches the note Step 2 priced', () => {
     const hero = sumStep3ReviewBudgetTotals(draft);
     expect(hero?.total).toBe(applied?.total);
     expect(hero?.total).toBe(900);
+
+    const lists = confirmedProposalScopeLists(draft);
+    expect(lists.inclusions).toContain('Labor and materials');
+    expect(lists.inclusions).not.toContain('Interior painting');
+    expect(lists.inclusions).not.toContain('Exterior trim paint');
+
+    const pdf = confirmedProposalExportParts(draft, {
+      paintingLines: [{ label: 'Wall paint', quantity: '2,400 sqft' }],
+      wetAreaCard: { title: 'Wet area install' },
+      electricalCard: { title: 'Electrical' },
+      allowances: [
+        { name: 'Exterior trim paint', checklistItemId: 'exterior_trim_paint', amount: 180 },
+        { name: 'Toilet', checklistItemId: 'toilet', amount: 900 },
+      ],
+    });
+    expect(pdf.paintingLines).toEqual([]);
+    expect(pdf.electricalCard).toBeNull();
+    expect(pdf.wetAreaCard?.title).toBe('Wet area install');
+    expect(pdf.allowances.map(line => line.checklistItemId)).toEqual(['toilet']);
+
+    const { bid } = applyDraftToEstimate({}, draft);
+    const lineTotals = sumEstimateLineTotals(
+      bid.materialLineItems,
+      bid.laborLineItems
+    );
+    expect(lineTotals.material + lineTotals.labor).toBe(900);
+    expect(String(bid.scopeDescription || '')).toContain('Shower tile demo / tear-out');
+    expect(String(bid.scopeDescription || '')).not.toContain('Interior painting');
+    expect(String(bid.scopeDescription || '')).not.toContain('Exterior trim paint');
+    const pricedNames = [
+      ...(bid.materialLineItems as { name?: string }[]),
+      ...(bid.laborLineItems as { name?: string }[]),
+    ].map(line => line.name);
+    expect(pricedNames.join(' ')).not.toMatch(/Interior painting|Exterior trim paint|Exterior Prep/);
   });
 });
 

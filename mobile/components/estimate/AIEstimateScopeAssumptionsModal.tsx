@@ -69,10 +69,14 @@ import {
   mergeLivePlanImportIntoScopeMeasurements,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
+  scopeExtractionClarificationQuestions,
 } from '@/utils/estimateAiDraft';
 import {
   applyWholeHomeRemodelChecklist,
+  includeEnteredRemodelCards,
   notesDescribeMeasuredWholeHomeRemodel,
+  notesNameBathroomRemodelPanel,
+  notesNameKitchenRemodelPanel,
   notesStatePaintArea,
   scrubWholeHomeRemodelMeasurements,
 } from '@/utils/wholeHomeRemodelNote';
@@ -260,7 +264,6 @@ import {
   filterFramingOnlyAdditionScopeItems,
   syncAdditionConversionScopeFromMeasurements,
   syncWindowInstallScopeFromNotes,
-  ensureBathroomVisiblePricingCards,
   hydrateScopeChecklistFromNotes,
   readerConfirmScopeItems,
   filterRoomRemodelNoteScopeItems,
@@ -310,15 +313,12 @@ import {
   bathroomMeasurementNotes,
   bathroomNoteTakeoff,
   bathroomScopeLines,
-  filterDedicatedBathroomConfirmItems,
   notesKeepExistingWetArea,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
-  notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
-import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
 import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
@@ -332,27 +332,20 @@ import {
 } from '@/utils/deckNoteScope';
 import {
   dedicatedElectricalNamedCards,
-  filterDedicatedElectricalConfirmItems,
   notesDescribeDedicatedElectricalDeviceJob,
   notesNameElectricalJobCondition,
   notesNameElectricalServiceAmperage,
   notesNameReceptaclesWithToilet,
   receptaclesWithToiletChecklistItems,
 } from '@/utils/electricalNoteScope';
-import { filterDedicatedWindowsDoorsConfirmItems } from '@/utils/windowsDoorsNoteScope';
 import {
   applyAtticInsulationWithDrywallCards,
-  filterDedicatedInsulationConfirmItems,
   insulationAssembliesMatchingNote,
   insulationNoteNamesAtticArea,
   insulationNoteNamesWallArea,
   notesNameAtticInsulationWithDrywallHang,
 } from '@/utils/insulationNoteScope';
-import {
-  filterDedicatedStuccoConfirmItems,
-  filterStuccoWithWindowsConfirmItems,
-  notesNameStuccoWithWindows,
-} from '@/utils/stuccoNoteScope';
+import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import {
   applyConcretePatioWithSodCards,
@@ -542,8 +535,6 @@ import {
 } from '@/utils/scopeItemQuantities';
 import {
   collectRoofingInferenceNotes,
-  ensureNamedRoofingConfirmItems,
-  filterDedicatedRoofingConfirmItems,
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
@@ -804,7 +795,10 @@ import {
   listConfirmScopeAppliedPricingLines,
   wholeProjectGroupDisplayTotal,
 } from '@/utils/benchmarkReasonablenessContext';
-import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
+import {
+  applyStep2NoteScopeFilters,
+  buildConfirmScopeDisplayItems,
+} from '@/utils/scopePackagesForReview';
 import { mergeSuggestedPricingBlocksIntoMeasurements } from '@/utils/mergeSuggestedPricingBlocks';
 import {
   assertBenchmarkDoesNotOverwritePrimary,
@@ -16932,7 +16926,8 @@ function CollapsibleQuickMeasurements({
                 (field.key === 'plumbingRoughPointCount' &&
                   /\bplumbing\b/i.test(noteText)) ||
                 (field.key === 'wallPaintSqft' &&
-                  /\bpaint(?:ing)?\b/i.test(noteText)))
+                  /\bpaint(?:ing)?\b/i.test(noteText)) ||
+                (field.key === 'flooringSqft' && /\bflooring\b/i.test(noteText)))
             ) {
               return true;
             }
@@ -17608,13 +17603,7 @@ function CollapsibleQuickMeasurements({
     (/\b(?:quartz|countertops?)\b/i.test(String(notes || '')) &&
       !explicitBathroomScopeInNotes);
   const explicitKitchenScopeInNotes = kitchenSpecificScopeInNotes;
-  const isWholeHomeMixedRemodel =
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-      String(notes || '')
-    ) &&
-    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
-      String(notes || '')
-    );
+  const isWholeHomeMixedRemodel = notesDescribeMeasuredWholeHomeRemodel(notes);
   const explicitLandscapingScopeInNotes =
     /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|pavers?|drainage|landscape\s+lighting)\b/i.test(
       String(notes || '')
@@ -17626,13 +17615,14 @@ function CollapsibleQuickMeasurements({
   const kitchenInstallQmJob =
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
-    !isWholeHomeMixedRemodel &&
-    (lockTradePanelsToTemplate
-      ? String(effectiveTemplateKey || '').toLowerCase() === 'kitchen'
-      : compactMixedScope
-        ? explicitKitchenScopeInNotes
-        : String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
-          mixedTradeSet.has('kitchen'));
+    (notesNameKitchenRemodelPanel(notes) ||
+      (!isWholeHomeMixedRemodel &&
+        (lockTradePanelsToTemplate
+          ? String(effectiveTemplateKey || '').toLowerCase() === 'kitchen'
+          : compactMixedScope
+            ? explicitKitchenScopeInNotes
+            : String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
+              mixedTradeSet.has('kitchen'))));
   const kitchenDemoQmJob =
     !paintingPlanMeasurements &&
     !wholeHomeLayout &&
@@ -17755,10 +17745,11 @@ function CollapsibleQuickMeasurements({
     !paintingPlanMeasurements &&
     !notesTradeFlow &&
     !wholeHomeLayout &&
-    !isWholeHomeMixedRemodel &&
-    (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
-      (!lockTradePanelsToTemplate && mixedTradeSet.has('bathroom'))) &&
-    (!compactMixedScope || explicitBathroomScopeInNotes);
+    (notesNameBathroomRemodelPanel(notes) ||
+      (!isWholeHomeMixedRemodel &&
+        (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
+          (!lockTradePanelsToTemplate && mixedTradeSet.has('bathroom'))) &&
+        (!compactMixedScope || explicitBathroomScopeInNotes)));
   const showWetAreaFinishSteppers = useMemo(() => {
     if (notesNameShowerTileWithFlooring(notes)) return false;
     if (paintingPlanMeasurements) return false;
@@ -17769,6 +17760,9 @@ function CollapsibleQuickMeasurements({
       /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|enclosure|walls?|floor\s+tile)|tub|bathtub|wet\s+area|prefab|bath(?:room)?\s+floor(?:\s+tile)?)\b/i.test(
         noteText
       );
+    if (notesNameBathroomRemodelPanel(notes) && !notesExplicitWetAreaWork) {
+      return true;
+    }
     if (isWholeHomeMixedRemodel && !notesExplicitWetAreaWork) return false;
     if (
       (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
@@ -19299,15 +19293,17 @@ function CollapsibleQuickMeasurements({
           [field]: cleaned,
           itemQuantities,
           pricingAcceptance,
-          ...(field === 'showerFloorTileSqft'
+          ...(field === 'showerFloorTileSqft' ||
+          field === 'showerWallTileSqft' ||
+          field === 'bathroomFloorSqft'
             ? {
                 quickMeasurementUserOverrides: {
                   ...(prev.quickMeasurementUserOverrides || {}),
-                  showerFloorTileSqft: true as const,
+                  [field]: true as const,
                 },
                 quickMeasurementSources: {
                   ...(prev.quickMeasurementSources || {}),
-                  showerFloorTileSqft: 'user_entered' as const,
+                  [field]: 'user_entered' as const,
                 },
               }
             : {}),
@@ -19781,18 +19777,24 @@ function CollapsibleQuickMeasurements({
     const showBathroomWallPaint = notesRequireInteriorPaintMeasurements(
       bathroomNoteText
     );
+    const openBathroomTileTakeoff =
+      notesNameBathroomRemodelPanel(notes) &&
+      !/\b(?:shower|tub|bathtub|tile)\b/i.test(bathroomNoteText);
     const showShowerWallTile =
+      openBathroomTileTakeoff ||
       takeoff.showerWallSqft ||
       showBathroomNote(
       /\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|tile\s+shower|wall\s+tile|shower\s+tile)\b/i
     );
     const showShowerFloorTile =
-      (takeoff.showerFloorSqft ||
+      (openBathroomTileTakeoff ||
+        takeoff.showerFloorSqft ||
         showBathroomNote(
           /\b(?:shower\s+floor(?:\s+tile)?|tile\s+shower\s+floor)\b/i
         )) &&
       !showMudPanArea;
     const showBathFloorTile =
+      openBathroomTileTakeoff ||
       takeoff.bathFloorSqft ||
       showBathroomNote(
       /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
@@ -19867,7 +19869,9 @@ function CollapsibleQuickMeasurements({
         ]}
       >
         {sectionTitle(
-          floorOnlyInstall
+          openBathroomTileTakeoff
+            ? 'Bathroom tile'
+            : floorOnlyInstall
             ? 'Bathroom floor'
             : bathroomPhotoWetArea
               ? 'Wet area install'
@@ -19882,14 +19886,17 @@ function CollapsibleQuickMeasurements({
             marginBottom: 8,
           }}
         >
-          {floorOnlyInstall
+          {openBathroomTileTakeoff
+            ? 'Shower wall, shower floor, and bathroom floor. Areas were not stated.'
+            : floorOnlyInstall
             ? 'Bathroom floor tile area — priced per sqft.'
             : bathroomPhotoWetArea
             ? 'Set pan/tub/enclosure counts below — wall & floor tile use sqft.'
             : bathCountFromPlan > 0
               ? `${bathCountFromPlan} bath${bathCountFromPlan === 1 ? '' : 's'} on plan — set finish counts below.`
               : 'No baths labeled on plan — set tile / prefab / tub counts below.'}
-          {!bathroomPhotoWetArea &&
+          {!openBathroomTileTakeoff &&
+          !bathroomPhotoWetArea &&
           effectiveWetAreaFinish === 'tile' &&
           !resolvedBathCount
             ? ' Set tile showers to unlock shower estimates.'
@@ -20044,6 +20051,30 @@ function CollapsibleQuickMeasurements({
                   adjustShowerDoorCount
                 )
               : null}
+          </>
+        ) : openBathroomTileTakeoff ? (
+          <>
+            {renderWetAreaInstallSubheading('SHOWER WALL TILE')}
+            {renderDemoSqftField(
+              'Shower wall tile',
+              'New wall tile area — priced per sqft.',
+              'showerWallTileSqft',
+              { skipDemoBasis: true }
+            )}
+            {renderWetAreaInstallSubheading('SHOWER FLOOR TILE')}
+            {renderDemoSqftField(
+              'Shower floor tile',
+              'New shower floor tile area — priced per sqft.',
+              'showerFloorTileSqft',
+              { skipDemoBasis: true }
+            )}
+            {renderWetAreaInstallSubheading('BATH FLOOR TILE')}
+            {renderDemoSqftField(
+              'Bath floor tile',
+              'Bathroom floor tile area — separate from the shower and from the house flooring.',
+              'bathroomFloorSqft',
+              { skipDemoBasis: true }
+            )}
           </>
         ) : (
           <>
@@ -20602,7 +20633,14 @@ function CollapsibleQuickMeasurements({
         String(notes || '')
       );
     const field =
-      resolvedField.key === 'baseboardLf' &&
+      resolvedField.key === 'flooringSqft' &&
+      notesDescribeMeasuredWholeHomeRemodel(notes)
+        ? {
+            ...resolvedField,
+            label: 'Flooring installation',
+            helperText: 'Flooring area from the notes.',
+          }
+        : resolvedField.key === 'baseboardLf' &&
       compactMixedScope &&
       !/\bbaseboards?\b|\bbase\s*board\b/i.test(String(notes || ''))
         ? { ...resolvedField, label: 'Trim' }
@@ -21098,10 +21136,14 @@ function CollapsibleQuickMeasurements({
       (windowsDoorsPlanImport &&
         windowsDoorsSuppressedQuickMeasurementFields.has(result.key)) ||
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
-      (kitchenQmJob && result.key === 'flooringSqft') ||
+      (kitchenQmJob &&
+        result.key === 'flooringSqft' &&
+        !notesDescribeMeasuredWholeHomeRemodel(notes)) ||
       (compactMixedScope &&
         kitchenInstallQmJob &&
-        ['flooringSqft', 'floorDemoSqft'].includes(result.key)) ||
+        (result.key === 'floorDemoSqft' ||
+          (result.key === 'flooringSqft' &&
+            !notesDescribeMeasuredWholeHomeRemodel(notes)))) ||
       (compactMixedScope &&
         result.key === 'framingOpeningCount' &&
         /\b(?:windows?|exterior\s+doors?|doors?)\b/i.test(
@@ -23150,6 +23192,9 @@ function CollapsibleQuickMeasurements({
                   Bathroom remodel measurements
                 </Text>
               ) : null}
+              {notesNameBathroomRemodelPanel(notes) && !bathroomPhotoWetArea
+                ? renderWetAreaFinishPanel()
+                : null}
               {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
                 <>
                   {renderDemoTearOutPanel()}
@@ -23540,7 +23585,9 @@ function CollapsibleQuickMeasurements({
             </>
           )}
 
-          {showWetAreaFinishSteppers && !bathroomPhotoWetArea
+          {showWetAreaFinishSteppers &&
+          !bathroomPhotoWetArea &&
+          !notesNameBathroomRemodelPanel(notes)
             ? renderWetAreaFinishPanel()
             : null}
 
@@ -24750,12 +24797,7 @@ export default function AIEstimateScopeAssumptionsModal({
     ) ||
       /\bstucco\b|exterior\s+finish/i.test(scopeNotes));
   const isWholeHomeMixedRemodelNote =
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
-      String(scopeNotes || '')
-    ) &&
-    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
-      String(scopeNotes || '')
-    );
+    notesDescribeMeasuredWholeHomeRemodel(scopeNotes);
 
   const displayItems = useMemo(() => {
     const receptacleToiletNote =
@@ -25019,7 +25061,11 @@ export default function AIEstimateScopeAssumptionsModal({
       if (measurements.planImportFingerprint || measurements.planImportMode) {
         return list;
       }
-      return applyWholeHomeRemodelChecklist(list, currentUserNote);
+      return applyWholeHomeRemodelChecklist(
+        list,
+        currentUserNote,
+        measurements as unknown as Record<string, unknown>
+      );
     };
     const openingScopeIds = new Set([
       'windows',
@@ -25471,90 +25517,30 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
 
   const noteScopedChecklistItems = useMemo(() => {
-    const noteScopeParams = {
-      notes:
-        String(notesFallback || '').trim() ||
-        String(draft?.originalNotes || '').trim() ||
-        scopeNotes,
-      templateKey: checklist?.templateKey,
-      projectType: draft?.projectType,
-      scopeMode:
-        draft?.scopeMode || draft?.classification?.scopeMode || null,
-      planBacked: Boolean(
-        measurements.planImportMode ||
-          measurements.planImportFingerprint ||
-          planImport
-      ),
-      wholeHome: isWholeHomeMixedRemodelNote,
-    };
-    const roofingNoteParams = {
-      ...noteScopeParams,
-      notes: collectRoofingInferenceNotes(draft, noteScopeParams.notes),
-      selectedIds: measurements.tradeScopeSelections?.roofing,
-    };
-    const bathroomPricedItems = ensureBathroomVisiblePricingCards(
+    const notes =
+      String(notesFallback || '').trim() ||
+      String(draft?.originalNotes || '').trim() ||
+      scopeNotes;
+    // Step 3, the summary, and the PDF read this same filter. A second copy
+    // here was relabeling demolition and dropping cards after Continue.
+    return applyStep2NoteScopeFilters(
       displayItems,
-      noteScopeParams.notes,
-      checklist?.templateKey || draft?.projectType,
-      measurements
-    );
-    const filtered = filterStuccoWithWindowsConfirmItems(
-      filterDedicatedStuccoConfirmItems(
-      filterDedicatedInsulationConfirmItems(
-      filterDedicatedWindowsDoorsConfirmItems(
-      filterDedicatedElectricalConfirmItems(
-      filterDedicatedFlooringConfirmItems(
-        ensureNamedRoofingConfirmItems(
-          filterDedicatedRoofingConfirmItems(
-            filterDedicatedKitchenConfirmItems(
-              filterDedicatedBathroomConfirmItems(bathroomPricedItems, noteScopeParams),
-              noteScopeParams
-            ),
-            roofingNoteParams
-          ),
-          roofingNoteParams
-        ),
-        noteScopeParams.notes,
-        selectedFlooringProductItemIds(measurements)
-      ),
-      noteScopeParams.notes,
-      { planBacked: noteScopeParams.planBacked }
-      ),
-      noteScopeParams.notes,
-      { planBacked: noteScopeParams.planBacked }
-      ),
-      noteScopeParams.notes,
-      { planBacked: noteScopeParams.planBacked }
-    ),
-      noteScopeParams.notes,
-      { planBacked: noteScopeParams.planBacked }
-    ),
-      noteScopeParams.notes,
-      { planBacked: noteScopeParams.planBacked }
-    );
-    const paintingItems = paintingPlanAssumesNewConstruction(
-      measurements as unknown as Record<string, unknown>,
-      noteScopeParams.notes
-    )
-      ? filtered.filter(item => item.id !== 'prep')
-      : filtered;
-    const pricedItems = notesWaterproofPanNotWalls(noteScopeParams.notes)
-      ? paintingItems.map(item =>
-          item.id === 'waterproofing'
-            ? {
-                ...item,
-                label: 'Shower pan waterproofing',
-                helperText:
-                  'Membrane on the new mud pan. The walls stay, so this is not backer board or wall-cavity insulation.',
-              }
-            : item
-        )
-      : paintingItems;
-    // Note rebuilds can put a removed line back on the bid. The confirmed
-    // removal is the last word, and the Quick Measurement stays.
-    return applyContractorRemovedScopeItems(
-      pricedItems,
-      measurements.contractorRemovedScopeItemIds
+      {
+        ...(draft || {}),
+        originalNotes: notes,
+        projectType: draft?.projectType,
+        scopeMode:
+          draft?.scopeMode || draft?.classification?.scopeMode || null,
+        scopeChecklist: draft?.scopeChecklist || {
+          templateKey: checklist?.templateKey,
+          items: displayItems,
+        },
+      } as EstimateAiDraft,
+      {
+        ...(measurements as unknown as Record<string, unknown>),
+        ...(planImport ? { planImportSession: true } : {}),
+      },
+      checklist?.templateKey
     );
   },
     [
@@ -27903,7 +27889,11 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (!draft?.scopeAssumptionsConfirmed) {
-      normalized = applyWholeHomeRemodelChecklist(normalized, scopeNotes);
+      normalized = applyWholeHomeRemodelChecklist(
+        normalized,
+        scopeNotes,
+        nextMeasurements as Record<string, unknown>
+      );
       nextMeasurements = scrubWholeHomeRemodelMeasurements(
         nextMeasurements as Record<string, unknown>,
         scopeNotes
@@ -29788,6 +29778,31 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.concreteAreaByType,
     measurements.concreteThicknessInches,
     measurements.concreteThicknessByType,
+  ]);
+
+  useEffect(() => {
+    if (
+      !notesNameKitchenRemodelPanel(scopeNotes) &&
+      !notesNameBathroomRemodelPanel(scopeNotes)
+    ) {
+      return;
+    }
+    setItems(prev =>
+      includeEnteredRemodelCards(
+        prev,
+        measurements as unknown as Record<string, unknown>
+      )
+    );
+  }, [
+    scopeNotes,
+    measurements.cabinetLf,
+    measurements.countertopSqft,
+    measurements.backsplashSqft,
+    measurements.bathroomInstallVanityCount,
+    measurements.bathroomInstallToiletCount,
+    measurements.showerWallTileSqft,
+    measurements.showerFloorTileSqft,
+    measurements.bathroomFloorSqft,
   ]);
 
   useEffect(() => {
@@ -32783,7 +32798,9 @@ export default function AIEstimateScopeAssumptionsModal({
       embedQmScopeInQuickMeasurements &&
       qmScopeEmbeddedInQuickMeasurements(item.id) &&
       !seedWholeProjectShell &&
-      !keepBathroomPricingCard
+      !keepBathroomPricingCard &&
+      item.id !== 'kitchen_updates' &&
+      item.id !== 'bathroom_updates'
     ) {
       return null;
     }
@@ -34688,11 +34705,20 @@ export default function AIEstimateScopeAssumptionsModal({
                   if (item.id === 'sitework' && item.state === 'excluded') {
                     return false;
                   }
+                  if (
+                    (item.id === 'kitchen_updates' &&
+                      notesNameKitchenRemodelPanel(scopeNotes)) ||
+                    (item.id === 'bathroom_updates' &&
+                      notesNameBathroomRemodelPanel(scopeNotes))
+                  ) {
+                    return false;
+                  }
                   if (hiddenOnGroundUpHouseBid(item.id, groundUpHouseBid)) {
                     return false;
                   }
                   if (
                     groundUpHouseBid &&
+                    !notesDescribeMeasuredWholeHomeRemodel(scopeNotes) &&
                     (item.id === 'floor_tile' || item.id === 'shower_floor_tile')
                   ) {
                     return false;
@@ -34755,13 +34781,13 @@ export default function AIEstimateScopeAssumptionsModal({
                 if (!cachedGroupPricing) {
                   const displayedGroupLines = new Map(
                     listConfirmScopeAppliedPricingLines({
-                      items: pricedItems,
+                      items: visibleItems,
                       measurements: measurementsForScopeRender,
                       templateKey: groupPricingTemplateKey,
                       notes: scopeNotes,
                     }).map(line => [line.itemId, line])
                   );
-                  const pending = pricedItems.flatMap(item => {
+                  const pending = visibleItems.flatMap(item => {
                     if (!checklistItemInScope(item)) return [];
                     const resolved = resolveChecklistItemQuantity(
                       item.id,
@@ -34854,7 +34880,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   // fans showed "Price needed" beside cards that already had a price.
                   const price = group.title
                     ? wholeProjectGroupDisplayTotal({
-                        items: pricedItems,
+                        items: visibleItems,
                         measurements: measurementsForScopeRender,
                         templateKey: groupPricingTemplateKey,
                         notes: scopeNotes,
@@ -34879,6 +34905,9 @@ export default function AIEstimateScopeAssumptionsModal({
                     )
                   );
                 const drywallFinishStartsOpen = group.title === 'Drywall finish';
+                const interiorFinishesSummary =
+                  group.title === 'Interior finishes' &&
+                  notesDescribeMeasuredWholeHomeRemodel(scopeNotes);
                 const groupCollapsed = group.title
                   ? drywallFinishStartsOpen
                     ? expandedPlumbingPlanGroups[group.title] === false
@@ -34916,6 +34945,11 @@ export default function AIEstimateScopeAssumptionsModal({
                         ? roofMaterialPriceIncludes(
                             readRoofMaterialChoice(measurements)
                           )
+                        : interiorFinishesSummary
+                          ? visibleItems
+                              .map(item => String(item.label || '').trim())
+                              .filter(Boolean)
+                              .join(' · ')
                         : (() => {
                             const electricalNote =
                               visibleItems.length > 0 &&
@@ -35084,6 +35118,33 @@ export default function AIEstimateScopeAssumptionsModal({
                   : null
               }
             />
+          ) : null}
+
+          {scopeExtractionClarificationQuestions(draft).length ? (
+            <View style={{ marginTop: 16, marginBottom: 4 }}>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 15,
+                  fontWeight: '700',
+                }}
+              >
+                Confirm before pricing
+              </Text>
+              {scopeExtractionClarificationQuestions(draft).map(question => (
+                <Text
+                  key={question.id}
+                  style={{
+                    color: captionColor(darkMode, Colors),
+                    fontSize: 14,
+                    lineHeight: 20,
+                    marginTop: 8,
+                  }}
+                >
+                  {question.question} A quantity the note did not state stays blank.
+                </Text>
+              ))}
+            </View>
           ) : null}
 
           <AIEstimateDisclaimer variant='compact' />

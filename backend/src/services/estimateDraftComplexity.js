@@ -21,6 +21,7 @@ const {
   notesDescribeGroundUpHome,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
+  notesDoorMentionIsPaintOrKeepOnly,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   choiceToState,
@@ -772,6 +773,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
   if (
     hasGenericDoorMention &&
+    !notesDoorMentionIsPaintOrKeepOnly(notes) &&
     !items.some((item) => item.id === "interior_door_install")
   ) {
     items.push({
@@ -1597,6 +1599,15 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   }
 
   items = filterWallAreaFramingWithFlooringScopeItems(items, notes);
+
+  const { applyScopeIntentToChecklist } = require("./scopeIntent");
+  const intentApplied = applyScopeIntentToChecklist({
+    items,
+    scopeIntent: draft.scopeIntent,
+    notes,
+    measurements: parsedMeasurements,
+  });
+  items = intentApplied.items;
 
   const inScopeCount = items.filter((i) => i.state === "included").length;
   const unsureCount = items.filter((i) => i.state === "unsure").length;
