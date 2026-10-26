@@ -7,7 +7,7 @@
  */
 
 const HOUSE_SQFT =
-  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i;
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))/i;
 const TRADE_SQFT =
   /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
 
@@ -165,6 +165,66 @@ export function notesNameOwnerSuppliedAppliances(
   );
 }
 
+/** A drywall area the note actually stated. "Drywall" alone is not one. */
+export function notesStateDrywallArea(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  const drywall =
+    /\b(?:drywall|sheetrock|gypsum)\b|\bhang\s+and\s+finish\b/i;
+  const otherTrade =
+    /\b(?:floor(?:ing)?|lvp|vinyl|carpet|paint(?:ing)?|tile|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|insulation|siding|stucco)\b/i;
+  const sqft =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = sqft.exec(text))) {
+    const start = match.index;
+    const end = start + match[0].length;
+    let before = text.slice(Math.max(0, start - 60), start);
+    let after = text.slice(end, end + 60);
+    const beforeBreak = Math.max(
+      before.lastIndexOf('.'),
+      before.lastIndexOf(';'),
+      before.lastIndexOf('\n')
+    );
+    if (beforeBreak >= 0) before = before.slice(beforeBreak + 1);
+    const previousQty = before.search(
+      /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+    );
+    if (previousQty >= 0) {
+      const rest = before.slice(previousQty);
+      const qtyWord = rest.search(
+        /\b(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
+      );
+      before =
+        qtyWord >= 0
+          ? rest
+              .slice(qtyWord)
+              .replace(/^(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i, '')
+          : '';
+    }
+    const afterBreak = after.search(/[.;\n]/);
+    if (afterBreak >= 0) after = after.slice(0, afterBreak);
+    const nextQty = after.search(
+      /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+    );
+    if (nextQty >= 0) after = after.slice(0, nextQty);
+    const namesDrywallBeforeAnotherTrade = (side: string) => {
+      const drywallAt = side.search(drywall);
+      if (drywallAt < 0) return false;
+      const otherAt = side.search(otherTrade);
+      return otherAt < 0 || drywallAt < otherAt;
+    };
+    if (
+      namesDrywallBeforeAnotherTrade(before) ||
+      namesDrywallBeforeAnotherTrade(after)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** A paint area the note actually stated. "Paint the interior" is not one. */
 export function notesStatePaintArea(notes: string | null | undefined): boolean {
   const text = String(notes || '');
@@ -251,12 +311,60 @@ function notesNameTrimPaint(notes: string): boolean {
   );
 }
 
+const OTHER_WHOLE_HOME_TRADES: Array<[string, RegExp]> = [
+  ['hvac', /\bhvac\b|\bfurnace\b|\bair\s+condition|\ba\/?c\b|\bductwork\b|\bheat\s+pump\b|\bmini[\s-]?splits?\b/i],
+  ['roofing', /\broof(?:ing)?\b(?!\s+deck)/i],
+  ['siding', /\bsiding\b/i],
+  ['stucco', /\bstucco\b/i],
+  ['gutters', /\bgutters?\b/i],
+  ['decking', /(?<!roof\s)\bdeck(?:ing)?\b/i],
+  ['fencing', /\bfenc(?:e|es|ing)\b/i],
+  ['water_heater', /\bwater\s+heaters?\b/i],
+  ['lighting', /\blight(?:ing|s)\b|\blight\s+fixtures?\b/i],
+  ['stairs', /\bstair(?:s|case|way)?\b/i],
+  ['concrete', /\bconcrete\b|\bdriveway\b|\bpatio\b|\bsidewalk\b/i],
+  ['landscaping', /\blandscap/i],
+  ['garage_doors', /\bgarage\s+doors?\b/i],
+  ['fireplace', /\bfireplaces?\b/i],
+  ['closets', /\bclosets?\b/i],
+  ['basement_finish', /\bbasement\b/i],
+];
+
+const OTHER_TRADE_CARDS: Record<
+  string,
+  { label: string; category: string }
+> = {
+  hvac: { label: 'HVAC', category: 'mechanical' },
+  roofing: { label: 'Roofing', category: 'exterior' },
+  siding: { label: 'Siding', category: 'exterior' },
+  stucco: { label: 'Stucco', category: 'exterior' },
+  gutters: { label: 'Gutters', category: 'exterior' },
+  decking: { label: 'Deck', category: 'exterior' },
+  fencing: { label: 'Fence', category: 'exterior' },
+  exterior_paint: { label: 'Exterior paint', category: 'finishes' },
+  water_heater: { label: 'Water heater', category: 'plumbing' },
+  lighting: { label: 'Lighting', category: 'electrical' },
+  appliances: { label: 'Appliances', category: 'kitchen' },
+  tile: { label: 'Tile', category: 'tile' },
+  demo: { label: 'Demolition', category: 'demo' },
+  stairs: { label: 'Stairs', category: 'structure' },
+  concrete: { label: 'Concrete', category: 'exterior' },
+  landscaping: { label: 'Landscaping', category: 'exterior' },
+  garage_doors: { label: 'Garage doors', category: 'openings' },
+  fireplace: { label: 'Fireplace', category: 'finishes' },
+  closets: { label: 'Closets', category: 'finishes' },
+  basement_finish: { label: 'Basement finish', category: 'structure' },
+};
+
 /** Cards this whole-home note actually named. Null when the note is not that bid. */
 export function wholeHomeRemodelNamedItemIds(
   notes: string | null | undefined
 ): Set<string> | null {
   const text = String(notes || '');
-  if (!notesDescribeMeasuredWholeHomeRemodel(text)) return null;
+  const wholeHomeRemodel =
+    notesDescribeMeasuredWholeHomeRemodel(text) ||
+    (/\bremodel/i.test(text) && notesNameWholeHome(text));
+  if (!wholeHomeRemodel) return null;
   const ids = new Set<string>();
   if (/\bflooring\b|\blvp\b|\bluxury\s+vinyl\b/i.test(text)) ids.add('flooring');
   if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) {
@@ -283,7 +391,10 @@ export function wholeHomeRemodelNamedItemIds(
   if (/\bbaseboards?\b|\bbase\s*board\b/i.test(text)) ids.add('baseboard_install');
   if (/\bplumbing\b/i.test(text)) ids.add('plumbing');
   if (/\belectrical\b/i.test(text)) ids.add('electrical');
-  if (/\bpaint(?:ing)?\b/i.test(text)) {
+  const exteriorPaint =
+    /\bexterior\b[^.;,\n]{0,20}\bpaint(?:ing)?\b|\bpaint(?:ing)?\b[^.;,\n]{0,20}\bexterior\b/gi;
+  if (exteriorPaint.test(text)) ids.add('exterior_paint');
+  if (/\bpaint(?:ing)?\b/i.test(text.replace(exteriorPaint, ' '))) {
     ids.add('interior_paint');
     ids.add('paint');
   }
@@ -291,9 +402,21 @@ export function wholeHomeRemodelNamedItemIds(
   if (
     /\b(?:install|new|replace)\b[^.;\n]{0,60}\bcabinets?\b|\bcabinets?\b[^.;\n]{0,40}\b(?:install|new)\b/i.test(
       text
-    )
+    ) ||
+    (/\bcabinets?\b|\bcabinetry\b/i.test(text) &&
+      !removalOf(text, 'cabinets?') &&
+      !/\bpaint\w*\s+(?:the\s+)?cabinets?\b/i.test(text))
   ) {
     ids.add('cabinets');
+  }
+  for (const [id, pattern] of OTHER_WHOLE_HOME_TRADES) {
+    if (pattern.test(text)) ids.add(id);
+  }
+  if (
+    /\bappliances?\b/i.test(text) &&
+    !notesNameOwnerSuppliedAppliances(text)
+  ) {
+    ids.add('appliances');
   }
   if (/\b(?:countertops?|quartz|granite)\b/i.test(text)) ids.add('countertops');
   if (/\bbacksplash\b/i.test(text)) ids.add('backsplash');
@@ -317,6 +440,23 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('door_casing_paint');
   }
   if (notesNameTrimPaint(text)) ids.add('trim_paint');
+  if (
+    /\btile\b/i.test(text) &&
+    !ids.has('shower_tile') &&
+    !ids.has('floor_tile') &&
+    !ids.has('backsplash') &&
+    !removalOf(text, 'tile')
+  ) {
+    ids.add('tile');
+  }
+  if (
+    /\b(?:demo|demolition|gut)\b/i.test(text) &&
+    !ids.has('cabinet_demo') &&
+    !ids.has('fixture_demo') &&
+    !ids.has('floor_demo')
+  ) {
+    ids.add('demo');
+  }
   // "Kitchen and bathroom updates" is the work. It is not a cabinet count
   // or a kitchen-floor quantity.
   if (
@@ -336,6 +476,25 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('bathroom_updates');
   }
   return ids;
+}
+
+/** A whole-house remodel that names no trade. */
+export function notesAskWhichRoomsAndTrades(
+  notes: string | null | undefined
+): boolean {
+  const named = wholeHomeRemodelNamedItemIds(notes);
+  return named != null && named.size === 0;
+}
+
+export function wholeHomeTradeQuestion(
+  notes: string | null | undefined
+): string | null {
+  if (!notesAskWhichRoomsAndTrades(notes)) return null;
+  const size = statedWholeHomeSizeSqft(notes);
+  const house = size
+    ? ` The house area is ${size.toLocaleString('en-US')} SF.`
+    : '';
+  return `Which job scopes are being done?${house} Add the measurements you already have, and what each scope still needs, so the bid can be structured.`;
 }
 
 type WholeHomeItem = {
@@ -364,6 +523,15 @@ const NAMED_CARDS: Record<
   string,
   { label: string; helperText: string; category: string }
 > = {
+  ...Object.fromEntries(
+    Object.entries(OTHER_TRADE_CARDS).map(([id, card]) => [
+      id,
+      {
+        ...card,
+        helperText: `${card.label} named in the notes. Enter the quantity before pricing.`,
+      },
+    ])
+  ),
   cabinet_demo: {
     label: 'Cabinet removal',
     helperText: 'Remove the existing cabinets named in the notes.',
@@ -593,7 +761,14 @@ export function applyWholeHomeRemodelChecklist<T extends WholeHomeItem>(
   const text = String(notes || '');
   const next = items.map(item => {
     const id = String(item.id || '');
-    if (id.startsWith('custom_')) return item;
+    if (id.startsWith('custom_')) {
+      if (allowed.size > 0) return item;
+      return {
+        ...item,
+        state: 'excluded' as const,
+        noteBacked: false,
+      };
+    }
     if (!allowed.has(id)) {
       const choiceItem =
         item.inputType === 'choice' || item.inputType === 'multi_choice';
@@ -736,6 +911,14 @@ export function wholeHomeRemodelSuppressesInventedPrice(
   ) {
     return !notesStatePaintArea(notes);
   }
+  if (
+    itemId === 'drywall' ||
+    itemId === 'patch_repair' ||
+    itemId === 'hang' ||
+    itemId === 'finish_tape'
+  ) {
+    return !notesStateDrywallArea(notes);
+  }
   if (itemId === 'floor_demo') {
     if (!removalOf(String(notes || ''), 'floor(?:ing)?|lvp|vinyl|carpet|tile')) {
       return true;
@@ -855,6 +1038,32 @@ export function scrubWholeHomeRemodelMeasurements<
     drop('paintAreaSqft');
     drop('combinedPaintableAreaSqft');
     drop('originalPaintAreaReferenceSqft');
+  }
+  if (!notesStateDrywallArea(text)) {
+    drop('drywallSqft');
+    drop('patchRepairSqft');
+    const itemQuantities = {
+      ...((next.itemQuantities as Record<
+        string,
+        { quantity?: unknown; quantitySource?: string }
+      > | undefined) || {}),
+    };
+    let droppedDrywall = false;
+    for (const id of ['drywall', 'patch_repair', 'hang', 'finish_tape']) {
+      const row = itemQuantities[id];
+      if (
+        row &&
+        row.quantitySource !== 'user_entered' &&
+        row.quantitySource !== 'manual_override'
+      ) {
+        delete itemQuantities[id];
+        droppedDrywall = true;
+      }
+    }
+    if (droppedDrywall) {
+      next.itemQuantities = itemQuantities;
+      changed = true;
+    }
   }
   if (!notesStateFlooringArea(text)) {
     const homeSizeForFloor = statedWholeHomeSizeSqft(text);

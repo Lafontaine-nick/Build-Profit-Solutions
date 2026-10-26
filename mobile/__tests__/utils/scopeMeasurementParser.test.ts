@@ -16,6 +16,7 @@ import {
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import { filterRoomRemodelNoteScopeItems } from '@/utils/estimateScopeChecklistUi';
 
 const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
@@ -511,6 +512,102 @@ describe('mobile scope measurement parser', () => {
 
     expect(parsed.drywallSqft).toBe(1600);
     expect(parsed.flooringSqft).toBeUndefined();
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.wallFramingSqft).toBe(1600);
+    expect(parsed.sheathingSqft).toBe(1600);
+    expect(parsed.framingOpeningCount).toBe(2);
+    expect(parsed.exteriorWallInsulationSqft).toBe(1600);
+    expect(parsed.windowCount).toBe(6);
+    expect(parsed.exteriorDoorCount).toBe(2);
+    const hydrated = initialScopeMeasurementInputExtended(
+      {
+        originalNotes: notes,
+        projectType: 'other',
+        scopeChecklist: { templateKey: 'room_remodel' },
+      },
+      notes
+    );
+    expect(hydrated.wallFramingSqft).toBe('1600');
+    expect(hydrated.sheathingSqft).toBe('1600');
+    expect(hydrated.framingOpeningCount).toBe('2');
+    expect(String(hydrated.flooringSqft || '')).toBe('');
+    expect(String(hydrated.wallPaintSqft || '')).toBe('');
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([
+      expect.objectContaining({
+        location: 'exterior_wall',
+        rValue: 'R-21',
+        sqft: 1600,
+      }),
+    ]);
+
+    const withExclusions = `${notes} No cabinets, no plumbing, no HVAC.`;
+    const filtered = filterRoomRemodelNoteScopeItems(
+      [
+        { id: 'demo', label: 'Wall demolition', state: 'included', inputType: 'yes_no' },
+        { id: 'framing', label: 'Wall framing', state: 'included', inputType: 'yes_no' },
+        { id: 'hvac', label: 'HVAC work', state: 'included', inputType: 'yes_no' },
+        { id: 'plumbing', label: 'Plumbing', state: 'included', inputType: 'yes_no' },
+        { id: 'cabinets', label: 'Cabinets', state: 'included', inputType: 'yes_no' },
+        { id: 'drywall', label: 'Drywall', state: 'included', inputType: 'yes_no' },
+      ],
+      withExclusions
+    );
+    expect(filtered.map(item => item.id)).toEqual(['demo', 'framing', 'drywall']);
+
+    const framingPrice = resolveScopeItemSuggestedPricing(
+      'framing',
+      { wallFramingSqft: '1600', itemQuantities: {} },
+      'room_remodel',
+      { quantity: 1600, unit: 'sqft', quantitySource: 'notes' },
+      {},
+      null,
+      notes
+    );
+    expect(framingPrice.fill?.total).toBe(2400);
+    expect(framingPrice.fill?.material).toBe(800);
+    expect(framingPrice.fill?.labor).toBe(1600);
+
+    const framingQty = resolveChecklistItemQuantity(
+      'framing',
+      {
+        wallFramingSqft: 1600,
+        framedAreaSqft: 0,
+        windowCount: 6,
+        itemQuantities: {},
+      } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(framingQty).toMatchObject({ quantity: 1600, unit: 'sqft' });
+
+    const openingsQty = resolveChecklistItemQuantity(
+      'openings',
+      {
+        framingOpeningCount: 2,
+        windowCount: 6,
+        exteriorDoorCount: 2,
+        itemQuantities: {
+          openings: { quantity: '6', unit: 'each', quantitySource: 'inferred' },
+        },
+      } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(openingsQty).toMatchObject({ quantity: 2, unit: 'each' });
+    const openingsPrice = resolveScopeItemSuggestedPricing(
+      'openings',
+      {
+        framingOpeningCount: '2',
+        windowCount: '6',
+        itemQuantities: {},
+      },
+      'room_remodel',
+      openingsQty,
+      {},
+      null,
+      notes
+    );
+    expect(openingsPrice.fill?.total).toBe(500);
+    expect(openingsPrice.fill?.material).toBe(170);
+    expect(openingsPrice.fill?.labor).toBe(330);
   });
 
   it('does not borrow paint sqft for unquantified flooring demolition', () => {

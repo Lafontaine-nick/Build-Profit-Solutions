@@ -23,6 +23,7 @@ import {
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { parseFramingMeasurementsFromNotes } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   dedicatedDeckFootingCount,
   notesDescribeDedicatedDeckJob,
@@ -107,6 +108,8 @@ export type ParsedScopeMeasurements = {
   /** True only when notes explicitly call for reframing or a new/modified opening. */
   reframingRequested?: boolean;
   framingOpeningCount?: number;
+  wallFramingSqft?: number;
+  sheathingSqft?: number;
   cabinetPaintSqft?: number;
   cabinetUpperLf?: number;
   cabinetLowerLf?: number;
@@ -760,6 +763,21 @@ export function parseInsulationAssembliesFromNotes(
         sqft: quantity(clause),
         ...(battFacing(clause) ? { battFacing: battFacing(clause) } : {}),
       });
+    }
+  }
+  const framedWallMatch = String(text || '').match(
+    /(?:frame|framing|framed)\b[^.;\n]{0,48}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s*(?:of\s+)?(?:new\s+)?walls?\b/i
+  );
+  const framedWallSqft = framedWallMatch?.[1]
+    ? Number(framedWallMatch[1].replace(/,/g, ''))
+    : 0;
+  if (framedWallSqft > 0) {
+    for (const assembly of assemblies) {
+      if (assembly.sqft > 0) continue;
+      if (assembly.location && assembly.location !== 'exterior_wall') continue;
+      if (!assembly.rValue) continue;
+      assembly.sqft = framedWallSqft;
+      assembly.location = assembly.location || 'exterior_wall';
     }
   }
   return assemblies;
@@ -3431,6 +3449,23 @@ export function parseScopeMeasurementsFromNotes(
         quantitySource: 'notes',
       };
     }
+  }
+  const framedWalls = parseFramingMeasurementsFromNotes(text);
+  if (!out.wallFramingSqft && framedWalls.wallFramingSqft) {
+    out.wallFramingSqft = framedWalls.wallFramingSqft;
+  }
+  if (!out.sheathingSqft && framedWalls.sheathingSqft) {
+    out.sheathingSqft = framedWalls.sheathingSqft;
+  }
+  if (!out.framingOpeningCount && framedWalls.framingOpeningCount) {
+    out.framingOpeningCount = framedWalls.framingOpeningCount;
+  }
+  if (
+    !out.exteriorWallInsulationSqft &&
+    framedWalls.wallFramingSqft &&
+    /\b(?:insulat(?:e|ed|ion)|R[-\s]?\d{2,3})\b/i.test(text)
+  ) {
+    out.exteriorWallInsulationSqft = framedWalls.wallFramingSqft;
   }
   if (ctx.templateKey === 'flooring' && itemQuantities.floor_demo) {
     delete itemQuantities.demo;

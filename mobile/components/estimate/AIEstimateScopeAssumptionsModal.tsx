@@ -84,6 +84,12 @@ import {
   notesStatePaintArea,
   scrubWholeHomeRemodelMeasurements,
 } from '@/utils/wholeHomeRemodelNote';
+import {
+  vagueScopeChips,
+  vagueScopeExample,
+  vagueScopeQuestion,
+} from '@/utils/vagueScopeNote';
+import VagueScopeAnswerSheet from '@/components/estimate/VagueScopeAnswerSheet';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import {
   applyPaintPricingMethodChoice,
@@ -543,6 +549,7 @@ import {
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
   notesDoorMentionIsPaintOrKeepOnly,
+  noteMentionIsOnlyNegated,
 } from '@/utils/scopeItemNoteHints';
 import { applyFinishScheduleToChecklistItems } from '@/utils/finishScheduleScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
@@ -621,6 +628,7 @@ import {
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
 import type { InsulationAssembly } from '@/utils/estimateAiDraft';
 import {
+  bathroomRemodelShowsBathFloorBox,
   emptyWetAreaExistingCounts,
   mergeDemoCountsWithOverrides,
   readWetAreaDemoCounts,
@@ -6047,7 +6055,10 @@ function QuantitySection({
               measurementsInput as unknown as Record<string, unknown>
             )
           ? ''
-          : rule.quantityHelper;
+          : (itemId === 'framing' || itemId === 'wall_framing') &&
+              notesFrameExplicitWallArea(originalNotes)
+            ? 'Square feet of walls being framed. An 8 ft wall is priced as stud wall by the linear foot.'
+            : rule.quantityHelper;
   const sharedNorm = React.useContext(ScopeNormalizedMeasurementsContext);
   const sharedParsedNotes = React.useContext(ScopeParsedNotesContext);
 
@@ -17328,6 +17339,10 @@ function CollapsibleQuickMeasurements({
   const explicitHvacScopeInNotes =
     /\b(?:hvac|heating|cooling|furnace|air\s*handlers?|condensers?|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       String(notes || '')
+    ) &&
+    !noteMentionIsOnlyNegated(
+      notes,
+      /\b(?:hvac|heating|cooling|furnace|air\s*handlers?|condensers?|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i
     );
   const explicitDeckScopeMentioned =
     /\b(?:deck(?:ing)?|fenc(?:e|ing)|railing|gates?|stairs?)\b/i.test(
@@ -17983,6 +17998,38 @@ function CollapsibleQuickMeasurements({
         ...positioned.needsConfirmation,
         ...stickyResults,
       ];
+    }
+    // Paint belongs with the blank takeoffs, directly under wall demolition.
+    // A typed paint area must not jump into Confirmed above that box.
+    const wallDemoGroup = (
+      Object.keys(positioned) as QuickMeasurementGroupId[]
+    ).find(groupId =>
+      positioned[groupId].some(result => result.key === 'wallDemoSqft')
+    );
+    if (wallDemoGroup) {
+      let paintResult: QuickMeasurementFieldResult | undefined;
+      (Object.keys(positioned) as QuickMeasurementGroupId[]).forEach(
+        groupId => {
+          const index = positioned[groupId].findIndex(
+            result => result.key === 'wallPaintSqft'
+          );
+          if (index < 0) return;
+          paintResult = positioned[groupId][index];
+          positioned[groupId] = positioned[groupId].filter(
+            result => result.key !== 'wallPaintSqft'
+          );
+        }
+      );
+      if (paintResult) {
+        const demoIndex = positioned[wallDemoGroup].findIndex(
+          result => result.key === 'wallDemoSqft'
+        );
+        positioned[wallDemoGroup] = [
+          ...positioned[wallDemoGroup].slice(0, demoIndex + 1),
+          paintResult,
+          ...positioned[wallDemoGroup].slice(demoIndex + 1),
+        ];
+      }
     }
     // Opening counts belong together on the Confirm Scope card. A filled
     // door count can be classified as optional by the generic relevance map
@@ -19823,12 +19870,25 @@ function CollapsibleQuickMeasurements({
           /\b(?:shower\s+floor(?:\s+tile)?|tile\s+shower\s+floor)\b/i
         )) &&
       !showMudPanArea;
-    const showBathFloorTile =
-      openBathroomTileTakeoff ||
-      takeoff.bathFloorSqft ||
+    const namedBathFloor =
+      Boolean(takeoff.bathFloorSqft) ||
       showBathroomNote(
-      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
+        /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
+      );
+    const showBathFloorTile = bathroomRemodelShowsBathFloorBox({
+      notes,
+      templateKey: effectiveTemplateKey,
+      namedBathFloor: openBathroomTileTakeoff || namedBathFloor,
+      hasEnteredSqft: hasBathroomMeasurement('bathroomFloorSqft'),
+    });
+    const bathFloorNamedAsTile = showBathroomNote(
+      /\b(?:bath(?:room)?\s+floor\s+tile|(?<!shower\s)floor\s+tile|tile\s+(?:the\s+)?(?:bath(?:room)?\s+)?floor)\b/i
     );
+    const bathFloorFieldLabel = bathFloorNamedAsTile
+      ? 'Bathroom floor tile'
+      : 'Bathroom floor';
+    const bathFloorFieldHelper =
+      'Bathroom floor outside the shower — priced per sqft. Separate from shower floor.';
     const showBathFloorHeading =
       showBathFloorTile || showBathroomNote(/\bshower\s+doors?\b/i);
     const showShowerDoorReuse =
@@ -20022,11 +20082,12 @@ function CollapsibleQuickMeasurements({
               : null}
             {showBathFloorTile
               ? renderDemoSqftField(
-                  'Bath floor tile',
+                  bathFloorFieldLabel,
                   floorOnlyInstall
-                    ? 'New bathroom floor tile area.'
-                    : 'Bathroom floor tile area — separate from shower pan.',
-                  'bathroomFloorSqft'
+                    ? 'New bathroom floor area — priced per sqft.'
+                    : bathFloorFieldHelper,
+                  'bathroomFloorSqft',
+                  { skipDemoBasis: true }
                 )
               : null}
             {showShowerDoorReuse ? (
@@ -20098,13 +20159,17 @@ function CollapsibleQuickMeasurements({
               'showerFloorTileSqft',
               { skipDemoBasis: true }
             )}
-            {renderWetAreaInstallSubheading('BATH FLOOR TILE')}
-            {renderDemoSqftField(
-              'Bath floor tile',
-              'Bathroom floor tile area — separate from the shower and from the house flooring.',
-              'bathroomFloorSqft',
-              { skipDemoBasis: true }
-            )}
+            {showBathFloorTile ? (
+              <>
+                {renderWetAreaInstallSubheading('BATHROOM FLOOR')}
+                {renderDemoSqftField(
+                  bathFloorFieldLabel,
+                  bathFloorFieldHelper,
+                  'bathroomFloorSqft',
+                  { skipDemoBasis: true }
+                )}
+              </>
+            ) : null}
           </>
         ) : (
           <>
@@ -21181,6 +21246,9 @@ function CollapsibleQuickMeasurements({
       (compactMixedScope &&
         result.key === 'framingOpeningCount' &&
         /\b(?:windows?|exterior\s+doors?|doors?)\b/i.test(
+          String(notes || '')
+        ) &&
+        !/\b(?:door|window)\s+openings?\b|\brough\s+openings?\b|\bheaders?\b/i.test(
           String(notes || '')
         )) ||
       (flooringQmJob &&
@@ -24032,10 +24100,31 @@ export default function AIEstimateScopeAssumptionsModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const checklist = draft?.scopeChecklist;
-  const scopeNotes = useMemo(
+  const authoredScopeNotes = useMemo(
     () => chooseBestScopeNotes(draft, notesFallback),
     [draft, notesFallback]
   );
+  const [scopeStructureAnswer, setScopeStructureAnswer] = useState('');
+  const [scopeStructurePromptOpen, setScopeStructurePromptOpen] =
+    useState(false);
+  const scopeStructureDismissedRef = useRef(false);
+  const scopeNotes = useMemo(() => {
+    const base = authoredScopeNotes.trim();
+    const answer = scopeStructureAnswer.trim();
+    if (!answer) return base;
+    return `${base}\n${answer}`.trim();
+  }, [authoredScopeNotes, scopeStructureAnswer]);
+  useEffect(() => {
+    if (!visible) {
+      scopeStructureDismissedRef.current = false;
+      return;
+    }
+    if (scopeStructureDismissedRef.current || scopeStructureAnswer.trim()) {
+      return;
+    }
+    if (!vagueScopeQuestion(authoredScopeNotes)) return;
+    setScopeStructurePromptOpen(true);
+  }, [visible, authoredScopeNotes, scopeStructureAnswer]);
   // Backward-compatible alias for quick-measurement helpers that expect the
   // original note text name.
   const originalNotes = scopeNotes;
@@ -24422,7 +24511,8 @@ export default function AIEstimateScopeAssumptionsModal({
     .filter(checklistItemInScope)
     .map(item => item.id);
   const mixedHvacScope =
-    activeScopeKeysForMeasurementRouting.some(key =>
+    !noteMentionIsOnlyNegated(scopeNotes, /\bhvac\b/i) &&
+    (activeScopeKeysForMeasurementRouting.some(key =>
       [
         'hvac',
         'ductwork',
@@ -24433,9 +24523,9 @@ export default function AIEstimateScopeAssumptionsModal({
         'ventilation',
       ].includes(String(key).toLowerCase())
     ) ||
-    /\b(?:hvac|heating|cooling|furnace|heat\s+pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
-      String(scopeNotes || '')
-    );
+      /\b(?:hvac|heating|cooling|furnace|heat\s+pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+        String(scopeNotes || '')
+      ));
   const activeStructuralMixedScope =
     activeScopeKeysForMeasurementRouting.some(key =>
       ['framing', 'shear_sheathing', 'openings'].includes(key)
@@ -24457,6 +24547,22 @@ export default function AIEstimateScopeAssumptionsModal({
       : effectiveTemplateKey === 'insulation'
         ? 'insulation'
         : null;
+  const mixedNoteInsulationAssemblies = useMemo(() => {
+    if (!mixedScopeReviewMode || insulationTemplateKey === 'insulation') {
+      return [];
+    }
+    return parseInsulationAssembliesFromNotes(insulationAssemblyNotes).filter(
+      row => Number(row.sqft) > 0 || Boolean(String(row.rValue || '').trim())
+    );
+  }, [
+    mixedScopeReviewMode,
+    insulationTemplateKey,
+    insulationAssemblyNotes,
+  ]);
+  const showInsulationAssemblyCard =
+    (singleTradePlanImport && singleTradeKey === 'insulation') ||
+    insulationTemplateKey === 'insulation' ||
+    mixedNoteInsulationAssemblies.length > 0;
   const pendingPlanConfirmationAllowedFields = useMemo(() => {
     const tradeKeyForPending =
       (measurements.planImportTradeKey as PlanTradeKey | null | undefined) ||
@@ -24875,9 +24981,9 @@ export default function AIEstimateScopeAssumptionsModal({
     // checklist omitted a note-backed cross-trade row, restore it here rather
     // than relying on a prior persistence/hydration pass.
     const currentUserNote =
+      scopeNotes.trim() ||
       String(notesFallback || '').trim() ||
-      String(draft?.originalNotes || '').trim() ||
-      scopeNotes;
+      String(draft?.originalNotes || '').trim();
     const readerChecklist = readerConfirmScopeItems(items, currentUserNote);
     if (readerChecklist) return readerChecklist;
     const noteMeasurementCards = [
@@ -25563,9 +25669,9 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const noteScopedChecklistItems = useMemo(() => {
     const notes =
+      scopeNotes.trim() ||
       String(notesFallback || '').trim() ||
-      String(draft?.originalNotes || '').trim() ||
-      scopeNotes;
+      String(draft?.originalNotes || '').trim();
     // Step 3, the summary, and the PDF read this same filter. A second copy
     // here was relabeling demolition and dropping cards after Continue.
     return applyStep2NoteScopeFilters(
@@ -26627,7 +26733,11 @@ export default function AIEstimateScopeAssumptionsModal({
         ...catalogFactItems.filter(item => !existingIds.has(item.id)),
       ];
     }
-    if (effectiveTemplateKey === 'insulation' && !singleTradePlanImport) {
+    if (
+      effectiveTemplateKey === 'insulation' &&
+      !singleTradePlanImport &&
+      !notesContainStructuralMixedScope
+    ) {
       const existingInsulation = sourceItems.find(
         item => item.id === 'insulation'
       );
@@ -33945,6 +34055,25 @@ export default function AIEstimateScopeAssumptionsModal({
         disabled={applying}
         onBack={handleBack}
       />
+      <VagueScopeAnswerSheet
+        visible={scopeStructurePromptOpen}
+        darkMode={darkMode}
+        Colors={Colors}
+        chips={vagueScopeChips(authoredScopeNotes)}
+        example={vagueScopeExample(authoredScopeNotes)}
+        onDismiss={() => {
+          scopeStructureDismissedRef.current = true;
+          setScopeStructurePromptOpen(false);
+        }}
+        onSubmit={answer => {
+          const combined = `${authoredScopeNotes}\n${answer}`.trim();
+          if (vagueScopeQuestion(combined)) return false;
+          setScopeStructureAnswer(answer);
+          setScopeStructurePromptOpen(false);
+          setQuickMeasurementsOpen(true);
+          return true;
+        }}
+      />
 
       <GestureScrollView
         ref={scrollRef}
@@ -34206,9 +34335,7 @@ export default function AIEstimateScopeAssumptionsModal({
             mixedScopeMode={
               dedicatedElectricalChecklist ? false : mixedScopeReviewMode
             }
-            insulationAssemblyCardActive={
-              insulationTemplateKey === 'insulation'
-            }
+            insulationAssemblyCardActive={showInsulationAssemblyCard}
             onSummaryChange={setQuickMeasurementSummary}
             onElectricalMeasurementsSettled={setElectricalMeasurementsSettled}
             onHvacScopeSelectionChange={syncHvacQmScopeItems}
@@ -34637,12 +34764,11 @@ export default function AIEstimateScopeAssumptionsModal({
             darkMode={darkMode}
             applying={applying}
           />
-          {(singleTradePlanImport && singleTradeKey === 'insulation') ||
-          insulationTemplateKey === 'insulation' ? (
+          {showInsulationAssemblyCard ? (
             <InsulationAssemblyCard
               measurements={measurements as Record<string, unknown>}
               notes={insulationAssemblyNotes}
-              templateKey={insulationTemplateKey}
+              templateKey={insulationTemplateKey || checklist?.templateKey}
               onChange={(key, value) =>
                 setMeasurementsSynced(prev => ({ ...prev, [key]: value }))
               }
@@ -34975,12 +35101,6 @@ export default function AIEstimateScopeAssumptionsModal({
                   : false;
                 if (!visibleItems.length) return null;
                 if (
-                  notesDescribeMeasuredWholeHomeRemodel(scopeNotes) &&
-                  !(groupPrice > 0)
-                ) {
-                  return null;
-                }
-                if (
                   drywallPlanExport &&
                   group.title === 'Closeout' &&
                   !(groupPrice > 0)
@@ -35180,7 +35300,20 @@ export default function AIEstimateScopeAssumptionsModal({
             />
           ) : null}
 
-          {scopeExtractionClarificationQuestions(draft).length ? (
+          {(() => {
+            const vagueQuestion = vagueScopeQuestion(scopeNotes);
+            const clarificationQuestions = [
+              ...scopeExtractionClarificationQuestions(draft).filter(
+                question =>
+                  question.id !== 'whole_home_trades' &&
+                  question.id !== 'vague_scope'
+              ),
+              ...(vagueQuestion && !scopeStructurePromptOpen
+                ? [{ id: 'vague_scope', question: vagueQuestion }]
+                : []),
+            ];
+            if (!clarificationQuestions.length) return null;
+            return (
             <View style={{ marginTop: 16, marginBottom: 4 }}>
               <Text
                 style={{
@@ -35191,7 +35324,7 @@ export default function AIEstimateScopeAssumptionsModal({
               >
                 Confirm before pricing
               </Text>
-              {scopeExtractionClarificationQuestions(draft).map(question => (
+              {clarificationQuestions.map(question => (
                 <Text
                   key={question.id}
                   style={{
@@ -35201,11 +35334,15 @@ export default function AIEstimateScopeAssumptionsModal({
                     marginTop: 8,
                   }}
                 >
-                  {question.question} A quantity the note did not state stays blank.
+                  {question.question}
+                  {question.id === 'vague_scope' || question.id === 'whole_home_trades'
+                    ? ''
+                    : ' A quantity the note did not state stays blank.'}
                 </Text>
               ))}
             </View>
-          ) : null}
+            );
+          })()}
 
           <AIEstimateDisclaimer variant='compact' />
         </View>

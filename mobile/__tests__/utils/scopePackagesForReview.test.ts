@@ -407,7 +407,31 @@ describe('scopePackagesForReview', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
 
-    const rows = buildConfirmScopeDisplayItems([], {}, 'room_remodel', notes);
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'wall_framing',
+          label: 'Wall Framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'exterior_prep',
+          label: 'Exterior Prep & Masking',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'exterior_trim_paint',
+          label: 'Exterior trim paint',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      { windowCount: '6', exteriorDoorCount: '2' },
+      'room_remodel',
+      notes
+    );
 
     expect(rows).toEqual(
       expect.arrayContaining([
@@ -418,6 +442,9 @@ describe('scopePackagesForReview', () => {
         expect.objectContaining({ id: 'paint', label: 'Interior paint' }),
       ])
     );
+    expect(rows.some(row => row.id === 'wall_framing')).toBe(false);
+    expect(rows.some(row => row.id === 'exterior_prep')).toBe(false);
+    expect(rows.some(row => row.id === 'exterior_trim_paint')).toBe(false);
   });
 
   it('canonicalizes flooring removal to a priced floor demo card', () => {

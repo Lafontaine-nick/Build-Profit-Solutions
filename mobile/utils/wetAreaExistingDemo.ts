@@ -1,4 +1,5 @@
 import type { WetAreaStepperCounts } from '@/utils/planBathRooms';
+import { notesNameBathroomRemodelPanel } from '@/utils/wholeHomeRemodelNote';
 
 function positiveCount(value: unknown): number | null {
   const n = Number(value);
@@ -442,6 +443,79 @@ export function wetAreaFloorDoorHeading(params: {
   if (params.showFloor) return 'BATH FLOOR';
   if (params.showDoors) return 'SHOWER DOORS';
   return null;
+}
+
+/**
+ * The note already says the bathroom floor is not in this job.
+ * "Shower floor" is a different surface and does not count.
+ */
+export function notesLeaveBathroomFloorOut(
+  notes: string | null | undefined
+): boolean {
+  return String(notes || '')
+    .split(/[.!?\n]/)
+    .some(sentence => sentenceLeavesBathroomFloorOut(sentence));
+}
+
+const FLOOR_STAYS_RE =
+  /\b(?:bath(?:room)?\s+)?floor(?:ing|\s+tile)?\b[^.]{0,48}\b(?:stay(?:s|ing)?|unchanged|as[\s-]?is)\b/i;
+const FLOOR_NEGATION_RE =
+  /\b(?:do not|don't|dont|never|without|no)\b[^.]{0,70}\b(?:bath(?:room)?\s+)?floor(?:ing|\s+tile)?\b/i;
+// Stop before a later install verb so "leave the shower and replace the flooring" stays a floor job.
+const FLOOR_KEEP_RE =
+  /\b(?:leave|keep(?:ing)?)\b(?:(?!\b(?:replace|install|demo|remove|tear)\b).){0,70}\b(?:the\s+)?(?:existing\s+)?(?:bath(?:room)?\s+)?floor(?:ing|\s+tile)?\b/i;
+
+function clauseNamesRoomFloor(clause: string): boolean {
+  return (
+    /\bbath(?:room)?\s+floor(?:ing)?\b/i.test(clause) ||
+    /\bfloor\s+tile\b/i.test(clause) ||
+    /\bflooring\b/i.test(clause) ||
+    /\bfloor\b/i.test(clause)
+  );
+}
+
+function clauseLeavesBathroomFloorOut(clause: string): boolean {
+  if (!clauseNamesRoomFloor(clause)) return false;
+  return FLOOR_NEGATION_RE.test(clause) || FLOOR_KEEP_RE.test(clause);
+}
+
+function sentenceLeavesBathroomFloorOut(sentence: string): boolean {
+  const roomFloor = sentence.replace(/\bshower\s+floors?\b/gi, ' ');
+  if (!clauseNamesRoomFloor(roomFloor)) return false;
+  if (FLOOR_STAYS_RE.test(roomFloor)) return true;
+  return roomFloor
+    .split(/\band\b|,/i)
+    .some(clause => clauseLeavesBathroomFloorOut(clause));
+}
+
+/** A bathroom remodel, including a note that says so without a bathroom template. */
+export function notesNameBathroomRemodelJob(
+  notes: string | null | undefined,
+  templateKey?: string | null
+): boolean {
+  if (String(templateKey || '').toLowerCase() === 'bathroom') return true;
+  const text = String(notes || '');
+  if (notesNameBathroomRemodelPanel(text)) return true;
+  return /\b(?:remodel|renovat(?:e|ion)|reno)\b[^.]{0,48}\bbath(?:room)?s?\b|\bbath(?:room)?s?\b[^.]{0,48}\b(?:remodel|renovat(?:e|ion)|reno)\b/i.test(
+    text
+  );
+}
+
+/**
+ * Confirm Scope always asks for bathroom floor sqft on a bathroom remodel.
+ * "Floor" in the note can be the shower floor or the room floor.
+ * The box stays off when the note already says that floor is not in the job.
+ */
+export function bathroomRemodelShowsBathFloorBox(params: {
+  notes?: string | null;
+  templateKey?: string | null;
+  namedBathFloor?: boolean;
+  hasEnteredSqft?: boolean;
+}): boolean {
+  if (params.hasEnteredSqft) return true;
+  if (notesLeaveBathroomFloorOut(params.notes)) return false;
+  if (params.namedBathFloor) return true;
+  return notesNameBathroomRemodelJob(params.notes, params.templateKey);
 }
 
 /**

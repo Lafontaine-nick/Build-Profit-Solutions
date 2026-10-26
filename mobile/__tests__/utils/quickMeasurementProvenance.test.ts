@@ -32,6 +32,28 @@ function groundUpRows() {
 }
 
 describe('resolveQuickMeasurementFields', () => {
+  test('whole-home drywall without an area stays blank', () => {
+    const notes =
+      'Whole house remodel. The house is 2,000 sqft. Kitchen updates, Bathroom updates, Flooring, Paint the interior, Drywall.';
+    const results = resolveQuickMeasurementFields({
+      rows: groundUpRows(),
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '2000',
+        drywallSqft: '7000',
+      },
+      noteValues: {},
+      noteBackedKeys: [],
+      includedScopeKeys: ['drywall', 'paint', 'flooring'],
+      templateKey: 'room_remodel',
+      notes,
+    });
+    const drywall = results.find(result => result.key === 'drywallSqft');
+    expect(drywall?.filled).toBe(false);
+    expect(drywall?.estimate).toBeNull();
+    expect(drywall?.state).toBe('needs_confirmation');
+  });
+
   test('confirms a flooring area the note stated', () => {
     const notes =
       'Remodel a 1,800 sqft home. Install 1,200 sqft of flooring, repair 400 sqft of drywall, and paint the interior.';

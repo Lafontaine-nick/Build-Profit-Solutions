@@ -194,7 +194,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     wallDemoSqft: ['demo', 'wall_demo'],
     framedAreaSqft: ['framing'],
     wallFramingLf: ['wall_framing'],
-    wallFramingSqft: ['wall_framing'],
+    wallFramingSqft: ['wall_framing', 'framing'],
     sheathingSqft: ['shear_sheathing'],
     framingOpeningCount: ['openings'],
     floorDemoSqft: ['floor_demo', 'demo', 'flooring'],

@@ -60,6 +60,62 @@ describe('scopeExtractionConfidence', () => {
     );
   });
 
+  test('asks which rooms and trades when a whole-house note names only the house size', () => {
+    const result = evaluate('Whole house remodel, 2,000 SF', {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(result.requiresClarification).toBe(true);
+    expect(result.requiresAiFallback).toBe(false);
+    expect(result.clarificationQuestions.map((q) => q.question)).toContain(
+      'Which job scopes are being done? Add the measurements you already have, and what each scope still needs, so the bid can be structured.'
+    );
+  });
+
+  test('asks which work is in a job that names no parts', () => {
+    const cases = [
+      [
+        'Whole house remodel',
+        'Which job scopes are being done? Add the measurements you already have, and what each scope still needs, so the bid can be structured.',
+      ],
+      ['Update the master bath.', 'Which parts of the bathroom are in this remodel?'],
+      ['Kitchen remodel.', 'Which parts of the kitchen are in this remodel?'],
+      ['Paint.', 'Which surfaces are being painted?'],
+      ['Stucco.', 'Which walls are getting stucco? The wall area stays blank until measured.'],
+      ['Electrical.', 'Which electrical work is in this job?'],
+      ['Windows.', 'Which windows are in this job?'],
+      ['Drywall.', 'Which drywall work is in this job? Wall and ceiling area stay blank until measured.'],
+      ['Electrical and plumbing.', 'Which electrical and plumbing work is in this job?'],
+    ];
+    for (const [notes, question] of cases) {
+      const result = evaluate(notes, { templateKey: 'room_remodel', projectType: 'other' });
+      expect(result.requiresAiFallback).toBe(false);
+      expect(result.clarificationQuestions.map((q) => q.question)).toContain(question);
+    }
+  });
+
+  test('does not ask a vague-job question when the note names the work', () => {
+    const notes = [
+      'Paint the doors and walls.',
+      'Kitchen remodel. New cabinets, quartz counters, and a tile backsplash.',
+      'Stucco the front of the house and replace 8 windows.',
+      'Flooring on the main level.',
+      'Roof replacement.',
+      'Hang and finish drywall in the addition. 1,200 sqft of wall. Ceilings too.',
+    ];
+    for (const note of notes) {
+      const result = evaluate(note, { templateKey: 'room_remodel', projectType: 'other' });
+      const ids = result.clarificationQuestions.map((q) => q.id);
+      expect(ids).not.toContain('vague_bathroom');
+      expect(ids).not.toContain('vague_kitchen');
+      expect(ids).not.toContain('vague_paint');
+      expect(ids).not.toContain('vague_stucco');
+      expect(ids).not.toContain('whole_home_trades');
+      expect(ids).not.toContain('vague_scope');
+    }
+  });
+
   test('does not ask unnecessary clarification questions for explicit paintable area', () => {
     const result = evaluate('Paint walls and ceiling 800 sqft lump sum $2,400.', {
       templateKey: 'painting',

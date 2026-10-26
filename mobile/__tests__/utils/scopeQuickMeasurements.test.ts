@@ -721,6 +721,17 @@ describe('scopeQuickMeasurements', () => {
     ).toBe('insulation');
   });
 
+  it('keeps a measured whole-house remodel on the remodel layout when insulation is one of the trades', () => {
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_remodel',
+        projectType: 'other',
+        notes:
+          'Whole house remodel, 2,000 SF\nBathroom updates, Kitchen updates, Drywall, Plumbing, Insulation, Flooring',
+      })
+    ).toBe('room_remodel');
+  });
+
   it('does not ask for wall framing area when the note frames a shower niche', () => {
     const notes =
       'Remodel the bathroom. Frame a niche in the side wall, and build a tiled shower bench on the back wall.';
@@ -798,6 +809,13 @@ describe('scopeQuickMeasurements', () => {
       resolveEffectiveQuickMeasurementTemplateKey({
         templateKey: 'windows_doors',
         projectType: 'windows_doors',
+        notes,
+      })
+    ).toBe('room_remodel');
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_remodel',
+        projectType: 'other',
         notes,
       })
     ).toBe('room_remodel');
@@ -1087,6 +1105,37 @@ describe('scopeQuickMeasurements', () => {
         'exteriorDoorCount',
         'insulationRValue',
       ])
+    );
+  });
+
+  it('keeps measured and unmeasured mixed-remodel fields in quick measurements', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint. No cabinets, no plumbing, no HVAC.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes, crossScopeMode: true }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'wallDemoSqft',
+        'wallFramingSqft',
+        'sheathingSqft',
+        'framingOpeningCount',
+        'windowCount',
+        'exteriorDoorCount',
+        'drywallSqft',
+        'flooringSqft',
+        'wallPaintSqft',
+      ])
+    );
+    expect(keys).not.toEqual(
+      expect.arrayContaining(['cabinetLf', 'plumbingRoughPointCount'])
     );
   });
 

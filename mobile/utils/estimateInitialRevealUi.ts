@@ -32,6 +32,7 @@ import {
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import { separateJobRevealRows } from '@/utils/noteClauseReader';
+import { vagueScopeQuestion, vagueScopeTitle } from '@/utils/vagueScopeNote';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameRemovalOf,
@@ -95,8 +96,13 @@ import {
   notesDescribeDedicatedFlooringJob,
 } from '@/utils/flooringNoteScope';
 import {
+  dedicatedPaintingRevealQuantity,
+  notesDescribeDedicatedPaintingJob,
+} from '@/utils/paintingNoteScope';
+import {
   FRAMING_COVER_SHEET_TAGLINE,
   framingCoverSheetPackage,
+  notesFrameExplicitWallArea,
   notesNameDedicatedWallAreaFraming,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
@@ -796,6 +802,7 @@ function namedScopeReaderOwnsPricing(
     notesDescribeNoteRatedDrywallJob(notes) ||
     notesDescribeDrywallAndFlooringJob(notes) ||
     notesDescribeDedicatedFlooringJob(notes) ||
+    notesDescribeDedicatedPaintingJob(notes) ||
     notesDescribeDedicatedDeckJob(notes) ||
     notesDescribeDedicatedElectricalDeviceJob(notes) ||
     notesDescribeDedicatedWindowsDoorsJob(notes) ||
@@ -845,6 +852,10 @@ function areaOnlyAdditionAttention(draft: EstimateAiDraft): string[] {
 function collectInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
+  const vagueQuestion = vagueScopeQuestion(draft.originalNotes);
+  if (vagueQuestion) {
+    return splitInitialRevealConfirmItems([vagueQuestion]);
+  }
   if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
     return splitInitialRevealConfirmItems(areaOnlyAdditionAttention(draft));
   }
@@ -1097,17 +1108,31 @@ function collectInitialRevealConfirmItems(
       missing.map(row => `Pricing for ${row.name}`)
     );
   }
-  // "Frame N sqft of walls and install N sqft of LVP" already has national
-  // averages waiting on Confirm Scope. Scope found stays unpriced, and those
-  // rows are not missing prices.
+  // Wall framing and LVP are two cards. A known LVP area already has a
+  // national price, so Scope found does not ask for it again. Wall framing
+  // asks for a price only while the note still has no wall area.
   if (
     draftNeedsScopeConfirmation(draft) &&
-    wallAreaFramingWithFlooringPrices(
-      draft.originalNotes,
-      draft.scopeMeasurements
-    )
+    notesNameWallAreaFramingWithFlooring(draft.originalNotes)
   ) {
-    return splitInitialRevealConfirmItems([]);
+    if (
+      wallAreaFramingWithFlooringPrices(
+        draft.originalNotes,
+        draft.scopeMeasurements
+      )
+    ) {
+      return splitInitialRevealConfirmItems([]);
+    }
+    const framingNotes = String(draft.originalNotes || '');
+    const storedWall = Number(
+      String(draft.scopeMeasurements?.wallFramingSqft ?? '').replace(/,/g, '')
+    );
+    const wallSqft =
+      (Number.isFinite(storedWall) && storedWall > 0 ? storedWall : null) ||
+      parseFramingMeasurementsFromNotes(framingNotes).wallFramingSqft;
+    return splitInitialRevealConfirmItems(
+      wallSqft ? [] : ['Pricing for Wall framing']
+    );
   }
   // Shower tile and LVP are different jobs. The LVP area can price. The
   // shower still needs its own square footage.
@@ -2077,6 +2102,27 @@ function filterMixedScopeAttentionItems(
   items: string[]
 ): string[] {
   const notes = String(draft.originalNotes || '');
+  items = items.filter(item => {
+    if (
+      noteMentionIsOnlyNegated(notes, /\bhvac\b/i) &&
+      /\bhvac\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      noteMentionIsOnlyNegated(notes, /\bplumb(?:ing)?\b/i) &&
+      /\bplumb(?:ing)?\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      noteMentionIsOnlyNegated(notes, /\bcabinets?\b/i) &&
+      /\bcabinets?\b/i.test(item)
+    ) {
+      return false;
+    }
+    return true;
+  });
   const crossTradeExteriorScope =
     /\b(?:stucco|roof(?:ing)?|gutters?|windows?|exterior\s+doors?)\b/i.test(
       notes
@@ -2659,6 +2705,7 @@ function stuccoNoteOwnsReveal(draft: EstimateAiDraft): boolean {
 }
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  if (vagueScopeQuestion(draft.originalNotes)) return 0;
   const roofingApplied = appliedRoofingConfirmScopePreview(draft);
   if (roofingApplied.length) return roofingApplied.length;
   const paintingApplied = appliedPaintingConfirmScopePreview(draft);
@@ -3094,6 +3141,7 @@ function getInitialRevealScopeRows(
     notesDescribeSheetrockFinishJob(notes);
   const noteRatedDrywallNote = notesDescribeNoteRatedDrywallJob(notes);
   const dedicatedFlooringNote = notesDescribeDedicatedFlooringJob(notes);
+  const dedicatedPaintingNote = notesDescribeDedicatedPaintingJob(notes);
   const dedicatedDeckNote = notesDescribeDedicatedDeckJob(notes);
   const parsedDedicatedDrywallMeasurements = dedicatedDrywallNote
     ? initialScopeMeasurementInputExtended(draft, notes)
@@ -3305,6 +3353,9 @@ function getInitialRevealScopeRows(
       return undefined;
     }
     const measurements = parsedRoomRemodelMeasurements as Record<string, unknown>;
+    const framedFromNotes = parseFramingMeasurementsFromNotes(notes);
+    const stated = (value: unknown, fallback?: unknown) =>
+      positiveRevealNumber(value) ?? positiveRevealNumber(fallback);
     const sqft = (value: unknown) => {
       const quantity = positiveRevealNumber(value);
       return quantity ? `${quantity} sqft` : null;
@@ -3314,6 +3365,28 @@ function getInitialRevealScopeRows(
       return quantity ? `${quantity} each` : null;
     };
     if (id === 'flooring') return sqft(measurements.flooringSqft);
+    if (id === 'framing' || id === 'wall_framing') {
+      return (
+        sqft(stated(measurements.wallFramingSqft, framedFromNotes.wallFramingSqft)) ??
+        undefined
+      );
+    }
+    if (id === 'shear_sheathing') {
+      return (
+        sqft(stated(measurements.sheathingSqft, framedFromNotes.sheathingSqft)) ??
+        undefined
+      );
+    }
+    if (id === 'openings') {
+      return (
+        each(
+          stated(
+            measurements.framingOpeningCount,
+            framedFromNotes.framingOpeningCount
+          )
+        ) ?? undefined
+      );
+    }
     if (id === 'baseboard_install' || id === 'trim') {
       const quantity = positiveRevealNumber(measurements.baseboardLf);
       return quantity ? `${quantity} LF` : null;
@@ -3370,7 +3443,15 @@ function getInitialRevealScopeRows(
         /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,20}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,80}\b(?:wall|walls|attic|ceiling|floor)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?(?:attic|ceiling|wall|walls|floor)\b/i.test(
           notes
         );
-      if (!hasLocationSpecificInsulationArea) return null;
+      if (!hasLocationSpecificInsulationArea) {
+        if (
+          notesFrameExplicitWallArea(notes) &&
+          /\b(?:insulat(?:e|ed|ion)|R[-\s]?\d{2,3})\b/i.test(notes)
+        ) {
+          return sqft(measurements.exteriorWallInsulationSqft);
+        }
+        return null;
+      }
       const quantity =
         positiveRevealNumber(measurements.exteriorWallInsulationSqft) ||
         positiveRevealNumber(measurements.atticInsulationSqft) ||
@@ -3508,7 +3589,14 @@ function getInitialRevealScopeRows(
                 draft.scopeMeasurements
               ),
             }
-          : {}),
+          : dedicatedPaintingNote
+            ? {
+                quantityOverride: dedicatedPaintingRevealQuantity(
+                  String(item.id || '').trim(),
+                  draft.scopeMeasurements
+                ),
+              }
+            : {}),
         ...(dedicatedDeckNote
           ? {
               quantityOverride: dedicatedDeckRevealQuantity(
@@ -3796,12 +3884,14 @@ function getInitialRevealScopeRows(
     }
     if (
       /\bplumbing\b/i.test(notes) &&
+      !noteMentionIsOnlyNegated(notes, /\bplumb(?:ing)?\b/i) &&
       !rows.some(row => row.id === 'plumbing' || /plumbing/i.test(row.name))
     ) {
       addRoomRemodelRow('plumbing', 'Plumbing');
     }
     if (
       /\belectrical\b/i.test(notes) &&
+      !noteMentionIsOnlyNegated(notes, /\belectrical\b/i) &&
       !rows.some(row => row.id === 'electrical' || /electrical/i.test(row.name))
     ) {
       addRoomRemodelRow('electrical', 'Electrical');
@@ -5095,6 +5185,7 @@ function appliedPlumbingPriceRows(
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
+  if (vagueScopeQuestion(draft.originalNotes)) return [];
   const pricedPlumbing = appliedPlumbingPriceRows(draft);
   if (pricedPlumbing.length) return pricedPlumbing;
   const pricedRoofing = appliedRoofingConfirmScopePreview(draft);
@@ -5561,6 +5652,9 @@ export function getInitialRevealAttentionTitle(
   needsScopeConfirmation: boolean
 ): string {
   if (!needsScopeConfirmation) return 'Needs your attention';
+  if (vagueScopeQuestion(draft.originalNotes)) {
+    return 'Needs your attention';
+  }
   if (noteExclusionNotices(draft.originalNotes).length > 0) {
     return 'Needs your attention';
   }
@@ -5568,6 +5662,8 @@ export function getInitialRevealAttentionTitle(
 }
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
+  const vagueTitle = vagueScopeTitle(draft.originalNotes);
+  if (vagueTitle) return vagueTitle;
   if (notesNameDedicatedHvacServiceVisit(draft.originalNotes)) {
     return 'HVAC service call';
   }
@@ -5918,6 +6014,7 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
+  if (vagueScopeQuestion(draft.originalNotes)) return null;
   const revealProjectType = String(draft.projectType || '').toLowerCase();
   const revealTemplateKey = String(
     draft.scopeChecklist?.templateKey || ''
@@ -6040,6 +6137,12 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   ) {
     return 'Read from the sheets. Unprinted trades stay planning allowances.';
   }
+  if (notesDescribeDedicatedPaintingJob(draft.originalNotes)) {
+    const paintLine = (draft.whatAiDid || []).find(line =>
+      /walls and ceilings|interior painting/i.test(String(line))
+    );
+    if (paintLine) return String(paintLine).trim();
+  }
   const classification = getRevealClassification(draft);
   if (
     classification.scopeTradeLabels.join(' · ') === 'Painting' ||
@@ -6161,6 +6264,7 @@ export function getInitialRevealUnderstoodBullets(
   draft: EstimateAiDraft,
   max = 3
 ): string[] {
+  if (vagueScopeQuestion(draft.originalNotes)) return [];
   if (
     framingCoverSheetPackage(
       draft.scopeMeasurements as Record<string, unknown> | null
@@ -6389,6 +6493,18 @@ export function getInitialRevealTotals(
   draft: EstimateAiDraft,
   markupPct = 0
 ): InitialRevealTotals {
+  if (vagueScopeQuestion(draft.originalNotes)) {
+    return {
+      heroTotal: null,
+      heroTotalLabel: 'Initial estimate',
+      markupPct: null,
+      material: null,
+      labor: null,
+      allowance: null,
+      estimatedWithMarkup: null,
+      scopeItemCount: 0,
+    };
+  }
   const scopePackages = getScopePackagesForReview(draft);
   const appliedScopeBreakdown = sumStep3ReviewBudgetTotals(draft);
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;

@@ -172,11 +172,22 @@ export function notesFrameExplicitWallArea(notes: string): boolean {
 
 /**
  * "Frame 400 sqft of walls and install 180 sqft of LVP" names those two trades.
- * Drywall, paint, openings, and the rest of a remodel stay on their own notes.
+ * "Frame new interior walls and install 1,200 sqft of LVP" is the same pair
+ * when the wall area is still unknown. Drywall, paint, openings, and the
+ * rest of a remodel stay on their own notes. A "no drywall" sentence does
+ * not count as drywall work.
  */
 export function notesNameWallAreaFramingWithFlooring(notes: string): boolean {
-  const text = notesWithoutDeniedSentences(notes);
-  if (!notesFrameExplicitWallArea(text)) return false;
+  const text = String(notes || '')
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map(sentence => sentence.trim())
+    .filter(
+      sentence =>
+        sentence &&
+        !/^(?:no|not|without|do not|don't|dont|never)\b/i.test(sentence)
+    )
+    .join(' ');
+  if (!notesMentionAffirmativeWallFraming(text)) return false;
   if (
     !/\b(?:lvp|luxury\s+vinyl|flooring|laminate|vinyl|carpet|hardwood)\b/i.test(
       text
@@ -635,6 +646,15 @@ export function parseFramingMeasurementsFromNotes(
     ) {
       delete out.wallFramingLf;
     }
+  }
+  // "Frame 1,600 sqft of walls with structural sheathing" is that wall area.
+  // A separate sheathing number still wins when the note gives one.
+  if (
+    out.wallFramingSqft &&
+    !out.sheathingSqft &&
+    /\b(?:structural\s+)?sheathing\b/i.test(text)
+  ) {
+    assign('sheathingSqft', out.wallFramingSqft);
   }
 
   return out;

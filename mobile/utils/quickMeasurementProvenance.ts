@@ -17,6 +17,10 @@ import {
   wholeProjectCoverQuantity,
 } from '@/utils/scopeQuickMeasurements';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  notesStateDrywallArea,
+} from '@/utils/wholeHomeRemodelNote';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import { shellPackageIncludesSheathing } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
@@ -656,10 +660,17 @@ export function resolveQuickMeasurementFields(params: {
     // flooring, living area, or plan geometry when the job notes only say
     // "paint." A paint suggestion is useful here only when the note parser
     // supplied an actual paint-area quantity.
+    // "Drywall" on a measured whole-home note is not a wall-and-ceiling
+    // guess from the house size. The field stays blank until an area is entered.
+    const wholeHomeDrywallWithoutArea =
+      (field.key === 'drywallSqft' || field.key === 'patchRepairSqft') &&
+      notesDescribeMeasuredWholeHomeRemodel(params.notes) &&
+      !notesStateDrywallArea(params.notes);
     const estimate =
       !filled &&
       relevance.relevant &&
       !suppressExteriorPaintSuggestion &&
+      !wholeHomeDrywallWithoutArea &&
       (!isPaintAreaField || hasNoteBackedPaintArea)
         ? getQuickMeasurementEstimate(
             field.key,

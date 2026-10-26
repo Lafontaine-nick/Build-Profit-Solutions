@@ -80,6 +80,7 @@ import {
   copyFramingQuantityFields,
   framingCardForItemId,
   isShellFramingPackageBid,
+  notesFrameExplicitWallArea,
   notesNameLinearFootStudWall,
   notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
@@ -306,6 +307,11 @@ import {
   notesDescribeDedicatedFlooringJob,
   notesRequestBaseboardOnFlooringJob,
 } from '@/utils/flooringNoteScope';
+import {
+  dedicatedPaintingAreaSqft,
+  dedicatedPaintingLumpTotal,
+  notesDescribeDedicatedPaintingJob,
+} from '@/utils/paintingNoteScope';
 import {
   copyDrywallQuantityFields,
   drywallPackageSurfacePlanningQuantity,
@@ -8459,7 +8465,7 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   framing: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['framedAreaSqft'],
+    measurementKeys: ['framedAreaSqft', 'wallFramingSqft'],
     requiresUserQuantity: false,
     quantityHelper: 'Enter the documented wall framing area in square feet.',
     missingMessage: 'Enter wall framing area sqft or pricing.',
@@ -10465,7 +10471,7 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     windows: { unit: 'each', measurementKeys: ['windowCount'] },
     framing: {
       unit: 'sqft',
-      measurementKeys: ['framedAreaSqft', 'floorAreaSqft'],
+      measurementKeys: ['framedAreaSqft', 'wallFramingSqft', 'floorAreaSqft'],
     },
     plumbing: { unit: 'each' },
     electrical: { unit: 'each' },
@@ -17173,6 +17179,56 @@ export function resolveScopeItemSuggestedPricing(
       };
     }
   }
+  if (itemId === 'framing' && notesFrameExplicitWallArea(notesText)) {
+    const notedWalls = parseFramingMeasurementsFromNotes(notesText);
+    const wallSqft =
+      parseScopeMeasurementInput(
+        (measurementsInput as { wallFramingSqft?: unknown }).wallFramingSqft
+      ) || notedWalls.wallFramingSqft;
+    if (wallSqft && wallSqft > 0) {
+      const studWall = regionalAdjustedNationalAverage(
+        'wall_framing',
+        'lf',
+        pricingContext
+      ).average;
+      const materialRate = Number(studWall?.material ?? 4);
+      const laborRate = Number(studWall?.labor ?? 8);
+      if (materialRate > 0 && laborRate > 0) {
+        const wallHeightFt = 8;
+        const linearFeet = Math.round((wallSqft / wallHeightFt) * 10) / 10;
+        const material = round2(linearFeet * materialRate);
+        const labor = round2(linearFeet * laborRate);
+        const perLf = round2(materialRate + laborRate);
+        const lfLabel = Number.isInteger(linearFeet)
+          ? String(linearFeet)
+          : linearFeet.toFixed(1);
+        const perLfLabel = Number.isInteger(perLf)
+          ? `$${perLf}`
+          : `$${perLf.toFixed(2)}`;
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel:
+              studWall?.sourceLabel ||
+              'Suggested budget split · National Average · stud wall framing',
+            helper: `${wallSqft.toLocaleString()} sqft of wall at ${wallHeightFt} ft is ${lfLabel} LF of stud wall.`,
+            mode: 'suggested_price',
+            basis: { quantity: linearFeet, unit: 'lf' },
+            displayUnitRateLabel: `${wallSqft.toLocaleString()} sqft at ${wallHeightFt} ft · ${lfLabel} LF × ${perLfLabel}/LF`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'framing',
+          },
+          comparison: null,
+        };
+      }
+    }
+  }
   if (
     itemId === 'framing' &&
     String(templateKey || '').toLowerCase() === 'bathroom'
@@ -19020,6 +19076,11 @@ export function resolveScopeItemSuggestedPricing(
     (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
     String(templateKey || '').toLowerCase() === 'painting'
   ) {
+    const statedLump =
+      itemId === 'interior_paint' &&
+      notesDescribeDedicatedPaintingJob(originalNotes)
+        ? dedicatedPaintingLumpTotal(originalNotes)
+        : null;
     const isCombinedPaint =
       itemId === 'interior_paint' &&
       measurementsInput.paintPricingMethod === 'combined';
@@ -19033,6 +19094,36 @@ export function resolveScopeItemSuggestedPricing(
             ? measurementsInput.ceilingPaintSqft
             : measurementsInput.wallPaintSqft
         );
+    const noteArea =
+      paintQuantity ||
+      dedicatedPaintingAreaSqft(originalNotes) ||
+      (resolved.unit === 'sqft' ? Number(resolved.quantity) : 0);
+    if (statedLump && statedLump > 0 && noteArea > 0) {
+      const average = getNationalAverageBudgetSplit('interior_paint');
+      const materialRate = Number(average?.material || 0);
+      if (materialRate > 0) {
+        const material = Math.min(statedLump, round2(noteArea * materialRate));
+        const labor = round2(statedLump - material);
+        if (material > 0 && labor > 0) {
+          return {
+            fill: {
+              material,
+              labor,
+              total: round2(statedLump),
+              materialSource: 'national_average',
+              laborSource: 'notes',
+              rateSourceLabel: 'From notes',
+              helper: `${noteArea.toLocaleString('en-US')} sqft · lump sum from the notes`,
+              mode: 'note_total_split',
+              lumpSumOnly: false,
+              basis: { quantity: noteArea, unit: 'sqft' },
+              benchmarkAction: 'price_ready',
+            },
+            comparison: null,
+          };
+        }
+      }
+    }
     if (!paintQuantity || paintQuantity <= 0) return empty;
     const occupancy = measurementsInput.paintOccupancy || 'occupied';
     const application =
@@ -27152,6 +27243,32 @@ export function resolveChecklistItemQuantity(
   } = {}
 ): ResolvedItemQuantity {
   if (
+    itemId === 'interior_paint' &&
+    notesDescribeDedicatedPaintingJob(ctx.notes)
+  ) {
+    const area =
+      dedicatedPaintingAreaSqft(ctx.notes) ||
+      Number(measurements.combinedPaintableAreaSqft) ||
+      Number(measurements.paintAreaSqft);
+    const lump = dedicatedPaintingLumpTotal(ctx.notes);
+    if (Number.isFinite(area) && area > 0) {
+      return {
+        quantity: area,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Paintable wall and ceiling area from the notes.',
+        missingMessage: 'Enter paint sqft.',
+        showInput: true,
+        dualAllowance:
+          lump != null
+            ? { quantity: lump, unit: 'allowance' }
+            : undefined,
+      };
+    }
+  }
+  if (
     (itemId === 'hang' || itemId === 'finish_tape') &&
     notesDescribeNoteRatedDrywallJob(ctx.notes)
   ) {
@@ -27293,6 +27410,72 @@ export function resolveChecklistItemQuantity(
         quantityHelper:
           'Flooring removal was named in the notes. Enter the area before pricing.',
         missingMessage: 'Enter flooring removal sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'openings') {
+    const stored = measurements.itemQuantities?.openings;
+    const storedSource = String(stored?.quantitySource || '');
+    const userLocked =
+      storedSource === 'user_entered' ||
+      storedSource === 'manual_override' ||
+      storedSource === 'calculated_confirmed';
+    const storedQty = Number(String(stored?.quantity ?? '').replace(/,/g, ''));
+    const measured = Number(
+      String(measurements.framingOpeningCount ?? '').replace(/,/g, '')
+    );
+    const noted =
+      parseFramingMeasurementsFromNotes(String(ctx.notes || ''))
+        .framingOpeningCount || 0;
+    const noteCount = measured > 0 ? measured : noted;
+    if (userLocked && storedQty > 0) {
+      return {
+        quantity: storedQty,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        quantityHelper: 'Rough openings identified for this framing scope.',
+        missingMessage: 'Enter the rough opening count.',
+        showInput: true,
+      };
+    }
+    if (noteCount > 0) {
+      return {
+        quantity: noteCount,
+        unit: 'each',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Rough openings named in the notes. Window and door units are priced on their own cards.',
+        missingMessage: 'Enter the rough opening count.',
+        showInput: true,
+      };
+    }
+  }
+  if (
+    (itemId === 'framing' || itemId === 'wall_framing') &&
+    notesFrameExplicitWallArea(ctx.notes)
+  ) {
+    const measured = Number(
+      String(measurements.wallFramingSqft ?? '').replace(/,/g, '')
+    );
+    const noted =
+      parseFramingMeasurementsFromNotes(String(ctx.notes || ''))
+        .wallFramingSqft || 0;
+    const wallSqft = measured > 0 ? measured : noted;
+    if (wallSqft > 0) {
+      return {
+        quantity: wallSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper:
+          'Square feet of walls being framed. An 8 ft wall is priced as stud wall by the linear foot.',
+        missingMessage: 'Enter wall framing area sqft.',
         showInput: true,
       };
     }
@@ -31556,6 +31739,23 @@ export function prepareScopeMeasurementsInputForUi(
   ) {
     mergedFields.windowCount = String(windowCountFromNotes);
   }
+  const applyNoteMeasurement = (
+    key:
+      | 'wallFramingSqft'
+      | 'sheathingSqft'
+      | 'framingOpeningCount'
+      | 'exteriorWallInsulationSqft'
+  ) => {
+    const quantity = Number(
+      String((parsed as Record<string, unknown>)[key] ?? '').replace(/,/g, '')
+    );
+    if (!(quantity > 0) || planBackedMeasurement(key)) return;
+    (mergedFields as Record<string, unknown>)[key] = String(quantity);
+  };
+  applyNoteMeasurement('wallFramingSqft');
+  applyNoteMeasurement('sheathingSqft');
+  applyNoteMeasurement('framingOpeningCount');
+  applyNoteMeasurement('exteriorWallInsulationSqft');
   const interiorDoorCountFromNotes = Number(
     String((parsed as Record<string, unknown>).interiorDoorCount ?? '').replace(
       /,/g,
@@ -33042,6 +33242,9 @@ export function initialScopeMeasurementInputExtended(
       );
     })(),
     wallDemoSqft: pick('wallDemoSqft'),
+    wallFramingSqft: pick('wallFramingSqft'),
+    sheathingSqft: pick('sheathingSqft'),
+    framingOpeningCount: pick('framingOpeningCount'),
     wallPaintSqft: explicitCombinedPaintForRoomRemodel
       ? String(
           parsedFromNotes.paintAreaSqft ??

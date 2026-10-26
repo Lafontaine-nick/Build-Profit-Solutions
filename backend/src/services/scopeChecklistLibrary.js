@@ -2870,7 +2870,7 @@ const CONCRETE_FLATWORK_CONTEXT =
   /\b(?:forms?|rebar|thickened\s+edge|broom\s+finish|pump\s+truck|gravel\s+base|dig\s+out|mesh|control\s+joints?)\b/i;
 
 const WHOLE_HOME_SQFT =
-  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i;
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))/i;
 const WHOLE_HOME_TRADE_SQFT =
   /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
 

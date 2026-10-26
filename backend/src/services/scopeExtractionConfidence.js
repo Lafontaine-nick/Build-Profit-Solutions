@@ -51,6 +51,61 @@ function buildQuestion(id, text) {
   return { id, question: text };
 }
 
+const THIN_SCOPES = [
+  ["Electrical", "Which electrical work is in this job?", /\b(?:electrical|wiring)\b/i, /\b(?:outlets?|receptacles?|switches?|lights?|recessed|panels?|circuits?|gfci|rewire|rewiring|dimmers?|fans?|smoke|service\s+calls?|chargers?|\d+\s*amps?)\b/i],
+  ["Plumbing", "Which plumbing work is in this job?", /\bplumbing\b/i, /\b(?:toilets?|sinks?|faucets?|showers?|tubs?|bathtubs?|water\s+heaters?|drains?|pipes?|repiping|rough[\s-]?ins?|fixtures?|disposals?|sewer|water\s+lines?)\b/i],
+  ["HVAC", "Which HVAC work is in this job?", /\bhvac\b/i, /\b(?:furnaces?|heat\s*pumps?|air\s*condition(?:er|ing)?|condensers?|air\s+handlers?|ducts?|ductwork|mini[\s-]?splits?|thermostats?|service\s+calls?|tons?|replace(?:ment)?|install)\b/i],
+  ["Roofing", "Which parts of the roof are in this job? The roof area stays blank until measured.", /\broof(?:ing)?\b/i, /\b(?:replace(?:ment)?|shingles?|tear[\s-]?off|vents?|flashing|squares?|metal|repair|leak|underlayment|ridge|gutters?|install|new)\b/i],
+  ["Flooring", "Which floors are being done, and which product? The area stays blank until measured.", /\bflooring\b/i, /\b(?:lvp|luxury\s+vinyl|vinyl|carpet|hardwood|laminate|tile|vct|main\s+level|upstairs|downstairs|bedrooms?|kitchen|bath|install|replace(?:ment)?|remove|removal|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Drywall", "Which drywall work is in this job? Wall and ceiling area stay blank until measured.", /\b(?:drywall|sheetrock|gypsum)\b/i, /\b(?:hang|finish|tape|mud|texture|patch|repair|ceilings?|walls?|addition|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Windows", "Which windows are in this job?", /\bwindows?\b/i, /\b(?:replace(?:ment)?|install|new|remove|removal|vinyl|double[\s-]?hung|picture|egress|casement|slider)\b|\b\d+\s+windows?\b/i],
+  ["Doors", "Which doors are in this job?", /\bdoors?\b/i, /\b(?:replace(?:ment)?|install|new|interior|exterior|entry|sliding|patio|garage|hardware|paint[\s-]?grade|prehung|remove)\b|\b\d+\s+(?:interior\s+|exterior\s+)?doors?\b|\bpaint(?:ing)?\b[^.]{0,40}\bdoors?\b|\bdoors?\b[^.]{0,40}\bpaint/i],
+  ["Insulation", "Where is the insulation going? The area stays blank until measured.", /\binsulat(?:e|ion|ed)\b/i, /\b(?:attic|walls?|ceilings?|crawl|floors?|basement|garage|batts?|blown|spray|R[-\s]?\d{2,3})\b/i],
+  ["Concrete", "Which concrete work is in this job? The area stays blank until measured.", /\bconcrete\b/i, /\b(?:patio|driveway|sidewalk|slabs?|footings?|foundation|flatwork|pour|stamped|broom|pads?|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Framing", "Which framing is in this job? The area stays blank until measured.", /\bframing\b/i, /\b(?:walls?|roofs?|floors?|addition|headers?|beams?|studs?|trusses?|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Deck", "Which parts of the deck are in this job? The size stays blank until measured.", /\bdeck(?:ing)?\b/i, /\b(?:railings?|guardrails?|stairs?|steps?|footings?|composite|wood|posts?|demo|remove|replace(?:ment)?|rebuild|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Siding", "Which walls are getting siding? The wall area stays blank until measured.", /\bsiding\b/i, /\b(?:replace(?:ment)?|install|new|vinyl|fiber|cement|hardie|front|back|rear|sides?|repair|remove|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Landscaping", "Which landscaping work is in this job?", /\blandscap(?:e|ing)\b/i, /\b(?:sod|grass|pavers?|mulch|plants?|trees?|irrigation|sprinklers?|retaining|fenc(?:e|ing)|grading|rocks?|gravel)\b/i],
+  ["Tile", "Which surfaces are being tiled?", /\b(?:tile|tiling)\b/i, /\b(?:showers?|floors?|backsplash|walls?|niches?|tubs?|bath(?:room)?s?|kitchens?|sqft|sq\.?\s*ft|\bsf\b)\b/i],
+  ["Demolition", "What is being demolished?", /\b(?:demo|demolition)\b/i, /\b(?:studs?|cabinets?|counters?|countertops?|backsplash|floors?|tile|tubs?|walls?|kitchens?|bath(?:room)?s?|drywall|sheetrock)\b/i],
+  ["Gutters", "Which gutters are in this job?", /\bgutters?\b/i, /\b(?:replace(?:ment)?|install|new|leaf|guards?|downspouts?|feet|lf|linear|repair|remove)\b/i],
+  ["Fence", "Which fence work is in this job? The length stays blank until measured.", /\bfenc(?:e|ing)\b/i, /\b(?:cedar|wood|vinyl|chain[\s-]?link|picket|feet|lf|linear|gates?|heights?|replace(?:ment)?|install|new|remove)\b/i],
+];
+
+function affirmativeJobText(notes) {
+  return String(notes || "")
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(
+      (sentence) =>
+        sentence &&
+        !/^(?:no|not|without|do not|don't|dont|never|keep|leave)\b/i.test(sentence) &&
+        !/\bowner[\s-]*supplied\b/i.test(sentence) &&
+        !/\bseparate\s+bid\b/i.test(sentence)
+    )
+    .join(" ");
+}
+
+function thinJobQuestion(notes) {
+  const raw = String(notes || "");
+  if (
+    /\b(?:plan imported|cover sheet|full\s+build|ground[\s-]?up|new\s+(?:build|construction|home)|custom\s+home|spec\s+home)\b/i.test(
+      raw
+    )
+  ) {
+    return null;
+  }
+  const work = affirmativeJobText(raw);
+  if (!work) return null;
+  const matched = THIN_SCOPES.filter((scope) => scope[2].test(work));
+  if (!matched.length || matched.some((scope) => scope[3].test(work))) return null;
+  if (matched.length === 1) return matched[0][1];
+  const phrase = matched.map((scope) => scope[0].toLowerCase()).join(" and ");
+  return matched.length > 2
+    ? "Which work is in this job?"
+    : `Which ${phrase} work is in this job?`;
+}
+
 function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
   const raw = String(notes || '').trim();
   const text = raw.toLowerCase();
@@ -66,7 +121,8 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
   const scopeKeywords = [
     'bath', 'bathroom', 'remodel', 'floor', 'flooring', 'lvp', 'laminate', 'carpet', 'tile', 'baseboard', 'trim', 'cabinet', 'counter', 'backsplash',
     'paint', 'toilet', 'plumb', 'rough', 'electrical', 'outlet', 'light', 'concrete', 'excavat',
-    'roof', 'drywall', 'hvac', 'duct', 'sod', 'paver', 'rock', 'mulch', 'vanity', 'service', 'handyman',
+    'roof', 'drywall', 'sheetrock', 'hvac', 'duct', 'sod', 'paver', 'rock', 'mulch', 'vanity', 'service', 'handyman', 'stucco',
+    'window', 'door', 'framing', 'insulation', 'deck', 'siding', 'gutter', 'fence', 'landscap', 'demo', 'wiring',
   ];
   const hasScope = scopeKeywords.some((kw) => text.includes(kw));
   const hasPricing = MONEY_RE.test(raw) || /\b(lump\s*sum|allowance|quote|sub(?:contractor)?|labor|material)\b/i.test(raw);
@@ -251,6 +307,77 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
     measurementScore -= 30;
   }
 
+  const { notesDescribeMeasuredWholeHomeRemodel } = require("./scopeChecklistLibrary");
+  const namesWholeHomeRemodel =
+    /\bremodel/i.test(raw) &&
+    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+      raw
+    );
+  if (
+    (notesDescribeMeasuredWholeHomeRemodel(raw) || namesWholeHomeRemodel) &&
+    !/\b(?:flooring|lvp|luxury\s+vinyl|drywall|sheetrock|windows?|doors?|insulat|trim|baseboards?|plumbing|electrical|paint|cabinets?|countertops?|counters?|backsplash|vanity|shower|tile|framing)\b/i.test(raw)
+  ) {
+    addUnique(
+      clarificationQuestions,
+      buildQuestion(
+        "whole_home_trades",
+        "Which job scopes are being done? Add the measurements you already have, and what each scope still needs, so the bid can be structured."
+      )
+    );
+  }
+
+  if (
+    /\b(?:update|remodel|renovation|reno)\b/i.test(raw) &&
+    /\b(?:master\s+bath|bath(?:room)?s?)\b/i.test(raw) &&
+    !/\b(?:whole|entire|full)\s+(?:house|home)\b|\bhouse\s+remodel\b/i.test(raw) &&
+    !/\b(?:vanity|toilet|shower|tub|tile|floor(?:ing)?)\b/i.test(raw)
+  ) {
+    addUnique(
+      clarificationQuestions,
+      buildQuestion(
+        "vague_bathroom",
+        "Which parts of the bathroom are in this remodel?"
+      )
+    );
+  }
+  if (
+    /\bkitchen\s+(?:remodel|renovation|reno|update)\b|\b(?:remodel|reno|update)\s+(?:the\s+)?kitchen\b/i.test(raw) &&
+    !/\b(?:cabinets?|countertops?|counters?|backsplash|flooring|lvp|sink|dishwasher)\b/i.test(raw)
+  ) {
+    addUnique(
+      clarificationQuestions,
+      buildQuestion(
+        "vague_kitchen",
+        "Which parts of the kitchen are in this remodel?"
+      )
+    );
+  }
+  if (
+    /\bpaint(?:ing)?\b/i.test(raw) &&
+    !/\b(?:walls?|ceilings?|doors?|trim|baseboards?|cabinets?|siding|flooring|kitchen|bath|roof|windows?|electrical|plumbing|hvac|drywall)\b/i.test(raw)
+  ) {
+    addUnique(
+      clarificationQuestions,
+      buildQuestion("vague_paint", "Which surfaces are being painted?")
+    );
+  }
+  if (
+    /\bstucco\b/i.test(raw) &&
+    !/\b(?:front|back|rear|side|walls?|sqft|sq\.?\s*ft|sf|windows?|doors?|paint|roof|flooring)\b/i.test(raw)
+  ) {
+    addUnique(
+      clarificationQuestions,
+      buildQuestion(
+        "vague_stucco",
+        "Which walls are getting stucco? The wall area stays blank until measured."
+      )
+    );
+  }
+  const thinJob = thinJobQuestion(raw);
+  if (thinJob) {
+    addUnique(clarificationQuestions, buildQuestion("vague_scope", thinJob));
+  }
+
   if (!hasPricing && /\badd|run|install|replace|demo|paint|rough|wire|concrete|drywall|roof|hvac\b/.test(text)) {
     addUnique(flags, 'no_pricing_provided');
     pricingScore = Math.min(pricingScore, 55);
@@ -267,6 +394,26 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
   let overallConfidence = levelFromScore(overallScore);
   if (flags.includes('competing_sqft_values') || flags.includes('shorthand_multi_trade_note')) {
     overallConfidence = 'low';
+  }
+  const vagueJobQuestion = clarificationQuestions.some((question) =>
+    [
+      'whole_home_trades',
+      'vague_bathroom',
+      'vague_kitchen',
+      'vague_paint',
+      'vague_stucco',
+      'vague_scope',
+    ].includes(question.id)
+  );
+  if (
+    vagueJobQuestion &&
+    overallConfidence === 'low' &&
+    !flags.includes('competing_sqft_values') &&
+    !flags.includes('shorthand_multi_trade_note') &&
+    !flags.includes('long_conversational_note') &&
+    !flags.includes('measurements_not_mapped')
+  ) {
+    overallConfidence = 'medium';
   }
   const requiresClarification = clarificationQuestions.length > 0;
   const requiresAiFallback =

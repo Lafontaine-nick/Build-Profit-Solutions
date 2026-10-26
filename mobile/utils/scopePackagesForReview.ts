@@ -28,6 +28,7 @@ import {
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import { vagueScopeQuestion } from '@/utils/vagueScopeNote';
 import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
@@ -784,10 +785,25 @@ export function applyStep2NoteScopeFilters(
     });
   }
   const removedIds = measurements.contractorRemovedScopeItemIds;
-  return applyContractorRemovedScopeItems(
+  let scoped = applyContractorRemovedScopeItems(
     applyStructuredScopeIntentToItems(filtered, draft.scopeIntent),
     Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
   );
+  if (
+    vagueScopeQuestion(notes) &&
+    !measurements.planImportMode &&
+    !measurements.planImportFingerprint &&
+    !measurements.planImportSession
+  ) {
+    scoped = scoped.map(item => ({
+      ...item,
+      state: 'excluded' as const,
+      noteBacked: false,
+      ...(item.inputType === 'choice' ? { choiceId: 'not_in_scope' } : {}),
+      ...(item.inputType === 'multi_choice' ? { choiceIds: ['not_in_scope'] } : {}),
+    }));
+  }
+  return scoped;
 }
 
 /** Checklist rows for Applied-pricing math after Continue — mirrors Step 2 displayItems. */

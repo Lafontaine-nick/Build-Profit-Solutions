@@ -9,6 +9,10 @@ import {
   noteUsesSeparateJobReader,
   readNoteWork,
 } from '@/utils/noteClauseReader';
+import {
+  dedicatedPaintingLumpTotal,
+  notesDescribeDedicatedPaintingJob,
+} from '@/utils/paintingNoteScope';
 import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 import {
   bathroomAffirmativeNotes,
@@ -64,6 +68,7 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
+  notesFrameExplicitWallArea,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
   notesNameRoughOpeningsOnly,
@@ -4923,11 +4928,52 @@ function dropCatalogHangCoveredByDrywall(
 }
 
 /** Keep a mixed kitchen/bath remodel limited to work explicitly supported by notes. */
+const NEGATED_ONLY_SCOPE_IDS: Array<{ ids: string[]; pattern: RegExp }> = [
+  {
+    ids: ['plumbing', 'plumbing_rough', 'plumbing_fixtures'],
+    pattern: /\bplumb(?:ing)?\b/i,
+  },
+  {
+    ids: ['hvac', 'hvac_systems', 'hvac_capacity'],
+    pattern: /\bhvac\b/i,
+  },
+  { ids: ['cabinets', 'cabinet_demo'], pattern: /\bcabinets?\b/i },
+];
+
+function dropNegatedOnlyScopeItems(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  const text = String(notes || '');
+  if (!text.trim()) return items;
+  return items.filter(item => {
+    const rule = NEGATED_ONLY_SCOPE_IDS.find(entry =>
+      entry.ids.includes(item.id)
+    );
+    if (!rule) return true;
+    return !noteMentionIsOnlyNegated(text, rule.pattern);
+  });
+}
+
 export function filterRoomRemodelNoteScopeItems(
   items: ScopeChecklistItem[],
   notes?: string | null
 ): ScopeChecklistItem[] {
+  items = dropNegatedOnlyScopeItems(items, notes);
   items = dropCatalogHangCoveredByDrywall(items, notes);
+  if (notesFrameExplicitWallArea(notes)) {
+    if (items.some(item => item.id === 'framing' && item.state !== 'excluded')) {
+      items = items.filter(item => item.id !== 'wall_framing');
+    }
+    if (!notesAskForExteriorPaint(notes)) {
+      items = items.filter(
+        item =>
+          item.id !== 'exterior_prep' &&
+          item.id !== 'exterior_paint' &&
+          item.id !== 'exterior_trim_paint'
+      );
+    }
+  }
   if (notesAreImportedPlanSummary(notes)) return items;
   // A whole-house opening package is a general-contractor plan. Do not drop
   // framing, drywall, HVAC, or paint because the plan notes also mention
@@ -5016,7 +5062,7 @@ export function filterRoomRemodelNoteScopeItems(
         noteBacked: true,
       },
       {
-        id: 'flooring',
+        id: lvp ? 'flooring_lvp' : 'flooring',
         inputType: 'yes_no',
         label: lvp ? 'LVP flooring' : flooring?.label || 'Flooring',
         helperText:
@@ -6221,6 +6267,16 @@ const INTERIOR_PAINT_SCOPE_IDS = new Set([
   'exterior_trim_paint',
 ]);
 
+/**
+ * Exterior paint is a named surface. "Install two exterior doors ... and paint"
+ * is interior paint beside a door install, not a request to paint the exterior.
+ */
+export function notesAskForExteriorPaint(notes?: string | null): boolean {
+  return /\b(?:exterior|outside)\s+(?:paint|repaint|painting|coat)|\b(?:siding|stucco|soffit|fascia|window\s+trim)\b[^.\n]{0,40}\b(?:paint|repaint|painting|coat)|\b(?:paint|repaint|painting|coat)\b[^.\n]{0,40}\b(?:exterior|outside|siding|stucco|soffit|fascia|window\s+trim|exterior\s+doors?)/i.test(
+    String(notes || '')
+  );
+}
+
 /** Auto-include painting scope rows when their Quick Measurement driver is set. */
 export function syncInteriorPaintScopeItems(
   items: ScopeChecklistItem[],
@@ -6257,12 +6313,12 @@ export function syncInteriorPaintScopeItems(
   const measuredScopeIds = new Set<string>();
   const explicitScope = params.paintScope;
   const planSummary = notesAreImportedPlanSummary(params.notes);
-  const notesExplicitlyCallForExteriorPaint = Boolean(
-    params.notes &&
-      /\b(?:exterior|outside|siding|stucco|soffit|fascia|window\s+trim|exterior\s+doors?)\b[^.\n]{0,80}\b(?:paint|repaint|painting|coat)|\b(?:paint|repaint|painting|coat)\b[^.\n]{0,80}\b(?:exterior|outside|siding|stucco|soffit|fascia|window\s+trim|exterior\s+doors?)/i.test(
-        params.notes
-      )
+  const notesExplicitlyCallForExteriorPaint = notesAskForExteriorPaint(
+    params.notes
   );
+  const structuralWallFramingWithoutExteriorPaint =
+    notesFrameExplicitWallArea(params.notes) &&
+    !notesExplicitlyCallForExteriorPaint;
   const notesExplicitlyCallForInteriorDoorPaint =
     !params.notes ||
     notesNameDoorPaintSurface(params.notes) ||
@@ -6270,6 +6326,9 @@ export function syncInteriorPaintScopeItems(
   const hasExplicitCeilingMeasurement = positiveSqft(params.ceilingPaintSqft);
   const paintingBid =
     String(params.templateKey || '').toLowerCase() === 'painting';
+  const statedPaintLumpCoversPrep =
+    notesDescribeDedicatedPaintingJob(params.notes) &&
+    dedicatedPaintingLumpTotal(params.notes) != null;
   const paintingWindowTrimCount = positiveSqft(params.windowCount);
   const hasOpeningCountsForTrim =
     paintingWindowTrimCount || positiveSqft(params.exteriorDoorCount);
@@ -6292,6 +6351,7 @@ export function syncInteriorPaintScopeItems(
       }
     }
     if (
+      !statedPaintLumpCoversPrep &&
       explicitScope.some(
         surface => surface === 'walls' || surface === 'ceilings'
       )
@@ -6306,7 +6366,7 @@ export function syncInteriorPaintScopeItems(
     if (positiveSqft(params.wallPaintSqft)) {
       measuredScopeIds.add('paint');
       measuredScopeIds.add('interior_paint');
-      measuredScopeIds.add('prep');
+      if (!statedPaintLumpCoversPrep) measuredScopeIds.add('prep');
     }
     if (positiveSqft(params.ceilingPaintSqft) && splitPaintPricing)
       measuredScopeIds.add('ceiling_paint');
@@ -6374,7 +6434,11 @@ export function syncInteriorPaintScopeItems(
   // Window/door replacement needs opening prep and masking, but does not
   // imply painting the exterior or the window trim. A whole-project plan
   // count is not an exterior-paint takeoff.
-  if (hasExteriorOpeningPaint && !planSummary)
+  if (
+    hasExteriorOpeningPaint &&
+    !planSummary &&
+    !structuralWallFramingWithoutExteriorPaint
+  )
     measuredScopeIds.add('exterior_prep');
   // Baseboard measurements imply trim painting. Door counts alone do not
   // imply door painting when notes identify the doors as installation scope.
@@ -6402,6 +6466,7 @@ export function syncInteriorPaintScopeItems(
     shouldIncludeExteriorPaint && hasExteriorOpeningPaint;
   if (
     !planSummary &&
+    !structuralWallFramingWithoutExteriorPaint &&
     (hasExteriorOpeningPaint || shouldIncludeExteriorPaint)
   ) {
     const exteriorRows = [
@@ -6557,6 +6622,14 @@ export function syncInteriorPaintScopeItems(
   ]);
   let changed = false;
   const next = workingItems.map(row => {
+    if (
+      statedPaintLumpCoversPrep &&
+      row.id === 'prep' &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
     if (
       exteriorChipOff &&
       exteriorPaintCardIds.has(row.id) &&
@@ -6758,15 +6831,23 @@ export function syncInteriorPaintScopeItems(
     return row;
   });
   const windowCount = positiveSqft(params.windowCount);
-  const finalItems = next.map(row =>
-    row.id === 'exterior_trim_paint'
-      ? {
-          ...row,
-          label: 'Window trim & finish',
-          helperText: `Paint and finish trim/casing for ${windowCount || 0} window${windowCount === 1 ? '' : 's'}. Window replacement/install pricing is handled on the Window replacement / installation card.`,
-        }
-      : row
-  );
+  const finalItems = next
+    .filter(
+      row =>
+        !structuralWallFramingWithoutExteriorPaint ||
+        (row.id !== 'exterior_prep' &&
+          row.id !== 'exterior_paint' &&
+          row.id !== 'exterior_trim_paint')
+    )
+    .map(row =>
+      row.id === 'exterior_trim_paint'
+        ? {
+            ...row,
+            label: 'Window trim & finish',
+            helperText: `Paint and finish trim/casing for ${windowCount || 0} window${windowCount === 1 ? '' : 's'}. Window replacement/install pricing is handled on the Window replacement / installation card.`,
+          }
+        : row
+    );
   return changed || workingItems !== items ? finalItems : items;
 }
 

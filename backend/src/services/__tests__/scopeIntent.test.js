@@ -70,6 +70,7 @@ describe('scopeIntent', () => {
     const notes =
       'Whole house remodel. The house is 2,400 sqft. LVP flooring. Keep the windows and doors. Appliances are owner-supplied.';
     expect(statedWholeHomeSizeSqft(notes)).toBe(2400);
+    expect(statedWholeHomeSizeSqft('Whole house remodel, 2,000 SF')).toBe(2000);
     expect(notesDescribeMeasuredWholeHomeRemodel(notes)).toBe(true);
     expect(
       checklistTemplateKey(

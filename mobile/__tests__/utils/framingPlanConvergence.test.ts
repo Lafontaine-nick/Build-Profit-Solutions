@@ -192,6 +192,7 @@ describe('framing canonical architecture', () => {
     ).toEqual({
       wallFramingSqft: 1600,
       framingOpeningCount: 2,
+      sheathingSqft: 1600,
     });
   });
 
@@ -213,6 +214,7 @@ describe('framing canonical architecture', () => {
     ).toEqual({
       wallFramingSqft: 1600,
       framingOpeningCount: 2,
+      sheathingSqft: 1600,
     });
   });
 

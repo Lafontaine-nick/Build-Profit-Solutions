@@ -4,7 +4,9 @@ import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 import {
   groupScopeChecklistItems,
   hydrateScopeChecklistFromNotes,
+  syncInteriorPaintScopeItems,
 } from '@/utils/estimateScopeChecklistUi';
+import { scopeExtractionClarificationQuestions } from '@/utils/estimateAiDraft';
 import {
   inferExistingFlooringFromNotes,
   shouldUseFlooringConfirmScopeLineCard,
@@ -523,6 +525,59 @@ describe('dedicated flooring note', () => {
     ).toBe(false);
   });
 
+  it('keeps unmeasured wall framing beside a basement LVP install', () => {
+    const note =
+      'Frame new interior walls and install 1,200 sqft of LVP flooring in the finished basement. No drywall, no paint, no electrical, no plumbing.';
+    expect(notesDescribeDedicatedFlooringJob(note)).toBe(false);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'flooring',
+        projectTitle: 'Finished Basement Framing and LVP Flooring',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'wall_framing',
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.wallFramingSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(1200);
+    expect(repaired.whatAiDid).not.toEqual(['Detected flooring job.']);
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(
+        row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`
+      )
+    ).toEqual(['Wall framing', 'LVP flooring · 1200 sqft']);
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
+      'Price needed for Wall framing',
+      'Drywall is not in this bid',
+      'Paint is not in this bid',
+      'Electrical is not in this bid',
+      'Plumbing is not in this bid',
+    ]);
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const quantity = resolveChecklistItemQuantity('flooring_lvp', measurements, {
+      templateKey: 'room_remodel',
+      notes: note,
+    });
+    expect(quantity).toMatchObject({ quantity: 1200, unit: 'sqft' });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'flooring_lvp',
+        repaired.scopeMeasurements || {},
+        'room_remodel',
+        quantity,
+        null,
+        null,
+        note
+      ).fill?.total
+    ).toBe(8400);
+  });
+
   it('opens existing carpet, keeps baseboard, and leaves negated subfloor repair off', () => {
     const note =
       'Install 1,150 sqft LVP in the main level. Pull the existing carpet and haul it off. Reinstall 280 LF of existing baseboard. No paint, no trim replacement, no subfloor repair.';
@@ -638,6 +693,107 @@ describe('dedicated flooring note', () => {
       unit: 'lf',
       total: 2380,
     });
+  });
+
+  it('does not treat a bedroom repaint as flooring', () => {
+    const note =
+      'Repaint walls and ceilings, 800 sqft of paintable area, in one bedroom. Prep, prime patches, and two finish coats. Lump sum $2,400 labor and material. No flooring, no trim, no exterior.';
+    expect(notesDescribeDedicatedFlooringJob(note)).toBe(false);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        projectTitle: 'Bedroom Interior Painting',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'room_remodel', items: [] },
+        extractionConfidence: {
+          overallConfidence: 'medium',
+          requiresClarification: true,
+          clarificationQuestions: [
+            {
+              id: 'baseboard_rate',
+              question:
+                'Is the baseboard price per linear foot, and does it include material?',
+            },
+          ],
+        },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    expect(repaired.projectType).toBe('painting');
+    expect(repaired.scopeChecklist?.templateKey).toBe('painting');
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'interior_paint',
+    ]);
+    expect(repaired.whatAiDid).toEqual(['Walls and ceilings · 800 sqft.']);
+    expect(repaired.scopeMeasurements?.flooringSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.combinedPaintableAreaSqft).toBe(800);
+    expect(repaired.scopeMeasurements?.itemQuantities?.interior_paint__allowance).toMatchObject({
+      quantity: '2400',
+      unit: 'allowance',
+    });
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(
+        row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`
+      )
+    ).toEqual(['Interior wall and ceiling painting · 800 sqft']);
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
+      'Flooring is not in this bid',
+      'Trim is not in this bid',
+      'Exterior is not in this bid',
+    ]);
+    expect(getInitialRevealTagline(repaired)).toBe('Walls and ceilings · 800 sqft.');
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const quantity = resolveChecklistItemQuantity('interior_paint', measurements, {
+      templateKey: 'painting',
+      notes: note,
+    });
+    expect(quantity).toMatchObject({ quantity: 800, unit: 'sqft' });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'interior_paint',
+        repaired.scopeMeasurements || {},
+        'painting',
+        quantity,
+        null,
+        null,
+        note
+      ).fill
+    ).toMatchObject({
+      mode: 'note_total_split',
+      total: 2400,
+      material: 680,
+      labor: 1720,
+    });
+    const withPrep = syncInteriorPaintScopeItems(
+      [
+        {
+          id: 'prep',
+          label: 'Paint prep & masking',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        {
+          id: 'interior_paint',
+          label: 'Interior paint — walls & ceilings',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+      ],
+      {
+        templateKey: 'painting',
+        paintScope: ['walls', 'ceilings'],
+        paintPricingMethod: 'combined',
+        combinedPaintableAreaSqft: 800,
+        notes: note,
+      }
+    );
+    expect(withPrep.find(row => row.id === 'prep')?.state).toBe('excluded');
+    expect(withPrep.find(row => row.id === 'interior_paint')?.state).toBe(
+      'included'
+    );
+    expect(scopeExtractionClarificationQuestions(repaired)).toEqual([]);
   });
 
   it('stays off kitchen and drywall notes', () => {

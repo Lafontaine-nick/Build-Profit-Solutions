@@ -56,6 +56,7 @@ import {
   notesNameOwnerSuppliedAppliances,
   notesOpeningMentionIsKeepOnly,
   notesStateFlooringArea,
+  wholeHomeRemodelNamedItemIds,
 } from '@/utils/wholeHomeRemodelNote';
 import {
   notesNameStuccoWithWindows,
@@ -2658,10 +2659,15 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   ) {
     return 'room_remodel';
   }
+  // An insulation-only room note uses the insulation layout. A whole-house
+  // remodel that also names insulation stays a remodel so the other trades
+  // remain on the scope screen.
   if (
     resolved === 'room_remodel' &&
     insulationRequested &&
-    !drywallWorkRequested
+    !drywallWorkRequested &&
+    !structuralMixedScope &&
+    wholeHomeRemodelNamedItemIds(notes) == null
   ) {
     return 'insulation';
   }
@@ -4779,6 +4785,37 @@ export function quickMeasurementRowsForInput(
       if (field.key === 'framedAreaSqft') {
         return /\b(?:framed|framing|frame)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:framed|framing|frame)\b/i.test(
           noteText
+        );
+      }
+      if (field.key === 'wallFramingSqft') {
+        return (
+          notesFrameExplicitWallArea(noteText) &&
+          !notesNameCoveredFramedFloor(noteText)
+        );
+      }
+      if (field.key === 'sheathingSqft') {
+        return /\b(?:structural\s+)?sheathing\b/i.test(noteText);
+      }
+      if (field.key === 'framingOpeningCount') {
+        return /\b(?:door|window)\s+openings?\b|\brough\s+openings?\b|\bheaders?\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'wallDemoSqft') {
+        return /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'windowCount') {
+        return (
+          /\bwindows?\b/i.test(noteText) &&
+          !notesOpeningMentionIsKeepOnly(noteText, 'windows')
+        );
+      }
+      if (field.key === 'exteriorDoorCount') {
+        return (
+          /\b(?:exterior|outside)\s+doors?\b/i.test(noteText) &&
+          !notesDoorMentionIsPaintOrKeepOnly(noteText)
         );
       }
       return false;

@@ -608,6 +608,43 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(row => row.id === 'door_paint')?.state).toBe('unsure');
   });
 
+  test('a framed wall remodel does not price exterior prep or trim paint', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Exterior trim paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'interior_paint',
+        label: 'Interior paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      windowCount: 6,
+      exteriorDoorCount: 2,
+      wallPaintSqft: '1000',
+      notes,
+      templateKey: 'room_remodel',
+    });
+    expect(next.some(row => row.id === 'exterior_prep')).toBe(false);
+    expect(next.some(row => row.id === 'exterior_trim_paint')).toBe(false);
+    expect(next.find(row => row.id === 'interior_paint')?.state).toBe(
+      'included'
+    );
+  });
+
   test('opening counts include exterior prep without inferring exterior painting', () => {
     const items: ScopeChecklistItem[] = [
       {

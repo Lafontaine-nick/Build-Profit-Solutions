@@ -315,6 +315,11 @@ export function confirmScopeDrywallSqftLabel(
   ) {
     return null;
   }
+  const namedWholeHome =
+    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+      String(notes || '')
+    );
+  if (namedWholeHome && !options.repairNamed) return 'Drywall';
   return 'Drywall repair area';
 }
 

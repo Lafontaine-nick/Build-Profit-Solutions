@@ -22,7 +22,7 @@ const FLOORING_WORK_RE =
   /\b(?:flooring|lvp|luxury\s+vinyl|vinyl\s+plank|laminate|carpet|hardwood|sheet\s+vinyl|vct)\b|\b(?:install|remove|removal|demo|demolition)\b[^.]{0,48}\bfloor\b|\bfloor\s+prep\b/i;
 
 const FLOORING_COMPANION_RE =
-  /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|siding|concrete|framing|paint(?:ing)?|drywall|sheetrock|gypsum|stucco)\b/i;
+  /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|siding|concrete|framing|paint(?:ing)?|repaint(?:ing)?|drywall|sheetrock|gypsum|stucco)\b/i;
 
 const PRODUCT_RULES: Array<{ id: string; product: string; label: string; pattern: RegExp }> = [
   {
@@ -84,8 +84,7 @@ export function notesDescribeDedicatedFlooringJob(
   ) {
     return false;
   }
-  if (!FLOORING_WORK_RE.test(text)) return false;
-  // "No structural framing" names a trade only to keep it off the job.
+  // "No flooring" names the trade only to keep it off the job.
   const affirmative = text
     .split(/\n+|(?<=[.!?])\s+/)
     .map(sentence => sentence.trim())
@@ -95,6 +94,7 @@ export function notesDescribeDedicatedFlooringJob(
         !/^(?:no|not|without|do not|don't|dont|never)\b/i.test(sentence)
     )
     .join(' ');
+  if (!FLOORING_WORK_RE.test(affirmative)) return false;
   const stripped = affirmative
     .replace(
       /\b(?:flooring|lvp|luxury\s+vinyl|vinyl\s+plank|laminate|carpet|hardwood|sheet\s+vinyl|vct|floor\s+prep|existing\s+floor|floor)\b/gi,

@@ -7,6 +7,8 @@ import {
   resolveAutoDemoWetAreaCounts,
   resolveDemoWetAreaFromIntent,
   resolveEffectiveExistingWetArea,
+  bathroomRemodelShowsBathFloorBox,
+  notesLeaveBathroomFloorOut,
   showerDoorReuseOffered,
   wetAreaFloorDoorHeading,
 } from '../../utils/wetAreaExistingDemo';
@@ -136,6 +138,64 @@ describe('wetAreaExistingDemo', () => {
         existingShowerDoorCount: existing.existingShowerDoorCount,
       })
     ).toBe(false);
+  });
+
+  test('bathroom remodel always shows a bathroom floor box beside shower floor', () => {
+    const notes =
+      'Remodel bathroom, replace flooring and demo existing shower walls and shower floor.';
+    expect(notesLeaveBathroomFloorOut(notes)).toBe(false);
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes,
+        templateKey: 'bathroom',
+      })
+    ).toBe(true);
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes: 'Remodel the bathroom. Demo the shower walls and the shower floor.',
+        templateKey: 'bathroom',
+      })
+    ).toBe(true);
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes: 'Install 600 sqft of LVP in the living room.',
+        templateKey: 'flooring',
+      })
+    ).toBe(false);
+  });
+
+  test('a note that leaves the bathroom floor out hides that box', () => {
+    const notes =
+      'Remodel the bathroom. Tear out the shower wall tile and the tile shower pan. Leave the bathroom floor, vanity, and toilet. No paint.';
+    expect(notesLeaveBathroomFloorOut(notes)).toBe(true);
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes,
+        templateKey: 'bathroom',
+      })
+    ).toBe(false);
+    expect(
+      notesLeaveBathroomFloorOut(
+        'Do not change the bathroom floor. Install a new prefab shower pan.'
+      )
+    ).toBe(true);
+    expect(
+      notesLeaveBathroomFloorOut(
+        'The tub, shower, floor tile, and vanity cabinet all stay.'
+      )
+    ).toBe(true);
+    expect(
+      notesLeaveBathroomFloorOut(
+        'Leave the existing shower and replace the flooring.'
+      )
+    ).toBe(false);
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes: 'Do not change the bathroom floor.',
+        templateKey: 'bathroom',
+        hasEnteredSqft: true,
+      })
+    ).toBe(true);
   });
 
   test('names the wet-area section for the fields on the card', () => {

@@ -118,6 +118,12 @@ describe('dedicated drywall note', () => {
         repairNamed: true,
       })
     ).toBeNull();
+    expect(
+      confirmScopeDrywallSqftLabel(
+        'Whole house remodel. The house is 2,000 sqft. Drywall.',
+        { installNamed: false, repairNamed: false }
+      )
+    ).toBe('Drywall');
 
     const hangItem = dedicatedDrywallConfirmScopeItems(NOTES).find(
       item => item.id === 'drywall'

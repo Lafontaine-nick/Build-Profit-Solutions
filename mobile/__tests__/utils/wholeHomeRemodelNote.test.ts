@@ -30,15 +30,18 @@ import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
 import {
   applyWholeHomeRemodelChecklist,
   includeEnteredRemodelCards,
+  notesAskWhichRoomsAndTrades,
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
   notesNameOwnerSuppliedAppliances,
   notesOpeningMentionIsKeepOnly,
+  notesStateDrywallArea,
   notesStateFlooringArea,
   scrubWholeHomeRemodelMeasurements,
   statedWholeHomeSizeSqft,
   wholeHomeRemodelSuppressesInventedPrice,
+  wholeHomeTradeQuestion,
 } from '@/utils/wholeHomeRemodelNote';
 
 const THIN_HOME_NOTES =
@@ -48,6 +51,87 @@ const WHOLE_HOME_NOTES =
   'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.';
 
 describe('whole-home remodel note authority', () => {
+  it('leaves unnamed whole-home drywall blank and prices an entered area', () => {
+    const notes =
+      'Whole house remodel. The house is 2,000 sqft. Kitchen updates, Bathroom updates, Flooring, Paint the interior, Drywall.';
+    expect(notesStateDrywallArea(notes)).toBe(false);
+    expect(notesStateDrywallArea(WHOLE_HOME_NOTES)).toBe(true);
+    expect(notesStateDrywallArea(THIN_HOME_NOTES)).toBe(true);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('drywall', notes, {
+        floorAreaSqft: 2000,
+        drywallSqft: 7000,
+      })
+    ).toBe(true);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('drywall', notes, {
+        drywallSqft: 400,
+        itemQuantities: {
+          drywall: { quantity: 400, quantitySource: 'user_entered' },
+        },
+      })
+    ).toBe(false);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('drywall', WHOLE_HOME_NOTES, {
+        drywallSqft: 500,
+      })
+    ).toBe(false);
+    const scrubbed = scrubWholeHomeRemodelMeasurements(
+      {
+        floorAreaSqft: '2000',
+        drywallSqft: '7000',
+        patchRepairSqft: '7000',
+        wallPaintSqft: '7000',
+      },
+      notes
+    );
+    expect(scrubbed.drywallSqft).toBeUndefined();
+    expect(scrubbed.patchRepairSqft).toBeUndefined();
+    expect(scrubbed.wallPaintSqft).toBeUndefined();
+    const kept = scrubWholeHomeRemodelMeasurements(
+      {
+        drywallSqft: '400',
+        quickMeasurementSources: { drywallSqft: 'user_entered' },
+        quickMeasurementUserOverrides: { drywallSqft: true },
+      },
+      notes
+    );
+    expect(kept.drywallSqft).toBe('400');
+    const resolved = resolveChecklistItemQuantity('drywall', { drywallSqft: '400' } as never, {
+      templateKey: 'room_remodel',
+      originalNotes: notes,
+    });
+    const priced = resolveScopeItemSuggestedPricing(
+      'drywall',
+      {
+        drywallSqft: '400',
+        itemQuantities: {
+          drywall: { quantity: 400, quantitySource: 'user_entered' },
+        },
+      } as never,
+      'room_remodel',
+      resolved,
+      null,
+      null,
+      notes
+    );
+    expect(priced.fill?.total).toBeGreaterThan(0);
+    const invented = resolveScopeItemSuggestedPricing(
+      'drywall',
+      { floorAreaSqft: '2000', drywallSqft: '7000' } as never,
+      'room_remodel',
+      resolveChecklistItemQuantity(
+        'drywall',
+        { floorAreaSqft: '2000', drywallSqft: '7000' } as never,
+        { templateKey: 'room_remodel', originalNotes: notes }
+      ),
+      null,
+      null,
+      notes
+    );
+    expect(invented.fill).toBeNull();
+  });
+
   it('prices only the flooring this note measured', () => {
     const notes =
       'Whole house remodel. The house is 2,400 sqft. Kitchen and bathroom updates, 1,800 sqft flooring, and paint the interior. Keep the windows and doors.';
@@ -1069,6 +1153,60 @@ describe('whole-home remodel note authority', () => {
     );
     expect(lines.find(line => line.itemId === 'insulation')?.total).toBe(5273.5);
     expect(lines.find(line => line.itemId === 'air_sealing')).toBeUndefined();
+  });
+
+  it('asks which rooms and trades when the note is only a house size', () => {
+    const notes = 'Whole house remodel, 2,000 SF';
+    expect(statedWholeHomeSizeSqft(notes)).toBe(2000);
+    expect(notesDescribeMeasuredWholeHomeRemodel(notes)).toBe(true);
+    expect(notesAskWhichRoomsAndTrades(notes)).toBe(true);
+    expect(wholeHomeTradeQuestion(notes)).toBe(
+      'Which job scopes are being done? The house area is 2,000 SF. Add the measurements you already have, and what each scope still needs, so the bid can be structured.'
+    );
+    expect(
+      notesAskWhichRoomsAndTrades(
+        'Whole house remodel. The house is 2,400 sqft. LVP flooring. Keep the windows and doors. Appliances are owner-supplied.'
+      )
+    ).toBe(false);
+    const items = applyWholeHomeRemodelChecklist(
+      [
+        { id: 'flooring', label: 'Flooring', state: 'included', inputType: 'yes_no' },
+        { id: 'demo', label: 'Demolition scope', state: 'unsure', inputType: 'yes_no' },
+        {
+          id: 'custom_address',
+          label: 'Property address',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ] as never,
+      notes
+    );
+    expect(items.map(item => item.state)).toEqual([
+      'excluded',
+      'excluded',
+      'excluded',
+    ]);
+    const scrubbed = scrubWholeHomeRemodelMeasurements(
+      { flooringSqft: 2000, flooringLvpSqft: 2000 },
+      notes
+    );
+    expect(scrubbed.flooringSqft).toBeUndefined();
+    expect(scrubbed.flooringLvpSqft).toBeUndefined();
+    const draft = {
+      originalNotes: notes,
+      projectType: 'other',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Demolition scope', state: 'included', inputType: 'yes_no' },
+        ],
+      },
+      scopePackages: [{ name: 'Whole House', checklistItemId: 'whole_house' }],
+    } as EstimateAiDraft;
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Which job scopes are being done? The house area is 2,000 SF. Add the measurements you already have, and what each scope still needs, so the bid can be structured.',
+    ]);
   });
 
   it('keeps house size off unstated LVP and does not measure kept windows or doors', () => {

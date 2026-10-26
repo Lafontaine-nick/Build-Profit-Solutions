@@ -58,6 +58,12 @@ import {
   scrubDedicatedFlooringMeasurements,
 } from '@/utils/flooringNoteScope';
 import {
+  dedicatedPaintingAreaSqft,
+  dedicatedPaintingConfirmScopeItems,
+  dedicatedPaintingLumpTotal,
+  notesDescribeDedicatedPaintingJob,
+} from '@/utils/paintingNoteScope';
+import {
   dedicatedDrywallConfirmScopeItems,
   noteRatedDrywallConfirmScopeItems,
   notesDescribeDedicatedDrywallPatchJob,
@@ -2335,7 +2341,7 @@ export function repairDraftRatePricingFromNotes(
             noteBacked: true,
           },
           {
-            id: 'flooring',
+            id: lvp ? 'flooring_lvp' : 'flooring',
             inputType: 'yes_no',
             label: lvp ? 'LVP flooring' : 'Flooring',
             helperText: 'Install the flooring identified in the job notes.',
@@ -2572,6 +2578,90 @@ export function repairDraftRatePricingFromNotes(
       missingInfo: [],
       needsReviewItems: [],
       stillNeededReview: [],
+    };
+  }
+  if (notesDescribeDedicatedPaintingJob(text)) {
+    const title = String(repairedDraft.projectTitle || '').trim();
+    const area = dedicatedPaintingAreaSqft(text);
+    const lump = dedicatedPaintingLumpTotal(text);
+    const measurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    delete measurements.flooringSqft;
+    delete measurements.floorAreaSqft;
+    delete measurements.floorDemoSqft;
+    delete measurements.patchRepairSqft;
+    delete measurements.drywallSqft;
+    if (area) {
+      measurements.paintAreaSqft = area;
+      measurements.combinedPaintableAreaSqft = area;
+      measurements.paintPricingMethod = 'combined';
+      measurements.paintAreaBasis = 'combined';
+    }
+    const quantities = {
+      ...((measurements.itemQuantities as Record<string, unknown>) || {}),
+    };
+    for (const key of Object.keys(quantities)) {
+      if (
+        key === 'flooring' ||
+        key.startsWith('flooring_') ||
+        key.startsWith('floor_')
+      ) {
+        delete quantities[key];
+      }
+    }
+    if (lump) {
+      quantities.interior_paint__allowance = {
+        quantity: String(lump),
+        unit: 'allowance',
+        quantitySource: 'notes',
+      };
+    }
+    measurements.itemQuantities =
+      quantities as ScopeMeasurements['itemQuantities'];
+    const tagline = area
+      ? `Walls and ceilings · ${area.toLocaleString('en-US')} sqft.`
+      : 'Detected interior painting.';
+    return {
+      ...repairedDraft,
+      projectType: 'painting',
+      projectTitle: /paint/i.test(title) ? title : 'Interior painting',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'dedicated',
+        primaryTrade: 'painting',
+        detectedTrades: ['painting'],
+      },
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'painting',
+        title: 'Painting — confirm project scope',
+        intro: 'Confirm painting scope before pricing.',
+        items: dedicatedPaintingConfirmScopeItems(text),
+        scopeFacts: [],
+        suggestedMeasurements: measurements,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      detectedTrades: ['painting'],
+      scopeTradeLabels: ['Painting'],
+      whatAiDid: [tagline],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+      extractionConfidence: repairedDraft.extractionConfidence
+        ? {
+            ...repairedDraft.extractionConfidence,
+            requiresClarification: false,
+            clarificationQuestions: [],
+          }
+        : repairedDraft.extractionConfidence,
     };
   }
   if (notesDescribeDedicatedFlooringJob(text)) {
