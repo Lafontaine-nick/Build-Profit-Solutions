@@ -16,6 +16,7 @@ import {
 } from '@/utils/bathroomNoteScope';
 import {
   filterDedicatedKitchenConfirmItems,
+  measuredKitchenBathInteriorLines,
   shouldLimitKitchenChecklistToNotes,
 } from '@/utils/kitchenNoteScope';
 import {
@@ -193,7 +194,9 @@ import {
   inferRoofingTradeScopeSelectionsFromNotes,
   noteExclusionNotices,
   noteMentionIsOnlyNegated,
+  notesAskForPlumbingConnections,
   notesExcludeElectricalServiceUpgrade,
+  notesNameAffirmativeDeckOrPatio,
   notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
   shouldLimitRoofingChecklistToNotes,
@@ -399,6 +402,15 @@ const REVEAL_HIGH_PRIORITY =
   /pricing for|price needed|missing price|please check|measurement|quantity/i;
 
 /** Plain-language labels for review / confidence copy (display only). */
+/** A draft summary must not mention paint the note never named. */
+function whatAiDidNamesUnstatedPaint(
+  line: string,
+  notes: string | null | undefined
+): boolean {
+  if (/\bpaint(?:ing|ed)?\b/i.test(String(notes || ''))) return false;
+  return /\bpaint(?:ing)?\b/i.test(line);
+}
+
 export function plainLanguageReviewItem(text: string): string {
   let s = String(text || '').trim();
   if (!s) return s;
@@ -607,15 +619,19 @@ function groundUpGarageRevealLine(notes: string): string | null {
   return null;
 }
 
+function mentionIsAffirmative(notes: string, pattern: RegExp): boolean {
+  return pattern.test(notes) && !noteMentionIsOnlyNegated(notes, pattern);
+}
+
 function groundUpPatioRevealLine(
   notes: string,
   deckSqft?: number | null
 ): string | null {
-  const coveredPatio = /\bcovered\s+patio\b/i.test(notes);
-  const coveredPorch = /\bcovered\s+porch\b/i.test(notes);
-  const deck = /\bdeck\b/i.test(notes);
-  const patio = /\bpatio\b/i.test(notes);
-  const porch = /\bporch\b/i.test(notes);
+  const coveredPatio = mentionIsAffirmative(notes, /\bcovered\s+patio\b/i);
+  const coveredPorch = mentionIsAffirmative(notes, /\bcovered\s+porch\b/i);
+  const deck = mentionIsAffirmative(notes, /\bdecks?\b/i);
+  const patio = mentionIsAffirmative(notes, /\bpatios?\b/i);
+  const porch = mentionIsAffirmative(notes, /\bporches?\b/i);
   if (!coveredPatio && !coveredPorch && !deck && !patio && !porch) return null;
   if (/\bconcrete\s+patio\b/i.test(notes) && !coveredPatio && !deck) return null;
   const kind = coveredPatio
@@ -1704,12 +1720,13 @@ function appendRevealAttentionExtras(
 ): InitialRevealConfirmBuckets {
   const extras = noteExclusionNotices(draft.originalNotes);
   if (!extras.length) return buckets;
-  const pricingScope = [...buckets.pricingScope];
-  for (const extra of extras) {
-    if (pricingScope.some(item => item.toLowerCase() === extra.toLowerCase())) {
+  // Exclusions lead so "not in this bid" is visible before missing prices.
+  const pricingScope = [...extras];
+  for (const item of buckets.pricingScope) {
+    if (pricingScope.some(extra => extra.toLowerCase() === item.toLowerCase())) {
       continue;
     }
-    pricingScope.push(extra);
+    pricingScope.push(item);
   }
   return { ...buckets, pricingScope };
 }
@@ -3081,10 +3098,31 @@ function dropUnstatedDoorAndTrimPaint<T extends { id: string; name: string }>(
   });
 }
 
+function notesDescribeMeasuredKitchenAndBathInterior(
+  notes?: string | null
+): boolean {
+  return measuredKitchenBathInteriorLines(notes) != null;
+}
+
+/** Named kitchen and hall-bath takeoff. Not a bathroom-only checklist. */
+function measuredKitchenBathInteriorRevealRows(
+  notes?: string | null
+): InitialRevealScopeRow[] | null {
+  const lines = measuredKitchenBathInteriorLines(notes);
+  if (!lines) return null;
+  return lines.map(line => ({
+    id: line.id,
+    name: line.name,
+    ...(line.quantity ? { quantityOverride: line.quantity } : {}),
+  }));
+}
+
 function getInitialRevealScopeRows(
   draft: EstimateAiDraft
 ): InitialRevealScopeRow[] {
   const notes = String(draft.originalNotes || '');
+  const kitchenBathRows = measuredKitchenBathInteriorRevealRows(notes);
+  if (kitchenBathRows) return kitchenBathRows;
   const stuccoWindowsRows = stuccoWithWindowsRevealRows(notes);
   if (stuccoWindowsRows.length > 0) {
     return stuccoWindowsRows.map(row => ({
@@ -3478,7 +3516,8 @@ function getInitialRevealScopeRows(
   };
   const checklistItems =
     (roomRemodelReveal || mixedScopeReveal) &&
-    draft.scopeChecklist?.items
+    draft.scopeChecklist?.items &&
+    !notesDescribeGroundUpHome(notes)
       ? filterRoomRemodelNoteScopeItems(draft.scopeChecklist.items, notes)
       : draft.scopeChecklist?.items;
   const dedicatedElectricalReveal = isDedicatedElectricalRevealDraft(draft);
@@ -3932,7 +3971,8 @@ function getInitialRevealScopeRows(
       /\b(?:roof(?:ing)?|shingles?)\b/i.test(notes) &&
       /\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b/i.test(
         notes
-      )
+      ) &&
+      !noteMentionIsOnlyNegated(notes, /\broof(?:ing)?\b/i)
     ) {
       addCrossTradeRow(
         'roofing',
@@ -4608,6 +4648,17 @@ function getInitialRevealScopeRows(
       if (row.id === 'windows' || row.id === 'window_install') return false;
       if (/^window install\b/i.test(row.name)) return false;
     }
+    if (noteMentionIsOnlyNegated(notes, /\broof(?:ing)?\b/i)) {
+      if (
+        row.id === 'roofing' ||
+        row.id === 'roofing_system' ||
+        row.id === 'shingles_roofing' ||
+        row.id === 'tear_off'
+      ) {
+        return false;
+      }
+      if (/^roofing\b/i.test(row.name)) return false;
+    }
     if (
       notesDoorMentionIsPaintOrKeepOnly(notes) ||
       notesOpeningMentionIsKeepOnly(notes, 'doors')
@@ -5267,6 +5318,16 @@ export function getInitialRevealChecklistScopePreview(
       ...(row.quantity ? { quantity: row.quantity } : {}),
     }));
   }
+  const kitchenBathPreview = measuredKitchenBathInteriorRevealRows(
+    draft.originalNotes
+  );
+  if (kitchenBathPreview) {
+    return kitchenBathPreview.map(row => ({
+      name: row.name,
+      amount: 0,
+      ...(row.quantityOverride ? { quantity: row.quantityOverride } : {}),
+    }));
+  }
   const separateJobPreview = separateJobRevealRows(draft.originalNotes);
   if (separateJobPreview.length > 0) {
     return separateJobPreview.map(row => ({
@@ -5341,20 +5402,91 @@ export function getInitialRevealChecklistScopePreview(
         name.trim().toLowerCase()
       )
     );
-    // Driveway, walks, and grading stay in Pricing needed until they have a
-    // size. They must not become the only scope line on a new-home note.
+    // Grading is not a scope line unless the note asks for it. A named
+    // driveway stays on the list with the rest of the house.
+    const windowRowPresent = kept.some(
+      row => row.id === 'windows' || /^windows$/i.test(row.name.trim())
+    );
     const extra = kept.filter(row => {
       if (houseNames.has(row.name.trim().toLowerCase())) return false;
       if (/\b(?:plans?|permits?)\b/i.test(row.name)) return false;
+      if (row.id === 'concrete' || row.id === 'grading') {
+        return false;
+      }
       if (
-        row.id === 'pour_flatwork' ||
-        row.id === 'concrete' ||
-        row.id === 'grading'
+        kept.some(
+          candidate =>
+            candidate.id === 'tile_flooring' ||
+            /tile\s*&\s*flooring/i.test(candidate.name)
+        ) &&
+        (row.id === 'flooring' || /^flooring installation$/i.test(row.name.trim()))
+      ) {
+        return false;
+      }
+      // Kitchen hookups are not a third plumbing card on a new house.
+      if (
+        !notesAskForPlumbingConnections(draft.originalNotes) &&
+        (row.id === 'plumbing' ||
+          /^plumbing connections$/i.test(row.name.trim()))
+      ) {
+        return false;
+      }
+      if (
+        row.id === 'electrical' ||
+        /\belectrical outlets\b/i.test(row.name)
+      ) {
+        return false;
+      }
+      if (
+        windowRowPresent &&
+        (row.id === 'window_install' ||
+          /^window install$/i.test(row.name.trim()))
+      ) {
+        return false;
+      }
+      if (
+        (row.id === 'decking' ||
+          /^deck(?:\s*\/\s*patio)?$/i.test(row.name.trim())) &&
+        !notesNameAffirmativeDeckOrPatio(draft.originalNotes)
       ) {
         return false;
       }
       return true;
     });
+    const shellListed = kept.some(row =>
+      [
+        'foundation',
+        'framing',
+        'drywall',
+        'roofing',
+        'insulation',
+        'windows',
+        'hvac',
+      ].includes(row.id)
+    );
+    if (shellListed && notesDescribeGroundUpHome(draft.originalNotes)) {
+      const ids = new Set(extra.map(row => row.id));
+      const names = new Set(extra.map(row => row.name.trim().toLowerCase()));
+      const pushMissing = (id: string, name: string) => {
+        if (ids.has(id) || names.has(name.toLowerCase())) return;
+        extra.push({ id, name });
+        ids.add(id);
+        names.add(name.toLowerCase());
+      };
+      pushMissing('cabinets', 'Cabinets / vanity');
+      pushMissing('countertops', 'Counters');
+      pushMissing('interior_trim', 'Finish carpentry');
+      if (/\bgarages?\b/i.test(draft.originalNotes || '')) {
+        pushMissing('garage_doors', 'Garage doors');
+      }
+      if (
+        /\b(?:driveway|front\s+walks?|walkways?|flatwork|sidewalks?)\b/i.test(
+          draft.originalNotes || ''
+        )
+      ) {
+        pushMissing('pour_flatwork', 'Exterior concrete flatwork');
+      }
+    }
     return [
       { name: groundUpLine, amount: 0 },
       ...groundUpNamedRevealLines(draft.originalNotes).map(name => ({
@@ -5626,6 +5758,9 @@ export function getInitialRevealStatusLabel(
   ) {
     return { label: 'Tonnage needed', tone: 'review' };
   }
+  if (vagueScopeQuestion(draft.originalNotes)) {
+    return { label: 'Needs scope', tone: 'review' };
+  }
   if (attentionCount === 0 && level === 'high') {
     return { label: 'Ready to send', tone: 'ready' };
   }
@@ -5676,6 +5811,10 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   }
   const planHouseTitle = wholeHousePlanTitle(draft);
   if (planHouseTitle) return planHouseTitle;
+  if (notesDescribeGroundUpHome(draft.originalNotes)) {
+    const groundUpTitle = groundUpHomeRevealTitle(draft);
+    if (groundUpTitle) return groundUpTitle;
+  }
   if (classification.scopeMode === 'mixed') {
     return classification.scopeSummary?.trim() || 'Mixed-scope remodel';
   }
@@ -6015,6 +6154,13 @@ export function getInitialRevealPriorityItems(
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   if (vagueScopeQuestion(draft.originalNotes)) return null;
+  if (
+    notesUseDedicatedDrywallScope(draft.originalNotes) ||
+    notesDescribeSheetrockFinishJob(draft.originalNotes) ||
+    notesDescribeNoteRatedDrywallJob(draft.originalNotes)
+  ) {
+    return 'Detected drywall job.';
+  }
   const revealProjectType = String(draft.projectType || '').toLowerCase();
   const revealTemplateKey = String(
     draft.scopeChecklist?.templateKey || ''
@@ -6150,6 +6296,11 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   ) {
     return null;
   }
+  if (notesDescribeMeasuredKitchenAndBathInterior(draft.originalNotes)) {
+    return /\bhall\s+bath\b/i.test(String(draft.originalNotes || ''))
+      ? 'Kitchen and hall bath.'
+      : 'Kitchen and bathroom.';
+  }
   if (classification.scopeMode === 'mixed') {
     // The scope list already names each job. A long tagline only repeats it.
     if (separateJobRevealRows(draft.originalNotes).length > 2) return null;
@@ -6184,13 +6335,14 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
       return `${taglineTitle} · ${scopeCount} scope line${scopeCount === 1 ? '' : 's'}`;
     }
   }
-  const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6).map(
-    line =>
+  const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6)
+    .filter(line => !whatAiDidNamesUnstatedPaint(line, draft.originalNotes))
+    .map(line =>
       /detected flooring job/i.test(line) &&
       dedicatedBathroomRemodelNote(draft.originalNotes)
         ? 'Detected bathroom remodel.'
         : line
-  );
+    );
   const titleNorm = getInitialRevealDisplayTitle(draft).toLowerCase();
   const positive = bullets.find(line => {
     const plain = plainLanguageReviewItem(line);
@@ -6470,6 +6622,7 @@ export function getInitialRevealUnderstoodBullets(
       if (initialRevealPricingVisible(draft) && /pricing needed/i.test(line)) {
         return false;
       }
+      if (whatAiDidNamesUnstatedPaint(line, draft.originalNotes)) return false;
       return true;
     });
   if (fromAi.length > 0) return fromAi.slice(0, max);
@@ -6679,7 +6832,9 @@ export function initialRevealPricingVisible(
 export function draftNeedsScopeConfirmation(
   draft: EstimateAiDraft | null | undefined
 ): boolean {
-  if (!draft || !isComplexEstimateTier(draft)) return false;
+  if (!draft) return false;
+  if (vagueScopeQuestion(draft.originalNotes)) return true;
+  if (!isComplexEstimateTier(draft)) return false;
   if (draft.scopeAssumptionsConfirmed) return false;
   if (draft.requiresScopeConfirmation) return true;
   // A saved checklist can contain partial in-progress choices. Those are not

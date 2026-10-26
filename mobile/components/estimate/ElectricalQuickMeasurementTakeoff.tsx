@@ -96,7 +96,7 @@ function useElectricalAttributeLocal(
   const onPatchRef = useRef(onPatch);
   onPatchRef.current = onPatch;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    job_condition: true,
+    job_condition: false,
     service_amperage: true,
     panel_location: false,
     packages: false,
@@ -1245,7 +1245,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     const onPreviewRef = useRef(onPreview);
     onPreviewRef.current = onPreview;
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-      job_condition: true,
+      job_condition: false,
       service_amperage: true,
       panel_location: false,
       packages: false,

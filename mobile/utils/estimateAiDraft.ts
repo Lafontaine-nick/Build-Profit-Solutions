@@ -33,6 +33,7 @@ import {
   stuccoWithWindowsCount,
 } from '@/utils/stuccoNoteScope';
 import { explicitCrossTradeScopeItems } from '@/utils/noteScopeLines';
+import { vagueScopeQuestion } from '@/utils/vagueScopeNote';
 import {
   applyNoteClauseReads,
   noteKeepsItsOwnChecklist,
@@ -178,12 +179,15 @@ import {
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
+  namedBathroomConfirmScopeItems,
+  notesNameBathroomAssembly,
   notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   showerTileWithFlooringAreas,
   showerTileWithFlooringChecklistItems,
 } from '@/utils/bathroomNoteScope';
+import { inferBathroomToiletFaucetCounts } from '@/utils/qmScopePanels/bathroomFixtures';
 import {
   FRAMING_CARDS,
   FRAMING_COVER_SHEET_HELPER,
@@ -1619,7 +1623,78 @@ export function repairDraftRatePricingFromNotes(
       stillNeededReview: [],
     };
   }
-  if (!Object.keys(parsed).length && !explicitCrossTradeScopeItems(text)) {
+  if (
+    notesNameBathroomAssembly(text) &&
+    !notesDescribeDedicatedFlooringJob(text) &&
+    !notesDescribeDedicatedKitchenRemodel(text) &&
+    !notesDescribeMeasuredWholeHomeRemodel(text) &&
+    !notesNameShowerTileWithFlooring(text) &&
+    !draft.scopeAssumptionsConfirmed
+  ) {
+    const title = String(draft.projectTitle || '').trim();
+    const fixtures = inferBathroomToiletFaucetCounts(text);
+    const measurements = {
+      ...(draft.scopeMeasurements || {}),
+      ...parsed,
+    } as ScopeMeasurements;
+    if (!/\b(?:home|living\s+area|floor\s+area)\b/i.test(text)) {
+      delete measurements.floorAreaSqft;
+      delete measurements.flooringSqft;
+    }
+    if (fixtures.bathroomInstallToiletCount != null) {
+      measurements.bathroomInstallToiletCount =
+        fixtures.bathroomInstallToiletCount;
+    }
+    if (fixtures.bathroomDemoToiletCount != null) {
+      measurements.bathroomDemoToiletCount = fixtures.bathroomDemoToiletCount;
+    }
+    if (fixtures.bathroomInstallFaucetCount != null) {
+      measurements.bathroomInstallFaucetCount =
+        fixtures.bathroomInstallFaucetCount;
+    }
+    return {
+      ...draft,
+      originalNotes: text,
+      projectType: 'bathroom',
+      projectTitle: /bath/i.test(title) ? title : 'Bathroom',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(draft.classification || {}),
+        scopeMode: 'dedicated',
+        primaryTrade: 'bathroom',
+        detectedTrades: ['bathroom'],
+      },
+      detectedTrades: ['bathroom'],
+      scopeTradeLabels: ['Bathroom'],
+      whatAiDid: ['Detected bathroom work.'],
+      scopeChecklist: {
+        estimateTier: 'room_remodel',
+        templateKey: 'bathroom',
+        title: 'Bathroom — confirm project scope',
+        intro: 'Confirm the bathroom work named in the note before pricing.',
+        items: namedBathroomConfirmScopeItems(text),
+        scopeFacts: [],
+        suggestedMeasurements: measurements,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (
+    !(
+      notesUseDedicatedDrywallScope(text) ||
+      notesDescribeSheetrockFinishJob(text)
+    ) &&
+    !Object.keys(parsed).length &&
+    !explicitCrossTradeScopeItems(text)
+  ) {
     return { ...draft, originalNotes: draft.originalNotes || text };
   }
 
@@ -5201,6 +5276,7 @@ export function isComplexEstimateTier(
 export function aiFlowStepTotal(
   draft: EstimateAiDraft | null | undefined
 ): 2 | 3 {
+  if (draft && vagueScopeQuestion(draft.originalNotes)) return 3;
   return isComplexEstimateTier(draft) ? 3 : 2;
 }
 

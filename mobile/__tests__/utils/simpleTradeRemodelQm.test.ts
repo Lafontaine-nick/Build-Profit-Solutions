@@ -291,6 +291,18 @@ describe('simple trade QM panels', () => {
     );
   });
 
+  it('keeps a named heat pump, mini-split, and air handler off the system package', () => {
+    expect(inferHvacScopeSelectionsFromNotes('Replace the heat pump')).toEqual([
+      'heat_pump',
+    ]);
+    expect(inferHvacScopeSelectionsFromNotes('Replace the mini-split')).toEqual([
+      'mini_split',
+    ]);
+    expect(inferHvacScopeSelectionsFromNotes('Replace the air handler')).toEqual([
+      'air_handler',
+    ]);
+  });
+
   it('routes heat-pump notes to heat-pump equipment pricing', () => {
     expect(
       inferHvacScopeSelectionsFromNotes(

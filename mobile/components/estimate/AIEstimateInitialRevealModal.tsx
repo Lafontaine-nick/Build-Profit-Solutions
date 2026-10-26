@@ -566,8 +566,8 @@ function AIEstimateInitialRevealModal({
                       />
                     </ReliablePress>
                     {detailsExpanded
-                      ? viewModel.scopePreview.map(({ name, amount, quantity }) => (
-                        <View key={name} style={styles.scopeRow}>
+                      ? viewModel.scopePreview.map(({ name, amount, quantity }, index) => (
+                        <View key={`${name}-${index}`} style={styles.scopeRow}>
                             <View style={styles.scopeNameWrap}>
                               <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
                                 {name}

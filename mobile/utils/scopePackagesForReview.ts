@@ -73,12 +73,16 @@ import {
 } from '@/utils/scopeQuickMeasurements';
 import {
   applyDedicatedBathroomConfirmScope,
+  applyNamedBathroomConfirmChoices,
   bathroomAffirmativeNotes,
   notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
 import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
-import { filterDedicatedKitchenConfirmItems } from '@/utils/kitchenNoteScope';
+import {
+  filterDedicatedKitchenConfirmItems,
+  measuredKitchenBathConfirmItems,
+} from '@/utils/kitchenNoteScope';
 import {
   filterDedicatedFlooringConfirmItems,
   selectedFlooringProductItemIds,
@@ -539,6 +543,7 @@ export function buildConfirmScopeDisplayItems(
       notes: null,
     });
     expanded = expandBathroomFixtureScopeDisplayItems(expanded, measurements, templateKey);
+    expanded = applyNamedBathroomConfirmChoices(expanded, notes, templateKey);
     expanded = expandBathroomWetAreaDemoScopeDisplayItems(
       expanded,
       measurements,
@@ -689,6 +694,14 @@ export function applyStep2NoteScopeFilters(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   const notes = String(draft.originalNotes || '');
+  const kitchenBathItems = measuredKitchenBathConfirmItems(notes);
+  if (kitchenBathItems) {
+    const removedIds = measurements.contractorRemovedScopeItemIds;
+    return applyContractorRemovedScopeItems(
+      kitchenBathItems,
+      Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+    );
+  }
   const noteScopeParams = {
     notes,
     templateKey: draft.scopeChecklist?.templateKey || templateKey,
@@ -1229,6 +1242,7 @@ export function hydrateChecklistItemsForScopeReview(
     templateKey,
   });
   items = expandBathroomFixtureScopeDisplayItems(items, measurements, templateKey);
+  items = applyNamedBathroomConfirmChoices(items, notes, templateKey);
 
   items = finalizeWetAreaInstallScopeFromMeasurements(items, measurements);
   if (String(templateKey || '').toLowerCase() === 'painting') {

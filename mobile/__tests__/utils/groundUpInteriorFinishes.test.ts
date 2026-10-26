@@ -295,6 +295,32 @@ describe('ground-up interior finish trades', () => {
     expect(items.find(item => item.id === 'decking')?.state).toBe('included');
   });
 
+  it('keeps builder-grade finishes on a new house and drops a denied deck and kitchen hookup', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Slab foundation, frame, roof, windows and exterior doors, insulation, drywall, builder-grade flooring, paint, plumbing, electrical, and HVAC. Concrete driveway and front walks. Brick veneer. Owner is handling landscaping only. No deck.';
+    const items = ensureWholeProjectGroundUpScopeItems(
+      [
+        { id: 'plumbing', label: 'Plumbing connections', inputType: 'yes_no', state: 'included' },
+        { id: 'window_install', label: 'Window install', inputType: 'yes_no', state: 'included' },
+        { id: 'windows', label: 'Windows', inputType: 'yes_no', state: 'included' },
+        { id: 'decking', label: 'Deck / patio', inputType: 'yes_no', state: 'included' },
+        { id: 'cabinets', label: 'Cabinets', inputType: 'yes_no', state: 'unsure' },
+        { id: 'countertops', label: 'Counters', inputType: 'yes_no', state: 'unsure' },
+        { id: 'interior_trim', label: 'Finish carpentry', inputType: 'yes_no', state: 'unsure' },
+      ] as any,
+      notes
+    );
+    expect(items.some(item => item.id === 'plumbing')).toBe(false);
+    expect(items.some(item => item.id === 'plumbing_rough')).toBe(true);
+    expect(items.some(item => item.id === 'plumbing_trim')).toBe(true);
+    expect(items.some(item => item.id === 'window_install')).toBe(false);
+    expect(items.find(item => item.id === 'windows')?.state).toBe('included');
+    expect(items.some(item => item.id === 'decking')).toBe(false);
+    expect(items.find(item => item.id === 'cabinets')?.state).toBe('included');
+    expect(items.find(item => item.id === 'countertops')?.state).toBe('included');
+    expect(items.find(item => item.id === 'interior_trim')?.state).toBe('included');
+  });
+
   it('keeps one whole-house flooring card when tile and flooring would both price the same area', () => {
     const items = ensureWholeProjectGroundUpScopeItems(
       [

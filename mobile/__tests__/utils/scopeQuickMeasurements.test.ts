@@ -79,6 +79,37 @@ describe('scopeQuickMeasurements', () => {
     expect(fields.some(field => field.key === 'wallPaintSqft')).toBe(false);
   });
 
+  it('keeps a kitchen cabinet run and the hall-bath floor on an interior remodel', () => {
+    const notes =
+      'Interior remodel of an existing 1,800 sqft ranch. Kitchen: demo to the studs, 16 LF cabinets, 48 sqft quartz counters, 22 sqft backsplash, new sink and faucet. Hall bath: 40 sqft floor tile, tub surround, 36-inch vanity, toilet, and paint. Flooring in the rest of the house stays. Owner supplies appliances. We pull the remodel permit.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'bathroom',
+      {},
+      [],
+      { scopeNotes: notes }
+    ).flat();
+    const keys = fields.map(field => field.key);
+    expect(keys).toContain('cabinetLf');
+    expect(keys).toContain('countertopSqft');
+    expect(keys).toContain('backsplashSqft');
+    expect(keys).toContain('bathroomFloorSqft');
+    expect(keys).toContain('wallDemoSqft');
+    expect(keys).toContain('wallPaintSqft');
+    expect(keys).not.toContain('cabinetDemoLf');
+    expect(keys).not.toContain('ceilingPaintSqft');
+    expect(keys).not.toContain('flooringSqft');
+    expect(fields.find(field => field.key === 'wallPaintSqft')?.label).toBe(
+      'Paint'
+    );
+    expect(fields.find(field => field.key === 'wallDemoSqft')?.label).toBe(
+      'Demo to the studs'
+    );
+    expect(
+      fields.find(field => field.key === 'bathroomFloorSqft')?.label
+    ).toBe('Bathroom floor tile');
+  });
+
   it('hides the generic room-floor field for mixed interior refreshes', () => {
     const notes =
       'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft, update 6 interior doors and trim, patch drywall where needed. No exterior work on this one.';

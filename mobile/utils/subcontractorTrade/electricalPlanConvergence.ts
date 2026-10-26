@@ -37,6 +37,12 @@ const ELECTRICAL_LIGHT_ITEM_IDS = new Set([
   'electrical_undercabinet_light',
 ]);
 
+function clauseLeavesWorkOut(clause: string): boolean {
+  return /^(?:excludes?|excluded|not\s+included|not\s+to\s+include|no|not|without|do not|don't|does not|doesn't)\b/i.test(
+    clause.trim()
+  );
+}
+
 function noteExcludesElectricalItem(itemId: string, notes?: string | null): boolean {
   const text = String(notes || '');
   if (!text) return false;
@@ -2247,6 +2253,7 @@ export function parseElectricalMeasurementsFromNotes(
   Object.assign(out, owned);
 
   for (const clause of searchClauses) {
+    if (clauseLeavesWorkOut(clause)) continue;
     for (const rule of APPLIANCE_RULES) {
       if (rule.key === 'waterHeaterHookupCount' && /\bgas\b/i.test(clause)) {
         continue;
@@ -2256,6 +2263,7 @@ export function parseElectricalMeasurementsFromNotes(
   }
 
   for (const clause of searchClauses) {
+    if (clauseLeavesWorkOut(clause)) continue;
     for (const rule of CIRCUIT_RULES) {
       if (isApplianceOwnedCircuit(clause)) {
         continue;
@@ -2288,6 +2296,7 @@ export function parseElectricalMeasurementsFromNotes(
   }
 
   for (const clause of searchClauses) {
+    if (clauseLeavesWorkOut(clause)) continue;
     const ownerSuppliedFixtures =
       /\b(?:owner|client|customer)\s+(?:supplies|provides?)\b[^.;\n]{0,80}\b(?:light\s+)?fixtures?\b/i.test(
         clause

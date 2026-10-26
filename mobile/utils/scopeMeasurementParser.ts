@@ -829,6 +829,21 @@ export function inferGarageConversionFloorSqftFromNotes(
   return null;
 }
 
+/** True when the note states a garage area, not only a car count. */
+export function notesStateGarageSqft(notes: string | null | undefined): boolean {
+  const text = String(notes || '');
+  if (
+    /\bgarages?\b(?:\s+area)?\s*(?:is|:|of|=)?\s*[\d,]+(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft)/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  return /\b[\d,]+(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft)\s+(?:[\d,]+\s*[\s-]?(?:car)\s+)?garages?\b/i.test(
+    text
+  );
+}
+
 /** Planning garage footprint when notes mention car count but not garage SF. */
 export function inferGarageSqftFromCarCount(notes: string): number | null {
   const lower = String(notes || '').toLowerCase();
@@ -1522,11 +1537,36 @@ export function parseScopeMeasurementsFromNotes(
       if (!/\bcabinets?\b|\bcabs\b/i.test(tail)) continue;
       const qty = Number(match[1].replace(/,/g, ''));
       if (!Number.isFinite(qty) || qty <= 0) continue;
-      const before = text.slice(Math.max(0, match.index - 40), match.index);
-      if (
-        /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(before) ||
-        /\bexisting\b/i.test(tail)
-      ) {
+      const before = text.slice(Math.max(0, match.index - 80), match.index);
+      const breakAt = Math.max(
+        before.lastIndexOf(','),
+        before.lastIndexOf('.'),
+        before.lastIndexOf('\n'),
+        before.lastIndexOf(';')
+      );
+      const local = breakAt >= 0 ? before.slice(breakAt + 1) : before;
+      const lastVerbAt = (pattern: RegExp) => {
+        const flags = pattern.flags.includes('g')
+          ? pattern.flags
+          : `${pattern.flags}g`;
+        const re = new RegExp(pattern.source, flags);
+        let at = -1;
+        let found: RegExpExecArray | null;
+        while ((found = re.exec(local))) at = found.index;
+        return at;
+      };
+      const removalAt = lastVerbAt(
+        /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i
+      );
+      const installAt = lastVerbAt(/\b(?:install|new|replace)\b/i);
+      // The verb closest to the length wins. "demo to the studs, 16 LF
+      // cabinets" is a new run. "remove 22 LF ... and install 28 LF" keeps both.
+      const cabinetRemoval =
+        (removalAt >= 0 && removalAt > installAt) ||
+        (removalAt < 0 &&
+          installAt < 0 &&
+          /\bexisting\b/i.test(tail));
+      if (cabinetRemoval) {
         if (demo == null) demo = qty;
       } else if (
         /\b(?:install|new|replace)\b/i.test(before) ||

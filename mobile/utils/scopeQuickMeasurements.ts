@@ -9,7 +9,10 @@ import {
   notesReplaceShowerTile,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
-import { kitchenNoteIncludesFloorWork } from '@/utils/kitchenNoteScope';
+import {
+  kitchenNoteIncludesFloorWork,
+  kitchenNoteNamesSurfaceDemo,
+} from '@/utils/kitchenNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import {
   noteUsesSeparateJobReader,
@@ -48,7 +51,9 @@ import {
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   namedFinishReplacesExteriorPaint,
+  noteMentionIsOnlyNegated,
   notesDoorMentionIsPaintOrKeepOnly,
+  notesNameAffirmativeDeckOrPatio,
   notesOwnerHandlesScopeCategory,
 } from '@/utils/scopeItemNoteHints';
 import {
@@ -2915,9 +2920,7 @@ function wholeHomeTakeoffFields(notes: string): QuickMeasurementFieldDef[] {
 }
 
 function notesNameCabinetRemoval(notes: string): boolean {
-  return /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,80}\bcabinets?\b|\bcabinets?\b[^.;\n]{0,40}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
-    notes
-  );
+  return kitchenNoteNamesSurfaceDemo(notes, 'cabinet');
 }
 
 function cabinetRemovalQuickField(
@@ -4283,7 +4286,7 @@ export function quickMeasurementRowsForInput(
           !(
             key === 'deckSqft' &&
             resolvedKey === 'ground_up' &&
-            !/\b(?:deck|patio)\b/i.test(scopeNotes)
+            !notesNameAffirmativeDeckOrPatio(scopeNotes)
           ) &&
           !(
             key === 'paintAreaSqft' &&
@@ -4488,19 +4491,33 @@ export function quickMeasurementRowsForInput(
         'ceilingPaintSqft',
         'paintAreaSqft',
       ]);
-      const explicitFloorWork =
-        /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
-          notes
-        ) ||
-        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+      const bathFloorTile =
+        /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i.test(
           notes
         );
+      const houseFloorStays =
+        /\bflooring\b[^.;\n]{0,48}\b(?:stay|stays|remain|remains)\b/i.test(
+          notes
+        );
+      const explicitFloorWork =
+        !houseFloorStays &&
+        !bathFloorTile &&
+        (/\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          notes
+        ) ||
+          /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:flooring|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+            notes
+          ));
       const explicitDrywall =
         /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(
           notes
         );
       const explicitBaseboard = /\b(?:baseboards?|base\s*board)\b/i.test(notes);
       const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(notes);
+      const paintCeilingsMentioned =
+        /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,50}\bceilings?\b|\bceilings?\b[^.;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+          notes
+        );
       const keepField = (field: QuickMeasurementFieldDef) => {
         if (!optionalKitchenKeys.has(field.key)) return true;
         if (field.key === 'kitchenFloorSqft') return explicitFloorWork;
@@ -4512,10 +4529,19 @@ export function quickMeasurementRowsForInput(
         }
         if (field.key === 'drywallSqft') return explicitDrywall;
         if (field.key === 'baseboardLf') return explicitBaseboard;
+        if (field.key === 'ceilingPaintSqft' || field.key === 'paintAreaSqft') {
+          return explicitPaint && paintCeilingsMentioned;
+        }
         return explicitPaint;
       };
       const filteredRows = baseRows
-        .map(row => row.filter(keepField))
+        .map(row =>
+          row.filter(keepField).map(field =>
+            field.key === 'wallPaintSqft' && explicitPaint && !paintCeilingsMentioned
+              ? { ...field, label: 'Paint' }
+              : field
+          )
+        )
         .filter(row => row.length > 0);
       const hasKitchenFloorField = filteredRows.some(row =>
         row.some(field => field.key === 'kitchenFloorSqft')
@@ -4541,17 +4567,46 @@ export function quickMeasurementRowsForInput(
         )
           ? [...kitchenRows, [cabinetRemovalField]]
           : kitchenRows;
+      const namedKitchenBathFields: QuickMeasurementFieldDef[] = [];
       if (
-        resolvedKey === 'room_remodel' &&
         backsplashMentioned &&
         QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft &&
         !withCabinetRemoval.some(row =>
           row.some(field => field.key === 'backsplashSqft')
         )
       ) {
+        namedKitchenBathFields.push(QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft);
+      }
+      if (
+        bathFloorTile &&
+        QUICK_MEASUREMENT_FIELD_DEFS.bathroomFloorSqft &&
+        !withCabinetRemoval.some(row =>
+          row.some(field => field.key === 'bathroomFloorSqft')
+        )
+      ) {
+        namedKitchenBathFields.push({
+          ...QUICK_MEASUREMENT_FIELD_DEFS.bathroomFloorSqft,
+          label: 'Bathroom floor tile',
+        });
+      }
+      if (
+        /\bdemo\b[^.;\n]{0,24}\bstuds?\b/i.test(notes) &&
+        QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft &&
+        !withCabinetRemoval.some(row =>
+          row.some(field => field.key === 'wallDemoSqft')
+        )
+      ) {
+        namedKitchenBathFields.push({
+          ...QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft,
+          label: 'Demo to the studs',
+          helperText:
+            'Kitchen wall area coming out. The note did not state a square footage.',
+        });
+      }
+      if (namedKitchenBathFields.length) {
         return [
           ...withCabinetRemoval,
-          [QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft],
+          ...namedKitchenBathFields.map(field => [field]),
         ];
       }
       return withCabinetRemoval;
@@ -4826,7 +4881,7 @@ export function quickMeasurementRowsForInput(
   }
   const groundUpNamesDeck =
     resolvedKey === 'ground_up' &&
-    /\b(?:deck|patio)\b/i.test(scopeNotes) &&
+    notesNameAffirmativeDeckOrPatio(scopeNotes) &&
     !normalizedRows.some(row => row.some(field => field.key === 'deckSqft')) &&
     !filteredExtras.some(field => field.key === 'deckSqft');
   const rowsForDeck =

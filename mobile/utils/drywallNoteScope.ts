@@ -169,13 +169,30 @@ export function notesDescribeDedicatedDrywallPatchJob(
   return !OTHER_TRADE_RE.test(text);
 }
 
+/**
+ * "Drywall in the addition" is hang and finish.
+ * A patch, or any other trade, stays on its own path.
+ */
+export function notesDescribeAdditionDrywallJob(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (notesDescribeDedicatedDrywallJob(text)) return false;
+  if (notesDescribeDedicatedDrywallPatchJob(text)) return false;
+  if (!/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) return false;
+  if (!/\baddition\b/i.test(text)) return false;
+  if (/\b(?:patch(?:ing|es)?|repair)\b/i.test(text)) return false;
+  return !OTHER_TRADE_RE.test(text);
+}
+
 /** Hang-and-finish notes and patch-only notes both use the drywall checklist. */
 export function notesUseDedicatedDrywallScope(
   notes: string | null | undefined
 ): boolean {
   return (
     notesDescribeDedicatedDrywallJob(notes) ||
-    notesDescribeDedicatedDrywallPatchJob(notes)
+    notesDescribeDedicatedDrywallPatchJob(notes) ||
+    notesDescribeAdditionDrywallJob(notes)
   );
 }
 

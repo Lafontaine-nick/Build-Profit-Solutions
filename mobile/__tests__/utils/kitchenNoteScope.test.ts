@@ -1,4 +1,8 @@
 import { repairDraftRatePricingFromNotes } from '../../utils/estimateAiDraft';
+import {
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '../../utils/scopeItemQuantities';
 import { groupScopeChecklistItems } from '../../utils/estimateScopeChecklistUi';
 import {
   getInitialRevealConfirmItems,
@@ -180,6 +184,100 @@ describe('kitchen measurement visibility from notes', () => {
     expect(kitchenNoteNamesSurfaceDemo(GUT, 'backsplash')).toBe(true);
     expect(kitchenNoteNamesSurfaceDemo(GUT, 'floor')).toBe(true);
     expect(kitchenNoteIncludesFloorWork(GUT)).toBe(true);
+  });
+
+  it('prices demo to the studs from the entered wall area and leaves tub surround blank', () => {
+    const notes =
+      'Interior remodel of an existing 1,800 sqft ranch. Kitchen: demo to the studs, 16 LF cabinets, 48 sqft quartz counters, 22 sqft backsplash, new sink and faucet. Hall bath: 40 sqft floor tile, tub surround, 36-inch vanity, toilet, and paint.';
+    const demoResolved = resolveChecklistItemQuantity(
+      'wall_demo',
+      { itemQuantities: {}, wallDemoSqft: '1200' },
+      { templateKey: 'room_remodel', notes }
+    );
+    const demoPrice = resolveScopeItemSuggestedPricing(
+      'wall_demo',
+      { itemQuantities: {}, wallDemoSqft: '1200' },
+      'room_remodel',
+      demoResolved,
+      null,
+      null,
+      notes
+    );
+    expect(demoResolved.quantity).toBe(1200);
+    expect(demoResolved.unit).toBe('sqft');
+    expect(demoPrice.fill?.total).toBe(1800);
+    expect(demoPrice.fill?.material).toBe(300);
+    expect(demoPrice.fill?.labor).toBe(1500);
+
+    const surroundResolved = resolveChecklistItemQuantity(
+      'tub_surround',
+      { itemQuantities: {}, floorAreaSqft: 1800 },
+      { templateKey: 'room_remodel', notes }
+    );
+    const surroundPrice = resolveScopeItemSuggestedPricing(
+      'tub_surround',
+      { itemQuantities: {}, floorAreaSqft: 1800 },
+      'room_remodel',
+      surroundResolved,
+      null,
+      null,
+      notes
+    );
+    expect(surroundResolved.quantity == null || surroundResolved.quantity <= 0).toBe(
+      true
+    );
+    expect(surroundPrice.fill).toBeNull();
+
+    const entered = resolveChecklistItemQuantity(
+      'tub_surround',
+      {
+        itemQuantities: {
+          tub_surround: {
+            quantity: 55,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      { templateKey: 'room_remodel', notes }
+    );
+    const enteredPrice = resolveScopeItemSuggestedPricing(
+      'tub_surround',
+      {
+        itemQuantities: {
+          tub_surround: {
+            quantity: 55,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      'room_remodel',
+      entered,
+      null,
+      null,
+      notes
+    );
+    expect(entered.quantity).toBe(55);
+    expect(enteredPrice.fill?.total).toBe(1430);
+  });
+
+  it('does not treat demo to the studs as cabinet removal', () => {
+    const notes =
+      'Interior remodel of an existing 1,800 sqft ranch. Kitchen: demo to the studs, 16 LF cabinets, 48 sqft quartz counters, 22 sqft backsplash, new sink and faucet.';
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'cabinet')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'counter')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'backsplash')).toBe(false);
+  });
+
+  it('keeps a cabinet and counter tear-out off the next kitchen chip', () => {
+    const notes =
+      'Kitchen remodel.\nRemove the cabinets and countertops, New cabinets, Tile backsplash, New flooring, New island';
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'cabinet')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'counter')).toBe(true);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'backsplash')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'floor')).toBe(false);
+    expect(kitchenNoteNamesSurfaceDemo(notes, 'island')).toBe(false);
   });
 
   it('keeps a new island install and adds haul-off without an island demo', () => {

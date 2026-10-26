@@ -290,6 +290,38 @@ describe('kitchenRemodel QM', () => {
     expect(demo.kitchenDemoIslandCount).toBe(1);
   });
 
+  it('removes the cabinets and counters without installing them or demoing the island', () => {
+    const notes =
+      'Kitchen remodel. Remove the cabinets and countertops, New island';
+    const install = inferKitchenInstallFromIntent({ notes });
+    expect(install.kitchenInstallCabinetCount).toBeNull();
+    expect(install.kitchenInstallCounterCount).toBeNull();
+    expect(install.kitchenInstallIslandCount).toBe(1);
+    const demo = resolveKitchenDemoFromIntent({
+      notes,
+      existing: {
+        kitchenExistingCabinetCount: null,
+        kitchenExistingCounterCount: null,
+        kitchenExistingApplianceCount: null,
+        kitchenExistingBacksplashCount: null,
+        kitchenExistingFloorCount: null,
+      },
+      install,
+    });
+    expect(demo.kitchenDemoCabinetCount).toBe(1);
+    expect(demo.kitchenDemoCounterCount).toBe(1);
+    expect(demo.kitchenDemoIslandCount).toBeNull();
+    expect(demo.kitchenDemoBacksplashCount).toBeNull();
+    expect(demo.kitchenDemoFloorCount).toBeNull();
+    const withNewCabinets = inferKitchenInstallFromIntent({
+      notes:
+        'Kitchen remodel. Remove the cabinets and countertops, New cabinets, New countertops, New island',
+    });
+    expect(withNewCabinets.kitchenInstallCabinetCount).toBe(1);
+    expect(withNewCabinets.kitchenInstallCounterCount).toBe(1);
+    expect(withNewCabinets.kitchenInstallIslandCount).toBe(1);
+  });
+
   it('does not demo a new island the note is installing', () => {
     const notes =
       'Demo existing cabinets and countertops. Install 18 LF perimeter cabinets and a new island with 22 sqft of quartz.';

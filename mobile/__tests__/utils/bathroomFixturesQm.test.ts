@@ -3,6 +3,7 @@ import { checklistItemInScope, resolveChecklistItemQuantity } from '@/utils/scop
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   inferBathroomFixtureInstallFromIntent,
+  fillBlankToiletFaucetCounts,
   inferBathroomToiletFaucetCounts,
   inferExistingBathroomFixturesFromNotes,
   resolveBathroomFixtureDemoFromIntent,
@@ -67,6 +68,49 @@ describe('bathroomFixturesQm', () => {
     });
     expect(demo.bathroomDemoVanityCount).toBeNull();
     expect(demo.bathroomDemoCounterCount).toBe(1);
+  });
+
+  test('a named vanity or countertop removal is its own demo', () => {
+    expect(
+      resolveBathroomFixtureDemoFromIntent({
+        notes: 'Remove the vanity',
+        existing: { bathroomExistingVanityCount: null, bathroomExistingCounterCount: null },
+        install: { bathroomInstallVanityCount: null, bathroomInstallCounterCount: null },
+      })
+    ).toEqual({
+      bathroomDemoVanityCount: 1,
+      bathroomDemoCounterCount: null,
+    });
+    expect(
+      resolveBathroomFixtureDemoFromIntent({
+        notes: 'Remove the countertop',
+        existing: { bathroomExistingVanityCount: null, bathroomExistingCounterCount: null },
+        install: { bathroomInstallVanityCount: null, bathroomInstallCounterCount: null },
+      })
+    ).toEqual({
+      bathroomDemoVanityCount: null,
+      bathroomDemoCounterCount: 1,
+    });
+    expect(
+      inferBathroomFixtureInstallFromIntent({ notes: 'New countertop' })
+        .bathroomInstallCounterCount
+    ).toBe(1);
+    expect(
+      inferBathroomFixtureInstallFromIntent({ notes: 'Remove the vanity' })
+        .bathroomInstallVanityCount
+    ).toBeNull();
+    const mixed =
+      'Demo the shower tile, Tile the shower walls, Remove the countertop, New countertop, New vanity, Tile the bathroom floor, New shower door, Paint the walls';
+    expect(
+      resolveBathroomFixtureDemoFromIntent({
+        notes: mixed,
+        existing: { bathroomExistingVanityCount: null, bathroomExistingCounterCount: null },
+        install: { bathroomInstallVanityCount: 1, bathroomInstallCounterCount: 1 },
+      })
+    ).toEqual({
+      bathroomDemoVanityCount: null,
+      bathroomDemoCounterCount: 1,
+    });
   });
 
   test('demo vanity not inferred from install alone', () => {
@@ -290,6 +334,26 @@ describe('bathroomFixturesQm', () => {
     expect(inferBathroomVanityCountertopMaterialFromNotes(notes)).toBe(
       'prefab_quartz_stone'
     );
+    expect(
+      fillBlankToiletFaucetCounts(
+        {
+          bathroomDemoToiletCount: null,
+          bathroomInstallToiletCount: null,
+          bathroomInstallFaucetCount: null,
+        },
+        inferBathroomToiletFaucetCounts('New toilet')
+      ).bathroomInstallToiletCount
+    ).toBe(1);
+    expect(
+      fillBlankToiletFaucetCounts(
+        {
+          bathroomDemoToiletCount: null,
+          bathroomInstallToiletCount: 2,
+          bathroomInstallFaucetCount: null,
+        },
+        inferBathroomToiletFaucetCounts('New toilet')
+      ).bathroomInstallToiletCount
+    ).toBe(2);
     expect(
       inferBathroomToiletFaucetCounts('Do not replace the toilet.')
     ).toEqual({

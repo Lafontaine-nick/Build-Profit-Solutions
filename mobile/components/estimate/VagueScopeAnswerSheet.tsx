@@ -74,7 +74,10 @@ export default function VagueScopeAnswerSheet({
   const [needsScope, setNeedsScope] = useState(false);
   const trimmed = value.replace(/[\s,]+$/, '').trim();
   const muted = darkMode ? 'rgba(235,235,245,0.6)' : Colors.sub;
-  const chipBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line;
+  const fieldFill = darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2;
+  const fieldBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line;
+  const chipFill = fieldFill;
+  const chipBorder = fieldBorder;
 
   const updateValue = (next: string) => {
     setValue(next);
@@ -191,10 +194,8 @@ export default function VagueScopeAnswerSheet({
               styles.field,
               {
                 color: Colors.text,
-                backgroundColor: darkMode
-                  ? 'rgba(255,255,255,0.05)'
-                  : Colors.surface2,
-                borderColor: needsScope ? '#f59e0b' : chipBorder,
+                backgroundColor: fieldFill,
+                borderColor: needsScope ? '#f59e0b' : fieldBorder,
               },
             ]}
             multiline

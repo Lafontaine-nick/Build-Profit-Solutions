@@ -1,3 +1,4 @@
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
 
 /**
@@ -106,8 +107,10 @@ export function kitchenNoteInstallsNewCabinets(notes: string | null | undefined)
       ) {
         return false;
       }
-      return /\b(?:install|new|replace|supply)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:install|new|replace|supply)\b/i.test(
-        sentence
+      return sentence.split(/,/).some(clause =>
+        /\b(?:install|new|replace|supply)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:install|new|replace|supply)\b/i.test(
+          clause
+        )
       );
     });
 }
@@ -246,15 +249,38 @@ const KITCHEN_DEMO_PRODUCT: Record<string, RegExp> = {
   island_demo: /\bisland\b/i,
 };
 
+const DEMO_VERB =
+  /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i;
+const NEW_KITCHEN_WORK =
+  /\b(?:new|install|replace|supply|tile|paint|refinish)\b/i;
+
 function sentenceAffirmsDemo(sentence: string, product: RegExp): boolean {
   const text = sentence.trim();
   if (!text) return false;
   if (/\b(?:no|not|without|don'?t|do not)\b/i.test(text)) return false;
   if (/\bkeep\s+existing\b/i.test(text)) return false;
-  return (
-    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(text) &&
-    product.test(text)
-  );
+  const clauses = text
+    .split(/,/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (clauses.some(clause => DEMO_VERB.test(clause) && product.test(clause))) {
+    return true;
+  }
+  // "Demo cabinets, countertops, and the floor" keeps listing surfaces.
+  // "Remove the cabinets, New island" starts a new scope at the comma.
+  return clauses.some((clause, index) => {
+    if (!product.test(clause) || NEW_KITCHEN_WORK.test(clause)) return false;
+    // "16 LF cabinets" after "demo to the studs" is the new run, not the tear-out.
+    if (
+      /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+feet|sq\.?\s*ft|sqft)\b/i.test(
+        clause
+      ) &&
+      !DEMO_VERB.test(clause)
+    ) {
+      return false;
+    }
+    return clauses.slice(0, index).some(prev => DEMO_VERB.test(prev));
+  });
 }
 
 function notesNameThisKitchenDemo(id: string, notes: string): boolean {
@@ -525,4 +551,90 @@ export function filterDedicatedKitchenConfirmItems<
     if (lvp && id === 'flooring') return { ...item, label: 'LVP flooring' };
     return item;
   });
+}
+
+export type MeasuredKitchenBathLine = {
+  id: string;
+  name: string;
+  quantity?: string;
+};
+
+/** Kitchen takeoff plus a named bath. A whole-house or new-house note stays on its own path. */
+export function measuredKitchenBathInteriorLines(
+  notes?: string | null
+): MeasuredKitchenBathLine[] | null {
+  const text = String(notes || '');
+  if (!/\bkitchen\b/i.test(text) || !/\bbath(?:room)?\b/i.test(text)) return null;
+  if (notesDescribeMeasuredWholeHomeRemodel(text)) return null;
+  if (
+    /\b(?:new\s+(?:construction|build)|ground[-\s]?up|custom home|spec home)\b/i.test(
+      text
+    ) ||
+    /\bnew\s+[\d,]+\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,48}\b(?:home|house)\b/i.test(
+      text
+    )
+  ) {
+    return null;
+  }
+  const parsed = parseScopeMeasurementsFromNotes(text);
+  const kitchenTakeoff =
+    Number(parsed.cabinetLf) > 0 ||
+    Number(parsed.countertopSqft) > 0 ||
+    Number(parsed.backsplashSqft) > 0;
+  const bathNamed =
+    Number(parsed.bathroomFloorSqft) > 0 ||
+    /\b(?:vanity|toilet|tub\s+surround)\b/i.test(text);
+  if (!kitchenTakeoff || !bathNamed) return null;
+  const rows: MeasuredKitchenBathLine[] = [];
+  const push = (id: string, name: string, quantity?: string | null) => {
+    if (rows.some(row => row.id === id || row.name === name)) return;
+    rows.push(quantity ? { id, name, quantity } : { id, name });
+  };
+  if (/\bdemo\b[^.;\n]{0,24}\bstuds?\b/i.test(text)) {
+    push('wall_demo', 'Demo to the studs');
+  }
+  if (Number(parsed.cabinetLf) > 0) {
+    push('cabinets', 'Cabinets', `${parsed.cabinetLf} LF`);
+  }
+  if (Number(parsed.countertopSqft) > 0) {
+    push('countertops', 'Counters', `${parsed.countertopSqft} sqft`);
+  }
+  if (Number(parsed.backsplashSqft) > 0) {
+    push('backsplash', 'Backsplash', `${parsed.backsplashSqft} sqft`);
+  }
+  if (/\bsink\b/i.test(text) && /\bfaucet\b/i.test(text)) {
+    push('sink_faucet', 'Sink and faucet');
+  } else if (/\bsink\b/i.test(text)) {
+    push('sink_faucet', 'Sink');
+  } else if (/\bfaucet\b/i.test(text)) {
+    push('sink_faucet', 'Faucet');
+  }
+  if (Number(parsed.bathroomFloorSqft) > 0) {
+    push('floor_tile', 'Bathroom floor tile', `${parsed.bathroomFloorSqft} sqft`);
+  }
+  if (/\btub\s+surround\b/i.test(text)) push('tub_surround', 'Tub surround');
+  const vanityInches = text.match(
+    /\b(\d{2,3})\s*(?:-|\s)?(?:inch|in\.?|")\s+vanity\b/i
+  );
+  if (/\bvanity\b/i.test(text)) {
+    push('vanity', 'Vanity', vanityInches ? `${vanityInches[1]} in` : null);
+  }
+  if (/\btoilet\b/i.test(text)) push('toilet', 'Toilet');
+  if (/\bpaint(?:ing)?\b/i.test(text)) push('interior_paint', 'Paint');
+  return rows.length ? rows : null;
+}
+
+/** Confirm Scope cards for that kitchen and bath takeoff. */
+export function measuredKitchenBathConfirmItems(notes?: string | null) {
+  const lines = measuredKitchenBathInteriorLines(notes);
+  if (!lines) return null;
+  return lines.map(line => ({
+    id: line.id,
+    label: line.name,
+    helperText: line.quantity || '',
+    category: 'interior',
+    inputType: 'yes_no' as const,
+    state: 'included' as const,
+    noteBacked: true,
+  }));
 }

@@ -59,7 +59,7 @@ const PRODUCT_RULES: Array<{ id: string; product: string; label: string; pattern
     id: 'flooring_solid_hardwood',
     product: 'solid_hardwood',
     label: 'Solid hardwood',
-    pattern: /\b(?:solid\s+hardwood|hardwood)\b/i,
+    pattern: /\b(?:solid\s+hardwood|(?<!engineered\s)hardwood)\b/i,
   },
   {
     id: 'tile_flooring',

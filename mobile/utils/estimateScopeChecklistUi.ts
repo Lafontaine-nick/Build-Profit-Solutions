@@ -98,7 +98,10 @@ import {
   notesDescribeDedicatedStuccoJob,
   notesNameStuccoWithWindows,
 } from '@/utils/stuccoNoteScope';
-import { notesNameReceptaclesWithToilet } from '@/utils/electricalNoteScope';
+import {
+  notesDescribeDedicatedElectricalDeviceJob,
+  notesNameReceptaclesWithToilet,
+} from '@/utils/electricalNoteScope';
 import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringNoteText,
@@ -120,7 +123,9 @@ import {
   inferChoicesFromNotes,
   inferItemStateFromNotes,
   noteMentionIsOnlyNegated,
+  notesAskForPlumbingConnections,
   notesDescribeGroundUpHome,
+  notesNameAffirmativeDeckOrPatio,
   notesDoorMentionIsPaintOrKeepOnly,
   notesNameDoorPaintSurface,
   notesReplaceInteriorDoorsBesidePaint,
@@ -2322,6 +2327,15 @@ export function ensureWholeProjectGroundUpScopeItems(
     ) {
       return false;
     }
+    // "Plumbing" on a new house is rough-in and trim, not a kitchen hookup.
+    if (
+      notesDescribeGroundUpHome(notes) &&
+      !notesAskForPlumbingConnections(notes) &&
+      (item.id === 'plumbing' ||
+        /^plumbing connections$/i.test(String(item.label || '')))
+    ) {
+      return false;
+    }
     if (
       item.id === 'interior_finishes' ||
       item.id === 'door_paint' ||
@@ -2353,9 +2367,13 @@ export function ensureWholeProjectGroundUpScopeItems(
     /\n---\s*Plan takeoff\s*---[\s\S]*$/i,
     ''
   );
-  const namesCoveredPatio =
-    /\b(?:deck|patio|porch)\b/i.test(notesText) &&
-    !/\bconcrete\s+patio\b/i.test(notesText);
+  const namesCoveredPatio = notesNameAffirmativeDeckOrPatio(notesText);
+  if (!namesCoveredPatio) {
+    next = next.filter(item => item.id !== 'decking');
+  }
+  if (next.some(item => item.id === 'windows' && item.state !== 'excluded')) {
+    next = next.filter(item => item.id !== 'window_install');
+  }
   if (namesCoveredPatio && !next.some(item => item.id === 'decking')) {
     next.push({
       id: 'decking',
@@ -2431,7 +2449,11 @@ export function shouldSeedWholeProjectShellChecklist(input: {
     notesNameStuccoWithWindows(input.notes) ||
     notesNameStuccoWithWindows(input.originalNotes) ||
     notesNameReceptaclesWithToilet(input.notes) ||
-    notesNameReceptaclesWithToilet(input.originalNotes)
+    notesNameReceptaclesWithToilet(input.originalNotes) ||
+    (notesDescribeDedicatedElectricalDeviceJob(input.notes) &&
+      !notesNameReceptaclesWithToilet(input.notes)) ||
+    (notesDescribeDedicatedElectricalDeviceJob(input.originalNotes) &&
+      !notesNameReceptaclesWithToilet(input.originalNotes))
   ) {
     return false;
   }

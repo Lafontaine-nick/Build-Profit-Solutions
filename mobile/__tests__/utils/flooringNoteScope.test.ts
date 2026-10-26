@@ -796,6 +796,21 @@ describe('dedicated flooring note', () => {
     expect(scopeExtractionClarificationQuestions(repaired)).toEqual([]);
   });
 
+  it('keeps engineered hardwood off the solid hardwood line', () => {
+    expect(dedicatedFlooringProducts('Engineered hardwood').map(product => product.id)).toEqual([
+      'flooring_engineered_hardwood',
+    ]);
+    expect(dedicatedFlooringProducts('Hardwood').map(product => product.id)).toEqual([
+      'flooring_solid_hardwood',
+    ]);
+    expect(dedicatedFlooringProducts('Sheet vinyl').map(product => product.id)).toEqual([
+      'flooring_sheet_vinyl',
+    ]);
+    expect(dedicatedFlooringProducts('Laminate').map(product => product.id)).toEqual([
+      'flooring_laminate',
+    ]);
+  });
+
   it('stays off kitchen and drywall notes', () => {
     expect(
       notesDescribeDedicatedFlooringJob(

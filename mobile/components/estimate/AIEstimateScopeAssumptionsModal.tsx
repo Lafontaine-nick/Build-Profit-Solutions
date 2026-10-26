@@ -85,6 +85,7 @@ import {
   scrubWholeHomeRemodelMeasurements,
 } from '@/utils/wholeHomeRemodelNote';
 import {
+  notesWithStructureAnswer,
   vagueScopeChips,
   vagueScopeExample,
   vagueScopeQuestion,
@@ -314,8 +315,11 @@ import {
 } from '@/utils/estimateScopeChecklistUi';
 import {
   confirmScopeDrywallSqftLabel,
+  dedicatedDrywallConfirmScopeItems,
   notesDescribeDedicatedDrywallPatchJob,
+  notesDescribeSheetrockFinishJob,
   notesNameDrywallBesideFlooring,
+  notesUseDedicatedDrywallScope,
 } from '@/utils/drywallNoteScope';
 import {
   bathroomAffirmativeNotes,
@@ -543,10 +547,12 @@ import {
   type ScopePricingContext,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
+import { kitchenNoteNamesSurfaceDemo } from '@/utils/kitchenNoteScope';
 import {
   collectRoofingInferenceNotes,
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
+  affirmativeNoteText,
   notesDescribeGroundUpHome,
   notesDoorMentionIsPaintOrKeepOnly,
   noteMentionIsOnlyNegated,
@@ -588,6 +594,8 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import {
+  inferGarageSqftFromCarCount,
+  notesStateGarageSqft,
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
   parseStuccoMeasurementsFromNotes,
@@ -899,6 +907,8 @@ type Props = {
     items: ScopeChecklistItem[],
     measurements?: ScopeMeasurements
   ) => void;
+  /** Save trades named on Structure this bid onto the job note. */
+  onScopeNotesChange?: (notes: string) => void;
   /** Saved templates + active bid used to prefer saved $/unit rates in suggested pricing. */
   pricingContext?: ScopePricingContext | null;
   /** Step 1 site photos — when present, existing wet area is AI-seeded and the QM panel stays hidden. */
@@ -15677,6 +15687,12 @@ function CollapsibleQuickMeasurements({
       Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
       null;
     if (
+      notesDescribeDedicatedElectricalDeviceJob(notes) &&
+      !notesNameReceptaclesWithToilet(notes)
+    ) {
+      return 'electrical';
+    }
+    if (
       notesDescribeGroundUpHome(notes) &&
       !/^(?:plumbing(?:_service)?|hvac|electrical|roofing|drywall|framing|flooring|painting|concrete|kitchen|bathroom|windows_doors|insulation|deck_patio)$/i.test(
         String(templateKey || '')
@@ -16027,6 +16043,17 @@ function CollapsibleQuickMeasurements({
     // A stucco note's garage-opening deduction is not garage floor area.
     if (parsedStucco.stuccoGarageOpeningSqft == null) {
       put('garageSqft', parsed.garageSqft);
+      // A 3-car garage with no stated area is a 700 sqft planning footprint,
+      // not a measurement copied from the note.
+      const inferredGarage = inferGarageSqftFromCarCount(String(notes || ''));
+      if (
+        inferredGarage &&
+        Number(out.garageSqft) === inferredGarage &&
+        !notesStateGarageSqft(notes)
+      ) {
+        const garageKey = noteKeys.indexOf('garageSqft');
+        if (garageKey >= 0) noteKeys.splice(garageKey, 1);
+      }
     }
     put('hvacSystemCount', parsed.hvacSystemCount);
     put('hvacSystemTons', parsed.hvacSystemTons);
@@ -16272,6 +16299,12 @@ function CollapsibleQuickMeasurements({
       return baseRows;
     }
     if (
+      notesDescribeDedicatedElectricalDeviceJob(notes) &&
+      !notesNameReceptaclesWithToilet(notes)
+    ) {
+      return baseRows;
+    }
+    if (
       noteUsesSeparateJobReader(notes) &&
       !notesNameAtticInsulationWithDrywallHang(notes)
     ) {
@@ -16444,11 +16477,7 @@ function CollapsibleQuickMeasurements({
           'Square feet of existing flooring explicitly identified for removal.',
       });
     }
-    if (
-      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,80}\bcabinets?\b|\bcabinets?\b[^.;\n]{0,40}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
-        notesTextForScopeFields
-      )
-    ) {
+    if (kitchenNoteNamesSurfaceDemo(notesTextForScopeFields, 'cabinet')) {
       ensureScopeField('cabinetDemoLf', {
         label: 'Cabinet removal',
         helperText:
@@ -17467,10 +17496,10 @@ function CollapsibleQuickMeasurements({
   ]);
   const roofingNotesFlow =
     /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
-      String(notes || '')
+      affirmativeNoteText(notes)
     ) &&
     /\b(?:replace|replacement|repair|remove|tear[\s-]?off|install|deck(?:ing)?|re[\s-]?roof|reroof)\b/i.test(
-      String(notes || '')
+      affirmativeNoteText(notes)
     );
   const roofingQmJob =
     !paintingPlanMeasurements &&
@@ -17802,7 +17831,7 @@ function CollapsibleQuickMeasurements({
     if (singleTradeImport) return false;
     const noteText = bathroomMeasurementNotes(notes);
     const notesExplicitWetAreaWork =
-      /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|enclosure|walls?|floor\s+tile)|tub|bathtub|wet\s+area|prefab|bath(?:room)?\s+floor(?:\s+tile)?)\b/i.test(
+      /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|enclosure|walls?|floor\s+tile)|bathtub|wet\s+area|prefab|tub\b(?!\s+surround))\b/i.test(
         noteText
       );
     if (notesNameBathroomRemodelPanel(notes) && !notesExplicitWetAreaWork) {
@@ -19716,11 +19745,7 @@ function CollapsibleQuickMeasurements({
     );
     const showRemoveShowerDoor =
       !bathroomNotesCardFilter || notesMentionDemoShowerDoor(bathroomNoteText);
-    const showDemoBathFloor =
-      takeoff.bathFloorDemo ||
-      showBathroomNote(
-      /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile)\b/i
-    );
+    const showDemoBathFloor = takeoff.bathFloorDemo;
     const onlyBathFloorDemo =
       showDemoBathFloor &&
       !showDemoShowerWallTile &&
@@ -24091,6 +24116,7 @@ export default function AIEstimateScopeAssumptionsModal({
   onConfirmBegin,
   onConfirmCancel,
   onPersistProgress,
+  onScopeNotesChange,
   pricingContext = null,
   hasSitePhotos = false,
   planImport = null,
@@ -24099,7 +24125,19 @@ export default function AIEstimateScopeAssumptionsModal({
   const { height: windowHeight } = useWindowDimensions();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const checklist = draft?.scopeChecklist;
+  const checklist = useMemo(() => {
+    if (draft?.scopeChecklist) return draft.scopeChecklist;
+    const notes = String(draft?.originalNotes || notesFallback || '');
+    if (!vagueScopeQuestion(notes)) return undefined;
+    return {
+      estimateTier: 'room_remodel' as const,
+      templateKey: 'room_remodel',
+      title: 'Confirm the work named in the notes',
+      intro: 'Name the scopes in this bid before pricing.',
+      items: [] as ScopeChecklistItem[],
+      requiresConfirmation: true,
+    };
+  }, [draft?.scopeChecklist, draft?.originalNotes, notesFallback]);
   const authoredScopeNotes = useMemo(
     () => chooseBestScopeNotes(draft, notesFallback),
     [draft, notesFallback]
@@ -24111,7 +24149,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const scopeNotes = useMemo(() => {
     const base = authoredScopeNotes.trim();
     const answer = scopeStructureAnswer.trim();
-    if (!answer) return base;
+    if (!answer || base.endsWith(answer)) return base;
     return `${base}\n${answer}`.trim();
   }, [authoredScopeNotes, scopeStructureAnswer]);
   useEffect(() => {
@@ -24136,7 +24174,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (notesNameReceptaclesWithToilet(scopeNotes)) return false;
     const checklistKey = String(checklist?.templateKey || '').toLowerCase();
     if (['electrical', 'electrical_rough'].includes(checklistKey)) return true;
-    const noteText = String(scopeNotes || '');
+    const noteText = affirmativeNoteText(scopeNotes);
     const electricalSignal =
       /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?|switch(?:es)?|gfci|recessed\s+(?:lights?|cans?)|conduit)\b/i.test(
         noteText
@@ -24158,10 +24196,10 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [checklist?.templateKey, draft, scopeNotes]);
   const roofingNotesFlow =
     /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
-      scopeNotes
+      affirmativeNoteText(scopeNotes)
     ) &&
     /\b(?:replace|replacement|repair|remove|tear[\s-]?off|install|deck(?:ing)?|re[\s-]?roof|reroof)\b/i.test(
-      scopeNotes
+      affirmativeNoteText(scopeNotes)
     );
   // Use the same selected user-note source for pricing that drives measurement
   // parsing. Concatenating older draft/fallback notes can reintroduce stale
@@ -24720,8 +24758,12 @@ export default function AIEstimateScopeAssumptionsModal({
     Number(planImport?.planFacts?.buildingAreas?.garageSqft) ||
     0;
   const areaOnlyAdditionNote = notesDescribeAreaOnlyAddition(scopeNotes);
+  const dedicatedElectricalDeviceJob =
+    notesDescribeDedicatedElectricalDeviceJob(scopeNotes) &&
+    !notesNameReceptaclesWithToilet(scopeNotes);
   const seedWholeProjectShell =
     !areaOnlyAdditionNote &&
+    !dedicatedElectricalDeviceJob &&
     (shouldSeedWholeProjectShellChecklist({
     planImportMode:
       measurements.planImportMode ||
@@ -24833,6 +24875,7 @@ export default function AIEstimateScopeAssumptionsModal({
   );
   const separateJobNote = noteUsesSeparateJobReader(scopeNotes);
   const collapsedScopeGroupSummary =
+    !dedicatedElectricalDeviceJob &&
     !stuccoAndWindowsNote &&
     !receptaclesAndToiletNote &&
     !atticAndDrywallNote &&
@@ -24883,6 +24926,7 @@ export default function AIEstimateScopeAssumptionsModal({
   // summary. Fill framing, drywall, HVAC, insulation, and paint there unless
   // this is a selected trade or a room remodel without a whole-house plan.
   const showGroundUpPlanShell =
+    !dedicatedElectricalDeviceJob &&
     !stuccoAndWindowsNote &&
     !receptaclesAndToiletNote &&
     !atticAndDrywallNote &&
@@ -25672,6 +25716,12 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeNotes.trim() ||
       String(notesFallback || '').trim() ||
       String(draft?.originalNotes || '').trim();
+    if (
+      notesUseDedicatedDrywallScope(notes) ||
+      notesDescribeSheetrockFinishJob(notes)
+    ) {
+      return dedicatedDrywallConfirmScopeItems(notes);
+    }
     // Step 3, the summary, and the PDF read this same filter. A second copy
     // here was relabeling demolition and dropping cards after Continue.
     return applyStep2NoteScopeFilters(
@@ -26786,7 +26836,9 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (!sourceItems.length) {
-      hydratedVisibleSessionRef.current = false;
+      if (!vagueScopeQuestion(scopeNotes)) {
+        hydratedVisibleSessionRef.current = false;
+      }
       setScopeHydrated(true);
       setScopeDisplayReady(true);
       return;
@@ -34066,11 +34118,12 @@ export default function AIEstimateScopeAssumptionsModal({
           setScopeStructurePromptOpen(false);
         }}
         onSubmit={answer => {
-          const combined = `${authoredScopeNotes}\n${answer}`.trim();
-          if (vagueScopeQuestion(combined)) return false;
+          const combined = notesWithStructureAnswer(authoredScopeNotes, answer);
+          if (!combined) return false;
           setScopeStructureAnswer(answer);
           setScopeStructurePromptOpen(false);
           setQuickMeasurementsOpen(true);
+          onScopeNotesChange?.(combined);
           return true;
         }}
       />
@@ -34316,9 +34369,12 @@ export default function AIEstimateScopeAssumptionsModal({
             templateKey={
               dedicatedElectricalChecklist
                 ? 'electrical'
-                : mixedScopeReviewMode
-                  ? 'room_remodel'
-                  : checklist?.templateKey
+                : notesUseDedicatedDrywallScope(scopeNotes) ||
+                    notesDescribeSheetrockFinishJob(scopeNotes)
+                  ? 'drywall'
+                  : mixedScopeReviewMode
+                    ? 'room_remodel'
+                    : checklist?.templateKey
             }
             projectType={draft?.projectType}
             notes={Array.from(
@@ -34368,13 +34424,39 @@ export default function AIEstimateScopeAssumptionsModal({
                 cladding === 'stucco'
                   ? asAreaOnlyStuccoSystem(measurements.exteriorStuccoSystem)
                   : null;
-              setMeasurementsSynced(previous => ({
-                ...previous,
-                exteriorFinishes: finishes,
-                exteriorFinish: cladding || '',
-                exteriorStuccoSystem:
-                  cladding === 'stucco' ? previous.exteriorStuccoSystem : '',
-              }));
+              const nextSelected = { ...selectedPricingRef.current };
+              delete nextSelected.exterior_finishes;
+              delete nextSelected.brick;
+              delete nextSelected.stucco;
+              selectedPricingRef.current = nextSelected;
+              // Paint the button first. Repricing every card on the tap is
+              // what makes Stucco / Siding / Brick feel late.
+              measurementsSyncOptionsRef.current = { skipPricingResync: true };
+              setMeasurementsSynced(previous => {
+                let next: ScopeMeasurementsInputExtended = {
+                  ...previous,
+                  exteriorFinishes: finishes,
+                  exteriorFinish: cladding || '',
+                  exteriorStuccoSystem:
+                    cladding === 'stucco' ? previous.exteriorStuccoSystem : '',
+                };
+                for (const itemId of ['exterior_finishes', 'brick', 'stucco']) {
+                  const cleared = clearAcceptedScopeItemPricing({
+                    itemId,
+                    itemQuantities: next.itemQuantities || {},
+                    pricingAcceptance: next.pricingAcceptance,
+                  });
+                  next = {
+                    ...next,
+                    itemQuantities: cleared.itemQuantities,
+                    pricingAcceptance: cleared.pricingAcceptance,
+                  };
+                }
+                return next;
+              });
+              setTimeout(() => {
+                setMeasurementsSynced(prev => ({ ...prev }));
+              }, 0);
               setItems(prev => {
                 const wallCard = prev.some(row => row.id === 'exterior_finishes');
                 const brickCard = {
@@ -34420,17 +34502,37 @@ export default function AIEstimateScopeAssumptionsModal({
                 }
                 return next;
               });
-              handleClearAcceptedPricing('exterior_finishes');
-              handleClearAcceptedPricing('brick');
-              handleClearAcceptedPricing('stucco');
             }}
             onExteriorStuccoSystemChange={system => {
-              setMeasurementsSynced(previous => ({
-                ...previous,
-                exteriorFinishes: ['stucco'],
-                exteriorFinish: 'stucco',
-                exteriorStuccoSystem: system || '',
-              }));
+              const nextSelected = { ...selectedPricingRef.current };
+              delete nextSelected.exterior_finishes;
+              delete nextSelected.stucco;
+              selectedPricingRef.current = nextSelected;
+              measurementsSyncOptionsRef.current = { skipPricingResync: true };
+              setMeasurementsSynced(previous => {
+                let next: ScopeMeasurementsInputExtended = {
+                  ...previous,
+                  exteriorFinishes: ['stucco'],
+                  exteriorFinish: 'stucco',
+                  exteriorStuccoSystem: system || '',
+                };
+                for (const itemId of ['exterior_finishes', 'stucco']) {
+                  const cleared = clearAcceptedScopeItemPricing({
+                    itemId,
+                    itemQuantities: next.itemQuantities || {},
+                    pricingAcceptance: next.pricingAcceptance,
+                  });
+                  next = {
+                    ...next,
+                    itemQuantities: cleared.itemQuantities,
+                    pricingAcceptance: cleared.pricingAcceptance,
+                  };
+                }
+                return next;
+              });
+              setTimeout(() => {
+                setMeasurementsSynced(prev => ({ ...prev }));
+              }, 0);
               setItems(prev =>
                 prev.map(row => {
                   if (row.id === 'exterior_finishes') {
@@ -34449,8 +34551,6 @@ export default function AIEstimateScopeAssumptionsModal({
                   return row;
                 })
               );
-              handleClearAcceptedPricing('exterior_finishes');
-              handleClearAcceptedPricing('stucco');
             }}
             onStuccoStoriesChange={() => handleClearAcceptedPricing('stucco')}
             onOpeningGradeChange={() => {

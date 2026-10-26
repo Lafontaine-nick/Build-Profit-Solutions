@@ -1,4 +1,6 @@
 import {
+  inferGarageSqftFromCarCount,
+  notesStateGarageSqft,
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
   parseStuccoMeasurementsFromNotes,
@@ -22,6 +24,24 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('treats a 3-car garage without an area as a planning footprint', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Slab foundation, frame, roof. No deck.';
+    expect(notesStateGarageSqft(notes)).toBe(false);
+    expect(inferGarageSqftFromCarCount(notes)).toBe(700);
+    expect(
+      parseScopeMeasurementsFromNotes(notes, {
+        templateKey: 'ground_up',
+        projectType: 'new_build',
+      }).garageSqft
+    ).toBe(700);
+    expect(
+      notesStateGarageSqft(
+        'New 1,960 sqft single-story home with an attached 720 sqft 3-car garage.'
+      )
+    ).toBe(true);
+  });
+
   it('does not give LVP the drywall area from the same sentence', () => {
     const notes = 'Hang 800 sqft of drywall and install 400 sqft of LVP.';
     const parsed = parseScopeMeasurementsFromNotes(notes, {
@@ -2078,6 +2098,20 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.itemQuantities?.demo).toBeUndefined();
   });
 
+  it('keeps a cabinet run after demo to the studs on the install length', () => {
+    const notes =
+      'Interior remodel of an existing 1,800 sqft ranch. Kitchen: demo to the studs, 16 LF cabinets, 48 sqft quartz counters, 22 sqft backsplash, new sink and faucet. Hall bath: 40 sqft floor tile, tub surround, 36-inch vanity, toilet, and paint. Flooring in the rest of the house stays. Owner supplies appliances. We pull the remodel permit.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+      projectType: 'bathroom',
+    });
+    expect(parsed.cabinetLf).toBe(16);
+    expect(parsed.cabinetDemoLf).toBeUndefined();
+    expect(parsed.countertopSqft).toBe(48);
+    expect(parsed.backsplashSqft).toBe(22);
+    expect(parsed.bathroomFloorSqft).toBe(40);
+  });
+
   it('puts explicit kitchen LVP sqft on the kitchen floor field', () => {
     const notes =
       'Kitchen remodel. Demo existing cabinets, countertops, backsplash, and vinyl floor. Install 22 LF new cabinets, quartz counters 48 sqft, tile backsplash 32 sqft, and LVP flooring 160 sqft. Baseboards 40 LF. Include sink and dishwasher hookup. No prices yet.';
@@ -2086,6 +2120,7 @@ describe('mobile scope measurement parser', () => {
       projectType: 'kitchen',
     });
     expect(parsed.cabinetLf).toBe(22);
+    expect(parsed.cabinetDemoLf).toBeUndefined();
     expect(parsed.countertopSqft).toBe(48);
     expect(parsed.backsplashSqft).toBe(32);
     expect(parsed.baseboardLf).toBe(40);

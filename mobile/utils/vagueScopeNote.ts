@@ -41,7 +41,9 @@ function vagueKitchen(text: string): boolean {
     kitchenNoteNamesCabinetWork(text) ||
     kitchenNoteNamesCounterWork(text) ||
     kitchenNoteNamesBacksplash(text) ||
-    /\b(?:flooring|lvp|vinyl|appliances?|sinks?|dishwasher)\b/i.test(text)
+    /\b(?:flooring|lvp|vinyl|appliances?|sinks?|dishwasher|islands?)\b/i.test(
+      text
+    )
   );
 }
 
@@ -82,7 +84,7 @@ const THIN_SCOPES: ThinScope[] = [
     question: 'Which plumbing work is in this job?',
     match: /\bplumbing\b/i,
     described:
-      /\b(?:toilets?|sinks?|faucets?|showers?|tubs?|bathtubs?|water\s+heaters?|drains?|pipes?|repiping|rough[\s-]?ins?|fixtures?|disposals?|sewer|water\s+lines?)\b/i,
+      /\b(?:toilets?|sinks?|faucets?|showers?|tubs?|bathtubs?|water\s+heaters?|drains?|pipes?|repiping|rough[\s-]?ins?|fixtures?|disposals?|sewer|water\s+lines?|gas|plumbing\s+trim|trim\s+hookups?|service\s+calls?)\b/i,
   },
   {
     title: 'HVAC',
@@ -167,7 +169,7 @@ const THIN_SCOPES: ThinScope[] = [
       'Which walls are getting siding? The wall area stays blank until measured.',
     match: /\bsiding\b/i,
     described:
-      /\b(?:replace(?:ment)?|install|new|vinyl|fiber|cement|hardie|front|back|rear|sides?|repair|remove|sqft|sq\.?\s*ft|\bsf\b)\b/i,
+      /\b(?:replace(?:ment)?|install|new|vinyl|fiber|cement|hardie|front|back|rear|sides?|walls?|repair|remove|sqft|sq\.?\s*ft|\bsf\b)\b/i,
   },
   {
     title: 'Landscaping',
@@ -290,6 +292,10 @@ const THIN_SCOPE_CHIPS: Record<string, VagueScopeChip[]> = {
     chip('Recessed lights'),
     chip('Ceiling fans'),
     chip('Panel', 'Panel upgrade'),
+    chip('GFCI', 'GFCI receptacles'),
+    chip('Smoke', 'Smoke detectors'),
+    chip('Exhaust fan', 'Bath exhaust fan'),
+    chip('EV charger', 'EV charger'),
   ],
   Plumbing: [
     chip('Toilets'),
@@ -297,10 +303,18 @@ const THIN_SCOPE_CHIPS: Record<string, VagueScopeChip[]> = {
     chip('Faucets'),
     chip('Water heater'),
     chip('Rough-in'),
+    chip('Trim', 'Plumbing trim'),
+    chip('Gas', 'Gas line'),
+    chip('Sewer', 'Sewer line'),
+    chip('Service call', 'Plumbing service call'),
+    chip('Drain cleaning'),
   ],
   HVAC: [
     chip('Furnace', 'Replace the furnace'),
     chip('AC', 'Replace the air conditioner'),
+    chip('Heat pump', 'Replace the heat pump'),
+    chip('Mini-split', 'Replace the mini-split'),
+    chip('Air handler', 'Replace the air handler'),
     chip('Ductwork'),
     chip('Thermostat'),
     chip('Service call'),
@@ -316,9 +330,12 @@ const THIN_SCOPE_CHIPS: Record<string, VagueScopeChip[]> = {
     chip('LVP'),
     chip('Carpet'),
     chip('Hardwood'),
+    chip('Engineered', 'Engineered hardwood'),
+    chip('Laminate'),
+    chip('Sheet vinyl'),
     chip('Tile', 'Floor tile'),
     chip('Main level'),
-    chip('Remove existing', 'Remove the existing floor'),
+    chip('Demo', 'Remove the existing floor'),
   ],
   Drywall: [
     chip('Hang and finish'),
@@ -371,7 +388,9 @@ const THIN_SCOPE_CHIPS: Record<string, VagueScopeChip[]> = {
     chip('Front'),
     chip('Back'),
     chip('Sides'),
+    chip('All walls', 'All exterior walls'),
     chip('Hardie', 'Fiber cement siding'),
+    chip('Vinyl', 'Vinyl siding'),
   ],
   Landscaping: [
     chip('Sod'),
@@ -445,13 +464,21 @@ function vagueScope(notes: string | null | undefined): VagueScope | null {
       chips: [
         chip('Demo', 'Demo the shower tile'),
         chip('Shower tile', 'Tile the shower walls'),
+        chip('Prefab pan', 'New prefab pan'),
+        chip('Prefab shower', 'New prefab shower enclosure'),
+        chip('Mud pan', 'Build a mud pan'),
         chip('Tub', 'Remove the tub'),
+        chip('New tub', 'New tub'),
         chip('Vanity', 'New vanity'),
+        chip('Demo vanity', 'Remove the vanity'),
+        chip('Countertop', 'New countertop'),
+        chip('Demo countertop', 'Remove the countertop'),
         chip('Toilet', 'New toilet'),
         chip('Floor tile', 'Tile the bathroom floor'),
+        chip('Shower door', 'New shower door'),
         chip('Paint', 'Paint the walls'),
       ],
-      example: 'Tile the shower walls, 90 sqft. New vanity. New toilet.',
+      example: 'New prefab pan. Tile the shower walls, 90 sqft. New vanity. New toilet.',
     };
   }
   if (vagueKitchen(text)) {
@@ -459,12 +486,14 @@ function vagueScope(notes: string | null | undefined): VagueScope | null {
       title: 'Kitchen remodel',
       question: 'Which parts of the kitchen are in this remodel?',
       chips: [
+        chip('Demo', 'Remove the cabinets and countertops'),
         chip('Cabinets', 'New cabinets'),
         chip('Countertops', 'New countertops'),
         chip('Backsplash', 'Tile backsplash'),
         chip('Flooring', 'New flooring'),
         chip('Sink', 'New sink'),
         chip('Appliances', 'Install appliances'),
+        chip('Island', 'New island'),
       ],
       example: 'Cabinets, 25 LF. Quartz countertops, 60 sqft. Tile backsplash, 30 sqft.',
     };
@@ -534,4 +563,20 @@ export function vagueScopeExample(
   notes: string | null | undefined
 ): string | null {
   return vagueScope(notes)?.example ?? null;
+}
+
+/**
+ * Keep the original line and add the trades named on Structure this bid.
+ * Returns null when the answer still does not name a scope.
+ */
+export function notesWithStructureAnswer(
+  notes: string | null | undefined,
+  answer: string | null | undefined
+): string | null {
+  const base = String(notes || '').trim();
+  const added = String(answer || '').trim();
+  if (!added) return null;
+  const combined = base.endsWith(added) ? base : `${base}\n${added}`.trim();
+  if (vagueScopeQuestion(combined)) return null;
+  return combined;
 }

@@ -1,4 +1,7 @@
-import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import {
+  bathroomAffirmativeNotes,
+  bathroomNoteClauseHas,
+} from '@/utils/bathroomNoteScope';
 import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { inferChoiceFromNotes, inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
@@ -355,21 +358,16 @@ function notesMentionExistingCounter(n: string): boolean {
 }
 
 function notesMentionDemoVanity(n: string): boolean {
-  return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b/.test(
-      n
-    ) || /\bvanity\b[^.]{0,50}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(n)
+  return bathroomNoteClauseHas(
+    n,
+    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,70}\bvanity\b|\bvanity\b[^.]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/
   );
 }
 
 function notesMentionDemoCountertop(n: string): boolean {
-  return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,90}\b(countertops?|counters?|vanity\s+top)\b/.test(
-      n
-    ) ||
-    /\b(countertops?|counters?|vanity\s+top)\b[^.]{0,50}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
-      n
-    )
+  return bathroomNoteClauseHas(
+    n,
+    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b|\b(?:countertops?|counters?|vanity\s+top)\b[^.]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/
   );
 }
 
@@ -380,6 +378,20 @@ export type BathroomToiletFaucetCounts = {
 };
 
 /** Remove / new toilet and a new faucet, only when the note names them. */
+export function fillBlankToiletFaucetCounts(
+  current: BathroomToiletFaucetCounts,
+  inferred: BathroomToiletFaucetCounts
+): BathroomToiletFaucetCounts {
+  return {
+    bathroomDemoToiletCount:
+      current.bathroomDemoToiletCount ?? inferred.bathroomDemoToiletCount,
+    bathroomInstallToiletCount:
+      current.bathroomInstallToiletCount ?? inferred.bathroomInstallToiletCount,
+    bathroomInstallFaucetCount:
+      current.bathroomInstallFaucetCount ?? inferred.bathroomInstallFaucetCount,
+  };
+}
+
 export function inferBathroomToiletFaucetCounts(
   notes: string | null | undefined
 ): BathroomToiletFaucetCounts {
@@ -461,7 +473,7 @@ function shouldDemoVanity(params: {
     Boolean(params.vanityDemoIncluded) ||
     checklistIncluded(items, 'vanity_demo') ||
     inferItemStateFromNotes('vanity_demo', n) === 'included' ||
-    (hasExisting && notesMentionDemoVanity(n)) ||
+    notesMentionDemoVanity(n) ||
     (hasExisting && installing)
   );
 }
@@ -480,7 +492,7 @@ function shouldDemoCountertop(params: {
     Boolean(params.countertopDemoIncluded) ||
     checklistIncluded(items, 'countertop_demo') ||
     inferItemStateFromNotes('countertop_demo', n) === 'included' ||
-    (hasExisting && notesMentionDemoCountertop(n)) ||
+    notesMentionDemoCountertop(n) ||
     (hasExisting && installing)
   );
 }

@@ -717,6 +717,18 @@ describe('scopeItemNoteHints roofing inference', () => {
       'Utilities are not in this bid',
     ]);
     expect(noteExclusionNotices('Kitchen remodel. No prices yet.')).toEqual([]);
+    expect(
+      noteExclusionNotices(
+        'Electrical rough-in for a 2,400 sqft new construction home: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.'
+      )
+    ).toEqual([
+      'Fixtures are not in this bid',
+      'Fans are not in this bid',
+      'Low-voltage is not in this bid',
+      'EV charging is not in this bid',
+      'Utility work is not in this bid',
+      'Final trim is not in this bid',
+    ]);
   });
 });
 
@@ -1001,6 +1013,16 @@ describe('ground-up owner-handled scope exclusions', () => {
         templateKey: 'room_remodel',
       })
     ).toBe(true);
+    expect(
+      shouldSeedWholeProjectShellChecklist({
+        floorAreaSqft: 2400,
+        garageSqft: 1000,
+        templateKey: 'ground_up',
+        projectType: 'new_build',
+        notes:
+          'Electrical rough-in for a 2,400 sqft new construction home: 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.',
+      })
+    ).toBe(false);
     expect(
       shouldSeedWholeProjectShellChecklist({
         mixedScope: true,

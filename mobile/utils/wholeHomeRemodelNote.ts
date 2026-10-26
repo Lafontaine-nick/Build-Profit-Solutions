@@ -1,3 +1,5 @@
+import { affirmativeNoteText } from '@/utils/scopeItemNoteHints';
+
 /**
  * A measured whole-home remodel names the house size and the trades.
  * "Kitchen and bathroom updates" is a work area, not a kitchen-floor takeoff.
@@ -160,7 +162,7 @@ export function notesNameOwnerSuppliedAppliances(
   notes: string | null | undefined
 ): boolean {
   const text = String(notes || '');
-  return /\bappliances?\b[^.;\n]{0,48}\b(?:owner|customer)[-\s]?(?:supplied|provided|provides|providing)\b|\b(?:owner|customer)[-\s]?(?:supplied|provided|provides|providing)\b[^.;\n]{0,48}\bappliances?\b/i.test(
+  return /\bappliances?\b[^.;\n]{0,48}\b(?:owner|customer)[-\s]?(?:suppl(?:y|ies|ied)|provided|provides|providing)\b|\b(?:owner|customer)[-\s]?(?:suppl(?:y|ies|ied)|provided|provides|providing)\b[^.;\n]{0,48}\bappliances?\b/i.test(
     text
   );
 }
@@ -409,8 +411,9 @@ export function wholeHomeRemodelNamedItemIds(
   ) {
     ids.add('cabinets');
   }
+  const affirmative = affirmativeNoteText(text);
   for (const [id, pattern] of OTHER_WHOLE_HOME_TRADES) {
-    if (pattern.test(text)) ids.add(id);
+    if (pattern.test(affirmative)) ids.add(id);
   }
   if (
     /\bappliances?\b/i.test(text) &&

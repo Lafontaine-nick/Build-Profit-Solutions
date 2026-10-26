@@ -5,6 +5,7 @@
  * Two known jobs in one note become two lines, even when that pair has
  * never been taught.
  */
+import { notesNameBathroomAssembly } from '@/utils/bathroomNoteScope';
 
 export type NoteClauseLine = {
   id: string;
@@ -461,7 +462,8 @@ export function noteKeepsItsOwnChecklist(
       text
     ) ||
     /\b(?:room|home|bedroom|garage)\s+addition\b/i.test(text) ||
-    /\b(?:kitchen|bathroom|bath)\s+(?:remodel|renovation|reno)\b/i.test(text)
+    /\b(?:kitchen|bathroom|bath)\s+(?:remodel|renovation|reno)\b/i.test(text) ||
+    notesNameBathroomAssembly(text)
   ) {
     return true;
   }

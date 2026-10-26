@@ -1,4 +1,8 @@
-import { notesKeepExistingWetArea } from '@/utils/bathroomNoteScope';
+import {
+  bathroomNoteClauseHas,
+  notesKeepExistingWetArea,
+} from '@/utils/bathroomNoteScope';
+import { kitchenNoteNamesSurfaceDemo } from '@/utils/kitchenNoteScope';
 import {
   notesImplyExteriorFlatwork,
   notesImplyStructuralFoundation,
@@ -579,9 +583,39 @@ const NON_SCOPE_EXCLUSION =
   /^(?:pricing|prices?|rates?|costs?|numbers?|totals?|bid\s+totals?|material(?:s)?(?:\s+(?:or|and)\s+labor)?|labor|measurements?|dimensions?|sizes?|quantit(?:y|ies)|info(?:rmation)?|idea|clue|yet)\b/i;
 
 function clauseStartsNegated(clause: string): boolean {
-  return /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't)\b/i.test(
+  return /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't|does not|doesn't|excludes?|excluded|not\s+included|not\s+to\s+include)\b/i.test(
     clause.trim()
   );
+}
+
+/** Text with "No …" and "Excludes …" clauses removed, so a denied trade is not read as included work. */
+export function affirmativeNoteText(notes: string | null | undefined): string {
+  const kept: string[] = [];
+  for (const sentence of String(notes || '').split(/[.\n;]+/)) {
+    let carrying = false;
+    const parts: string[] = [];
+    for (const raw of sentence.split(',')) {
+      const clause = raw.trim();
+      if (!clause) continue;
+      if (clauseStartsNegated(clause)) {
+        carrying = true;
+        continue;
+      }
+      if (carrying) {
+        if (
+          /^(?:include|including|install|add|replace|remove|with|plus)\b/i.test(
+            clause
+          )
+        ) {
+          carrying = false;
+        }
+        continue;
+      }
+      parts.push(clause);
+    }
+    if (parts.length) kept.push(parts.join(', '));
+  }
+  return kept.join('. ');
 }
 
 /** "No gutters, siding, or interior" keeps the "no" across the comma list. */
@@ -616,7 +650,7 @@ function expandedNegatedClauses(notes: string | null | undefined): string[] {
 function genericExclusionLabels(clause: string): string[] {
   const subject = clause
     .replace(
-      /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't)\s+/i,
+      /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't|does not|doesn't|excludes?|excluded|not\s+included|not\s+to\s+include)\s+/i,
       ''
     )
     .replace(/^(?:include|including)\s+/i, '')
@@ -641,6 +675,36 @@ function genericExclusionLabels(clause: string): string[] {
     });
 }
 
+/** Kitchen hookups. Whole-house "plumbing" on a new house is not this card. */
+export function notesAskForPlumbingConnections(
+  notes: string | null | undefined
+): boolean {
+  return /\bplumbing\s+connections?\b|\bdishwashers?\b|\bgas\s+shut-?off\b|\bsink\s+hook-?ups?\b/i.test(
+    String(notes || '')
+  );
+}
+
+/**
+ * A deck, patio, or porch the note actually includes. "No deck" and a
+ * concrete patio (flatwork) do not count.
+ */
+export function notesNameAffirmativeDeckOrPatio(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  const deck =
+    /\bdecks?\b/i.test(text) && !noteMentionIsOnlyNegated(text, /\bdecks?\b/i);
+  const coveredPatio = /\bcovered\s+patio\b/i.test(text);
+  const patio =
+    /\bpatios?\b/i.test(text) &&
+    !noteMentionIsOnlyNegated(text, /\bpatios?\b/i) &&
+    (coveredPatio || !/\bconcrete\s+patio\b/i.test(text));
+  const porch =
+    /\bporches?\b/i.test(text) &&
+    !noteMentionIsOnlyNegated(text, /\bporches?\b/i);
+  return deck || patio || porch;
+}
+
 /** A leading "no / not / without" clause is the only mention of this term. */
 export function noteMentionIsOnlyNegated(
   notes: string | null | undefined,
@@ -651,7 +715,13 @@ export function noteMentionIsOnlyNegated(
   for (const raw of String(notes || '').split(/[.;,\n]+/)) {
     const clause = raw.trim();
     if (!clause || !pattern.test(clause)) continue;
-    if (/^(?:no|not|without|do not|don't)\b/i.test(clause)) negated = true;
+    if (
+      /^(?:no|not|without|do not|don't|does not|doesn't|excludes?|excluded|not\s+included|not\s+to\s+include)\b/i.test(
+        clause
+      )
+    ) {
+      negated = true;
+    }
     else positive = true;
   }
   return negated && !positive;
@@ -695,6 +765,13 @@ export function noteExclusionNotices(
       pushExclusionNotice(notices, seen, label);
     }
   }
+  if (
+    /\bappliances?\b[^.;\n]{0,48}\b(?:owner|customer)[-\s]?(?:suppl(?:y|ies|ied)|provided|provides|providing)\b|\b(?:owner|customer)[-\s]?(?:suppl(?:y|ies|ied)|provided|provides|providing)\b[^.;\n]{0,48}\bappliances?\b/i.test(
+      String(notes || '')
+    )
+  ) {
+    pushExclusionNotice(notices, seen, 'Appliances are not in this bid');
+  }
   return notices;
 }
 
@@ -712,6 +789,23 @@ export function inferItemStateFromNotes(
     return 'excluded';
   }
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
+  if (itemId === 'vanity_demo' || itemId === 'countertop_demo') {
+    const hint = CHECKLIST_YES_HINTS[itemId];
+    return hint && bathroomNoteClauseHas(n, hint) ? 'included' : 'unsure';
+  }
+  if (
+    itemId === 'cabinet_demo' ||
+    itemId === 'backsplash_demo' ||
+    itemId === 'island_demo'
+  ) {
+    const surface =
+      itemId === 'cabinet_demo'
+        ? 'cabinet'
+        : itemId === 'backsplash_demo'
+          ? 'backsplash'
+          : 'island';
+    return kitchenNoteNamesSurfaceDemo(notes, surface) ? 'included' : 'unsure';
+  }
   if (
     (itemId === 'gutters' || itemId === 'downspouts') &&
     noteMentionIsOnlyNegated(

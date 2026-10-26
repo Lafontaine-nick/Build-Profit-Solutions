@@ -6189,6 +6189,37 @@ export default function EstimateGeneratorScreen() {
     transitionToAiReview,
   ]);
 
+  const handleScopeStructureNotes = useCallback((notes) => {
+    const text = String(notes || '').trim();
+    if (!text) return;
+    setAiDraftNotes(text);
+    const persistGeneration = aiDraftPersistGenerationRef.current;
+    setAiDraft((prev) => {
+      if (!prev || persistGeneration !== aiDraftPersistGenerationRef.current) {
+        return prev;
+      }
+      if (String(prev.originalNotes || '').trim() === text) return prev;
+      const nextDraft = { ...prev, originalNotes: text };
+      const updatedAt = Date.now();
+      void clearAiDraftProgressClearedMarker().catch(() => {});
+      AsyncStorage.setItem(
+        AI_DRAFT_PROGRESS_STORAGE_KEY,
+        JSON.stringify({
+          draft: nextDraft,
+          notes: text,
+          fromAssistant: aiDraftFromAssistant,
+          planImport: aiLastPlanImport || planImportPayloadFromDraft(nextDraft),
+          photoDetections: aiPhotoDetections,
+          photoExistingFeatures: aiPhotoExistingFeatures,
+          sitePhotos: aiSitePhotos,
+          stage: 'scope',
+          updatedAt,
+        })
+      ).catch((e) => console.warn('persist structured scope notes failed', e));
+      return nextDraft;
+    });
+  }, [aiDraftFromAssistant, aiLastPlanImport, aiPhotoDetections, aiPhotoExistingFeatures, aiSitePhotos]);
+
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     const persistGeneration = aiDraftPersistGenerationRef.current;
     setAiDraft((prev) => {
@@ -23848,6 +23879,7 @@ export default function EstimateGeneratorScreen() {
         onConfirmBegin={handleConfirmScopeAssumptionsBegin}
         onConfirmCancel={handleConfirmScopeAssumptionsCancel}
         onPersistProgress={handlePersistScopeProgress}
+        onScopeNotesChange={handleScopeStructureNotes}
         pricingContext={aiScopePricingContext}
         hasSitePhotos={aiSitePhotos.length > 0}
       />

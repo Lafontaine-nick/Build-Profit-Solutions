@@ -10,6 +10,7 @@ import {
   filterRoofingScopeSelectionsForTearOffInstall,
   hvacNotesDropSystemPackage,
   hvacNotesLeaveOptionAlone,
+  hvacNotesNameInstalledSystem,
   inferRoofingTradeScopeSelectionsFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import {
@@ -1461,9 +1462,12 @@ export function inferHvacScopeSelectionsFromNotes(
   const text = String(notes || '');
   const inferred: string[] = [];
   const miniSplitMentioned = /\bmini[\s-]?split\b/i.test(text);
+  const heatPumpIsTheEquipment =
+    /\bheat[\s-]*pumps?\b/i.test(text) && !hvacNotesNameInstalledSystem(text);
   if (miniSplitMentioned) inferred.push('mini_split');
   if (
     !miniSplitMentioned &&
+    !heatPumpIsTheEquipment &&
     /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i.test(
       text
     ) &&

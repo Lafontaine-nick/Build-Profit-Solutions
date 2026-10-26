@@ -165,6 +165,7 @@ import {
 import {
   inferExistingBathroomFixturesFromNotes,
   inferBathroomFixtureInstallFromIntent,
+  fillBlankToiletFaucetCounts,
   inferBathroomToiletFaucetCounts,
   readBathroomDemoFixtureCounts,
   readBathroomExistingFixtureCounts,
@@ -184,7 +185,10 @@ import {
   normalizeBathroomVanityCountertopMaterialType,
   type BathroomVanityCountertopMaterialType,
 } from '@/utils/bathroomVanityCountertopPricing';
-import { bathroomAffirmativeNotes } from '@/utils/bathroomNoteScope';
+import {
+  bathroomAffirmativeNotes,
+  bathroomNoteClauseHas,
+} from '@/utils/bathroomNoteScope';
 import { BATHROOM_QM_STEPPER_MAX } from '@/utils/planBathRooms';
 
 const BATHROOM_QM_PARENT_FLUSH_MS = 150;
@@ -3825,6 +3829,7 @@ export const QmBathroomFixturesPanels = React.memo(
       const genRef = useRef(0);
       const appliedRef = useRef(0);
       const fixtureInstallNotesSeededRef = useRef('');
+      const fixtureDemoNotesSeededRef = useRef('');
       const fixtureNoteCountsSeededRef = useRef(false);
       const demoOverridesRef = useRef<
         Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>
@@ -3887,32 +3892,42 @@ export const QmBathroomFixturesPanels = React.memo(
         }
       }, [measurements.countertopSqft]);
 
-      const toiletFaucetSeededRef = useRef(false);
       const onBathroomFixturesQmChangeRef = useRef(onBathroomFixturesQmChange);
       onBathroomFixturesQmChangeRef.current = onBathroomFixturesQmChange;
       const setMeasurementsRef = useRef(setMeasurements);
       setMeasurementsRef.current = setMeasurements;
       useEffect(() => {
-        if (toiletFaucetSeededRef.current) return;
-        toiletFaucetSeededRef.current = true;
         const inferred = inferBathroomToiletFaucetCounts(notes);
-        setToiletFaucet(inferred);
+        setToiletFaucet(prev => {
+          const next = fillBlankToiletFaucetCounts(prev, inferred);
+          if (
+            next.bathroomDemoToiletCount === prev.bathroomDemoToiletCount &&
+            next.bathroomInstallToiletCount === prev.bathroomInstallToiletCount &&
+            next.bathroomInstallFaucetCount === prev.bathroomInstallFaucetCount
+          ) {
+            return prev;
+          }
+          return next;
+        });
         setMeasurements(prev => {
+          const next = fillBlankToiletFaucetCounts(
+            {
+              bathroomDemoToiletCount: prev.bathroomDemoToiletCount ?? null,
+              bathroomInstallToiletCount: prev.bathroomInstallToiletCount ?? null,
+              bathroomInstallFaucetCount: prev.bathroomInstallFaucetCount ?? null,
+            },
+            inferred
+          );
           if (
-            prev.bathroomDemoToiletCount != null ||
-            prev.bathroomInstallToiletCount != null ||
-            prev.bathroomInstallFaucetCount != null
+            next.bathroomDemoToiletCount === (prev.bathroomDemoToiletCount ?? null) &&
+            next.bathroomInstallToiletCount ===
+              (prev.bathroomInstallToiletCount ?? null) &&
+            next.bathroomInstallFaucetCount ===
+              (prev.bathroomInstallFaucetCount ?? null)
           ) {
             return prev;
           }
-          if (
-            inferred.bathroomDemoToiletCount == null &&
-            inferred.bathroomInstallToiletCount == null &&
-            inferred.bathroomInstallFaucetCount == null
-          ) {
-            return prev;
-          }
-          return { ...prev, ...inferred };
+          return { ...prev, ...next };
         });
       }, [notes, setMeasurements]);
 
@@ -3959,17 +3974,15 @@ export const QmBathroomFixturesPanels = React.memo(
         });
         const notesSignature = String(notes || '').trim();
         const shouldSeedFromNotes =
-          fixtureInstallNotesSeededRef.current !== notesSignature &&
-          savedInstall.bathroomInstallVanityCount == null &&
-          savedInstall.bathroomInstallCounterCount == null;
+          fixtureInstallNotesSeededRef.current !== notesSignature;
         const resolvedInstall = shouldSeedFromNotes
           ? {
               bathroomInstallVanityCount:
-                inferredInstall.bathroomInstallVanityCount ??
-                savedInstall.bathroomInstallVanityCount,
+                savedInstall.bathroomInstallVanityCount ??
+                inferredInstall.bathroomInstallVanityCount,
               bathroomInstallCounterCount:
-                inferredInstall.bathroomInstallCounterCount ??
-                savedInstall.bathroomInstallCounterCount,
+                savedInstall.bathroomInstallCounterCount ??
+                inferredInstall.bathroomInstallCounterCount,
             }
           : savedInstall;
         if (shouldSeedFromNotes) {
@@ -4009,7 +4022,9 @@ export const QmBathroomFixturesPanels = React.memo(
           install: resolvedInstall,
           checklistItems: [],
         });
-        const nextDemo: BathroomDemoFixtureCounts = noteFallback
+        const demoNotesChanged = fixtureDemoNotesSeededRef.current !== notesSignature;
+        if (demoNotesChanged) fixtureDemoNotesSeededRef.current = notesSignature;
+        const nextDemo: BathroomDemoFixtureCounts = demoNotesChanged
           ? {
               bathroomDemoVanityCount:
                 savedDemo.bathroomDemoVanityCount ??
@@ -4018,7 +4033,31 @@ export const QmBathroomFixturesPanels = React.memo(
                 savedDemo.bathroomDemoCounterCount ??
                 inferredDemo.bathroomDemoCounterCount,
             }
-          : savedDemo;
+          : {
+              bathroomDemoVanityCount:
+                savedDemo.bathroomDemoVanityCount ??
+                demoRef.current.bathroomDemoVanityCount,
+              bathroomDemoCounterCount:
+                savedDemo.bathroomDemoCounterCount ??
+                demoRef.current.bathroomDemoCounterCount,
+            };
+        if (
+          demoNotesChanged &&
+          ((savedDemo.bathroomDemoVanityCount == null &&
+            nextDemo.bathroomDemoVanityCount != null) ||
+            (savedDemo.bathroomDemoCounterCount == null &&
+              nextDemo.bathroomDemoCounterCount != null))
+        ) {
+          setMeasurementsRef.current(prev =>
+            withUnchangedMeasurementPatch(prev, {
+              bathroomDemoVanityCount:
+                prev.bathroomDemoVanityCount ?? nextDemo.bathroomDemoVanityCount,
+              bathroomDemoCounterCount:
+                prev.bathroomDemoCounterCount ??
+                nextDemo.bathroomDemoCounterCount,
+            })
+          );
+        }
         if (!bathroomDemoCountsSame(demoRef.current, nextDemo)) {
           setDemo(nextDemo);
         }
@@ -4435,15 +4474,35 @@ export const QmBathroomFixturesPanels = React.memo(
       );
 
       const noteText = bathroomAffirmativeNotes(notes);
-      const notesMentionVanity = /\bvanit(?:y|ies)\b/i.test(
-        noteText.replace(/\bvanity\s+(?:lights?|lighting)\b/gi, ' ')
+      const vanityForInstall = noteText.replace(
+        /\bvanity\s+(?:lights?|lighting)\b/gi,
+        ' '
+      );
+      const notesMentionVanity = /\bvanit(?:y|ies)\b/i.test(vanityForInstall);
+      const notesNameNewVanity =
+        /\b(?:new|install|replace)\b[^.]{0,50}\bvanit(?:y|ies)\b/i.test(
+          vanityForInstall
+        ) ||
+        /\bvanit(?:y|ies)\b[^.]{0,40}\b(?:new|install|replace)\b/i.test(
+          vanityForInstall
+        );
+      const notesNameDemoVanity = bathroomNoteClauseHas(
+        vanityForInstall,
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bvanit(?:y|ies)\b/i
+      );
+      const notesNameNewCountertop =
+        /\b(?:new|install|replace)\b[^.]{0,40}\b(?:countertops?|counters?|quartz|granite|vanity\s+top)\b/i.test(
+          noteText
+        ) ||
+        /\b(?:countertops?|counters?|quartz|granite|vanity\s+top)\b[^.]{0,40}\b(?:new|install|replace)\b/i.test(
+          noteText
+        );
+      const notesNameDemoCountertop = bathroomNoteClauseHas(
+        noteText,
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b/i
       );
       const notesMentionCountertop =
         /\b(?:countertops?|counters?|quartz|granite|vanity\s+top)\b/i.test(
-          noteText
-        );
-      const hasExistingVanityOrCounter =
-        /\b(?:existing|remove|removal|demo|replace|replacement)\b[^.;\n]{0,50}\b(?:vanit(?:y|ies)|countertops?|counters?)\b|\b(?:vanit(?:y|ies)|countertops?|counters?)\b[^.;\n]{0,50}\b(?:existing|remove|removal|demo|replace|replacement)\b/i.test(
           noteText
         );
       const openBathroomRemodel =
@@ -4458,32 +4517,38 @@ export const QmBathroomFixturesPanels = React.memo(
         : BATHROOM_INSTALL_FIXTURE_ROWS.filter(
             row =>
               row.key === 'bathroomInstallVanityCount'
-                ? notesMentionVanity ||
+                ? notesNameNewVanity ||
                   install.bathroomInstallVanityCount != null
-                : notesMentionCountertop ||
+                : notesNameNewCountertop ||
                   install.bathroomInstallCounterCount != null
           );
+      const notesNameExistingVanity =
+        /\b(?:existing|current|old)\s+vanit(?:y|ies)\b/i.test(vanityForInstall);
+      const notesNameExistingCountertop =
+        /\b(?:existing|current|old)\s+(?:vanity\s+)?(?:countertops?|counters?|top)\b/i.test(
+          noteText
+        );
       const visibleBathroomExistingRows = BATHROOM_EXISTING_FIXTURE_ROWS.filter(
         row =>
           row.key === 'bathroomExistingVanityCount'
-            ? hasExistingVanityOrCounter &&
-              (notesMentionVanity ||
-                existing.bathroomExistingVanityCount != null)
-            : hasExistingVanityOrCounter &&
-              (notesMentionCountertop ||
-                existing.bathroomExistingCounterCount != null)
+            ? notesNameExistingVanity ||
+              existing.bathroomExistingVanityCount != null
+            : notesNameExistingCountertop ||
+              existing.bathroomExistingCounterCount != null
       );
       const visibleBathroomDemoRows = BATHROOM_DEMO_FIXTURE_ROWS.filter(row => {
         if (row.key === 'bathroomDemoVanityCount') {
           return (
-            existing.bathroomExistingVanityCount != null ||
-            (hasExistingVanityOrCounter && notesMentionVanity)
+            notesNameDemoVanity ||
+            demo.bathroomDemoVanityCount != null ||
+            existing.bathroomExistingVanityCount != null
           );
         }
         if (row.key === 'bathroomDemoCounterCount') {
           return (
-            existing.bathroomExistingCounterCount != null ||
-            (hasExistingVanityOrCounter && notesMentionCountertop)
+            notesNameDemoCountertop ||
+            demo.bathroomDemoCounterCount != null ||
+            existing.bathroomExistingCounterCount != null
           );
         }
         return true;
@@ -4548,7 +4613,7 @@ export const QmBathroomFixturesPanels = React.memo(
                       label='Vanity cabinet LF'
                       helperText='Cabinet run length for this vanity — LF, not fixture count.'
                       value={cabinetLfDraft}
-                      placeholder='0'
+                      placeholder='Enter LF'
                       unitLabel='LF'
                       helperGap={14}
                       sectionLead

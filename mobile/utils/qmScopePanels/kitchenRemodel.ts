@@ -1,5 +1,6 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
+  kitchenNoteInstallsNewCabinets,
   kitchenNoteNamesSurfaceDemo,
   type KitchenDemoSurface,
 } from '@/utils/kitchenNoteScope';
@@ -383,12 +384,27 @@ export function inferKitchenInstallFromIntent(params: {
     kitchenInstallFlooringCount: null,
     kitchenInstallIslandCount: null,
   };
-  if (checklistIncluded(items, 'cabinets') || inferItemStateFromNotes('cabinets', n) === 'included') {
+  const notesNameNewCabinets = kitchenNoteInstallsNewCabinets(params.notes);
+  const cabinetMentionIsRemoval =
+    kitchenNoteNamesSurfaceDemo(params.notes, 'cabinet') && !notesNameNewCabinets;
+  const notesNameNewCounters = n.split(/[.\n,]/).some(clause =>
+    /\b(?:install|new|replace|supply|quartz|granite)\b[^.]{0,40}\b(?:countertops?|counters?|tops)\b|\b(?:countertops?|counters?)\b[^.]{0,40}\b(?:install|new|replace|supply|quartz|granite)\b/i.test(
+      clause
+    )
+  );
+  const counterMentionIsRemoval =
+    kitchenNoteNamesSurfaceDemo(params.notes, 'counter') && !notesNameNewCounters;
+  if (
+    checklistIncluded(items, 'cabinets') ||
+    (!cabinetMentionIsRemoval &&
+      inferItemStateFromNotes('cabinets', n) === 'included')
+  ) {
     out.kitchenInstallCabinetCount = 1;
   }
   if (
     checklistIncluded(items, 'countertops') ||
-    inferItemStateFromNotes('countertops', n) === 'included'
+    (!counterMentionIsRemoval &&
+      inferItemStateFromNotes('countertops', n) === 'included')
   ) {
     out.kitchenInstallCounterCount = 1;
   }
@@ -445,11 +461,8 @@ export function resolveKitchenDemoFromIntent(params: {
   const islandCountertopOnly =
     /\bisland\s+(?:countertops?|counters?)\b|\b(?:countertops?|counters?)\s+on\s+(?:the\s+)?island\b/.test(n);
 
-  const explicitCabinetDemo =
-    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,50}\b(?:cabinets?|built[\s-]?ins?)\b/.test(n);
-  const explicitCounterDemo =
-    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,50}\b(?:countertops?|counters?)\b/.test(n) ||
-    /\b(?:countertops?|counters?)\b[^.]{0,50}\b(?:demo|remove|tear[\s-]?out)\b/.test(n);
+  const explicitCabinetDemo = kitchenNoteNamesSurfaceDemo(params.notes, 'cabinet');
+  const explicitCounterDemo = kitchenNoteNamesSurfaceDemo(params.notes, 'counter');
   const cabinetDemo =
     checklistIncluded(items, 'cabinet_demo') ||
     inferItemStateFromNotes('cabinet_demo', n) === 'included' ||
@@ -503,9 +516,10 @@ export function resolveKitchenDemoFromIntent(params: {
     demo.kitchenDemoCounterCount = 1;
   }
 
-  const explicitIslandBaseDemo =
-    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b/.test(n) ||
-    /\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/.test(n);
+  const explicitIslandBaseDemo = kitchenNoteNamesSurfaceDemo(
+    params.notes,
+    'island'
+  );
   if (
     (checklistIncluded(items, 'island_demo') ||
       inferItemStateFromNotes('island_demo', n) === 'included' ||

@@ -1,4 +1,16 @@
 import {
+  aiFlowStepTotal,
+  repairDraftRatePricingFromNotes,
+} from '../../utils/estimateAiDraft';
+import {
+  draftNeedsScopeConfirmation,
+  getInitialRevealPrimaryCtaLabel,
+  getInitialRevealTagline,
+  getInitialRevealUnderstoodBullets,
+  shouldShowInitialRevealWhatWeFound,
+} from '../../utils/estimateInitialRevealUi';
+import {
+  applyNamedBathroomConfirmChoices,
   bathroomChecklistItemNamedInNotes,
   bathroomNoteTakeoff,
   bathroomScopeLines,
@@ -6,8 +18,10 @@ import {
   notesAskForSeparateHaulOff,
   notesKeepExistingWetArea,
   notesMentionStructuralFraming,
+  notesNameBathroomAssembly,
   shouldLimitBathroomChecklistToNotes,
 } from '../../utils/bathroomNoteScope';
+import { buildConfirmScopeDisplayItems } from '../../utils/scopePackagesForReview';
 import {
   ensureBathroomVisiblePricingCards,
   hydrateScopeChecklistFromNotes,
@@ -714,6 +728,103 @@ describe('bathroom note checklist', () => {
     expect(bathroomChecklistItemNamedInNotes('shower_tile', notes)).toBe(false);
   });
 
+  it('puts a toilet named after the checklist loaded onto Confirm Scope', () => {
+    const notes =
+      'Bathroom remodel.\nTile the shower walls, Tile the bathroom floor, New shower door, Build a mud pan, New toilet';
+    const chosen = applyNamedBathroomConfirmChoices(
+      [
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          inputType: 'choice',
+          state: 'unsure',
+          choiceId: null,
+        },
+        {
+          id: 'paint_repair',
+          label: 'Paint',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+      ],
+      notes,
+      'bathroom'
+    );
+    const toilet = chosen.find(item => item.id === 'toilet');
+    expect(toilet).toMatchObject({ choiceId: 'replacing', state: 'included' });
+    expect(checklistItemInScope(toilet!)).toBe(true);
+    expect(chosen.find(item => item.id === 'paint_repair')?.state).toBe(
+      'unsure'
+    );
+
+    const withPaint = applyNamedBathroomConfirmChoices(
+      chosen,
+      `${notes}, Paint the walls`,
+      'bathroom'
+    );
+    expect(withPaint.find(item => item.id === 'paint_repair')?.state).toBe(
+      'included'
+    );
+
+    const display = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          inputType: 'choice',
+          state: 'unsure',
+          choiceId: null,
+        },
+      ],
+      {},
+      'bathroom',
+      notes
+    );
+    expect(display.find(item => item.id === 'toilet')).toMatchObject({
+      choiceId: 'replacing',
+      state: 'included',
+    });
+    expect(
+      applyNamedBathroomConfirmChoices(
+        [
+          {
+            id: 'toilet',
+            label: 'Toilet',
+            inputType: 'choice',
+            state: 'unsure',
+            choiceId: null,
+          },
+        ],
+        'Remodel the bathroom. Install a new shower door. Leave the bathroom floor, vanity, and toilet.',
+        'bathroom'
+      ).find(item => item.id === 'toilet')?.choiceId
+    ).toBeNull();
+  });
+
+  it('keeps a new floor and a new vanity off the tear-out lines', () => {
+    const notes =
+      'Bathroom remodel.\nDemo the shower tile, Tile the shower walls, Remove the countertop, New countertop, New vanity, Tile the bathroom floor, New shower door, Paint the walls';
+    expect(bathroomScopeLines(notes).map(line => line.id).sort()).toEqual(
+      [
+        'countertop_demo',
+        'countertops',
+        'demo',
+        'floor_tile',
+        'glass_door',
+        'paint_repair',
+        'shower_tile',
+        'vanity',
+        'wet_area_install',
+      ].sort()
+    );
+    expect(bathroomNoteTakeoff(notes)).toMatchObject({
+      showerWallDemo: true,
+      showerWallSqft: true,
+      bathFloorDemo: false,
+      bathFloorSqft: true,
+    });
+  });
+
   it('drops unnamed bathroom rows and keeps custom rows', () => {
     const filtered = filterDedicatedBathroomConfirmItems(
       [
@@ -725,5 +836,74 @@ describe('bathroom note checklist', () => {
       { notes: TUB, templateKey: 'bathroom', scopeMode: 'dedicated' }
     );
     expect(filtered.map(item => item.id)).toEqual(['tub_demo', 'custom_1']);
+  });
+});
+
+describe('bathroom floor tile and a toilet', () => {
+  const notes = 'Tile the bathroom floor, 45 sqft. New toilet.';
+
+  it('opens confirm scope with the floor tile and one toilet', () => {
+    expect(notesNameBathroomAssembly(notes)).toBe(true);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'flooring',
+        projectTitle: 'Bathroom Floor Tile and Toilet Installation',
+        estimateTier: 'simple_unit',
+        originalNotes: notes,
+        whatAiDid: ['Detected flooring job.'],
+        missingInfo: ['Permit responsibility'],
+        needsReviewItems: ['Toilet make, model, and material allowance'],
+        stillNeededReview: ['Permit responsibility'],
+        scopeChecklist: null,
+        scopePackages: [{ name: 'Bathroom', price: null }],
+        rooms: [{ name: 'Bathroom', sqft: 45 }],
+      } as never,
+      notes
+    );
+    expect(repaired.estimateTier).toBe('room_remodel');
+    expect(repaired.projectType).toBe('bathroom');
+    expect(repaired.scopeChecklist?.templateKey).toBe('bathroom');
+    expect(repaired.scopeChecklist?.items.map(item => item.id).sort()).toEqual(
+      ['floor_tile', 'toilet']
+    );
+    expect(
+      repaired.scopeChecklist?.items.find(item => item.id === 'toilet')
+        ?.choiceId
+    ).toBe('replacing');
+    expect(repaired.scopeMeasurements?.bathroomFloorSqft).toBe(45);
+    expect(repaired.scopeMeasurements?.bathroomInstallToiletCount).toBe(1);
+    expect(repaired.missingInfo).toEqual([]);
+    expect(repaired.needsReviewItems).toEqual([]);
+    expect(repaired.whatAiDid).toEqual(['Detected bathroom work.']);
+    expect(draftNeedsScopeConfirmation(repaired)).toBe(true);
+    expect(aiFlowStepTotal(repaired)).toBe(3);
+    expect(
+      getInitialRevealPrimaryCtaLabel(9, draftNeedsScopeConfirmation(repaired))
+    ).toBe('Confirm scope');
+    expect(getInitialRevealTagline(repaired)).toBe('Detected bathroom work.');
+  });
+
+  it('drops an interior painting sentence the note never named', () => {
+    const priced = {
+      originalNotes: notes,
+      projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
+      confirmedAssumptions: [{ id: 'floor_tile', state: 'included' }],
+      whatAiDid: [
+        'Detected bathroom remodel job.',
+        'Organized scope for Interior painting — no price in notes.',
+      ],
+      scopeChecklist: { templateKey: 'bathroom', items: [] },
+    } as never;
+    expect(getInitialRevealUnderstoodBullets(priced, 2)).toEqual([
+      'Detected bathroom remodel job.',
+    ]);
+    expect(getInitialRevealTagline(priced)).toBe('Detected bathroom remodel job.');
+    expect(
+      shouldShowInitialRevealWhatWeFound(
+        getInitialRevealUnderstoodBullets(priced, 2),
+        getInitialRevealTagline(priced)
+      )
+    ).toBe(false);
   });
 });

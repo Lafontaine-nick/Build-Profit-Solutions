@@ -25,6 +25,79 @@ import {
 const NOTES =
   'Remove the damaged drywall. Hang and finish 2,400 sqft with tape, mud, sanding, and texture, including 300 sqft of patch repair.';
 
+describe('drywall in the addition', () => {
+  it('keeps hang and finish, leaves the area blank, and drops unnamed remodel cards', () => {
+    const notes = 'Drywall in the addition';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        projectTitle: 'Addition Drywall',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        scopeMode: 'mixed',
+        scopeChecklist: {
+          templateKey: 'room_remodel',
+          items: [
+            {
+              id: 'drywall',
+              label: 'Drywall hang / finish',
+              state: 'included',
+              inputType: 'yes_no',
+            },
+            { id: 'framing', label: 'Framing', state: 'unsure', inputType: 'yes_no' },
+            { id: 'insulation', label: 'Insulation', state: 'unsure', inputType: 'yes_no' },
+            { id: 'paint', label: 'Interior paint', state: 'unsure', inputType: 'yes_no' },
+            { id: 'flooring', label: 'Flooring', state: 'unsure', inputType: 'yes_no' },
+            { id: 'electrical', label: 'Electrical', state: 'unsure', inputType: 'yes_no' },
+            { id: 'plumbing', label: 'Plumbing', state: 'unsure', inputType: 'yes_no' },
+            { id: 'hvac', label: 'HVAC', state: 'unsure', inputType: 'yes_no' },
+            { id: 'trim', label: 'Trim', state: 'unsure', inputType: 'yes_no' },
+            { id: 'doors', label: 'Doors', state: 'unsure', inputType: 'yes_no' },
+            { id: 'windows', label: 'Windows', state: 'unsure', inputType: 'yes_no' },
+          ],
+        },
+        scopePackages: [{ name: 'Interior remodel' }],
+        whatAiDid: ['Detected existing home interior remodel.'],
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+
+    expect(repaired.projectType).toBe('drywall');
+    expect(repaired.scopeChecklist?.templateKey).toBe('drywall');
+    expect(repaired.scopeChecklist?.items?.map(item => item.label)).toEqual([
+      'Drywall hang / finish',
+    ]);
+    expect(repaired.scopeChecklist?.items?.every(item => item.state === 'included')).toBe(
+      true
+    );
+    expect(repaired.scopeMeasurements?.drywallSqft).toBeUndefined();
+    expect(getInitialRevealTagline(repaired)).toBe('Detected drywall job.');
+    expect(
+      confirmScopeDrywallSqftLabel(notes, {
+        installNamed: false,
+        repairNamed: false,
+      })
+    ).toBe('Drywall hang / finish');
+
+    const fields = quickMeasurementRowsForInput(
+      'drywall',
+      'drywall',
+      normalizeScopeMeasurements(repaired.scopeMeasurements || {}),
+      undefined,
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.label);
+    expect(fields).toEqual(['Drywall hang / finish']);
+    expect(
+      confirmScopeDrywallSqftLabel('Drywall and paint in the addition', {
+        installNamed: false,
+        repairNamed: false,
+      })
+    ).toBe('Drywall repair area');
+  });
+});
+
 describe('dedicated drywall note', () => {
   it('prices hang at 2,400 sqft and patch at 300 sqft, with demo unquantified', () => {
     const repaired = repairDraftRatePricingFromNotes(

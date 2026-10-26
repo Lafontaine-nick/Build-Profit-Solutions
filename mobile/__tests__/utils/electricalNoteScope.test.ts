@@ -19,11 +19,25 @@ import {
 } from '@/utils/estimateInitialRevealUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { quickMeasurementRowsForTemplate } from '@/utils/scopeQuickMeasurements';
+import { affirmativeNoteText } from '@/utils/scopeItemNoteHints';
 
 const NOTE =
   'Install 8 receptacles, 4 GFCI outlets, 6 recessed lights, and one new circuit.';
 
 describe('dedicated electrical device note', () => {
+  it('keeps a new-construction rough-in on the electrical devices when the note excludes trim', () => {
+    const notes =
+      'Electrical rough-in for a 2,400 sqft new construction home: 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.';
+    expect(affirmativeNoteText(notes)).not.toMatch(/\btrim\b/i);
+    expect(notesDescribeDedicatedElectricalDeviceJob(notes)).toBe(true);
+    expect(dedicatedElectricalNamedCards(notes).map(card => card.itemId)).not.toContain(
+      'electrical_standard_fixture'
+    );
+    expect(dedicatedElectricalNamedCards(notes).map(card => card.count)).toEqual(
+      expect.arrayContaining([1, 2, 12, 4, 10, 18, 150])
+    );
+  });
+
   it('keeps the four counted lines and leaves the rest off', () => {
     expect(notesDescribeDedicatedElectricalDeviceJob(NOTE)).toBe(true);
     expect(

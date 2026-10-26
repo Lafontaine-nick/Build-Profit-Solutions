@@ -12,6 +12,7 @@ import {
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
   getInitialRevealPlanningDisclaimer,
+  draftNeedsScopeConfirmation,
   getInitialRevealPrimaryCtaLabel,
   getInitialRevealPriorityItems,
   getInitialRevealScopeMetaLabel,
@@ -28,6 +29,7 @@ import {
   splitInitialRevealConfirmItems,
 } from '@/utils/estimateInitialRevealUi';
 import {
+  aiFlowStepTotal,
   repairDraftRatePricingFromNotes,
   type EstimateAiDraft,
 } from '@/utils/estimateAiDraft';
@@ -71,6 +73,57 @@ const classificationFixtures =
   }[];
 
 describe('estimateInitialRevealUi', () => {
+  it('lists the kitchen and hall bath on an interior ranch remodel', () => {
+    const notes =
+      'Interior remodel of an existing 1,800 sqft ranch. Kitchen: demo to the studs, 16 LF cabinets, 48 sqft quartz counters, 22 sqft backsplash, new sink and faucet. Hall bath: 40 sqft floor tile, tub surround, 36-inch vanity, toilet, and paint. Flooring in the rest of the house stays. Owner supplies appliances. We pull the remodel permit.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'bathroom',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      whatAiDid: ['Detected bathroom remodel.'],
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          { id: 'toilet', label: 'Toilet', state: 'included' },
+          { id: 'vanity', label: 'Vanity', state: 'included' },
+          { id: 'faucet', label: 'Faucet', state: 'included' },
+          { id: 'paint', label: 'Paint', state: 'included' },
+          { id: 'paint_repair', label: 'Paint', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview.map(row => row.name)).toEqual([
+      'Demo to the studs',
+      'Cabinets',
+      'Counters',
+      'Backsplash',
+      'Sink and faucet',
+      'Bathroom floor tile',
+      'Tub surround',
+      'Vanity',
+      'Toilet',
+      'Paint',
+    ]);
+    expect(preview.find(row => row.name === 'Cabinets')?.quantity).toBe('16 LF');
+    expect(preview.find(row => row.name === 'Counters')?.quantity).toBe('48 sqft');
+    expect(preview.find(row => row.name === 'Backsplash')?.quantity).toBe(
+      '22 sqft'
+    );
+    expect(preview.find(row => row.name === 'Bathroom floor tile')?.quantity).toBe(
+      '40 sqft'
+    );
+    expect(preview.find(row => row.name === 'Vanity')?.quantity).toBe('36 in');
+    expect(preview.filter(row => row.name === 'Paint')).toHaveLength(1);
+    expect(preview.some(row => /cabinet removal/i.test(row.name))).toBe(false);
+    expect(preview.some(row => /^flooring\b/i.test(row.name))).toBe(false);
+    expect(getInitialRevealTagline(draft)).toBe('Kitchen and hall bath.');
+    expect(getInitialRevealConfirmItems(draft).pricingScope[0]).toBe(
+      'Appliances are not in this bid'
+    );
+  });
+
   it('names counted return grilles on Scope found', () => {
     const notes = 'Install 3 return grilles. Leave the heat pump in place.';
     const draft = {
@@ -391,6 +444,11 @@ describe('estimateInitialRevealUi', () => {
         'Conduit / raceway only',
       ])
     );
+    expect(names.join('\n')).not.toMatch(/vanity fixture/i);
+    expect(getInitialRevealConfirmItems(draft).pricingScope.slice(0, 2)).toEqual([
+      'Fixtures are not in this bid',
+      'Fans are not in this bid',
+    ]);
   });
 
   it('collapses a stated drywall repair beside flooring to one line', () => {
@@ -1682,6 +1740,24 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual(['Door / window openings']);
   });
 
+  it('sends a bare plumbing note to confirm scope', () => {
+    const draft = {
+      projectType: 'plumbing',
+      projectTitle: 'Plumbing',
+      estimateTier: 'simple_unit',
+      originalNotes: 'Plumbing.',
+      scopePackages: [{ name: 'Plumbing', status: 'missing_price' }],
+    } as EstimateAiDraft;
+    expect(draftNeedsScopeConfirmation(draft)).toBe(true);
+    expect(aiFlowStepTotal(draft)).toBe(3);
+    expect(
+      getInitialRevealPrimaryCtaLabel(
+        1,
+        draftNeedsScopeConfirmation(draft)
+      )
+    ).toBe('Confirm scope');
+  });
+
   it('builds primary CTA from attention count', () => {
     expect(getInitialRevealPrimaryCtaLabel(0)).toBe('Review & apply estimate');
     expect(getInitialRevealPrimaryCtaLabel(3)).toBe(
@@ -2002,7 +2078,63 @@ describe('estimateInitialRevealUi', () => {
       '1,960 sqft single-story home',
       'Attached 3-car garage',
       'Brick exterior',
+      'Exterior concrete flatwork',
     ]);
+  });
+
+  it('reads a new house as a new house, and leaves a denied deck off the scope list', () => {
+    const notes =
+      'New 1,960 sqft single-story home with an attached 3-car garage. Slab foundation, frame, roof, windows and exterior doors, insulation, drywall, builder-grade flooring, paint, plumbing, electrical, and HVAC. Concrete driveway and front walks. Brick veneer. Owner is handling landscaping only. No deck.';
+    const draft = {
+      projectTitle: 'Mixed-scope remodel',
+      projectType: 'new_build',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['framing', 'plumbing', 'electrical'],
+        scopeSummary: 'Mixed-scope remodel',
+      },
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [
+          { id: 'windows', label: 'Windows', state: 'included' },
+          { id: 'window_install', label: 'Window install', state: 'included' },
+          { id: 'exterior_doors', label: 'Exterior doors', state: 'included' },
+          { id: 'plumbing', label: 'Plumbing connections', state: 'included' },
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'decking', label: 'Deck', state: 'included' },
+          { id: 'cabinets', label: 'Cabinets', state: 'included' },
+          { id: 'interior_trim', label: 'Finish carpentry', state: 'included' },
+          { id: 'framing', label: 'Framing', state: 'included' },
+          { id: 'tile_flooring', label: 'Tile & flooring', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe(
+      'New 1,960 Sq Ft Single-Story Home'
+    );
+    expect(getInitialRevealTagline(draft)).toBe('Detected new build.');
+    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    expect(names).toContain('1,960 sqft single-story home');
+    expect(names).toContain('Attached 3-car garage');
+    expect(names).toContain('Brick exterior');
+    expect(names).toContain('Windows');
+    expect(names).toContain('Cabinets');
+    expect(names).toContain('Finish carpentry');
+    expect(names).toContain('Counters');
+    expect(names).toContain('Garage doors');
+    expect(names).toContain('Exterior concrete flatwork');
+    expect(names).toContain('Tile & flooring');
+    expect(names).not.toContain('Flooring installation');
+    expect(names).not.toContain('Deck');
+    expect(names).not.toContain('Plumbing connections');
+    expect(names).not.toContain('Window install');
+    expect(names).toContain('Plumbing rough-in');
+    const attention = getInitialRevealConfirmItems(draft).pricingScope;
+    expect(attention[0]).toBe('Deck is not in this bid');
+    expect(attention[1]).toBe('Landscaping is not in this bid');
   });
 
   it('drops grading that only came from builder-grade finishes', () => {

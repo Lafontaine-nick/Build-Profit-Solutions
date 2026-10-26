@@ -340,6 +340,39 @@ describe('whole-home remodel note authority', () => {
     expect(names).toContain('Bathroom updates');
     expect(names).not.toContain('Window install');
     expect(names).not.toContain('Interior door installation');
+
+    const deniedRoof =
+      'Whole house remodel. The house is 2,400 sqft. Kitchen and bathroom updates, 1,800 sqft flooring, and paint the interior. Keep the windows and doors. No addition, no foundation, no roof replacement.';
+    const roofItems = applyWholeHomeRemodelChecklist(
+      [
+        { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        { id: 'roofing', label: 'Roofing', state: 'included' },
+        { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included' },
+      ],
+      deniedRoof
+    );
+    expect(roofItems.find(item => item.id === 'roofing')?.state).toBe(
+      'excluded'
+    );
+    expect(roofItems.find(item => item.id === 'tear_off')?.state).toBe(
+      'excluded'
+    );
+    const roofPreview = getInitialRevealChecklistScopePreview({
+      originalNotes: deniedRoof,
+      projectType: 'other',
+      scopeMode: 'mixed',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          { id: 'roofing', label: 'Roofing', state: 'included' },
+          { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft);
+    expect(roofPreview.map(row => row.name)).not.toEqual(
+      expect.arrayContaining(['Roofing', 'Existing roof / tear-off', 'Roofing replacement'])
+    );
     const attention = getInitialRevealConfirmItems({
       originalNotes: notes,
       projectType: 'other',

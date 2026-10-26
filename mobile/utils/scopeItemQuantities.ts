@@ -2878,6 +2878,10 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   door_casing_paint: 'trim',
   // Window replacement/install includes the opening trim package.
   window_install: 'windows_doors',
+  /** Kitchen "demo to the studs" uses the drywall demolition band. */
+  wall_demo: 'drywall_demo',
+  /** A named tub surround is wall tile until an area is entered. */
+  tub_surround: 'shower_wall_tile',
   ...TILE_NATIONAL_AVERAGE_ALIASES,
 };
 
@@ -6073,6 +6077,25 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     canUseRoomSqft: true,
     quantityHelper:
       'Sums bathroom floor + shower walls + shower floor for full tear-out.',
+  },
+  wall_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['wallDemoSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Square feet of walls coming out. The note did not state an area.',
+    missingMessage: 'Enter the wall area coming out.',
+  },
+  tub_surround: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Tub surround tile area. The note named it and did not state square feet.',
+    missingMessage: 'Enter tub surround sqft.',
   },
   landscaping: {
     defaultUnit: 'sqft',

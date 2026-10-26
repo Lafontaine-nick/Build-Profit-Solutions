@@ -3,6 +3,7 @@
  * Empty notes, plan import, and whole-home stay on the full list.
  * A mixed note keeps trades that are not bathroom cards.
  */
+import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { notesMentionDemoShowerDoor } from '@/utils/wetAreaExistingDemo';
 
 const BATHROOM_TEMPLATE_IDS = new Set([
@@ -52,6 +53,16 @@ const BATHROOM_TEMPLATE_IDS = new Set([
 ]);
 
 /** Drop sentences that name work the note is leaving alone, plus "do not" and "no paint/lighting". */
+/** A chip list is comma-separated. A removal has to name its own fixture. */
+export function bathroomNoteClauseHas(
+  notes: string | null | undefined,
+  pattern: RegExp
+): boolean {
+  return String(notes || '')
+    .split(/[.\n,;]+/)
+    .some(clause => pattern.test(clause));
+}
+
 export function bathroomAffirmativeNotes(
   notes: string | null | undefined
 ): string {
@@ -278,7 +289,15 @@ export function bathroomScopeLines(
     );
   }
   if (namedInNotes('vanity_demo')) push('vanity_demo', 'Remove vanity');
-  if (namedInNotes('countertop_demo')) push('countertop_demo', 'Remove vanity top');
+  if (namedInNotes('countertop_demo')) {
+    const topOnly =
+      /\bvanity\s+top\b/i.test(affirmative) &&
+      !/\bcountertops?\b/i.test(affirmative);
+    push(
+      'countertop_demo',
+      topOnly ? 'Remove vanity top' : 'Remove countertop'
+    );
+  }
   if (namedInNotes('vanity')) push('vanity', 'Vanity');
   if (
     /\bquartz\s+top\b/i.test(affirmative) ||
@@ -375,7 +394,7 @@ export function bathroomChecklistItemNamedInNotes(
       }
       return named(SHOWER_WALL_TILE, text);
     case 'floor_demo':
-      return named(BATH_FLOOR_DEMO, text);
+      return bathroomNoteClauseHas(text, BATH_FLOOR_DEMO);
     case 'tub_demo':
       return named(TUB_TEAR_OUT, text);
     case 'shower_floor_demo':
@@ -384,16 +403,18 @@ export function bathroomChecklistItemNamedInNotes(
         /\b(?:remove|demo|demolition|tear[\s-]?out)\b/i.test(text)
       );
     case 'vanity_demo':
-      return /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bvanity\b/i.test(
-        text
+      return bathroomNoteClauseHas(
+        text,
+        /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bvanity\b/i
       );
     case 'fixture_demo':
       return /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(?:toilet|fixtures?)\b/i.test(
         text
       );
     case 'countertop_demo':
-      return /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b/i.test(
-        text
+      return bathroomNoteClauseHas(
+        text,
+        /\b(?:remove|demo|tear[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b/i
       );
     case 'wet_area_install':
       return (
@@ -448,10 +469,25 @@ export function bathroomChecklistItemNamedInNotes(
       return /\bmarble\s+thresholds?\b/i.test(text);
     case 'toilet':
       return /\btoilet\b/i.test(text);
-    case 'vanity':
-      return /\bvanity\b/i.test(
-        text.replace(/\bvanity\s+(?:lights?|lighting)\b/gi, ' ')
+    case 'vanity': {
+      const vanityText = text.replace(/\bvanity\s+(?:lights?|lighting)\b/gi, ' ');
+      if (!/\bvanit(?:y|ies)\b/i.test(vanityText)) return false;
+      const vanitySentences = vanityText
+        .split(/[.!\n]/)
+        .filter(sentence => /\bvanit(?:y|ies)\b/i.test(sentence));
+      if (
+        vanitySentences.some(sentence =>
+          /\b(?:new|install|replace)\b/i.test(sentence)
+        )
+      ) {
+        return true;
+      }
+      return !vanitySentences.every(sentence =>
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b/i.test(
+          sentence
+        )
       );
+    }
     case 'sink_faucet':
       return /\b(?:sink|faucet)\b/i.test(text);
     case 'lighting':
@@ -624,6 +660,76 @@ export function notesNameShowerTileWithFlooring(
   return !/\b(?:vanity|toilet|tub|bathtub|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
     text
   );
+}
+
+/** Surfaces and fixtures that belong on the bathroom checklist. */
+const NAMED_BATHROOM_ASSEMBLY_IDS = new Set([
+  'floor_tile',
+  'floor_demo',
+  'demo',
+  'shower_tile',
+  'shower_floor_tile',
+  'shower_floor_demo',
+  'shower_pan',
+  'shower_enclosure_demo',
+  'prefab_shower_pan',
+  'prefab_shower_enclosure',
+  'tub_install',
+  'tub_demo',
+  'vanity',
+  'vanity_demo',
+  'countertop_demo',
+  'countertops',
+  'glass_door',
+  'glass_door_demo',
+  'glass_door_reuse_remove',
+  'glass_door_reuse_install',
+  'waterproofing',
+  'wet_area_install',
+]);
+
+/**
+ * "Tile the bathroom floor, 45 sqft. New toilet." names bathroom work.
+ * A flooring simple-unit bid must not swallow it.
+ */
+export function notesNameBathroomAssembly(
+  notes: string | null | undefined
+): boolean {
+  return bathroomScopeLines(notes).some(line =>
+    NAMED_BATHROOM_ASSEMBLY_IDS.has(line.id)
+  );
+}
+
+export function namedBathroomConfirmScopeItems(
+  notes: string | null | undefined
+): ScopeChecklistItem[] {
+  const choice = toiletChoiceNamedInNote(notes);
+  return bathroomScopeLines(notes).map(line => {
+    if (line.id === 'toilet') {
+      return {
+        id: 'toilet',
+        inputType: 'choice' as const,
+        label: line.label,
+        helperText: 'Toilet named in the note.',
+        category: 'fixtures',
+        state: 'included' as const,
+        choiceId: choice,
+        noteBacked: true,
+      };
+    }
+    return {
+      id: line.id,
+      inputType: 'yes_no' as const,
+      label: line.label,
+      helperText: 'Named in the note.',
+      category:
+        line.id.includes('tile') || line.id.includes('shower')
+          ? 'shower'
+          : 'fixtures',
+      state: 'included' as const,
+      noteBacked: true,
+    };
+  });
 }
 
 /**
@@ -811,6 +917,113 @@ export function applyDedicatedBathroomConfirmScope<
     if (!line?.label || line.label === item.label) return item;
     return { ...item, label: line.label };
   });
+}
+
+/**
+ * A new toilet or wall paint named after the checklist loaded still belongs
+ * on Confirm Scope. The choice stays inside one sentence so "new shower door"
+ * does not mark a later "leave the toilet".
+ */
+function toiletChoiceNamedInNote(notes: string | null | undefined): string | null {
+  const n = bathroomAffirmativeNotes(notes).toLowerCase();
+  if (
+    /\b(?:move|relocat(?:e|ing))\b[^.]{0,40}\btoilet\b|\btoilet\b[^.]{0,40}\b(?:move|relocat(?:e|ing))\b/.test(
+      n
+    )
+  ) {
+    return 'relocating';
+  }
+  if (
+    /\b(?:replace|new|install)\b[^.]{0,40}\btoilet\b|\btoilet\b[^.]{0,40}\b(?:replace|new|install)\b|\bnew\s+toilet\b/.test(
+      n
+    )
+  ) {
+    return 'replacing';
+  }
+  if (
+    /\b(?:reset|re-set|reinstall)\b[^.]{0,40}\btoilet\b|\btoilet\b[^.]{0,40}\b(?:reset|re-set|reinstall)\b/.test(
+      n
+    )
+  ) {
+    return 'reset';
+  }
+  return null;
+}
+
+export function applyNamedBathroomConfirmChoices(
+  items: ScopeChecklistItem[],
+  notes: string | null | undefined,
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (!shouldLimitBathroomChecklistToNotes({ notes, templateKey })) return items;
+  const lines = bathroomScopeLines(notes);
+  const ids = new Set(lines.map(line => line.id));
+  if (!ids.size) return items;
+  let next = items.map(item => {
+    if (item.contractorRemoved) return item;
+    if (item.id === 'toilet' && ids.has('toilet')) {
+      const choice = toiletChoiceNamedInNote(notes);
+      if (!choice) return item;
+      if (item.choiceId && item.choiceId !== 'unsure') return item;
+      return {
+        ...item,
+        inputType: 'choice' as const,
+        choiceId: choice,
+        state: 'included' as const,
+        noteBacked: true,
+      };
+    }
+    if (
+      (item.id === 'paint_repair' ||
+        item.id === 'paint' ||
+        item.id === 'interior_paint') &&
+      ids.has('paint_repair') &&
+      item.state !== 'included' &&
+      item.state !== 'excluded'
+    ) {
+      return { ...item, state: 'included' as const, noteBacked: true };
+    }
+    return item;
+  });
+  if (ids.has('toilet') && !next.some(item => item.id === 'toilet')) {
+    const choice = toiletChoiceNamedInNote(notes);
+    if (choice) {
+      next = [
+        ...next,
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          helperText: 'New toilet — fixture and set.',
+          category: 'fixtures',
+          inputType: 'choice',
+          state: 'included',
+          choiceId: choice,
+          noteBacked: true,
+        },
+      ];
+    }
+  }
+  if (
+    ids.has('paint_repair') &&
+    !next.some(item =>
+      item.id === 'paint_repair' || item.id === 'paint' || item.id === 'interior_paint'
+    )
+  ) {
+    const paint = lines.find(line => line.id === 'paint_repair');
+    next = [
+      ...next,
+      {
+        id: 'paint_repair',
+        label: paint?.label || 'Bathroom wall paint',
+        helperText: 'Bathroom wall paint — enter the area to price it.',
+        category: 'trades',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+  }
+  return next;
 }
 
 function bathroomScopeLineForId(
