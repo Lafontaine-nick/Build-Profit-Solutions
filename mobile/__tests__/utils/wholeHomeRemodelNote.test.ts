@@ -33,8 +33,11 @@ import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
+  notesNameOwnerSuppliedAppliances,
   notesOpeningMentionIsKeepOnly,
+  notesStateFlooringArea,
   scrubWholeHomeRemodelMeasurements,
+  statedWholeHomeSizeSqft,
   wholeHomeRemodelSuppressesInventedPrice,
 } from '@/utils/wholeHomeRemodelNote';
 
@@ -1066,5 +1069,91 @@ describe('whole-home remodel note authority', () => {
     );
     expect(lines.find(line => line.itemId === 'insulation')?.total).toBe(5273.5);
     expect(lines.find(line => line.itemId === 'air_sealing')).toBeUndefined();
+  });
+
+  it('keeps house size off unstated LVP and does not measure kept windows or doors', () => {
+    const notes =
+      'Whole house remodel. The house is 2,400 sqft. LVP flooring. Keep the windows and doors. Appliances are owner-supplied.';
+    expect(statedWholeHomeSizeSqft(notes)).toBe(2400);
+    expect(notesDescribeMeasuredWholeHomeRemodel(notes)).toBe(true);
+    expect(notesStateFlooringArea(notes)).toBe(false);
+    expect(notesNameOwnerSuppliedAppliances(notes)).toBe(true);
+    expect(notesOpeningMentionIsKeepOnly(notes, 'windows')).toBe(true);
+    expect(notesOpeningMentionIsKeepOnly(notes, 'doors')).toBe(true);
+    expect(
+      statedWholeHomeSizeSqft('The house is 2,400 sqft LVP flooring.')
+    ).toBeNull();
+    expect(notesStateFlooringArea(WHOLE_HOME_NOTES)).toBe(true);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('flooring', WHOLE_HOME_NOTES, {})
+    ).toBe(false);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('flooring', notes, {
+        floorAreaSqft: 2400,
+        flooringSqft: 2400,
+        flooringLvpSqft: 2400,
+      })
+    ).toBe(true);
+    expect(
+      wholeHomeRemodelSuppressesInventedPrice('flooring_lvp', notes, {
+        flooringLvpSqft: 2400,
+      })
+    ).toBe(true);
+
+    const scrubbed = scrubWholeHomeRemodelMeasurements(
+      { floorAreaSqft: 2400, flooringSqft: 2400, flooringLvpSqft: 2400 },
+      notes
+    );
+    expect(scrubbed.flooringSqft).toBeUndefined();
+    expect(scrubbed.flooringLvpSqft).toBeUndefined();
+    expect(scrubbed.floorAreaSqft).toBe(2400);
+
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+    expect(parsed.flooringSqft).toBeUndefined();
+    expect(parsed.flooringLvpSqft).toBeUndefined();
+    expect(parsed.floorAreaSqft).toBeUndefined();
+
+    const keys = quickMeasurementRowsForInput(
+      'windows_doors',
+      'other',
+      {},
+      ['windowCount', 'interiorDoorCount', 'flooringLvpSqft'],
+      { scopeNotes: notes, crossScopeMode: true }
+    )
+      .flat()
+      .map(field => field.key);
+    expect(keys).toContain('flooringSqft');
+    expect(keys).not.toContain('windowCount');
+    expect(keys).not.toContain('interiorDoorCount');
+
+    const doorKeys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: 'Replace 3 interior doors and paint the ceilings.' }
+    )
+      .flat()
+      .map(field => field.key);
+    expect(doorKeys).toContain('interiorDoorCount');
+
+    const flooring = resolveScopeItemSuggestedPricing(
+      'flooring',
+      { floorAreaSqft: '2400', flooringSqft: '2400', flooringLvpSqft: '2400' } as never,
+      'room_remodel',
+      { quantity: 2400, unit: 'sqft', quantitySource: 'notes' },
+      null,
+      null,
+      notes
+    );
+    expect(flooring.fill).toBeNull();
+    const stated = resolveChecklistItemQuantity('flooring', { flooringSqft: 1800, floorAreaSqft: 2400 } as never, {
+      templateKey: 'room_remodel',
+      notes: WHOLE_HOME_NOTES,
+    });
+    expect(Number(stated.quantity)).toBe(1800);
   });
 });

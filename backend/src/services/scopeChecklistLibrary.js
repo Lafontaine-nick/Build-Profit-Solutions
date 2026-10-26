@@ -2874,10 +2874,44 @@ const WHOLE_HOME_SQFT =
 const WHOLE_HOME_TRADE_SQFT =
   /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
 
+function wholeHomeSameSentenceWindow(text, index, raw) {
+  const beforeRaw = text.slice(Math.max(0, index - 36), index);
+  const afterRaw = text.slice(index + raw.length, index + raw.length + 36);
+  const beforeBreak = Math.max(
+    beforeRaw.lastIndexOf("."),
+    beforeRaw.lastIndexOf(";"),
+    beforeRaw.lastIndexOf("\n"),
+  );
+  const afterBreak = afterRaw.search(/[.;\n]/);
+  return {
+    before: beforeBreak >= 0 ? beforeRaw.slice(beforeBreak + 1) : beforeRaw,
+    after: afterBreak >= 0 ? afterRaw.slice(0, afterBreak) : afterRaw,
+  };
+}
+
 function wholeHomeSqftTouchesTrade(text, index, raw) {
-  const before = text.slice(Math.max(0, index - 36), index);
-  const after = text.slice(index + raw.length, index + raw.length + 36);
+  const { before, after } = wholeHomeSameSentenceWindow(text, index, raw);
   return WHOLE_HOME_TRADE_SQFT.test(before) || WHOLE_HOME_TRADE_SQFT.test(after);
+}
+
+/** A flooring area the note stated. House size in another sentence is not one. */
+function notesStateFlooringArea(notes) {
+  const text = String(notes || "");
+  const otherTrade =
+    /\b(?:paint(?:ing)?|drywall|sheetrock|cabinet|counter(?:top)?s?|backsplash|roof(?:ing)?|insulation|siding|stucco|tile)\b/i;
+  const gapOk = (gap) => !otherTrade.test(gap);
+  const forward =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b([^.;\n]{0,40})\b(?:floor(?:ing)?|lvp|luxury\s+vinyl|laminate|vinyl|carpet)\b/gi;
+  const backward =
+    /\b(?:floor(?:ing)?|lvp|luxury\s+vinyl|laminate|vinyl|carpet)\b([^.;\n]{0,40})\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/gi;
+  let match;
+  while ((match = forward.exec(text))) {
+    if (gapOk(match[1] || "")) return true;
+  }
+  while ((match = backward.exec(text))) {
+    if (gapOk(match[1] || "")) return true;
+  }
+  return false;
 }
 
 /** House size the note stated. A flooring or paint sqft is not the house size. */
@@ -3454,6 +3488,56 @@ function inferTrimStateFromNotes(n) {
   return "unsure";
 }
 
+/** The paint verb applies to the doors. A later ceiling paint does not. */
+function notesNameDoorPaintSurface(notes) {
+  const text = String(notes || "");
+  if (
+    /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+|\d[\d,]*\s+)?(?:interior\s+)?doors?\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  const listed = text.match(
+    /\b(?:paint|repaint|painting)\b([^.;\n]{0,60}?)\b(?:interior\s+)?doors?\b/i,
+  );
+  if (!listed) return false;
+  const gap = listed[1] || "";
+  if (
+    /\b(?:replace|replacing|install|hang|swap|demo|demolition|drywall|flooring|windows?|insulation|sqft|square)\b/i.test(
+      gap,
+    )
+  ) {
+    return false;
+  }
+  const leftover = gap.replace(
+    /\b(?:walls?|ceilings?|trim|baseboards?|cabinets?|interior|the|and|plus|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d[\d,]*)\b|[, ]+/gi,
+    "",
+  );
+  return leftover.length === 0;
+}
+
+/** New or replaced interior doors on a paint job get painted too. */
+function notesReplaceInteriorDoorsBesidePaint(notes) {
+  const text = String(notes || "");
+  if (notesDoorMentionIsPaintOrKeepOnly(text)) return false;
+  const replacesDoors =
+    /\b(?:install|replace|replacing|hang|swap|new)\b[^.;\n]{0,40}\b(?:interior\s+)?doors?\b/i.test(
+      text,
+    ) || /\b\d[\d,]*\s+interior\s+doors?\b/i.test(text);
+  if (!replacesDoors) return false;
+  return /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\b[^.;\n]{0,40}\b(?:walls?|ceilings?|interior|inside)\b|\b(?:walls?|ceilings?)\b[^.;\n]{0,40}\b(?:paint|repaint|painting|coated|primed)\b/i.test(
+    text,
+  );
+}
+
 /** "Paint the doors" and "keep the doors" are not a door install. */
 function notesDoorMentionIsPaintOrKeepOnly(notes) {
   const text = String(notes || "");
@@ -3474,6 +3558,18 @@ function notesDoorMentionIsPaintOrKeepOnly(notes) {
       ) || /\b\d+\s+interior\s+doors?\b/i.test(sentence);
     return paintOrKeepOnDoors && !installOnDoors;
   });
+}
+
+function noteMentionIsOnlyNegated(notes, pattern) {
+  let positive = false;
+  let negated = false;
+  for (const raw of String(notes || "").split(/[.;,\n]+/)) {
+    const clause = raw.trim();
+    if (!clause || !pattern.test(clause)) continue;
+    if (/^(?:no|not|without|do not|don't)\b/i.test(clause)) negated = true;
+    else positive = true;
+  }
+  return negated && !positive;
 }
 
 function inferItemStateFromNotes(itemId, notes) {
@@ -3500,6 +3596,15 @@ function inferItemStateFromNotes(itemId, notes) {
     return bathroomShowerDemoNotesHint(n) ? "included" : "unsure";
   }
   if (itemId === "trim") return inferTrimStateFromNotes(n);
+  if (
+    (itemId === "gutters" || itemId === "downspouts") &&
+    noteMentionIsOnlyNegated(
+      notes,
+      itemId === "gutters" ? /\bgutters?\b/i : /\bdownspouts?\b/i
+    )
+  ) {
+    return "excluded";
+  }
   if (itemId === "interior_door_install") {
     if (notesDoorMentionIsPaintOrKeepOnly(notes)) return "unsure";
     const hasInteriorDoorMention = /\binterior\s+doors?\b/.test(n);
@@ -3511,17 +3616,8 @@ function inferItemStateFromNotes(itemId, notes) {
       : "unsure";
   }
   if (itemId === "door_paint") {
-    const directDoorPaint =
-      /\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/.test(n) ||
-      (/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/.test(n) &&
-        !/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:walls?|ceilings?)\b/.test(
-          n,
-        ));
-    const wholeRoomPaintWithDoors =
-      /\bpaint(?:ing)?\b[^.;\n]{0,45}\bwalls?\b[^.;\n]{0,45}\bceilings?\b/.test(
-        n,
-      ) && /\bdoors?\b/.test(n);
-    return directDoorPaint || wholeRoomPaintWithDoors
+    return notesNameDoorPaintSurface(notes) ||
+      notesReplaceInteriorDoorsBesidePaint(notes)
       ? "included"
       : "unsure";
   }
@@ -4207,9 +4303,12 @@ module.exports = {
   notesDescribeGroundUpHome,
   notesDescribeMeasuredWholeHomeRemodel,
   statedWholeHomeSizeSqft,
+  notesStateFlooringArea,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
   notesDoorMentionIsPaintOrKeepOnly,
+  notesNameDoorPaintSurface,
+  notesReplaceInteriorDoorsBesidePaint,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   choiceToState,

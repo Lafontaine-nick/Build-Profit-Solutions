@@ -103,12 +103,41 @@ export function notesDescribeDedicatedFlooringJob(
   return !FLOORING_COMPANION_RE.test(stripped);
 }
 
+const FLOORING_DEMO_RE =
+  /\b(?:remove|removal|demo|demolition|tear[\s-]?out|pull)\b[^.]{0,48}\b(?:existing\s+)?(?:floor|flooring|lvp|laminate|vinyl|carpet|hardwood|tile)\b|\bexisting\s+(?:floor(?:ing)?|carpet|tile|lvp|vinyl|laminate|hardwood)\b/i;
+
+const FLOOR_PREP_RE =
+  /\b(?:include|including|with|plus|needs?|need)\s+floor\s+prep\b|\bfloor\s+prep\s+(?:included|required|needed)\b|\bsubfloor\s+(?:prep|repair|level(?:ing)?|work)\b/i;
+
+const BASEBOARD_WORK_RE =
+  /\b(?:re-?install|install|replace|reset|put\s+back)\b[^.;\n]{0,48}\bbaseboards?\b|\bbaseboards?\b[^.;\n]{0,48}\b(?:re-?install|install|replace|reset)\b/i;
+
+function flooringClauses(notes: string | null | undefined): string[] {
+  return String(notes || '')
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+}
+
+function flooringClauseIsNegated(clause: string): boolean {
+  return /^(?:no|not|without|do not|don't|dont|never)\b/i.test(clause.trim());
+}
+
 export function notesRequestFlooringDemo(
   notes: string | null | undefined
 ): boolean {
-  return /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.]{0,48}\b(?:existing\s+)?(?:floor|flooring|lvp|laminate|vinyl|carpet|hardwood|tile)\b|\bexisting\s+floor\b/i.test(
-    String(notes || '')
+  return flooringClauses(notes).some(
+    clause => !flooringClauseIsNegated(clause) && FLOORING_DEMO_RE.test(clause)
   );
+}
+
+/** Existing flooring named in the notes starts the removal card open. */
+export function flooringExistingCardStartsOpen(
+  notes: string | null | undefined
+): boolean {
+  if (notesRequestFlooringDemo(notes)) return true;
+  const inferred = inferExistingFlooringFromNotes(notes);
+  return (inferred.flooringExistingTypes?.length ?? 0) > 0;
 }
 
 export function notesRequestFloorPrep(
@@ -117,9 +146,34 @@ export function notesRequestFloorPrep(
   const text = dedicatedFlooringNoteText(notes)
     .replace(/\b(?:separate|priced)\s+under\s+floor\s+prep\b/gi, ' ')
     .replace(/\bsubfloor\s*\/\s*floor\s+prep\b/gi, ' ');
-  return /\b(?:include|including|with|plus|needs?|need)\s+floor\s+prep\b|\bfloor\s+prep\s+(?:included|required|needed)\b|\bsubfloor\s+(?:prep|repair|level(?:ing)?|work)\b/i.test(
-    text
+  return flooringClauses(text).some(clause => {
+    if (flooringClauseIsNegated(clause)) return false;
+    if (/\bno\b[^.]{0,80}\b(?:subfloor|floor\s+prep)\b/i.test(clause)) return false;
+    return FLOOR_PREP_RE.test(clause);
+  });
+}
+
+export function notesRequestBaseboardOnFlooringJob(
+  notes: string | null | undefined
+): boolean {
+  return flooringClauses(notes).some(
+    clause => !flooringClauseIsNegated(clause) && BASEBOARD_WORK_RE.test(clause)
   );
+}
+
+export function dedicatedFlooringBaseboardLf(
+  notes: string | null | undefined
+): number | null {
+  if (!notesRequestBaseboardOnFlooringJob(notes)) return null;
+  for (const clause of flooringClauses(notes)) {
+    if (flooringClauseIsNegated(clause) || !/\bbaseboards?\b/i.test(clause)) continue;
+    const match = clause.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|lin(?:ear)?\.?\s*(?:ft|feet)|linear\s+feet)\b/i
+    );
+    const value = Number(String(match?.[1] || '').replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
 }
 
 export function dedicatedFlooringAreaSqft(
@@ -133,20 +187,31 @@ export function dedicatedFlooringAreaSqft(
 }
 
 const FLOORING_ROLE_VERB_RE =
-  /\b(?:tear[\s-]?out|remove|removal|demo|demolition|install(?:ing|ation)?|replace(?:ment)?)\b/gi;
+  /\b(?:tear[\s-]?out|remove|removal|demo|demolition|pull|install(?:ing|ation)?|replace(?:ment)?)\b/gi;
 
 function flooringVerbIsNegated(text: string, index: number): boolean {
-  return /\b(?:no|without)\s+$/i.test(text.slice(Math.max(0, index - 16), index));
+  if (/\b(?:no|without)\s+$/i.test(text.slice(Math.max(0, index - 16), index))) {
+    return true;
+  }
+  const clauseStart = Math.max(
+    text.lastIndexOf('.', index),
+    text.lastIndexOf('!', index),
+    text.lastIndexOf('?', index),
+    text.lastIndexOf('\n', index),
+    text.lastIndexOf(';', index)
+  );
+  const clause = text.slice(clauseStart + 1, index + 1);
+  return /^(?:no|not|without|do not|don't|dont|never)\b/i.test(clause.trim());
 }
 
 function lineHasRemovalVerb(line: string): boolean {
-  return [...line.matchAll(/\b(?:tear[\s-]?out|remove|removal|demo|demolition)\b/gi)].some(
+  return [...line.matchAll(/\b(?:tear[\s-]?out|remove|removal|demo|demolition|pull)\b/gi)].some(
     match => match.index != null && !flooringVerbIsNegated(line, match.index)
   );
 }
 
 function flooringVerbRemoves(verb: string): boolean {
-  return /^(?:tear[\s-]?out|remove|removal|demo|demolition)$/i.test(verb);
+  return /^(?:tear[\s-]?out|remove|removal|demo|demolition|pull)$/i.test(verb);
 }
 
 function productsInSpan(span: string) {
@@ -390,10 +455,17 @@ export function scrubDedicatedFlooringMeasurements<
   return next as T;
 }
 
+/** Keep every sentence when the whole note is still a flooring-only job. */
+function flooringJobText(notes: string | null | undefined): string {
+  const full = String(notes || '');
+  if (notesDescribeDedicatedFlooringJob(full)) return full;
+  return dedicatedFlooringNoteText(full);
+}
+
 export function dedicatedFlooringConfirmScopeItems(
   notes: string | null | undefined
 ): ExplicitScopeItem[] {
-  const text = dedicatedFlooringNoteText(notes);
+  const text = flooringJobText(notes);
   if (!notesDescribeDedicatedFlooringJob(text)) return [];
   const items: ExplicitScopeItem[] = [];
   if (notesRequestFlooringDemo(text)) {
@@ -442,6 +514,20 @@ export function dedicatedFlooringConfirmScopeItems(
       noteBacked: true,
     });
   }
+  if (notesRequestBaseboardOnFlooringJob(text)) {
+    const reinstall = /\bre-?install\b/i.test(text);
+    items.push({
+      id: 'baseboard_install',
+      inputType: 'yes_no',
+      label: reinstall ? 'Baseboard reinstall' : 'Baseboard installation',
+      helperText: reinstall
+        ? 'Reinstall the existing baseboard named in the notes.'
+        : 'Install the baseboard length named in the notes.',
+      category: 'flooring',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
   return items;
 }
 
@@ -458,8 +544,15 @@ export function dedicatedFlooringRevealQuantity(
     flooringTileSqft?: unknown;
     flooringCarpetSqft?: unknown;
     flooringSheetVinylSqft?: unknown;
+    baseboardLf?: unknown;
   } | null | undefined
 ): string | null {
+  if (itemId === 'baseboard_install') {
+    const lf = Number(
+      String(measurements?.baseboardLf ?? '').replace(/,/g, '')
+    );
+    return Number.isFinite(lf) && lf > 0 ? `${lf} LF` : null;
+  }
   const keyById: Record<string, string> = {
     floor_demo: 'floorDemoSqft',
     floor_prep: 'floorPrepSqft',
@@ -498,7 +591,19 @@ export function dedicatedFlooringMeasurementSeed(
       : ['unknown'];
   const existingType = existingTypes[0] || 'unknown';
   const seed: Record<string, unknown> = {};
-  const itemQuantities: Record<string, { quantity: number; unit: 'sqft'; quantitySource: 'notes' }> = {};
+  const itemQuantities: Record<
+    string,
+    { quantity: number; unit: 'sqft' | 'lf'; quantitySource: 'notes' }
+  > = {};
+  const baseboardLf = dedicatedFlooringBaseboardLf(text);
+  if (baseboardLf) {
+    seed.baseboardLf = baseboardLf;
+    itemQuantities.baseboard_install = {
+      quantity: baseboardLf,
+      unit: 'lf',
+      quantitySource: 'notes',
+    };
+  }
   if (area) {
     if (demo) {
       seed.floorDemoSqft = area;

@@ -20,6 +20,7 @@ import { notesNameConcretePatioWithSod } from '@/utils/foundationPlanningMeasure
 import {
   dedicatedFlooringProducts,
   notesDescribeDedicatedFlooringJob,
+  notesRequestBaseboardOnFlooringJob,
   notesRequestFlooringDemo,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
@@ -47,9 +48,15 @@ import {
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   namedFinishReplacesExteriorPaint,
+  notesDoorMentionIsPaintOrKeepOnly,
   notesOwnerHandlesScopeCategory,
 } from '@/utils/scopeItemNoteHints';
-import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  notesNameOwnerSuppliedAppliances,
+  notesOpeningMentionIsKeepOnly,
+  notesStateFlooringArea,
+} from '@/utils/wholeHomeRemodelNote';
 import {
   notesNameStuccoWithWindows,
 } from '@/utils/stuccoNoteScope';
@@ -2870,6 +2877,17 @@ function wholeHomeTakeoffFields(notes: string): QuickMeasurementFieldDef[] {
         'Plumbing was named in the notes. Enter the connection count before pricing.',
     });
   }
+  if (/\bflooring\b|\blvp\b|\bluxury\s+vinyl\b/i.test(notes)) {
+    const stated = notesStateFlooringArea(notes);
+    push('flooringSqft', {
+      label: /\blvp\b|\bluxury\s+vinyl\b/i.test(notes)
+        ? 'LVP flooring'
+        : 'Flooring installation',
+      helperText: stated
+        ? 'Flooring area from the notes.'
+        : 'Flooring was named. Enter the area before pricing.',
+    });
+  }
   if (/\belectrical\b/i.test(notes)) {
     push('standardReceptacleCount', {
       label: 'Outlets',
@@ -3727,10 +3745,13 @@ export function quickMeasurementRowsForInput(
   ) {
     return dedicatedDrywallMeasurementRows(String(options?.scopeNotes || ''));
   }
-  const resolvedKey = resolveQuickMeasurementTemplateKey(
-    templateKey,
-    projectType
-  );
+  const wholeHomeMeasurements =
+    notesDescribeMeasuredWholeHomeRemodel(String(options?.scopeNotes || '')) &&
+    !options?.windowsDoorsPlanImport &&
+    !options?.garageDoorsPlanImport;
+  const resolvedKey = wholeHomeMeasurements
+    ? 'room_remodel'
+    : resolveQuickMeasurementTemplateKey(templateKey, projectType);
   const noteKeySet = noteBackedKeys ? new Set(noteBackedKeys) : null;
   const plumbingTemplate =
     resolvedKey === 'plumbing' &&
@@ -3811,6 +3832,16 @@ export function quickMeasurementRowsForInput(
         });
       }
     }
+    if (
+      notesRequestBaseboardOnFlooringJob(flooringNotes) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.baseboardLf
+    ) {
+      fields.push({
+        ...QUICK_MEASUREMENT_FIELD_DEFS.baseboardLf,
+        label: 'Baseboard',
+        helperText: 'Baseboard length from the notes.',
+      });
+    }
     return fields.map(field => [field]);
   }
   if (
@@ -3833,7 +3864,7 @@ export function quickMeasurementRowsForInput(
     );
     return fields.map(field => [field]);
   }
-  let baseRows = options?.windowsDoorsNotesFlow
+  let baseRows = !wholeHomeMeasurements && options?.windowsDoorsNotesFlow
     ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
     : options?.windowsDoorsPlanImport
       ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
@@ -3860,7 +3891,7 @@ export function quickMeasurementRowsForInput(
                     .filter(row => row.length > 0)
                 : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
             : quickMeasurementRowsForTemplate(
-                templateKey,
+                wholeHomeMeasurements ? 'room_remodel' : templateKey,
                 projectType,
                 options?.scopeNotes
               );
@@ -3889,11 +3920,12 @@ export function quickMeasurementRowsForInput(
     /\b(?:drywall|sheetrock)\b/i.test(scopeNotes) &&
     /\b(?:flooring|lvp|laminate|vinyl|carpet)\b/i.test(scopeNotes);
   const hasInteriorDoorScope =
-    /\binterior\s+doors?\b/i.test(scopeNotes) ||
-    (/\bdoors?\b/i.test(scopeNotes) &&
-      !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
-        scopeNotes
-      ));
+    !notesDoorMentionIsPaintOrKeepOnly(scopeNotes) &&
+    (/\binterior\s+doors?\b/i.test(scopeNotes) ||
+      (/\bdoors?\b/i.test(scopeNotes) &&
+        !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
+          scopeNotes
+        )));
   if (
     hasInteriorDoorScope &&
     !baseRows.some(row => row.some(field => field.key === 'interiorDoorCount'))
@@ -3949,6 +3981,7 @@ export function quickMeasurementRowsForInput(
   }
   if (
     /\bwindows?\b/i.test(scopeNotes) &&
+    !notesOpeningMentionIsKeepOnly(scopeNotes, 'windows') &&
     !baseRows.some(row => row.some(field => field.key === 'windowCount')) &&
     QUICK_MEASUREMENT_FIELD_DEFS.windowCount
   ) {
@@ -4426,9 +4459,9 @@ export function quickMeasurementRowsForInput(
   if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {
     const notes = String(options?.scopeNotes || '');
     const kitchenNotes =
-      /\b(?:countertops?|backsplash|cabinetry|quartz|island|appliances?)\b/i.test(
-        notes
-      ) ||
+      (/\b(?:countertops?|backsplash|cabinetry|quartz|island)\b/i.test(notes) ||
+        (!notesNameOwnerSuppliedAppliances(notes) &&
+          /\bappliances?\b/i.test(notes))) ||
       /\b(?:new|install(?:ed|ation)?|replace(?:d|ment)?)\b[^.;\n]{0,45}\bcabinets?\b/i.test(
         notes
       ) ||
@@ -4591,7 +4624,16 @@ export function quickMeasurementRowsForInput(
       return true;
     }
     if (field.key === 'windowCount') {
-      return /\bwindows?\b/i.test(noteText);
+      return (
+        /\bwindows?\b/i.test(noteText) &&
+        !notesOpeningMentionIsKeepOnly(noteText, 'windows')
+      );
+    }
+    if (
+      field.key === 'interiorDoorCount' &&
+      notesDoorMentionIsPaintOrKeepOnly(noteText)
+    ) {
+      return false;
     }
     if (field.key === 'exteriorDoorCount') {
       return /\b(?:exterior|outside)\s+doors?\b/i.test(noteText);
@@ -4702,6 +4744,18 @@ export function quickMeasurementRowsForInput(
     const noteKeys = noteKeySet || new Set<QuickMeasurementFieldKey>();
     const noteText = String(options.scopeNotes || '');
     const noteMentions = (field: QuickMeasurementFieldDef) => {
+      if (
+        field.key === 'windowCount' &&
+        notesOpeningMentionIsKeepOnly(noteText, 'windows')
+      ) {
+        return false;
+      }
+      if (
+        (field.key === 'interiorDoorCount' || field.key === 'exteriorDoorCount') &&
+        notesDoorMentionIsPaintOrKeepOnly(noteText)
+      ) {
+        return false;
+      }
       if (noteKeys.has(field.key)) return true;
       if (field.key === 'wallPaintSqft') {
         return notesRequireInteriorPaintMeasurements(noteText);

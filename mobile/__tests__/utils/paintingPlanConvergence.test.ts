@@ -139,14 +139,15 @@ describe('painting plan convergence', () => {
   });
 
   it('keeps a painting bid on door paint and leaves door installation off', () => {
-    const items = keepPaintingBidOnPaintOnly([
+    const source = [
       { id: 'exterior_doors', state: 'included' },
       { id: 'interior_door_install', state: 'included' },
       { id: 'exterior_paint', state: 'unsure' },
       { id: 'exterior_door_paint', state: 'included' },
       { id: 'door_paint', state: 'included' },
       { id: 'trim_paint', state: 'included' },
-    ]);
+    ];
+    const items = keepPaintingBidOnPaintOnly(source);
     expect(items.map(item => item.id)).toEqual([
       'exterior_paint',
       'exterior_door_paint',
@@ -157,6 +158,21 @@ describe('painting plan convergence', () => {
       state: 'included',
       label: 'Exterior house paint',
     });
+    const replacedDoors = keepPaintingBidOnPaintOnly(
+      source,
+      'Replace 3 interior doors and paint the ceilings.'
+    );
+    expect(replacedDoors.map(item => item.id)).toContain(
+      'interior_door_install'
+    );
+    expect(replacedDoors.map(item => item.id)).not.toContain('exterior_doors');
+    const paintedOnly = keepPaintingBidOnPaintOnly(
+      source,
+      'Paint the doors and walls.'
+    );
+    expect(paintedOnly.map(item => item.id)).not.toContain(
+      'interior_door_install'
+    );
   });
 
   it('restores plan wall and ceiling areas and prices interior masking from those surfaces', () => {
@@ -639,6 +655,24 @@ describe('painting plan convergence', () => {
       unit: 'sqft',
     });
     expect(structured.itemQuantities?.prep).toBeUndefined();
+  });
+
+  it('does not turn a notes door count into door paint', () => {
+    const structured = buildPaintingStructuredMeasurements(
+      {
+        paintScope: ['ceilings'],
+        interiorDoorCount: 3,
+      },
+      'notes'
+    );
+    expect(structured.paintScope).toEqual(['ceilings']);
+    const fromPlan = buildPaintingStructuredMeasurements({
+      ceilingPaintSqft: 2000,
+      interiorDoorCount: 3,
+    });
+    expect(fromPlan.paintScope).toEqual(
+      expect.arrayContaining(['ceilings', 'doors'])
+    );
   });
 
   it('does not manufacture occupancy, application method, or prep', () => {

@@ -64,6 +64,7 @@ export const FLOORING_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
   'moisture_barrier',
   'quarter_round',
   'trim',
+  'baseboard_install',
   'cleanup',
 ]);
 
@@ -567,12 +568,23 @@ export function syncFlooringQmScopeItems(
     /\b(?:kitchen|bath(?:room)?)\s+(?:remodel|renovation|refresh|reno)\b/i.test(
       noteText
     ) || /\b(?:drywall|sheetrock|gypsum)\b/i.test(noteText);
-  const noteNamesFloorPrep =
-    /\b(?:include|including|with|plus|needs?|need)\s+floor\s+prep\b|\bfloor\s+prep\s+(?:included|required|needed)\b|\bsubfloor\s+(?:prep|repair|level(?:ing)?|work)\b/i.test(
-      flooringSentence
-        .replace(/\b(?:separate|priced)\s+under\s+floor\s+prep\b/gi, ' ')
-        .replace(/\bsubfloor\s*\/\s*floor\s+prep\b/gi, ' ')
-    );
+  const noteNamesFloorPrep = flooringSentence
+    .replace(/\b(?:separate|priced)\s+under\s+floor\s+prep\b/gi, ' ')
+    .replace(/\bsubfloor\s*\/\s*floor\s+prep\b/gi, ' ')
+    .split(/\n+|(?<=[.!?])\s+/)
+    .some(clause => {
+      const trimmed = clause.trim();
+      if (!trimmed) return false;
+      if (/^(?:no|not|without|do not|don't|dont|never)\b/i.test(trimmed)) {
+        return false;
+      }
+      if (/\bno\b[^.]{0,80}\b(?:subfloor|floor\s+prep)\b/i.test(trimmed)) {
+        return false;
+      }
+      return /\b(?:include|including|with|plus|needs?|need)\s+floor\s+prep\b|\bfloor\s+prep\s+(?:included|required|needed)\b|\bsubfloor\s+(?:prep|repair|level(?:ing)?|work)\b/i.test(
+        trimmed
+      );
+    });
   let next = items.map(row => {
     if (
       row.id === 'floor_prep' &&

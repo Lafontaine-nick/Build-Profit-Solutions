@@ -13,7 +13,10 @@ import {
   bathroomNoteTakeoff,
 } from '@/utils/bathroomNoteScope';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
-import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
+import {
+  notesDescribeDedicatedFlooringJob,
+  notesRequestBaseboardOnFlooringJob,
+} from '@/utils/flooringNoteScope';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
@@ -128,6 +131,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     baseboardLf: [
       'trim',
       'baseboard',
+      'baseboard_install',
       'interior_trim',
       'paint_trim',
       'trim_paint',
@@ -275,6 +279,18 @@ export function getMeasurementRelevance(params: {
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
   const notesText = String(params.notes || '');
   const noteTakeoff = bathroomNoteTakeoff(params.notes);
+  if (
+    measurementKey === 'baseboardLf' &&
+    notesDescribeDedicatedFlooringJob(notesText) &&
+    notesRequestBaseboardOnFlooringJob(notesText)
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   if (
     measurementKey === 'floorAreaSqft' &&
     notesDescribeDedicatedFlooringJob(notesText)

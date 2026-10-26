@@ -45,6 +45,7 @@ import {
   qmInactiveMeasurementShellStyle,
 } from '@/constants/qmMeasurementShellStyle';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import { yieldGeneratingOverlayPaint } from '@/utils/aiEstimateGeneratingUi';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import {
   SCOPE_MENTIONED_IN_NOTES_LABEL,
@@ -77,6 +78,9 @@ import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
+  notesNameOwnerSuppliedAppliances,
+  notesOpeningMentionIsKeepOnly,
+  notesStateFlooringArea,
   notesStatePaintArea,
   scrubWholeHomeRemodelMeasurements,
 } from '@/utils/wholeHomeRemodelNote';
@@ -538,6 +542,7 @@ import {
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
+  notesDoorMentionIsPaintOrKeepOnly,
 } from '@/utils/scopeItemNoteHints';
 import { applyFinishScheduleToChecklistItems } from '@/utils/finishScheduleScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
@@ -877,8 +882,10 @@ type Props = {
     items: ScopeChecklistItem[],
     measurements?: ScopeMeasurements
   ) => void;
-  /** Fires immediately on Continue tap so the footer can show a spinner before heavy sync. */
+  /** Fires immediately on Continue tap so the loading card can paint before heavy sync. */
   onConfirmBegin?: () => void;
+  /** Continue could not start the handoff. Parent hides the loading card. */
+  onConfirmCancel?: () => void;
   /** Persist in-progress scope without API round-trip (e.g. when navigating to review/pricing). */
   onPersistProgress?: (
     items: ScopeChecklistItem[],
@@ -8967,6 +8974,12 @@ function QuantitySection({
         !showGrossFloorPlanning &&
         !cardOwnsMissingCopy &&
         quantityHelperText &&
+        !(
+          suggestedBudgetSplit?.mode === 'note_total_split' &&
+          ['allowance', 'lump_sum'].includes(
+            String(resolved?.unit || '').toLowerCase()
+          )
+        ) &&
         !(itemId === 'wall_framing' && suggestedBudgetSplit) &&
         !(
           (itemId === 'plumbing_rough' || itemId === 'plumbing_trim') &&
@@ -16872,7 +16885,10 @@ function CollapsibleQuickMeasurements({
         .map(row => row.filter(field => allowed.has(field.key)))
         .filter(row => row.length > 0);
     }
-    if (String(effectiveTemplateKey || '').toLowerCase() === 'room_remodel') {
+    if (
+      String(effectiveTemplateKey || '').toLowerCase() === 'room_remodel' ||
+      notesDescribeMeasuredWholeHomeRemodel(notes)
+    ) {
       const notesRequirePaintTakeoff =
         notesRequireInteriorPaintMeasurements(notes);
       return baseRows
@@ -16920,6 +16936,19 @@ function CollapsibleQuickMeasurements({
               return false;
             }
             if (
+              field.key === 'windowCount' &&
+              notesOpeningMentionIsKeepOnly(noteText, 'windows')
+            ) {
+              return false;
+            }
+            if (
+              (field.key === 'interiorDoorCount' ||
+                field.key === 'exteriorDoorCount') &&
+              notesDoorMentionIsPaintOrKeepOnly(noteText)
+            ) {
+              return false;
+            }
+            if (
               notesDescribeMeasuredWholeHomeRemodel(noteText) &&
               ((field.key === 'baseboardLf' &&
                 /\btrim\b|\bbaseboards?\b|\bbase\s*board\b/i.test(noteText)) ||
@@ -16927,7 +16956,8 @@ function CollapsibleQuickMeasurements({
                   /\bplumbing\b/i.test(noteText)) ||
                 (field.key === 'wallPaintSqft' &&
                   /\bpaint(?:ing)?\b/i.test(noteText)) ||
-                (field.key === 'flooringSqft' && /\bflooring\b/i.test(noteText)))
+                (field.key === 'flooringSqft' &&
+                  /\bflooring\b|\blvp\b|\bluxury\s+vinyl\b/i.test(noteText)))
             ) {
               return true;
             }
@@ -17590,9 +17620,9 @@ function CollapsibleQuickMeasurements({
   );
   const kitchenSpecificScopeInNotes =
     explicitKitchenWordInNotes ||
-    /\b(?:backsplash|island|appliances?|quartz|countertops?)\b/i.test(
-      String(notes || '')
-    ) ||
+    /\b(?:backsplash|island|quartz|countertops?)\b/i.test(String(notes || '')) ||
+    (!notesNameOwnerSuppliedAppliances(notes) &&
+      /\bappliances?\b/i.test(String(notes || ''))) ||
     (!explicitBathroomScopeInNotes &&
       (/\b(?:new|install(?:ed|ation)?|replace(?:d|ment)?)\b[^.;\n]{0,45}\bcabinets?\b/i.test(
         String(notes || '')
@@ -20637,8 +20667,12 @@ function CollapsibleQuickMeasurements({
       notesDescribeMeasuredWholeHomeRemodel(notes)
         ? {
             ...resolvedField,
-            label: 'Flooring installation',
-            helperText: 'Flooring area from the notes.',
+            label: /\blvp\b|\bluxury\s+vinyl\b/i.test(String(notes || ''))
+              ? 'LVP flooring'
+              : 'Flooring installation',
+            helperText: notesStateFlooringArea(notes)
+              ? 'Flooring area from the notes.'
+              : 'Flooring was named. Enter the area before pricing.',
           }
         : resolvedField.key === 'baseboardLf' &&
       compactMixedScope &&
@@ -23987,6 +24021,7 @@ export default function AIEstimateScopeAssumptionsModal({
   onBack,
   onConfirm,
   onConfirmBegin,
+  onConfirmCancel,
   onPersistProgress,
   pricingContext = null,
   hasSitePhotos = false,
@@ -24295,6 +24330,10 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollOffsetYRef = useRef(0);
   const quickMeasurementsRef = useRef<View>(null);
   const bathroomQmFlushRef = useRef<(() => void) | null>(null);
+  const confirmTransitionRef = useRef(false);
+  useEffect(() => {
+    if (!applying) confirmTransitionRef.current = false;
+  }, [applying]);
   const pendingQmDoneScrollRef = useRef(false);
   const qmDoneFirstScopeItemIdRef = useRef<string | null>(null);
 
@@ -24899,7 +24938,7 @@ export default function AIEstimateScopeAssumptionsModal({
       },
     ] as const;
     const explicitInteriorTrimMention =
-      /\binterior\s+doors?\b|\b(?:door|window)\s+(?:casing|trim)\b|\b(?:interior\s+trim|crown|moulding|molding)\b/i.test(
+      /\b(?:door|window)\s+(?:casing|trim)\b|\b(?:interior\s+trim|crown|moulding|molding)\b|\bcasing\b|\b(?:doors?|windows?)\s+and\s+trim\b|\btrim\s+and\s+(?:the\s+)?(?:doors?|windows?)\b/i.test(
         currentUserNote
       );
     for (const card of noteUsesSeparateJobReader(currentUserNote)
@@ -24909,6 +24948,12 @@ export default function AIEstimateScopeAssumptionsModal({
         card.id === 'windows' &&
         (String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
           String(draft?.projectType || '').toLowerCase() === 'bathroom')
+      ) {
+        continue;
+      }
+      if (
+        card.id === 'baseboard_install' &&
+        notesDescribeDedicatedFlooringJob(currentUserNote)
       ) {
         continue;
       }
@@ -25153,7 +25198,7 @@ export default function AIEstimateScopeAssumptionsModal({
     };
     const withDrywallLayout = (list: ScopeChecklistItem[]) =>
       finalizeDrywallScopeChecklistLayout(
-        keepPaintingBidOnPaintOnly(list),
+        keepPaintingBidOnPaintOnly(list, currentUserNote),
         checklist?.templateKey,
         drywallLayoutCtx
       );
@@ -33529,7 +33574,8 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleConfirm = () => {
-    if (applying || items.length === 0) return;
+    if (applying || confirmTransitionRef.current || items.length === 0) return;
+    confirmTransitionRef.current = true;
     bathroomQmFlushRef.current?.();
 
     // Do not auto-apply remaining suggestions — Applied pricing is what Continue
@@ -33538,7 +33584,16 @@ export default function AIEstimateScopeAssumptionsModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     onConfirmBegin?.();
-    runConfirmScopeApplyWork(() => {
+    void (async () => {
+      try {
+        await yieldGeneratingOverlayPaint();
+      } catch {
+        confirmTransitionRef.current = false;
+        onConfirmCancel?.();
+        return;
+      }
+      try {
+        runConfirmScopeApplyWork(() => {
       commitElectricalAttributes();
       const payload = scopeMeasurementsPayloadForCurrentState();
       if (__DEV__) {
@@ -33575,7 +33630,12 @@ export default function AIEstimateScopeAssumptionsModal({
         payload
       );
       onConfirm(confirmItems, payload);
-    });
+        });
+      } catch {
+        confirmTransitionRef.current = false;
+        onConfirmCancel?.();
+      }
+    })();
   };
 
   const handleSaveCustomScopePricing = useCallback(

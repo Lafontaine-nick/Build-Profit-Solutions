@@ -1722,6 +1722,38 @@ describe('mobile scope measurement parser', () => {
     expect(Number(hydrated.ceilingPaintSqft)).toBe(2400);
   });
 
+  it('paints ceilings without painting or trimming replaced interior doors', () => {
+    const notes = 'Replace 3 interior doors and paint the ceilings.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+    expect(parsed.paintScope).toEqual(
+      expect.arrayContaining(['ceilings', 'doors'])
+    );
+    expect(parsed.paintScope).not.toContain('walls');
+    expect(parsed.paintScope).not.toContain('trim');
+    expect(parsed.interiorDoorCount).toBe(3);
+
+    const paintedDoors = parseScopeMeasurementsFromNotes(
+      'Paint the doors and walls.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+    expect(paintedDoors.paintScope).toEqual(
+      expect.arrayContaining(['doors', 'walls'])
+    );
+    expect(paintedDoors.paintScope).not.toContain('ceilings');
+
+    const ceilingsAndDoors = parseScopeMeasurementsFromNotes(
+      'Paint the ceilings and the doors.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+    expect(ceilingsAndDoors.paintScope).toEqual(
+      expect.arrayContaining(['ceilings', 'doors'])
+    );
+    expect(ceilingsAndDoors.paintScope).not.toContain('walls');
+  });
+
   it('parses canonical Electrical notes examples onto owned keys', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Install 18 recessed lights. Add 12 standard outlets. Add 4 GFCI outlets. Install a 200 amp panel. Run two dedicated 20 amp circuits. Install one 50 amp range circuit. Add 3 ceiling fans. Finished-wall fishing, include rough-in and conduit.',

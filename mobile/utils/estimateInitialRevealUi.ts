@@ -182,9 +182,15 @@ import {
   hvacNotesLeaveOptionAlone,
   inferItemStateFromNotes,
   notesDescribeGroundUpHome,
+  inferRoofingSystemFromNotes,
+  inferRoofingTearOffFromNotes,
+  inferRoofingTradeScopeSelectionsFromNotes,
+  noteExclusionNotices,
+  noteMentionIsOnlyNegated,
   notesExcludeElectricalServiceUpgrade,
   notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
+  shouldLimitRoofingChecklistToNotes,
 } from '@/utils/scopeItemNoteHints';
 import {
   hvacPlanImportStatesNewBuildSystem,
@@ -500,13 +506,15 @@ export function getInitialRevealConfirmItems(
   const filtered = { ...buckets, pricingScope };
   const pricedSelection =
     initialRevealPricingVisible(draft) && draftHasSelectedScopePrices(draft);
-  if (!namedScopeReaderOwnsPricing(notes) && !pricedSelection) return filtered;
-  return {
+  if (!namedScopeReaderOwnsPricing(notes) && !pricedSelection) {
+    return appendRevealAttentionExtras(draft, filtered);
+  }
+  return appendRevealAttentionExtras(draft, {
     ...filtered,
     pricingScope: filtered.pricingScope.filter(
       item => !/\b(?:pric(?:e|ing)|price needed)\b/i.test(item)
     ),
-  };
+  });
 }
 
 function ownerHandledRevealItem(
@@ -1568,6 +1576,119 @@ function roofCoveringName(draft: EstimateAiDraft): string {
   });
 }
 
+function noteRoofCoveringLabel(notes: string): string {
+  const system = inferRoofingSystemFromNotes(notes);
+  if (system === 'architectural_shingles') return 'Architectural shingles';
+  if (system === 'three_tab_shingles') return '3-tab shingles';
+  if (system === 'concrete_clay_tile') return 'Clay tile';
+  if (system === 'standing_seam_metal') return 'Standing seam';
+  if (system === 'exposed_fastener_metal') return 'Metal panel';
+  return 'Roofing system';
+}
+
+/** Named re-roof lines for Scope found. Negated accessories stay off this list. */
+function dedicatedRoofingNoteRevealRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  if (roofingPlanScopeOwnsReveal(draft)) return null;
+  const notes = collectRoofingInferenceNotes(draft, draft.originalNotes);
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const planBacked = Boolean(
+    measurements.planImportMode ||
+      measurements.planImportFingerprint ||
+      measurements.planImportSession
+  );
+  if (
+    !shouldLimitRoofingChecklistToNotes({
+      notes,
+      templateKey: draft.scopeChecklist?.templateKey,
+      projectType: draft.projectType,
+      scopeMode: draft.scopeMode || draft.classification?.scopeMode || null,
+      planBacked,
+    })
+  ) {
+    return null;
+  }
+  const selected = new Set(inferRoofingTradeScopeSelectionsFromNotes(notes));
+  const parsed = parseScopeMeasurementsFromNotes(notes, {
+    templateKey: 'roofing',
+    projectType: 'roofing',
+  });
+  const squares =
+    positiveRevealNumber(measurements.roofSquares) ||
+    positiveRevealNumber(parsed.roofSquares);
+  const allowance = parseRoofingDeckingAllowanceFromNotes(notes);
+  const tearOff = inferRoofingTearOffFromNotes(notes);
+  const statedDripLf = positiveRevealNumber(parsed.roofDripEdgeLf);
+  const rows: Array<{ name: string; amount: number; quantity?: string | null }> =
+    [];
+  if (selected.has('shingles') || selected.has('tear_off')) {
+    rows.push({
+      name: noteRoofCoveringLabel(notes),
+      amount: 0,
+      ...(squares
+        ? { quantity: `${squares.toLocaleString('en-US')} squares` }
+        : {}),
+    });
+  }
+  if (selected.has('tear_off') && tearOff && tearOff !== 'new_construction') {
+    const quantity =
+      tearOff === 'one_layer'
+        ? '1 layer'
+        : tearOff === 'two_layers'
+          ? '2 layers'
+          : tearOff === 'three_plus_custom'
+            ? '3+ layers'
+            : null;
+    rows.push({
+      name: 'Existing roof / tear-off',
+      amount: 0,
+      ...(quantity ? { quantity } : {}),
+    });
+  }
+  if (selected.has('drip_edge')) {
+    rows.push({
+      name: 'Drip edge',
+      amount: 0,
+      ...(statedDripLf
+        ? { quantity: `${statedDripLf.toLocaleString('en-US')} LF` }
+        : {}),
+    });
+  }
+  if (selected.has('decking_repair')) {
+    rows.push({
+      name: 'Deck repair allowance',
+      amount: 0,
+      ...(allowance
+        ? { quantity: `$${allowance.toLocaleString('en-US')}` }
+        : {}),
+    });
+  }
+  if (selected.has('cleanup')) {
+    rows.push({ name: 'Cleanup, haul-off & disposal', amount: 0 });
+  }
+  return rows.length ? rows : null;
+}
+
+function appendRevealAttentionExtras(
+  draft: EstimateAiDraft,
+  buckets: InitialRevealConfirmBuckets
+): InitialRevealConfirmBuckets {
+  const extras = noteExclusionNotices(draft.originalNotes);
+  if (!extras.length) return buckets;
+  const pricingScope = [...buckets.pricingScope];
+  for (const extra of extras) {
+    if (pricingScope.some(item => item.toLowerCase() === extra.toLowerCase())) {
+      continue;
+    }
+    pricingScope.push(extra);
+  }
+  return { ...buckets, pricingScope };
+}
+
 function roofingPlanOnlyScopeRows(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string }> {
@@ -1773,6 +1894,35 @@ const PAINTING_INSTALL_REVEAL_IDS = new Set([
  * applied. Door installation is not part of a painting bid, and an unpriced
  * prep row is not a second scope item beside those prices.
  */
+/** After Confirm Scope, a notes painting bid lists the same priced rows as Step 2. */
+function confirmedPaintingNotePreview(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (paintingPlanExport(draft)) return null;
+  const template = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  if (template !== 'painting') return null;
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  const rows = getScopePackagesForReview(draft).flatMap(pkg => {
+    const amount = scopePackagePricedAmount(pkg, draft);
+    if (!(amount > 0)) return [];
+    const name = String(pkg.name || pkg.scope || '').trim();
+    if (!name) return [];
+    const quantity = formatScopeQuantity(pkg, draft);
+    return [
+      {
+        name,
+        amount,
+        ...(quantity ? { quantity } : {}),
+      },
+    ];
+  });
+  return rows.length ? rows : null;
+}
+
 function appliedPaintingConfirmScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> | null {
@@ -2775,7 +2925,60 @@ function appendNamedRoofingRevealRows(
     });
   }
 
-  return next;
+  const withoutNegatedGutters = noteMentionIsOnlyNegated(notes, /\bgutters?\b/i)
+    ? next.filter(row => row.id !== 'gutters' && !/^gutters$/i.test(row.name))
+    : next;
+  if (squares > 0) {
+    const roofIdx = withoutNegatedGutters.findIndex(
+      row =>
+        row.id === 'roofing_system' ||
+        row.id === 'shingles_roofing' ||
+        /roofing system|architectural shingles|shingles/i.test(row.name)
+    );
+    if (roofIdx >= 0 && !withoutNegatedGutters[roofIdx].quantityOverride) {
+      withoutNegatedGutters[roofIdx] = {
+        ...withoutNegatedGutters[roofIdx],
+        quantityOverride: `${squares.toLocaleString('en-US')} squares`,
+      };
+    }
+  }
+  const selected = new Set(inferRoofingTradeScopeSelectionsFromNotes(notes));
+  const hasNamedRow = (id: string, nameRe: RegExp) =>
+    withoutNegatedGutters.some(row => row.id === id || nameRe.test(row.name));
+  if (selected.has('tear_off') && !hasNamedRow('tear_off', /tear-?off/i)) {
+    const tearOff = inferRoofingTearOffFromNotes(notes);
+    const quantity =
+      tearOff === 'one_layer'
+        ? '1 layer'
+        : tearOff === 'two_layers'
+          ? '2 layers'
+          : tearOff === 'three_plus_custom'
+            ? '3+ layers'
+            : null;
+    withoutNegatedGutters.push({
+      id: 'tear_off',
+      name: 'Existing roof / tear-off',
+      ...(quantity ? { quantityOverride: quantity } : {}),
+    });
+  }
+  if (selected.has('drip_edge') && !hasNamedRow('drip_edge', /drip edge/i)) {
+    withoutNegatedGutters.push({ id: 'drip_edge', name: 'Drip edge' });
+  }
+  if (
+    selected.has('decking_repair') &&
+    !hasNamedRow('decking_repair', /deck repair|decking/i)
+  ) {
+    const allowance = parseRoofingDeckingAllowanceFromNotes(notes);
+    withoutNegatedGutters.push({
+      id: 'decking_repair',
+      name: 'Deck repair allowance',
+      ...(allowance
+        ? { quantityOverride: `$${allowance.toLocaleString('en-US')}` }
+        : {}),
+    });
+  }
+
+  return withoutNegatedGutters;
 }
 
 function dropUnstatedDoorAndTrimPaint<T extends { id: string; name: string }>(
@@ -3647,7 +3850,10 @@ function getInitialRevealScopeRows(
         roomRemodelQuantityOverride('roofing')
       );
     }
-    if (/\bgutters?\b/i.test(notes)) {
+    if (
+      /\bgutters?\b/i.test(notes) &&
+      !noteMentionIsOnlyNegated(notes, /\bgutters?\b/i)
+    ) {
       const gutterQuantity = positiveRevealNumber(
         parsedRoomRemodelMeasurements?.roofGutterLf
       );
@@ -4926,6 +5132,8 @@ export function getInitialRevealChecklistScopePreview(
   }
   const paintingApplied = appliedPaintingConfirmScopePreview(draft);
   if (paintingApplied) return paintingApplied;
+  const confirmedPaintingNotes = confirmedPaintingNotePreview(draft);
+  if (confirmedPaintingNotes) return confirmedPaintingNotes;
   const windowsDoorsPlan = windowsDoorsPlanRevealRows(draft);
   if (windowsDoorsPlan) return windowsDoorsPlan;
   if (electricalDeviceNoteOwnsReveal(draft)) {
@@ -5353,6 +5561,9 @@ export function getInitialRevealAttentionTitle(
   needsScopeConfirmation: boolean
 ): string {
   if (!needsScopeConfirmation) return 'Needs your attention';
+  if (noteExclusionNotices(draft.originalNotes).length > 0) {
+    return 'Needs your attention';
+  }
   return wholeHousePlanExport(draft) ? 'Counts to confirm' : 'Pricing needed';
 }
 
@@ -5788,6 +5999,13 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     if (squares) {
       return `${roofCoveringName(draft)} · ${squares.toLocaleString('en-US')} squares.`;
     }
+  }
+  const noteRoofingRows = dedicatedRoofingNoteRevealRows(draft);
+  const noteRoofingSquares = noteRoofingRows?.find(row =>
+    /squares/i.test(String(row.quantity || ''))
+  );
+  if (noteRoofingSquares?.quantity) {
+    return `${noteRoofingSquares.name} · ${noteRoofingSquares.quantity}.`;
   }
   const roofingPriced = appliedRoofingConfirmScopePreview(draft);
   if (roofingPriced.length) {

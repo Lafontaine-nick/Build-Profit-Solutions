@@ -61,6 +61,38 @@ describe('scopeIntent', () => {
     if (appliances) expect(appliances.state).not.toBe('included');
   });
 
+  test('reads the same whole-house note without a model scope intent', () => {
+    const {
+      checklistTemplateKey,
+      notesDescribeMeasuredWholeHomeRemodel,
+      statedWholeHomeSizeSqft,
+    } = require('../scopeChecklistLibrary');
+    const notes =
+      'Whole house remodel. The house is 2,400 sqft. LVP flooring. Keep the windows and doors. Appliances are owner-supplied.';
+    expect(statedWholeHomeSizeSqft(notes)).toBe(2400);
+    expect(notesDescribeMeasuredWholeHomeRemodel(notes)).toBe(true);
+    expect(
+      checklistTemplateKey(
+        { projectType: 'other', originalNotes: notes },
+        null,
+        notes
+      )
+    ).toBe('room_remodel');
+    const checklist = buildScopeChecklist(
+      {
+        projectType: 'other',
+        originalNotes: notes,
+        rooms: [],
+      },
+      'room_remodel',
+      notes
+    );
+    expect(checklist.templateKey).toBe('room_remodel');
+    expect(checklist.suggestedMeasurements?.flooringLvpSqft).toBeUndefined();
+    expect(checklist.suggestedMeasurements?.flooringSqft).toBeUndefined();
+    expect(checklist.suggestedMeasurements?.floorAreaSqft).not.toBe(2400);
+  });
+
   test('keeps a stated quantity and drops a number the note never wrote', () => {
     const notes = 'Replace 3 interior doors.';
     const intent = normalizeScopeIntent(

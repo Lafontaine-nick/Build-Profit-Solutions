@@ -55,6 +55,7 @@ import SaveAsTemplateModal from '../../components/estimate/SaveAsTemplateModal';
 import AIEstimateBuilderModal from '../../components/estimate/AIEstimateBuilderModal';
 import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraftReviewModal';
 import AIEstimateInitialRevealModal from '../../components/estimate/AIEstimateInitialRevealModal';
+import AIEstimateTransitionCard from '../../components/estimate/AIEstimateTransitionCard';
 import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimatePricingProposalModal';
 import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
 import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
@@ -5029,6 +5030,8 @@ export default function EstimateGeneratorScreen() {
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
   const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
+  /** Loading card for Continue to review and Review & apply estimate. */
+  const [aiReviewTransition, setAiReviewTransition] = useState(null);
   /** Survives Step 2 → Step 1 Back so regenerate can re-seed plan measurements. */
   const [aiLastPlanImport, setAiLastPlanImport] = useState(null);
   /** Survives Step 2 → Step 1 Back so Regenerate keeps structured photo scope. */
@@ -5686,12 +5689,19 @@ export default function EstimateGeneratorScreen() {
     [savedBidTemplates, bid, aiDraftNotes]
   );
 
+  const clearAiReviewTransitionAfterPaint = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setAiReviewTransition(null));
+    });
+  }, []);
+
   const openAiDraftReviewEntry = useCallback(() => {
     setShowAiInitialRevealModal(true);
     setShowAiDraftReviewModal(false);
     setShowAiScopeAssumptionsModal(false);
     setShowAiBuilderModal(false);
-  }, []);
+    clearAiReviewTransitionAfterPaint();
+  }, [clearAiReviewTransitionAfterPaint]);
 
   const transitionToAiBuilder = useCallback((options = {}) => {
     setAiBuilderResumeFromScopeBack(Boolean(options.resumeFromScopeBack));
@@ -5717,7 +5727,8 @@ export default function EstimateGeneratorScreen() {
     setShowAiScopeAssumptionsModal(false);
     setShowAiBuilderModal(false);
     setShowAiInitialRevealModal(false);
-  }, []);
+    clearAiReviewTransitionAfterPaint();
+  }, [clearAiReviewTransitionAfterPaint]);
 
   const openAiDraftReviewDirect = useCallback(() => {
     transitionToAiReview();
@@ -5738,7 +5749,11 @@ export default function EstimateGeneratorScreen() {
   }, [aiDraft, transitionToAiScope, transitionToAiReview]);
 
   const openAiDraftReviewDetailed = useCallback(() => {
-    transitionToAiReview();
+    setAiReviewTransition('open');
+    void (async () => {
+      await yieldGeneratingOverlayPaint();
+      transitionToAiReview();
+    })();
   }, [transitionToAiReview]);
 
   const handleInitialRevealConfirmScope = useCallback(() => {
@@ -6216,6 +6231,12 @@ export default function EstimateGeneratorScreen() {
 
   const handleConfirmScopeAssumptionsBegin = useCallback(() => {
     setAiScopeAssumptionsApplying(true);
+    setAiReviewTransition('prepare');
+  }, []);
+
+  const handleConfirmScopeAssumptionsCancel = useCallback(() => {
+    setAiScopeAssumptionsApplying(false);
+    setAiReviewTransition(null);
   }, []);
 
   const handleConfirmScopeAssumptions = useCallback(
@@ -6271,6 +6292,7 @@ export default function EstimateGeneratorScreen() {
         }
       } catch (e) {
         console.warn('handleConfirmScopeAssumptions failed', e);
+        setAiReviewTransition(null);
         Alert.alert('Scope confirmation', e?.message || 'Could not save scope assumptions. Please try again.');
         return;
       } finally {
@@ -23777,6 +23799,20 @@ export default function EstimateGeneratorScreen() {
       />
       ) : null}
 
+      <AIEstimateTransitionCard
+        visible={aiReviewTransition != null}
+        title={
+          aiReviewTransition === 'open'
+            ? 'Opening your review'
+            : 'Preparing your review'
+        }
+        subtitle={
+          aiReviewTransition === 'open'
+            ? 'Putting the confirmed prices on the draft.'
+            : 'Saving the scope you confirmed.'
+        }
+      />
+
       {showAiInitialRevealModal ? (
       <AIEstimateInitialRevealModal
         visible={showAiInitialRevealModal}
@@ -23810,6 +23846,7 @@ export default function EstimateGeneratorScreen() {
         }}
         onConfirm={handleConfirmScopeAssumptions}
         onConfirmBegin={handleConfirmScopeAssumptionsBegin}
+        onConfirmCancel={handleConfirmScopeAssumptionsCancel}
         onPersistProgress={handlePersistScopeProgress}
         pricingContext={aiScopePricingContext}
         hasSitePhotos={aiSitePhotos.length > 0}

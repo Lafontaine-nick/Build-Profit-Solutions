@@ -3503,6 +3503,96 @@ describe('estimateInitialRevealUi', () => {
     expect(buckets.pricingScope).toHaveLength(0);
   });
 
+  it('shows note exclusions in yellow review and keeps negated gutters off the roof', () => {
+    const notes =
+      'Remove and replace 22 squares of architectural shingles on a single-story house. Include underlayment, drip edge, and dumpster. Deck repair allowance $1,000. No gutters, no siding, no interior work.';
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      whatAiDid: ['Detected roofing job.'],
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          { id: 'gutters', label: 'Gutters', state: 'included' },
+          {
+            id: 'cleanup',
+            label: 'Cleanup, haul-off & disposal',
+            state: 'included',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual([
+      'Roofing system · 22 squares',
+      'Cleanup, haul-off & disposal',
+      'Existing roof / tear-off · 1 layer',
+      'Drip edge',
+      'Deck repair allowance · $1,000',
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Gutters are not in this bid',
+      'Siding is not in this bid',
+      'Interior work is not in this bid',
+    ]);
+    expect(getInitialRevealAttentionTitle(draft, true)).toBe(
+      'Needs your attention'
+    );
+    expect(
+      getInitialRevealStatusLabel(draft, countInitialRevealAttentionItems(draft))
+        .tone
+    ).toBe('review');
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Architectural shingles · 22 squares.'
+    );
+  });
+
+  it('uses the yellow check list for exclusions on any note', () => {
+    const flooring = {
+      projectType: 'flooring',
+      requiresScopeConfirmation: true,
+      originalNotes:
+        'Install 1,150 sqft LVP in the main level. Pull the existing carpet and haul it off. Reinstall 280 LF of existing baseboard. No paint, no trim replacement, no subfloor repair.',
+      scopeChecklist: { templateKey: 'flooring', items: [] },
+    } as EstimateAiDraft;
+    const drywall = {
+      projectType: 'drywall',
+      requiresScopeConfirmation: true,
+      originalNotes: 'Hang 1,200 sqft of drywall. No texture, no paint.',
+      scopeChecklist: { templateKey: 'drywall', items: [] },
+    } as EstimateAiDraft;
+
+    for (const draft of [flooring, drywall]) {
+      expect(getInitialRevealConfirmItems(draft).pricingScope.length).toBeGreaterThan(
+        0
+      );
+      expect(getInitialRevealAttentionTitle(draft, true)).toBe(
+        'Needs your attention'
+      );
+      expect(
+        getInitialRevealStatusLabel(
+          draft,
+          countInitialRevealAttentionItems(draft)
+        ).tone
+      ).toBe('review');
+    }
+    expect(getInitialRevealConfirmItems(drywall).pricingScope).toEqual([
+      'Texture is not in this bid',
+      'Paint is not in this bid',
+    ]);
+  });
+
   it('hides pre-confirm pricing on Scope found until Confirm scope', () => {
     const draft = {
       projectType: 'roofing',

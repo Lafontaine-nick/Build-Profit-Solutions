@@ -11,6 +11,7 @@ import { applyScopeInferencesFromNotes, hydrateScopeChecklistFromNotes } from '@
 import {
   initialScopeMeasurementInputExtended,
   resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
   buildNormalizedScopeMeasurementsFromInput,
   countScopePricingReadiness,
   prepareScopeMeasurementsInputForUi,
@@ -138,6 +139,39 @@ describe('roofingPlanningMeasurements', () => {
     expect(input.itemQuantities?.decking_repair__allowance).toMatchObject({
       quantity: '1000',
       unit: 'allowance',
+    });
+    expect(input.itemQuantities?.decking_repair__material).toMatchObject({
+      quantity: 400,
+      unit: 'allowance',
+      quantitySource: 'inferred',
+    });
+    expect(input.itemQuantities?.decking_repair__labor).toMatchObject({
+      quantity: 600,
+      unit: 'allowance',
+      quantitySource: 'inferred',
+    });
+    const deckingResolved = resolveChecklistItemQuantity(
+      'decking_repair',
+      buildNormalizedScopeMeasurementsFromInput(input),
+      { templateKey: 'roofing', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'decking_repair',
+        input,
+        'roofing',
+        deckingResolved,
+        null,
+        null,
+        notes
+      ).fill
+    ).toMatchObject({
+      mode: 'note_total_split',
+      material: 400,
+      labor: 600,
+      total: 1000,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const deckingQty = resolveChecklistItemQuantity('decking_repair', measurements, {

@@ -121,6 +121,41 @@ describe('scopeMeasurementParser', () => {
     );
   });
 
+  test('ceiling paint does not paint or trim replaced interior doors', () => {
+    const notes = 'Replace 3 interior doors and paint the ceilings.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+    expect(parsed.paintScope).toEqual(
+      expect.arrayContaining(['ceilings', 'doors']),
+    );
+    expect(parsed.paintScope).not.toContain('walls');
+    expect(parsed.paintScope).not.toContain('trim');
+    expect(parsed.interiorDoorCount).toBe(3);
+    expect(inferItemStateFromNotes('door_paint', notes)).toBe('included');
+    expect(inferItemStateFromNotes('interior_door_install', notes)).toBe(
+      'included',
+    );
+    expect(checklistTemplateKey({ projectType: 'painting' }, null, notes)).toBe(
+      'painting',
+    );
+
+    const paintedDoors = parseScopeMeasurementsFromNotes(
+      'Paint the doors and walls.',
+      { templateKey: 'painting', projectType: 'painting' },
+    );
+    expect(paintedDoors.paintScope).toEqual(
+      expect.arrayContaining(['doors', 'walls']),
+    );
+    expect(
+      parseScopeMeasurementsFromNotes('Paint the ceilings and the doors.', {
+        templateKey: 'painting',
+        projectType: 'painting',
+      }).paintScope,
+    ).toEqual(expect.arrayContaining(['ceilings', 'doors']));
+  });
+
   test('does not borrow drywall area for unspecified wall insulation', () => {
     const notes =
       'Remove and dispose of 1,200 sqft existing flooring, then install LVP with underlayment, transitions, 120 LF baseboard, two interior doors, 150 sqft drywall repair, four windows, R-21 wall insulation, and interior paint.';

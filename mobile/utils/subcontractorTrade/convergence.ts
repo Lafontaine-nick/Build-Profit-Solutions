@@ -304,7 +304,7 @@ export function normalizeTradeMeasurements(
   }
 
   if (tradeKey === 'painting') {
-    const structured = buildPaintingStructuredMeasurements(input);
+    const structured = buildPaintingStructuredMeasurements(input, source);
     const scalar = normalizePaintingScalarMeasurements(input, structured);
     for (const [key, value] of Object.entries(scalar)) {
       measurements[key] = value;

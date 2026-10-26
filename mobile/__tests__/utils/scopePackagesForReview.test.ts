@@ -782,6 +782,33 @@ describe('scopePackagesForReview', () => {
     expect(confirmScopeReviewRowsFromDraft(draft).map((row) => row.id)).toEqual(step3Ids);
   });
 
+  it('Step 3 leaves off a paint surface the Step 2 chips did not select', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'interior_door_install', label: 'Interior door installation', state: 'included', inputType: 'yes_no' },
+      { id: 'door_paint', label: 'Interior door & frame painting', state: 'included', inputType: 'yes_no' },
+      { id: 'prep', label: 'Paint prep & masking', state: 'included', inputType: 'yes_no' },
+      { id: 'ceiling_paint', label: 'Ceiling painting', state: 'included', inputType: 'yes_no' },
+      { id: 'exterior_paint', label: 'Exterior house paint', state: 'included', inputType: 'yes_no' },
+      { id: 'cleanup', label: 'Cleanup & disposal', state: 'included', inputType: 'yes_no' },
+    ];
+    const measurements = {
+      paintScope: ['ceilings', 'doors'],
+      originalNotes: 'Replace 3 interior doors and paint the ceilings.',
+    };
+    const rows = flattenConfirmScopeVisibleRows(items, {
+      templateKey: 'painting',
+      measurements,
+      forStep3Review: true,
+    });
+    expect(rows.map(row => row.id)).toEqual([
+      'interior_door_install',
+      'door_paint',
+      'prep',
+      'ceiling_paint',
+      'cleanup',
+    ]);
+  });
+
   it('Step 3 excludes unselected scope items while preserving top-to-bottom order', () => {
     const checklistItems = bathroomChecklistFromGroups().map((item) => {
       if (item.id === 'demo' || item.id === 'cleanup') {
@@ -845,6 +872,49 @@ describe('scopePackagesForReview', () => {
     });
 
     expect(rows.map((row) => row.id)).toEqual(['hvac', 'condenser']);
+  });
+
+  it('drops whole-home kitchen and bathroom update lumps from Step 3', () => {
+    const notes =
+      'Whole house remodel. The house is 2,400 sqft. Kitchen and bathroom updates, 1,800 sqft flooring, and paint the interior. Keep the windows and doors.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'flooring', label: 'Flooring installation', state: 'included', inputType: 'yes_no' },
+      { id: 'interior_paint', label: 'Interior paint', state: 'included', inputType: 'yes_no' },
+      { id: 'cabinets', label: 'Cabinets', state: 'included', inputType: 'yes_no' },
+      { id: 'countertops', label: 'Countertops', state: 'included', inputType: 'yes_no' },
+      { id: 'backsplash', label: 'Backsplash', state: 'included', inputType: 'yes_no' },
+      { id: 'floor_tile', label: 'Bath floor tile', state: 'included', inputType: 'yes_no' },
+      { id: 'shower_tile', label: 'Shower wall tile', state: 'included', inputType: 'yes_no' },
+      { id: 'shower_floor_tile', label: 'Shower floor tile', state: 'included', inputType: 'yes_no' },
+      { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included', inputType: 'yes_no' },
+      { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      originalNotes: notes,
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'room_remodel', items },
+      confirmedAssumptions: items,
+      scopeMeasurements: {},
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const ids = getScopePackagesForReview(draft).map((pkg) => pkg.checklistItemId);
+
+    expect(ids).not.toContain('kitchen_updates');
+    expect(ids).not.toContain('bathroom_updates');
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'flooring',
+        'interior_paint',
+        'cabinets',
+        'countertops',
+        'backsplash',
+        'floor_tile',
+        'shower_tile',
+        'shower_floor_tile',
+      ])
+    );
   });
 
   it('applyDraftToEstimate scope text matches Step 3 selected rows (PDF export source)', () => {

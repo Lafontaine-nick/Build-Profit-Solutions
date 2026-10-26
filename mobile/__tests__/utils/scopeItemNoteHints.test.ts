@@ -8,6 +8,7 @@ import {
   filterDedicatedRoofingConfirmItems,
   inferRoofingTradeScopeSelectionsFromNotes,
   infersRoofingUnderlaymentUpgradeFromNotes,
+  noteExclusionNotices,
   notesExcludeElectricalServiceUpgrade,
   notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
@@ -55,6 +56,24 @@ describe('scopeItemNoteHints trim inference', () => {
         'Replace 3 interior doors and paint the ceilings.'
       )
     ).toBe('included');
+    expect(
+      inferItemStateFromNotes(
+        'door_paint',
+        'Replace 3 interior doors and paint the ceilings.'
+      )
+    ).toBe('included');
+    expect(
+      inferItemStateFromNotes('door_paint', 'Replace 3 interior doors.')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes('door_paint', 'Paint the ceilings and the doors.')
+    ).toBe('included');
+    expect(
+      inferItemStateFromNotes(
+        'interior_door_install',
+        'Paint the ceilings and the doors.'
+      )
+    ).toBe('unsure');
   });
 
   test('plumbing trim does not include trim & baseboard scope', () => {
@@ -631,6 +650,73 @@ describe('scopeItemNoteHints roofing inference', () => {
     expect(inferRoofingTradeScopeSelectionsFromNotes(notes)).toContain(
       'decking_repair'
     );
+  });
+
+  test('a negated gutter mention is an exclusion, not a gutter bid', () => {
+    const notes =
+      'Remove and replace 22 squares of architectural shingles on a single-story house. Include underlayment, drip edge, and dumpster. Deck repair allowance $1,000. No gutters, no siding, no interior work.';
+    expect(inferRoofingTearOffFromNotes(notes)).toBe('one_layer');
+    expect(inferItemStateFromNotes('gutters', notes)).toBe('excluded');
+    expect(inferRoofingTradeScopeSelectionsFromNotes(notes)).not.toContain(
+      'gutters'
+    );
+    expect(inferRoofingTradeScopeSelectionsFromNotes(notes)).toEqual(
+      expect.arrayContaining([
+        'tear_off',
+        'shingles',
+        'drip_edge',
+        'decking_repair',
+        'cleanup',
+      ])
+    );
+    expect(noteExclusionNotices(notes)).toEqual([
+      'Gutters are not in this bid',
+      'Siding is not in this bid',
+      'Interior work is not in this bid',
+    ]);
+    expect(parseRoofingDeckingAllowanceFromNotes(notes)).toBe(1000);
+  });
+
+  test('every note leaves the same yellow exclusion notices', () => {
+    expect(
+      noteExclusionNotices(
+        'Install 1,150 sqft LVP. No paint, no trim replacement, no subfloor repair.'
+      )
+    ).toEqual([
+      'Paint is not in this bid',
+      'Trim replacement is not in this bid',
+      'Subfloor repair is not in this bid',
+    ]);
+    expect(
+      noteExclusionNotices(
+        'Hang 1,200 sqft of drywall. No texture, no paint.'
+      )
+    ).toEqual([
+      'Texture is not in this bid',
+      'Paint is not in this bid',
+    ]);
+    expect(
+      noteExclusionNotices('New 200-amp service. No panel upgrade, no fixtures.')
+    ).toEqual([
+      'Panel upgrade is not in this bid',
+      'Fixtures are not in this bid',
+    ]);
+    expect(
+      noteExclusionNotices('No gutters, siding, or interior work.')
+    ).toEqual([
+      'Gutters are not in this bid',
+      'Siding is not in this bid',
+      'Interior work is not in this bid',
+    ]);
+    expect(
+      noteExclusionNotices(
+        'New 2,400 sqft home. Owner is taking care of sitework and utilities separate from us. No prices yet.'
+      )
+    ).toEqual([
+      'Sitework is not in this bid',
+      'Utilities are not in this bid',
+    ]);
+    expect(noteExclusionNotices('Kitchen remodel. No prices yet.')).toEqual([]);
   });
 });
 

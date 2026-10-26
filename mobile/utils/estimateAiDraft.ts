@@ -46,7 +46,11 @@ import {
   notesDescribeDedicatedDeckJob,
   scrubDedicatedDeckMeasurements,
 } from '@/utils/deckNoteScope';
-import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
+import {
+  notesDescribeGroundUpHome,
+  notesNameDoorPaintSurface,
+  notesReplaceInteriorDoorsBesidePaint,
+} from '@/utils/scopeItemNoteHints';
 import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringMeasurementSeed,
@@ -1756,6 +1760,16 @@ export function repairDraftRatePricingFromNotes(
       mergedScopeMeasurements.paintScope =
         mergedScopeMeasurements.paintScope.filter(
           surface => surface !== 'cabinets'
+        );
+    }
+    if (
+      !notesNameDoorPaintSurface(text) &&
+      !notesReplaceInteriorDoorsBesidePaint(text) &&
+      Array.isArray(mergedScopeMeasurements.paintScope)
+    ) {
+      mergedScopeMeasurements.paintScope =
+        mergedScopeMeasurements.paintScope.filter(
+          surface => surface !== 'doors'
         );
     }
   }
@@ -7471,9 +7485,23 @@ function selectedPricingForRuleKey(
     acceptance?.selectionStatus === 'accepted' ||
     acceptance?.selectionStatus === 'manual_adjusted';
 
+  // A note stated the dollar allowance and there is no takeoff. The national
+  // material/labor split is the recorded price, not an invented quantity.
+  const statedAllowance = Number(
+    String(allowance?.quantity ?? '').replace(/,/g, '')
+  );
+  const noteAllowanceNationalSplit =
+    allowance?.quantitySource === 'notes' &&
+    materialPrice > 0 &&
+    laborPrice > 0 &&
+    statedAllowance > 0 &&
+    Math.abs(splitTotal - statedAllowance) < 0.51 &&
+    material?.quantitySource === 'inferred' &&
+    labor?.quantitySource === 'inferred';
+
   // Only sync splits the user confirmed in Confirm Scope / Step 3.
   // Auto national-average amounts must not rewrite packages on apply.
-  if (!userSelected) return null;
+  if (!userSelected && !noteAllowanceNationalSplit) return null;
 
   const storedPhysicalBasis =
     base?.quantity &&

@@ -275,6 +275,8 @@ import {
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
+  notesStateFlooringArea,
+  statedWholeHomeSizeSqft,
   wholeHomeRemodelSuppressesInventedPrice,
 } from '@/utils/wholeHomeRemodelNote';
 import {
@@ -298,9 +300,11 @@ import {
 } from '@/utils/deckNoteScope';
 import {
   dedicatedFlooringAreaSqft,
+  dedicatedFlooringBaseboardLf,
   dedicatedFlooringProducts,
   dedicatedFlooringRemovedTypes,
   notesDescribeDedicatedFlooringJob,
+  notesRequestBaseboardOnFlooringJob,
 } from '@/utils/flooringNoteScope';
 import {
   copyDrywallQuantityFields,
@@ -5877,6 +5881,151 @@ function buildNationalAverageBenchmarkScopeProfile(params: {
   };
 }
 
+/**
+ * A note stated one dollar allowance and no takeoff. Split that total by the
+ * national material/labor mix (decking is $2 material + $3 labor, so 40/60).
+ */
+export function splitStatedAllowanceByNationalRatio(
+  itemId: string,
+  total: number
+): { material: number; labor: number } | null {
+  if (!(total > 0)) return null;
+  const average = getNationalAverageBudgetSplit(itemId);
+  const materialRate = Number(average?.material || 0);
+  const laborRate = Number(average?.labor || 0);
+  const base = materialRate + laborRate;
+  if (!(materialRate > 0) || !(laborRate > 0) || !(base > 0)) return null;
+  const material = Math.round(((total * materialRate) / base) * 100) / 100;
+  const labor = Math.round((total - material) * 100) / 100;
+  if (material <= 0 || labor <= 0) return null;
+  return { material, labor };
+}
+
+function noteAllowanceNationalSplitPricing(
+  itemId: string,
+  resolved: {
+    quantity?: number | null;
+    unit?: string | null;
+    quantitySource?: string | null;
+  },
+  itemQuantities:
+    | Record<
+        string,
+        {
+          quantity?: string | number | null;
+          quantitySource?: string | null;
+          unit?: string | null;
+        }
+      >
+    | undefined,
+  rule: ScopeItemQuantityRule
+): ScopeItemSuggestedPricing | null {
+  if (rule.lumpSumOnly) return null;
+  const stored = itemQuantities?.[`${itemId}__allowance`];
+  const storedTotal = parseScopeMeasurementInput(String(stored?.quantity ?? ''));
+  const fromStored =
+    stored?.quantitySource === 'notes' && storedTotal != null && storedTotal > 0
+      ? storedTotal
+      : null;
+  const fromResolved =
+    resolved.quantitySource === 'notes' &&
+    (resolved.unit === 'allowance' || resolved.unit === 'lump_sum') &&
+    resolved.quantity != null &&
+    resolved.quantity > 0
+      ? resolved.quantity
+      : null;
+  const total = fromStored ?? fromResolved;
+  if (total == null || !(total > 0)) return null;
+  const split = splitStatedAllowanceByNationalRatio(itemId, total);
+  if (!split) return null;
+  const average = getNationalAverageBudgetSplit(itemId);
+  return {
+    fill: {
+      material: split.material,
+      labor: split.labor,
+      total: round2(total),
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel:
+        average?.sourceLabel || 'National average material and labor split',
+      helper:
+        'Allowance from the notes, split into material and labor at the national average.',
+      mode: 'note_total_split',
+      lumpSumOnly: false,
+      displayQuantityLine: 'Allowance from notes',
+    },
+    comparison: null,
+  };
+}
+
+/** Write material and labor for a note allowance that has no physical takeoff. */
+function applyNationalSplitToNoteAllowances(
+  result: ScopeMeasurementsInputExtended
+): void {
+  const quantities = result.itemQuantities;
+  if (!quantities) return;
+  for (const [key, entry] of Object.entries(quantities)) {
+    if (!key.endsWith('__allowance') || !entry) continue;
+    if (entry.quantitySource && entry.quantitySource !== 'notes') continue;
+    const itemId = key.slice(0, -'__allowance'.length);
+    const rule = getChecklistItemQuantityRule(itemId);
+    if (!rule || rule.lumpSumOnly) continue;
+    const measurementKeys = [
+      rule.measurementKey,
+      ...(rule.measurementKeys || []),
+    ].filter((measurementKey): measurementKey is NonNullable<typeof measurementKey> =>
+      Boolean(measurementKey)
+    );
+    const hasPhysicalTakeoff = measurementKeys.some(measurementKey => {
+      const value = Number(
+        String(
+          (result as unknown as Record<string, unknown>)[measurementKey] ?? ''
+        ).replace(/,/g, '')
+      );
+      return Number.isFinite(value) && value > 0;
+    });
+    if (hasPhysicalTakeoff) continue;
+    const direct = quantities[itemId];
+    const directUnit = String(direct?.unit || '').toLowerCase();
+    if (
+      direct &&
+      Number(String(direct.quantity ?? '').replace(/,/g, '')) > 0 &&
+      directUnit &&
+      !['allowance', 'lump_sum'].includes(directUnit)
+    ) {
+      continue;
+    }
+    const materialKey = `${itemId}__material`;
+    const laborKey = `${itemId}__labor`;
+    const existingMaterial = Number(
+      String(quantities[materialKey]?.quantity ?? '').replace(/,/g, '')
+    );
+    const existingLabor = Number(
+      String(quantities[laborKey]?.quantity ?? '').replace(/,/g, '')
+    );
+    if (existingMaterial > 0 && existingLabor > 0) continue;
+    if (
+      quantities[materialKey]?.quantitySource === 'user_entered' ||
+      quantities[laborKey]?.quantitySource === 'user_entered'
+    ) {
+      continue;
+    }
+    const total = Number(String(entry.quantity ?? '').replace(/,/g, ''));
+    const split = splitStatedAllowanceByNationalRatio(itemId, total);
+    if (!split) continue;
+    quantities[materialKey] = {
+      quantity: split.material,
+      unit: 'allowance',
+      quantitySource: 'inferred',
+    };
+    quantities[laborKey] = {
+      quantity: split.labor,
+      unit: 'allowance',
+      quantitySource: 'inferred',
+    };
+  }
+}
+
 export function computeNationalAverageBudgetSplit(
   itemId: string,
   total: number,
@@ -8044,10 +8193,41 @@ function resolvedQuantityFromNotes(
   if (linkedCountertop) return linkedCountertop;
 
   if (rule.dualAllowanceField) {
+    const floorSources =
+      (
+        measurements as {
+          quickMeasurementSources?: Record<string, string>;
+        }
+      ).quickMeasurementSources || {};
+    const userHeldFloorQuantity =
+      floorSources.flooringSqft === 'user_entered' ||
+      floorSources.flooringSqft === 'manual_override' ||
+      floorSources.flooringLvpSqft === 'user_entered' ||
+      floorSources.flooringLvpSqft === 'manual_override';
+    const unstatedWholeHomeFloor =
+      !userHeldFloorQuantity &&
+      (itemId === 'flooring' ||
+        itemId === 'flooring_lvp' ||
+        itemId === 'tile_flooring') &&
+      notesDescribeMeasuredWholeHomeRemodel(ctx.notes) &&
+      !notesStateFlooringArea(ctx.notes);
+    const unstatedHouseSize = unstatedWholeHomeFloor
+      ? statedWholeHomeSizeSqft(ctx.notes)
+      : null;
+    const houseSizeKeys = new Set([
+      'floorAreaSqft',
+      'kitchenFloorSqft',
+      'bathroomFloorSqft',
+    ]);
     const countMeasurement =
       itemId === 'floor_demo' && measurements.floorAreaSqft
         ? { quantity: measurements.floorAreaSqft, unit: 'sqft' }
-        : rule.measurementKey && measurements[rule.measurementKey]
+        : rule.measurementKey &&
+            measurements[rule.measurementKey] &&
+            !(
+              unstatedWholeHomeFloor &&
+              houseSizeKeys.has(rule.measurementKey)
+            )
           ? {
               quantity: Number(measurements[rule.measurementKey]),
               unit: measurementUnitForKey(
@@ -8056,6 +8236,7 @@ function resolvedQuantityFromNotes(
               ),
             }
           : ((rule.measurementKeys || [])
+              .filter(key => !(unstatedWholeHomeFloor && houseSizeKeys.has(key)))
               .map(key =>
                 measurements[key]
                   ? {
@@ -8065,7 +8246,13 @@ function resolvedQuantityFromNotes(
                   : null
               )
               .find(
-                entry => entry?.quantity != null && Number(entry.quantity) > 0
+                entry =>
+                  entry?.quantity != null &&
+                  Number(entry.quantity) > 0 &&
+                  !(
+                    unstatedHouseSize != null &&
+                    Number(entry.quantity) === unstatedHouseSize
+                  )
               ) ?? null);
     let countEntry =
       countMeasurement && Number(countMeasurement.quantity) > 0
@@ -16237,10 +16424,11 @@ export function measuredWholeHomeStatedScopeFill(
     (itemId === 'flooring' || itemId === 'tile_flooring') &&
     !/\btile\b/i.test(text)
   ) {
-    const quantity =
-      parseScopeMeasurementInput(measurements.flooringSqft) ||
-      parsed.flooringSqft ||
-      0;
+    const quantity = notesStateFlooringArea(text)
+      ? parseScopeMeasurementInput(measurements.flooringSqft) ||
+        parsed.flooringSqft ||
+        0
+      : 0;
     if (!(quantity > 0)) return null;
     return priced(
       quantity,
@@ -22984,6 +23172,13 @@ export function resolveScopeItemSuggestedPricing(
       if (userBenchmark?.fill || userBenchmark?.comparison)
         return userBenchmark;
     }
+    const allowanceSplit = noteAllowanceNationalSplitPricing(
+      itemId,
+      resolved,
+      itemQuantities,
+      rule
+    );
+    if (allowanceSplit) return allowanceSplit;
     return empty;
   }
 
@@ -25625,7 +25820,11 @@ function resolveChecklistItemQuantityCore(
         {
           quantity: baseboardLf,
           unit: 'lf',
-          quantitySource: 'user_entered',
+          quantitySource:
+            notesRequestBaseboardOnFlooringJob(ctx.notes) &&
+            dedicatedFlooringBaseboardLf(ctx.notes) === baseboardLf
+              ? 'notes'
+              : 'user_entered',
           sourceLabel: 'Quick Measurements · baseboard',
           pricingReady: true,
           quantityHelper: 'Baseboard installation LF.',
@@ -33513,6 +33712,8 @@ export function initialScopeMeasurementInputExtended(
       },
     };
   }
+
+  applyNationalSplitToNoteAllowances(result);
 
   return stripElectricalBleedFromMeasurements(
     result,

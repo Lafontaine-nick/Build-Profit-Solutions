@@ -91,7 +91,7 @@ import {
   dedicatedFlooringProductRoles,
   dedicatedFlooringRemovedTypes,
   notesDescribeDedicatedFlooringJob,
-  notesRequestFlooringDemo,
+  flooringExistingCardStartsOpen,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
 import {
@@ -1910,7 +1910,9 @@ export function QmFlooringScopePanels({
   darkMode: boolean;
   Colors: Colors;
 }) {
-  const flooringNotes = dedicatedFlooringNoteText(notes);
+  const flooringNotes = notesDescribeDedicatedFlooringJob(notes)
+    ? String(notes || '')
+    : dedicatedFlooringNoteText(notes);
   const noteRemovedTypes = dedicatedFlooringRemovedTypes(notes);
   const noteRemovedKey = (noteRemovedTypes || []).join(',');
   const [existing, setExisting] = useState(() =>
@@ -1926,7 +1928,7 @@ export function QmFlooringScopePanels({
   );
   const [demo, setDemo] = useState(() => readFlooringDemo(measurements));
   const prepNamedInNotes = notesRequestFloorPrep(flooringNotes);
-  const existingNamedInNotes = notesRequestFlooringDemo(flooringNotes);
+  const existingNamedInNotes = flooringExistingCardStartsOpen(notes);
   const prepAreaReady = Object.values(measurements.floorPrepByProduct || {}).some(
     entry => Number(entry?.sqft || 0) > 0
   );
@@ -4613,8 +4615,8 @@ export const QmBathroomFixturesPanels = React.memo(
                                     : vanityInstallStyle.borderColor,
                                   backgroundColor: active
                                     ? darkMode
-                                      ? 'rgba(56, 189, 248, 0.14)'
-                                      : 'rgba(14, 165, 233, 0.08)'
+                                      ? '#3f3f46'
+                                      : '#e4e4e7'
                                     : 'transparent',
                                 })}
                               >

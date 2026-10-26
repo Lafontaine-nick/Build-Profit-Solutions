@@ -31,6 +31,8 @@ import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlannin
 import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
+  notesNameBathroomRemodelPanel,
+  notesNameKitchenRemodelPanel,
   notesOpeningMentionIsKeepOnly,
 } from '@/utils/wholeHomeRemodelNote';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
@@ -1009,6 +1011,37 @@ function shouldHideDuplicateRoofingShinglesRow(
   );
 }
 
+const PAINT_SCOPE_REVIEW_SURFACES: Record<string, string> = {
+  exterior_paint: 'exterior',
+  exterior_prep: 'exterior',
+  exterior_trim_paint: 'exterior',
+  exterior_door_paint: 'exterior',
+  door_paint: 'doors',
+  door_casing_paint: 'doors',
+  cabinet_paint: 'cabinets',
+  trim_paint: 'trim',
+  baseboard_install: 'trim',
+  interior_paint: 'walls',
+  paint: 'walls',
+  ceiling_paint: 'ceilings',
+};
+
+/** Step 2 paint chips are the bid. An unselected surface is not a Step 3 row. */
+function paintingScopeOmitsReviewItem(
+  itemId: string,
+  measurements: Record<string, unknown>
+): boolean {
+  const scope = measurements.paintScope;
+  if (!Array.isArray(scope) || scope.length === 0) return false;
+  const surfaces = scope.map(value => String(value));
+  if (itemId === 'prep') {
+    return !surfaces.includes('walls') && !surfaces.includes('ceilings');
+  }
+  const surface = PAINT_SCOPE_REVIEW_SURFACES[itemId];
+  if (!surface) return false;
+  return !surfaces.includes(surface);
+}
+
 /**
  * Flat scope row order shared by Step 2 cards and Step 3 review lines.
  * Step 3 uses the same top-to-bottom order but only rows selected on Confirm Scope.
@@ -1043,6 +1076,20 @@ export function flattenConfirmScopeVisibleRows(
     }
 
     if (ctx.forStep3Review) {
+      if (paintingScopeOmitsReviewItem(item.id, ctx.measurements)) return false;
+      const reviewNotes = String(
+        ctx.measurements.originalNotes || ctx.measurements.scopeNotes || ''
+      );
+      // The kitchen and bathroom panels own these lines on Confirm Scope.
+      // The parent "updates" rows have no price of their own.
+      if (
+        (item.id === 'kitchen_updates' &&
+          notesNameKitchenRemodelPanel(reviewNotes)) ||
+        (item.id === 'bathroom_updates' &&
+          notesNameBathroomRemodelPanel(reviewNotes))
+      ) {
+        return false;
+      }
       if (
         isDrywallCompletePackageScope({ templateKey: ctx.templateKey }) &&
         (item.id === 'texture' || item.id === 'finish_tape')
@@ -1081,7 +1128,13 @@ export function confirmScopeReviewRowsFromDraft(draft: EstimateAiDraft): ScopeCh
   return flattenConfirmScopeVisibleRows(displayItems, {
     templateKey: draft.scopeChecklist?.templateKey,
     projectType: draft.projectType,
-    measurements: (draft.scopeMeasurements || {}) as Record<string, unknown>,
+    measurements: {
+      ...((draft.scopeMeasurements || {}) as Record<string, unknown>),
+      originalNotes:
+        draft.originalNotes ||
+        (draft.scopeMeasurements as { scopeNotes?: string } | undefined)
+          ?.scopeNotes,
+    },
     forStep3Review: true,
   });
 }

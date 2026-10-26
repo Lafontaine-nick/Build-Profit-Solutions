@@ -7,6 +7,7 @@ import {
 } from '@/utils/estimateScopeChecklistUi';
 import {
   inferExistingFlooringFromNotes,
+  shouldUseFlooringConfirmScopeLineCard,
   syncFlooringQmScopeItems,
 } from '@/utils/qmScopePanels/flooringRemodel';
 import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
@@ -16,10 +17,13 @@ import {
   prepareScopeMeasurementsInputForUi,
 } from '@/utils/scopeItemQuantities';
 import { getInitialRevealChecklistScopePreview, getInitialRevealConfirmItems, getInitialRevealTagline } from '@/utils/estimateInitialRevealUi';
+import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import {
+  dedicatedFlooringMeasurementSeed,
   dedicatedFlooringProducts,
   dedicatedFlooringRemovedTypes,
   filterDedicatedFlooringConfirmItems,
+  flooringExistingCardStartsOpen,
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
@@ -517,6 +521,123 @@ describe('dedicated flooring note', () => {
         'Frame 400 sqft of walls and install 180 sqft of LVP.'
       )
     ).toBe(false);
+  });
+
+  it('opens existing carpet, keeps baseboard, and leaves negated subfloor repair off', () => {
+    const note =
+      'Install 1,150 sqft LVP in the main level. Pull the existing carpet and haul it off. Reinstall 280 LF of existing baseboard. No paint, no trim replacement, no subfloor repair.';
+    expect(notesDescribeDedicatedFlooringJob(note)).toBe(true);
+    expect(flooringExistingCardStartsOpen(note)).toBe(true);
+    expect(notesRequestFloorPrep(note)).toBe(false);
+    expect(dedicatedFlooringRemovedTypes(note)).toEqual(['carpet']);
+    expect(dedicatedFlooringProducts(note).map(product => product.id)).toEqual([
+      'flooring_lvp',
+    ]);
+    expect(dedicatedFlooringMeasurementSeed(note)).toMatchObject({
+      floorDemoSqft: 1150,
+      flooringLvpSqft: 1150,
+      flooringExistingTypes: ['carpet'],
+      baseboardLf: 280,
+    });
+    expect(dedicatedFlooringMeasurementSeed(note).floorPrepSqft).toBeUndefined();
+
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'floor_demo',
+      'flooring_lvp',
+      'baseboard_install',
+    ]);
+    expect(
+      repaired.scopeChecklist?.items?.find(item => item.id === 'baseboard_install')
+        ?.label
+    ).toBe('Baseboard reinstall');
+    expect(
+      shouldUseFlooringConfirmScopeLineCard('flooring', {
+        id: 'baseboard_install',
+        state: 'included',
+        noteBacked: true,
+      })
+    ).toBe(true);
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(
+        row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`
+      )
+    ).toEqual([
+      'Flooring demo / removal · 1150 sqft',
+      'LVP · 1150 sqft',
+      'Baseboard reinstall · 280 LF',
+    ]);
+    expect(repaired.scopeMeasurements?.baseboardLf).toBe(280);
+    expect(repaired.scopeMeasurements?.floorDemoSqft).toBe(1150);
+    expect(repaired.scopeMeasurements?.floorPrepByProduct ?? null).toBeNull();
+    expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
+      'Paint is not in this bid',
+      'Trim replacement is not in this bid',
+      'Subfloor repair is not in this bid',
+    ]);
+
+    const rows = quickMeasurementRowsForInput('flooring', 'flooring', {}, [], {
+      scopeNotes: note,
+    });
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'floorDemoSqft',
+      'flooringLvpSqft',
+      'baseboardLf',
+    ]);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'baseboardLf',
+        includedScopeKeys: ['flooring_lvp', 'floor_demo', 'baseboard_install'],
+        templateKey: 'flooring',
+        projectType: 'flooring',
+        notes: note,
+      }).relevant
+    ).toBe(true);
+
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const price = (itemId: string) => {
+      const quantity = resolveChecklistItemQuantity(itemId, measurements, {
+        templateKey: 'flooring',
+        notes: note,
+      });
+      return {
+        quantity: quantity.quantity,
+        unit: quantity.unit,
+        total: resolveScopeItemSuggestedPricing(
+          itemId,
+          repaired.scopeMeasurements || {},
+          'flooring',
+          quantity,
+          null,
+          null,
+          note
+        ).fill?.total,
+      };
+    };
+    expect(price('floor_demo')).toMatchObject({
+      quantity: 1150,
+      unit: 'sqft',
+      total: 2012.5,
+    });
+    expect(price('flooring_lvp')).toMatchObject({
+      quantity: 1150,
+      unit: 'sqft',
+      total: 8050,
+    });
+    expect(price('baseboard_install')).toMatchObject({
+      quantity: 280,
+      unit: 'lf',
+      total: 2380,
+    });
   });
 
   it('stays off kitchen and drywall notes', () => {

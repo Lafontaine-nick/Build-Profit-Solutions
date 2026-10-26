@@ -474,6 +474,63 @@ export function hvacNotesLeaveOptionAlone(
   return !namedAsWork;
 }
 
+/**
+ * The paint verb applies to the doors.
+ * "Paint the ceilings and the doors" does. "Replace 3 interior doors and paint the ceilings" does not.
+ */
+export function notesNameDoorPaintSurface(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (
+    /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+|\d[\d,]*\s+)?(?:interior\s+)?doors?\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  const listed = text.match(
+    /\b(?:paint|repaint|painting)\b([^.;\n]{0,60}?)\b(?:interior\s+)?doors?\b/i
+  );
+  if (!listed) return false;
+  const gap = listed[1] || '';
+  if (
+    /\b(?:replace|replacing|install|hang|swap|demo|demolition|drywall|flooring|windows?|insulation|sqft|square)\b/i.test(
+      gap
+    )
+  ) {
+    return false;
+  }
+  const leftover = gap.replace(
+    /\b(?:walls?|ceilings?|trim|baseboards?|cabinets?|interior|the|and|plus|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d[\d,]*)\b|[, ]+/gi,
+    ''
+  );
+  return leftover.length === 0;
+}
+
+/** New or replaced interior doors on a paint job get painted too. */
+export function notesReplaceInteriorDoorsBesidePaint(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (notesDoorMentionIsPaintOrKeepOnly(text)) return false;
+  const replacesDoors =
+    /\b(?:install|replace|replacing|hang|swap|new)\b[^.;\n]{0,40}\b(?:interior\s+)?doors?\b/i.test(
+      text
+    ) || /\b\d[\d,]*\s+interior\s+doors?\b/i.test(text);
+  if (!replacesDoors) return false;
+  return /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\b[^.;\n]{0,40}\b(?:walls?|ceilings?|interior|inside)\b|\b(?:walls?|ceilings?)\b[^.;\n]{0,40}\b(?:paint|repaint|painting|coated|primed)\b/i.test(
+    text
+  );
+}
+
 /** "Paint the doors" and "keep the doors" are not a door install. */
 export function notesDoorMentionIsPaintOrKeepOnly(
   notes: string | null | undefined
@@ -498,6 +555,149 @@ export function notesDoorMentionIsPaintOrKeepOnly(
   });
 }
 
+const LEADING_EXCLUSION_NOTICES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bgutters?\b/i, label: 'Gutters are not in this bid' },
+  { pattern: /\bdownspouts?\b/i, label: 'Downspouts are not in this bid' },
+  { pattern: /\bsiding\b/i, label: 'Siding is not in this bid' },
+  { pattern: /\binterior(?:\s+work)?\b/i, label: 'Interior work is not in this bid' },
+  { pattern: /\bpaint(?:ing)?\b/i, label: 'Paint is not in this bid' },
+  { pattern: /\btrim\s+replacement\b/i, label: 'Trim replacement is not in this bid' },
+  {
+    pattern: /\b(?:subfloor|floor)\s+(?:repair|prep)\b/i,
+    label: 'Subfloor repair is not in this bid',
+  },
+  { pattern: /\bpermits?\b/i, label: 'Permits are not in this bid' },
+  { pattern: /\bhvac\b/i, label: 'HVAC is not in this bid' },
+  { pattern: /\bwindows?\b/i, label: 'Windows are not in this bid' },
+  { pattern: /\bdoors?\b/i, label: 'Doors are not in this bid' },
+  { pattern: /\belectrical\b/i, label: 'Electrical is not in this bid' },
+  { pattern: /\bplumbing\b/i, label: 'Plumbing is not in this bid' },
+  { pattern: /\bfixtures?\b/i, label: 'Fixtures are not in this bid' },
+];
+
+const NON_SCOPE_EXCLUSION =
+  /^(?:pricing|prices?|rates?|costs?|numbers?|totals?|bid\s+totals?|material(?:s)?(?:\s+(?:or|and)\s+labor)?|labor|measurements?|dimensions?|sizes?|quantit(?:y|ies)|info(?:rmation)?|idea|clue|yet)\b/i;
+
+function clauseStartsNegated(clause: string): boolean {
+  return /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't)\b/i.test(
+    clause.trim()
+  );
+}
+
+/** "No gutters, siding, or interior" keeps the "no" across the comma list. */
+function expandedNegatedClauses(notes: string | null | undefined): string[] {
+  const clauses: string[] = [];
+  for (const sentence of String(notes || '').split(/[.\n;]+/)) {
+    let carrying = false;
+    for (const raw of sentence.split(',')) {
+      const clause = raw.trim();
+      if (!clause) continue;
+      if (clauseStartsNegated(clause)) {
+        carrying = true;
+        clauses.push(clause);
+        continue;
+      }
+      if (!carrying) continue;
+      if (
+        /^(?:include|including|install|add|replace|remove|with|plus)\b/i.test(
+          clause
+        )
+      ) {
+        carrying = false;
+        continue;
+      }
+      const rest = clause.replace(/^(?:and|or|also)\s+/i, '').trim();
+      if (rest) clauses.push(`No ${rest}`);
+    }
+  }
+  return clauses;
+}
+
+function genericExclusionLabels(clause: string): string[] {
+  const subject = clause
+    .replace(
+      /^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't)\s+/i,
+      ''
+    )
+    .replace(/^(?:include|including)\s+/i, '')
+    .replace(/\s+(?:is|are)\s+not\s+included$/i, '')
+    .replace(/\s+not\s+included$/i, '')
+    .replace(/\s+excluded$/i, '')
+    .replace(/^(?:the|a|an|any|new)\s+/i, '')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+  if (!subject || subject.length > 48 || NON_SCOPE_EXCLUSION.test(subject)) {
+    return [];
+  }
+  return subject
+    .split(/\s+(?:or|and)\s+/i)
+    .map(part => part.trim())
+    .filter(part => part && !NON_SCOPE_EXCLUSION.test(part))
+    .map(part => {
+      const label = part.charAt(0).toUpperCase() + part.slice(1);
+      const last = label.split(/\s+/).pop() || label;
+      const plural = /s$/i.test(last) && !/(?:ss|glass|work)$/i.test(last);
+      return `${label} ${plural ? 'are' : 'is'} not in this bid`;
+    });
+}
+
+/** A leading "no / not / without" clause is the only mention of this term. */
+export function noteMentionIsOnlyNegated(
+  notes: string | null | undefined,
+  pattern: RegExp
+): boolean {
+  let positive = false;
+  let negated = false;
+  for (const raw of String(notes || '').split(/[.;,\n]+/)) {
+    const clause = raw.trim();
+    if (!clause || !pattern.test(clause)) continue;
+    if (/^(?:no|not|without|do not|don't)\b/i.test(clause)) negated = true;
+    else positive = true;
+  }
+  return negated && !positive;
+}
+
+function pushExclusionNotice(
+  notices: string[],
+  seen: Set<string>,
+  label: string
+) {
+  if (!label || seen.has(label)) return;
+  seen.add(label);
+  notices.push(label);
+}
+
+/** Yellow Scope found notices for work the note explicitly left out. */
+export function noteExclusionNotices(
+  notes: string | null | undefined
+): string[] {
+  const notices: string[] = [];
+  const seen = new Set<string>();
+  for (const clause of expandedNegatedClauses(notes)) {
+    let matched = false;
+    for (const entry of LEADING_EXCLUSION_NOTICES) {
+      if (!entry.pattern.test(clause)) continue;
+      matched = true;
+      pushExclusionNotice(notices, seen, entry.label);
+    }
+    if (matched) continue;
+    for (const label of genericExclusionLabels(clause)) {
+      pushExclusionNotice(notices, seen, label);
+    }
+  }
+  const ownerLabels: Array<[OwnerHandledScopeCategory, string]> = [
+    ['sitework', 'Sitework is not in this bid'],
+    ['utilities', 'Utilities are not in this bid'],
+    ['landscaping', 'Landscaping is not in this bid'],
+  ];
+  for (const [category, label] of ownerLabels) {
+    if (notesOwnerHandlesScopeCategory(notes, category)) {
+      pushExclusionNotice(notices, seen, label);
+    }
+  }
+  return notices;
+}
+
 export function inferItemStateFromNotes(
   itemId: string,
   notes: string | null | undefined
@@ -512,6 +712,15 @@ export function inferItemStateFromNotes(
     return 'excluded';
   }
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
+  if (
+    (itemId === 'gutters' || itemId === 'downspouts') &&
+    noteMentionIsOnlyNegated(
+      notes,
+      itemId === 'gutters' ? /\bgutters?\b/i : /\bdownspouts?\b/i
+    )
+  ) {
+    return 'excluded';
+  }
   if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
   if (itemId === 'trim') return inferTrimStateFromNotes(n);
   if (itemId === 'interior_door_install') {
@@ -521,6 +730,12 @@ export function inferItemStateFromNotes(
       /\bdoors?\b/.test(n) &&
       !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/.test(n);
     return hasInteriorDoorMention || hasGenericDoorMention
+      ? 'included'
+      : 'unsure';
+  }
+  if (itemId === 'door_paint') {
+    return notesNameDoorPaintSurface(notes) ||
+      notesReplaceInteriorDoorsBesidePaint(notes)
       ? 'included'
       : 'unsure';
   }
@@ -655,6 +870,12 @@ export function inferRoofingTearOffFromNotes(
     return 'one_layer';
   }
   if (/\b(re[\s-]?roof|roof\s+replacement|reroof|new\s+roof)\b/.test(n)) {
+    return 'one_layer';
+  }
+  if (
+    /\bremove\s+and\s+replace\b/.test(n) &&
+    /\b(?:shingles?|roof(?:ing)?)\b/.test(n)
+  ) {
     return 'one_layer';
   }
   return null;
@@ -850,8 +1071,15 @@ export function inferRoofingTradeScopeSelectionsFromNotes(
   if (/\bvalley\s+flashing\b/.test(n)) ids.add('valley_flashing');
   if (/\b(drip\s+edge)\b/.test(n)) ids.add('drip_edge');
   if (/\b(pipe\s+boots?)\b/.test(n)) ids.add('pipe_boots');
-  if (/\bgutters?\b/.test(n)) ids.add('gutters');
-  if (/\bdownspouts?\b/.test(n)) ids.add('downspouts');
+  if (/\bgutters?\b/.test(n) && !noteMentionIsOnlyNegated(notes, /\bgutters?\b/i)) {
+    ids.add('gutters');
+  }
+  if (
+    /\bdownspouts?\b/.test(n) &&
+    !noteMentionIsOnlyNegated(notes, /\bdownspouts?\b/i)
+  ) {
+    ids.add('downspouts');
+  }
   if (/\b(cleanup|disposal|dumpster|haul[\s-]?off)\b/.test(n)) ids.add('cleanup');
   if (
     /\bdeck(?:ing)?\b/i.test(n) &&

@@ -529,7 +529,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       )
     )
       paintScope.push("trim");
-    if (paintSurfaceMentioned(/\b(?:interior\s+)?doors?\b/i))
+    if (
+      require("./scopeChecklistLibrary").notesNameDoorPaintSurface(text) ||
+      require("./scopeChecklistLibrary").notesReplaceInteriorDoorsBesidePaint(
+        text,
+      )
+    )
       paintScope.push("doors");
     const excludesCabinetPaint =
       /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:paint(?:ing)?|refinish(?:ing)?)\s+(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
@@ -1328,6 +1333,19 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   for (const [key, pattern] of flooringProductPatterns) {
     const quantity = pickSqftFromClauses([pattern]);
     if (quantity) out[key] = quantity;
+  }
+  {
+    const {
+      statedWholeHomeSizeSqft,
+      notesStateFlooringArea,
+    } = require("./scopeChecklistLibrary");
+    const borrowedHouseSize = statedWholeHomeSizeSqft(text);
+    if (borrowedHouseSize && !notesStateFlooringArea(text)) {
+      for (const [key] of flooringProductPatterns) {
+        if (Number(out[key]) === borrowedHouseSize) delete out[key];
+      }
+      if (Number(out.flooringSqft) === borrowedHouseSize) delete out.flooringSqft;
+    }
   }
   const floorDemoSqft = pickSqftFromClauses([
     /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,

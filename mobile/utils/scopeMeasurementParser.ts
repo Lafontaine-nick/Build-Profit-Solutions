@@ -15,7 +15,11 @@ import {
   notesImplyStructuralFoundation,
 } from '@/utils/foundationPlanningMeasurements';
 import { applyRoofingPlanningMeasurements } from '@/utils/roofingPlanningMeasurements';
-import { notesImplyRoofTearOffAndInstall } from '@/utils/scopeItemNoteHints';
+import {
+  notesImplyRoofTearOffAndInstall,
+  notesNameDoorPaintSurface,
+  notesReplaceInteriorDoorsBesidePaint,
+} from '@/utils/scopeItemNoteHints';
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
@@ -24,7 +28,11 @@ import {
   notesDescribeDedicatedDeckJob,
 } from '@/utils/deckNoteScope';
 import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
-import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  notesStateFlooringArea,
+  statedWholeHomeSizeSqft,
+} from '@/utils/wholeHomeRemodelNote';
 
 const AIR_SEALING_SYNONYM_RE =
   /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i;
@@ -1153,7 +1161,10 @@ export function parseScopeMeasurementsFromNotes(
       )
     )
       scope.push('trim');
-    if (paintSurfaceMentioned(/\b(?:interior\s+)?doors?\b/i))
+    if (
+      notesNameDoorPaintSurface(text) ||
+      notesReplaceInteriorDoorsBesidePaint(text)
+    )
       scope.push('doors');
     const excludesCabinetPaint =
       /\b(?:no|not|without|exclude(?:d)?|excluding|don'?t|do not)\s+(?:any\s+|the\s+)?(?:paint(?:ing)?|refinish(?:ing)?\s+)?(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
@@ -2315,6 +2326,13 @@ export function parseScopeMeasurementsFromNotes(
                 ? 'tile'
                 : 'carpet';
     if (quantity && !productIsRemovalOnly(product)) out[key] = quantity;
+  }
+  const borrowedHouseSize = statedWholeHomeSizeSqft(text);
+  if (borrowedHouseSize && !notesStateFlooringArea(text)) {
+    for (const [key] of flooringProductPatterns) {
+      if (Number(out[key]) === borrowedHouseSize) delete out[key];
+    }
+    if (Number(out.flooringSqft) === borrowedHouseSize) delete out.flooringSqft;
   }
   // Only assign a demo quantity when the sqft is actually near the
   // floor-removal language. Falling back to the first sqft in the clause can

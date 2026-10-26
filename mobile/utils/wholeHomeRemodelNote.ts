@@ -11,9 +11,26 @@ const HOUSE_SQFT =
 const TRADE_SQFT =
   /\b(?:flooring|floors?|drywall|sheetrock|paint(?:ing)?|tile|shower|cabinets?|countertops?|counters?|backsplash|roof(?:ing)?|siding|insulation|trim|baseboards?|lvp|vinyl|carpet)\b/i;
 
+function sameSentenceWindow(text: string, index: number, raw: string): {
+  before: string;
+  after: string;
+} {
+  const beforeRaw = text.slice(Math.max(0, index - 36), index);
+  const afterRaw = text.slice(index + raw.length, index + raw.length + 36);
+  const beforeBreak = Math.max(
+    beforeRaw.lastIndexOf('.'),
+    beforeRaw.lastIndexOf(';'),
+    beforeRaw.lastIndexOf('\n')
+  );
+  const afterBreak = afterRaw.search(/[.;\n]/);
+  return {
+    before: beforeBreak >= 0 ? beforeRaw.slice(beforeBreak + 1) : beforeRaw,
+    after: afterBreak >= 0 ? afterRaw.slice(0, afterBreak) : afterRaw,
+  };
+}
+
 function sqftTouchesTrade(text: string, index: number, raw: string): boolean {
-  const before = text.slice(Math.max(0, index - 36), index);
-  const after = text.slice(index + raw.length, index + raw.length + 36);
+  const { before, after } = sameSentenceWindow(text, index, raw);
   return TRADE_SQFT.test(before) || TRADE_SQFT.test(after);
 }
 
@@ -75,7 +92,7 @@ export function notesNameRemovalOf(
   notes: string | null | undefined,
   term: string
 ): boolean {
-  const verb = String.raw`(?:demolition|demo|remove|removal|tear[\s-]?out)`;
+  const verb = String.raw`(?:demolition|demo|remove|removal|tear[\s-]?out|pull)`;
   const stop = String.raw`(?:install|update|repair|paint|replace)`;
   const span = String.raw`(?:(?!\b${stop}\b)[^.;\n])`;
   return new RegExp(
@@ -115,6 +132,36 @@ export function notesNameBathroomRemodelPanel(
     notesDescribeMeasuredWholeHomeRemodel(text) &&
     /\bbath(?:room)?s?\b/i.test(text) &&
     /\b(?:updat(?:e|es|ing)|remodel|renovation|reno)\b/i.test(text)
+  );
+}
+
+/** A flooring area the note actually stated. House size in the previous sentence is not one. */
+export function notesStateFlooringArea(notes: string | null | undefined): boolean {
+  const text = String(notes || '');
+  const otherTrade =
+    /\b(?:paint(?:ing)?|drywall|sheetrock|cabinet|counter(?:top)?s?|backsplash|roof(?:ing)?|insulation|siding|stucco|tile)\b/i;
+  const gapOk = (gap: string) => !otherTrade.test(gap);
+  const forward =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b([^.;\n]{0,40})\b(?:floor(?:ing)?|lvp|luxury\s+vinyl|laminate|vinyl|carpet)\b/gi;
+  const backward =
+    /\b(?:floor(?:ing)?|lvp|luxury\s+vinyl|laminate|vinyl|carpet)\b([^.;\n]{0,40})\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = forward.exec(text))) {
+    if (gapOk(match[1] || '')) return true;
+  }
+  while ((match = backward.exec(text))) {
+    if (gapOk(match[1] || '')) return true;
+  }
+  return false;
+}
+
+/** "Appliances are owner-supplied" is not a kitchen install. */
+export function notesNameOwnerSuppliedAppliances(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return /\bappliances?\b[^.;\n]{0,48}\b(?:owner|customer)[-\s]?(?:supplied|provided|provides|providing)\b|\b(?:owner|customer)[-\s]?(?:supplied|provided|provides|providing)\b[^.;\n]{0,48}\bappliances?\b/i.test(
+    text
   );
 }
 
@@ -211,7 +258,7 @@ export function wholeHomeRemodelNamedItemIds(
   const text = String(notes || '');
   if (!notesDescribeMeasuredWholeHomeRemodel(text)) return null;
   const ids = new Set<string>();
-  if (/\bflooring\b/i.test(text)) ids.add('flooring');
+  if (/\bflooring\b|\blvp\b|\bluxury\s+vinyl\b/i.test(text)) ids.add('flooring');
   if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) {
     ids.add('drywall');
     ids.add('patch_repair');
@@ -386,6 +433,11 @@ const NAMED_CARDS: Record<
     label: 'Trim / baseboard installation',
     helperText: 'Interior trim length named in the notes.',
     category: 'finishes',
+  },
+  flooring: {
+    label: 'Flooring installation',
+    helperText: 'Flooring was named in the notes. Enter the area before pricing.',
+    category: 'flooring',
   },
   kitchen_updates: {
     label: 'Kitchen updates',
@@ -705,6 +757,22 @@ export function wholeHomeRemodelSuppressesInventedPrice(
   if (itemId === 'kitchen_updates' || itemId === 'bathroom_updates') {
     return true;
   }
+  if (
+    itemId === 'flooring' ||
+    itemId === 'flooring_lvp' ||
+    itemId === 'tile_flooring'
+  ) {
+    if (notesStateFlooringArea(notes)) return false;
+    if (userHeld(stored, 'flooringSqft') || userHeld(stored, 'flooringLvpSqft')) {
+      return false;
+    }
+    const home = statedWholeHomeSizeSqft(notes);
+    const floorQty = positiveMeasurement(stored.flooringSqft);
+    const lvpQty = positiveMeasurement(stored.flooringLvpSqft);
+    if (floorQty != null && (home == null || floorQty !== home)) return false;
+    if (lvpQty != null && (home == null || lvpQty !== home)) return false;
+    return true;
+  }
   if (itemId === 'insulation') {
     const statedSurface =
       positiveMeasurement(stored.exteriorWallInsulationSqft) != null ||
@@ -787,6 +855,37 @@ export function scrubWholeHomeRemodelMeasurements<
     drop('paintAreaSqft');
     drop('combinedPaintableAreaSqft');
     drop('originalPaintAreaReferenceSqft');
+  }
+  if (!notesStateFlooringArea(text)) {
+    const homeSizeForFloor = statedWholeHomeSizeSqft(text);
+    for (const key of ['flooringSqft', 'flooringLvpSqft'] as const) {
+      if (userHeld(measurements, key)) continue;
+      const qty = Number(String(next[key] ?? '').replace(/,/g, ''));
+      if (homeSizeForFloor != null && qty === homeSizeForFloor) drop(key);
+    }
+    const itemQuantities = {
+      ...((next.itemQuantities as Record<string, { quantity?: unknown; quantitySource?: string }> | undefined) ||
+        {}),
+    };
+    let droppedQuantity = false;
+    for (const id of ['flooring', 'flooring_lvp', 'tile_flooring']) {
+      const row = itemQuantities[id];
+      const qty = Number(String(row?.quantity ?? '').replace(/,/g, ''));
+      if (
+        row &&
+        row.quantitySource !== 'user_entered' &&
+        row.quantitySource !== 'manual_override' &&
+        homeSizeForFloor != null &&
+        qty === homeSizeForFloor
+      ) {
+        delete itemQuantities[id];
+        droppedQuantity = true;
+      }
+    }
+    if (droppedQuantity) {
+      next.itemQuantities = itemQuantities;
+      changed = true;
+    }
   }
   if (!/\bkitchen\s+floor(?:ing)?\b/i.test(text)) drop('kitchenFloorSqft');
   if (!notesNameFraming(text)) {

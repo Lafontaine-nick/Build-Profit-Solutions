@@ -114,8 +114,11 @@ import {
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   inferItemStateFromNotes,
+  noteMentionIsOnlyNegated,
   notesDescribeGroundUpHome,
   notesDoorMentionIsPaintOrKeepOnly,
+  notesNameDoorPaintSurface,
+  notesReplaceInteriorDoorsBesidePaint,
 } from '@/utils/scopeItemNoteHints';
 import { migrateKitchenDemoSplit } from '@/utils/qmScopePanels/kitchenRemodel';
 import {
@@ -5131,7 +5134,11 @@ export function filterRoomRemodelNoteScopeItems(
       return has(/\b(?:roof(?:ing)?|roof\s+tie[-\s]?in)\b/i);
     if (id === 'stucco')
       return has(/\bstucco\b|\b(?:foam|control)\s+(?:trim|joints?)\b/i);
-    if (id === 'gutters') return has(/\bgutters?\b/i);
+    if (id === 'gutters') {
+      return (
+        has(/\bgutters?\b/i) && !noteMentionIsOnlyNegated(text, /\bgutters?\b/i)
+      );
+    }
     if (id === 'windows' || id === 'window_install')
       return has(/\bwindows?\b/i);
     if (
@@ -5485,9 +5492,9 @@ export function hydrateScopeChecklistFromNotes(
     );
     const hasInteriorDoors = has(/\binterior\s+doors?\b/i);
     const hasExteriorDoors = has(/\bexterior\s+doors?\b/i);
-    const hasExplicitDoorPaint = has(
-      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
-    );
+    const hasExplicitDoorPaint =
+      notesNameDoorPaintSurface(noteText) ||
+      notesReplaceInteriorDoorsBesidePaint(noteText);
     const hasExplicitExteriorTrimPaint = has(
       /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\b|\b(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
     );
@@ -5547,8 +5554,18 @@ export function hydrateScopeChecklistFromNotes(
           return has(
             /\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,35}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.;,\n]{0,35}\b(?:repair|replace|sheath|sheathing)\b/i
           );
-        if (id === 'gutters') return has(/\bgutters?\b/i);
-        if (id === 'downspouts') return has(/\bdownspouts?\b/i);
+        if (id === 'gutters') {
+          return (
+            has(/\bgutters?\b/i) &&
+            !noteMentionIsOnlyNegated(text, /\bgutters?\b/i)
+          );
+        }
+        if (id === 'downspouts') {
+          return (
+            has(/\bdownspouts?\b/i) &&
+            !noteMentionIsOnlyNegated(text, /\bdownspouts?\b/i)
+          );
+        }
         if (id === 'siding_repairs')
           return has(
             /\bsiding\b[^.;,\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;,\n]{0,35}\bsiding\b/i
@@ -6248,9 +6265,8 @@ export function syncInteriorPaintScopeItems(
   );
   const notesExplicitlyCallForInteriorDoorPaint =
     !params.notes ||
-    /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
-      params.notes
-    );
+    notesNameDoorPaintSurface(params.notes) ||
+    notesReplaceInteriorDoorsBesidePaint(params.notes);
   const hasExplicitCeilingMeasurement = positiveSqft(params.ceilingPaintSqft);
   const paintingBid =
     String(params.templateKey || '').toLowerCase() === 'painting';

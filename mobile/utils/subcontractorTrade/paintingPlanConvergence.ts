@@ -1,5 +1,6 @@
 import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import { isPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
+import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
 
 export type PaintScopeSurface =
   | 'walls'
@@ -286,7 +287,8 @@ function buildItemQuantities(
  * by the finished notes/manual Painting flow. Does not invoke pricing.
  */
 export function buildPaintingStructuredMeasurements(
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  source: 'plan' | 'notes' | 'manual' = 'plan'
 ): PaintingStructuredMeasurements {
   const aliased = readAliasedInput(input);
   const wallSqft = positiveNumber(aliased.wallPaintSqft);
@@ -297,8 +299,19 @@ export function buildPaintingStructuredMeasurements(
   const hasSeparateSurfaces = wallSqft != null || ceilingSqft != null;
 
   const inferredScope: PaintScopeSurface[] = [];
+  const explicitBeforeInference = readExplicitPaintScope(aliased);
   for (const [key, binding] of Object.entries(PAINTING_PLAN_SURFACE_KEYS)) {
-    if (positiveNumber(aliased[key]) != null) inferredScope.push(binding.scope);
+    if (positiveNumber(aliased[key]) == null) continue;
+    // A door count on a notes bid is the install count. It becomes door paint
+    // only when the note paints the doors, which is already on paintScope.
+    if (
+      source === 'notes' &&
+      binding.scope === 'doors' &&
+      !explicitBeforeInference?.includes('doors')
+    ) {
+      continue;
+    }
+    inferredScope.push(binding.scope);
   }
   if (positiveNumber(aliased.cabinetPaintSqft) != null && !inferredScope.includes('cabinets')) {
     inferredScope.push('cabinets');
@@ -739,16 +752,27 @@ const PAINTING_INSTALL_SCOPE_IDS = new Set([
 /**
  * A painting bid prices door paint and trim. Door units, frames, and
  * installation stay off even when the plan count would otherwise add them.
+ * A note that replaces or installs doors keeps that install line.
  */
 export function keepPaintingBidOnPaintOnly<
   T extends { id: string; state?: string; label?: string; helperText?: string },
->(items: T[]): T[] {
+>(items: T[], notes?: string | null): T[] {
   const paintingBid = items.some(
     item => item.id === 'exterior_door_paint' || item.id === 'door_paint'
   );
   if (!paintingBid) return items;
+  const keepInteriorDoorInstall =
+    /\b(?:install|replace|replacing|hang|swap|new)\b[^.;\n]{0,40}\b(?:interior\s+)?doors?\b/i.test(
+      String(notes || '')
+    ) && !notesDoorMentionIsPaintOrKeepOnly(notes);
   return items
-    .filter(item => !PAINTING_INSTALL_SCOPE_IDS.has(item.id))
+    .filter(item => {
+      if (!PAINTING_INSTALL_SCOPE_IDS.has(item.id)) return true;
+      return (
+        keepInteriorDoorInstall &&
+        (item.id === 'interior_door_install' || item.id === 'interior_doors')
+      );
+    })
     .map(item =>
       item.id === 'exterior_paint' &&
       item.state !== 'excluded' &&
