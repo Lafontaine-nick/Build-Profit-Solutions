@@ -17,6 +17,27 @@ export function notesDescribeDedicatedStuccoJob(
   return notesAreStuccoOnly(notes);
 }
 
+export type StuccoInstallSystemId =
+  | 'three_coat'
+  | 'one_coat'
+  | 'eifs'
+  | 'finish_only';
+
+/** A new stucco install is 3-coat or 1-coat. EIFS and a color coat stay off until the note names them. */
+export function stuccoInstallSystemIds(
+  notes?: string | null
+): StuccoInstallSystemId[] {
+  const text = String(notes || '');
+  const ids: StuccoInstallSystemId[] = ['three_coat', 'one_coat'];
+  if (/\beifs\b|\bsynthetic(?:\s+stucco)?\b/i.test(text)) ids.push('eifs');
+  if (
+    /\b(?:finish|color|texture)\s+coat\b|\brecoat\b|\bre-?stucco\b/i.test(text)
+  ) {
+    ids.push('finish_only');
+  }
+  return ids;
+}
+
 /**
  * "Stucco 1,200 sqft of exterior walls and replace 8 windows."
  * Those two lines are the job. A new house, and any other trade, stays off.
@@ -178,7 +199,12 @@ export function filterDedicatedStuccoConfirmItems<
   if (!notesDescribeDedicatedStuccoJob(notes)) return items;
   const named = items.filter(item => {
     const id = String(item.id || '');
-    return id === 'stucco' || id.startsWith('custom_');
+    return (
+      id === 'stucco' ||
+      id === 'cladding_demo' ||
+      id.startsWith('cladding_demo__') ||
+      id.startsWith('custom_')
+    );
   });
   return named.map(item =>
     item.id === 'stucco'

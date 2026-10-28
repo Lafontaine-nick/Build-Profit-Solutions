@@ -17,6 +17,7 @@ import {
   wholeProjectCoverQuantity,
 } from '@/utils/scopeQuickMeasurements';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
+import { selectedDrywallRemovalSurfaces } from '@/utils/drywallNoteScope';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesStateDrywallArea,
@@ -566,12 +567,25 @@ export function resolveQuickMeasurementFields(params: {
         statedWindowCount != null &&
         statedWindowCount > 0 &&
         Math.abs(displayedSqft - statedWindowCount) < 0.51);
+    const selectedRemoval = selectedDrywallRemovalSurfaces(
+      params.measurements as { scopeFoundPieces?: unknown }
+    );
+    const statedHangSqft = Number(
+      String(noteValues.drywallSqft ?? '').replace(/,/g, '')
+    );
+    const confirmedDrywallRemoval =
+      filled &&
+      statedHangSqft > 0 &&
+      Math.abs(displayedSqft - statedHangSqft) < 0.51 &&
+      ((field.key === 'wallDemoSqft' && selectedRemoval.walls) ||
+        (field.key === 'drywallCeilingSqft' && selectedRemoval.ceilings));
     const confirmedFromExplicitNote =
       (explicitlyMeasuredByNotes ||
         noteBackedPhysicalMeasurement ||
         explicitlyMeasuredPhysicalNote ||
         confirmedFromMatchingNoteValue ||
-        confirmedStuccoAndWindows) &&
+        confirmedStuccoAndWindows ||
+        confirmedDrywallRemoval) &&
       filled &&
       !isUserOverride;
     const shellSheathingIncluded =

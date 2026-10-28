@@ -340,6 +340,43 @@ function positiveQuantity(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Electrical counts already on a non-electrical bid (a remodel that named
+ * fans, hookups, or detectors). The rest of the electrical catalog stays off
+ * Quick Measurements.
+ */
+export function inScopeElectricalMeasurementKeys(
+  includedItemIds: Iterable<string> | null | undefined,
+  measurements: Record<string, unknown> | null | undefined
+): Set<string> {
+  const included = new Set(
+    [...(includedItemIds || [])].map(id => String(id))
+  );
+  const itemQuantities = (
+    measurements?.itemQuantities &&
+    typeof measurements.itemQuantities === 'object'
+      ? measurements.itemQuantities
+      : {}
+  ) as Record<string, { quantity?: unknown }>;
+  const keys = new Set<string>();
+  for (const card of ELECTRICAL_CARDS) {
+    if (card.measurementKey === 'serviceAmperage') continue;
+    if (!included.has(card.itemId)) continue;
+    if (
+      positiveQuantity(measurements?.[card.measurementKey]) == null &&
+      positiveQuantity(itemQuantities[card.itemId]?.quantity) == null
+    ) {
+      continue;
+    }
+    keys.add(card.measurementKey);
+  }
+  return keys;
+}
+
+export function embeddedElectricalQuantitySummaryLine(count: number): string {
+  return count === 1 ? '1 quantity' : `${count} quantities`;
+}
+
 function explicitZeroQuantity(value: unknown): boolean {
   if (value == null || value === '') return false;
   if (typeof value === 'object' && value && 'quantity' in (value as object)) {

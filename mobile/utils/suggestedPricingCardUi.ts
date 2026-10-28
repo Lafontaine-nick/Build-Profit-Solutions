@@ -855,7 +855,12 @@ export function formatSuggestedCardRateLine(
 export function formatSuggestedCardSplitLine(
   block: Pick<
     SuggestedPricingBlock,
-    'costBuckets' | 'material' | 'labor' | 'lumpSumOnly' | 'needsServiceAmperage'
+    | 'costBuckets'
+    | 'material'
+    | 'labor'
+    | 'lumpSumOnly'
+    | 'needsServiceAmperage'
+    | 'total'
   >
 ): string | null {
   if (block.lumpSumOnly || block.needsServiceAmperage) return null;
@@ -875,7 +880,29 @@ export function formatSuggestedCardSplitLine(
     add('Labor', Number(block.labor));
   }
   if (!totals.size) return null;
-  return [...totals]
+  const rawSum = [...totals.values()].reduce((sum, amount) => sum + amount, 0);
+  const whole = [...totals].map(
+    ([label, amount]) => [label, Math.round(amount)] as [string, number]
+  );
+  const summed = whole.reduce((sum, [, amount]) => sum + amount, 0);
+  const headline = Math.round(Number(block.total));
+  if (
+    headline > 0 &&
+    summed > 0 &&
+    Math.abs(rawSum - Number(block.total)) < 0.51 &&
+    summed !== headline
+  ) {
+    const drift = headline - summed;
+    const laborIndex = whole.findIndex(
+      ([label, amount]) => label === 'Labor' && amount + drift > 0
+    );
+    const index = laborIndex >= 0 ? laborIndex : whole.length - 1;
+    if (whole[index][1] + drift > 0) {
+      whole[index] = [whole[index][0], whole[index][1] + drift];
+    }
+  }
+  return whole
+    .filter(([, amount]) => amount > 0)
     .map(([label, amount]) => `${label} ${formatSuggestedComponentMoney(amount)}`)
     .join(' · ');
 }

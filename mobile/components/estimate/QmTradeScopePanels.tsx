@@ -32,7 +32,10 @@ import {
 import {
   ROOF_TEAR_OFF_CARDS,
   readScopeFoundPieces,
+  readScopeFoundRemovalQuantity,
+  scopeFoundRemovalMeasurements,
 } from '@/utils/scopeFoundClarification';
+import { stuccoInstallSystemIds } from '@/utils/stuccoNoteScope';
 import {
   kitchenNoteIncludesFloorWork,
   kitchenNoteNamesBacksplash,
@@ -165,8 +168,16 @@ import {
   ROOFING_DEMO_OPTION_IDS,
   ROOFING_INSTALL_OPTION_IDS,
   simpleTradeSpec,
+  simpleTradeOptionActive,
+  nextDeckSurfaceSelections,
+  collapseDeckSurfaceSelections,
   type SimpleTradeScopeKey,
 } from '@/utils/qmScopePanels/simpleTradeRemodel';
+import {
+  notesDescribeDedicatedDeckJob,
+  notesRequestDeckSurface,
+  selectedDeckInstallMaterial,
+} from '@/utils/deckNoteScope';
 import {
   inferExistingBathroomFixturesFromNotes,
   inferBathroomFixtureInstallFromIntent,
@@ -922,6 +933,112 @@ function QmScopePanelSection({
   );
 }
 
+export function QmScopeFoundRemovalMeasurements({
+  measurements,
+  setMeasurements,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  measurements: ScopeMeasurementsInputExtended;
+  setMeasurements: React.Dispatch<
+    React.SetStateAction<ScopeMeasurementsInputExtended>
+  >;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  const rows = scopeFoundRemovalMeasurements(
+    readScopeFoundPieces(measurements.scopeFoundPieces)
+  );
+  if (!rows.length) return null;
+  const panelStyle = qmPanelShellStyle(darkMode);
+  const writeQuantity = (
+    quantityKey: string,
+    unit: 'sqft' | 'each',
+    value: string
+  ) => {
+    const quantity = value.replace(/,/g, '').trim();
+    setMeasurements(prev => {
+      const itemQuantities = { ...(prev.itemQuantities || {}) };
+      if (!quantity || !(Number(quantity) > 0)) {
+        delete itemQuantities[quantityKey];
+      } else {
+        itemQuantities[quantityKey] = {
+          quantity,
+          unit,
+          quantitySource: 'user_entered',
+        };
+      }
+      const stuccoRows = scopeFoundRemovalMeasurements(
+        readScopeFoundPieces(prev.scopeFoundPieces)
+      ).filter(row => row.quantityKey.startsWith('cladding_demo__'));
+      if (stuccoRows.length) {
+        const total = stuccoRows.reduce((sum, row) => {
+          const amount = Number(
+            String(itemQuantities[row.quantityKey]?.quantity ?? '').replace(
+              /,/g,
+              ''
+            )
+          );
+          return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+        }, 0);
+        if (total > 0) {
+          itemQuantities.cladding_demo = {
+            quantity: String(total),
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          };
+        } else {
+          delete itemQuantities.cladding_demo;
+        }
+      }
+      return { ...prev, itemQuantities };
+    });
+  };
+  return (
+    <View style={[styles.qmPanel, panelStyle]}>
+      <Text
+        style={[
+          styles.qmPanelTitle,
+          { color: darkMode ? '#cbd5e1' : '#475569' },
+        ]}
+      >
+        Demo / tear-out
+      </Text>
+      <Text
+        style={[
+          styles.qmPanelCaption,
+          { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
+        ]}
+      >
+        One measurement for each finish selected on Scope found.
+      </Text>
+      {rows.map(row => (
+        <QmSqftMeasurementRow
+          key={row.pieceId}
+          label={row.label}
+          helperText={
+            row.unit === 'each'
+              ? 'How many of these come out.'
+              : 'Area of this finish that comes out.'
+          }
+          value={readScopeFoundRemovalQuantity(
+            measurements.itemQuantities,
+            row.quantityKey
+          )}
+          placeholder={row.unit === 'each' ? 'Enter' : 'Enter sqft'}
+          unitLabel={row.unit === 'each' ? 'each' : 'sqft'}
+          onChangeText={value => writeQuantity(row.quantityKey, row.unit, value)}
+          applying={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ))}
+    </View>
+  );
+}
+
 export function QmSqftMeasurementRow({
   label,
   helperText,
@@ -1241,7 +1358,13 @@ export function QmKitchenScopePanels({
     resolveKitchenInstallScopeCounts(measurements)
   );
   const [demo, setDemo] = useState<KitchenDemoCounts>(() =>
-    readKitchenDemoCounts(measurements)
+    suggestKitchenDemoFromExistingInstall({
+      existing: readKitchenExistingCounts(measurements),
+      install: resolveKitchenInstallScopeCounts(measurements),
+      demo: readKitchenDemoCounts(measurements),
+      measurements,
+      notes,
+    })
   );
   const genRef = useRef(0);
   const appliedRef = useRef(0);
@@ -1261,7 +1384,8 @@ export function QmKitchenScopePanels({
     | 'countertopSqft'
     | 'kitchenIslandCounterSqft'
     | 'backsplashSqft'
-    | 'kitchenFloorSqft';
+    | 'kitchenFloorSqft'
+    | 'floorDemoSqft';
   const readKitchenMeasurementDraft = (
     m: ScopeMeasurementsInputExtended,
     key: KitchenMeasurementKey
@@ -1280,6 +1404,7 @@ export function QmKitchenScopePanels({
       measurements,
       'kitchenFloorSqft'
     ),
+    floorDemoSqft: readKitchenMeasurementDraft(measurements, 'floorDemoSqft'),
   }));
   const kitchenMeasurementDraftRefs = useRef(kitchenMeasurementDrafts);
   kitchenMeasurementDraftRefs.current = kitchenMeasurementDrafts;
@@ -1292,6 +1417,7 @@ export function QmKitchenScopePanels({
       'kitchenIslandCounterSqft',
       'backsplashSqft',
       'kitchenFloorSqft',
+      'floorDemoSqft',
     ];
     setKitchenMeasurementDrafts(prev => {
       let changed = false;
@@ -1330,6 +1456,17 @@ export function QmKitchenScopePanels({
     });
     setDemo(nextDemo);
     demoRef.current = nextDemo;
+    if (
+      nextDemo.kitchenDemoApplianceCount != null &&
+      Number(measurements.kitchenDemoApplianceCount) !==
+        nextDemo.kitchenDemoApplianceCount &&
+      !demoOverridesRef.current.kitchenDemoApplianceCount
+    ) {
+      setMeasurements(prev => ({
+        ...prev,
+        kitchenDemoApplianceCount: nextDemo.kitchenDemoApplianceCount,
+      }));
+    }
   }, [
     measurements.kitchenExistingCabinetCount,
     measurements.kitchenExistingCounterCount,
@@ -1350,6 +1487,9 @@ export function QmKitchenScopePanels({
     measurements.kitchenIslandCounterSqft,
     measurements.backsplashSqft,
     measurements.kitchenFloorSqft,
+    Array.isArray(measurements.scopeFoundPieces)
+      ? measurements.scopeFoundPieces.map(piece => String(piece)).join(',')
+      : '',
     notes,
   ]);
 
@@ -1574,6 +1714,7 @@ export function QmKitchenScopePanels({
     kitchenMeasurementDrafts.kitchenIslandCounterSqft;
   const backsplashSqftValue = kitchenMeasurementDrafts.backsplashSqft;
   const kitchenFloorSqftValue = kitchenMeasurementDrafts.kitchenFloorSqft;
+  const floorDemoSqftValue = kitchenMeasurementDrafts.floorDemoSqft;
   const hasExplicitKitchenFloorScope = kitchenNoteIncludesFloorWork(notes);
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
   const kitchenNoteText = String(notes || '');
@@ -1603,10 +1744,6 @@ export function QmKitchenScopePanels({
     /\b(?:install|new|replace)\b[^.]{0,40}\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b|\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b[^.]{0,40}\b(?:install|new|replace)\b/i.test(
       kitchenNoteText
     );
-  const notesNameApplianceRemoval =
-    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.]{0,50}\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b|\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b[^.]{0,50}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
-      kitchenNoteText
-    );
   const condensedKitchenInstallRows = condensed
     ? KITCHEN_INSTALL_STEPPER_ROWS.filter(row =>
         row.key === 'kitchenInstallIslandCount'
@@ -1622,11 +1759,14 @@ export function QmKitchenScopePanels({
   const showIslandDemoRow = condensed
     ? selectedKitchenDemo.island
     : kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'island');
+  const showApplianceDemoRow = condensed
+    ? selectedKitchenDemo.appliances
+    : true;
   const condensedKitchenDemoRows = condensed
     ? KITCHEN_DEMO_STEPPER_ROWS.filter(row =>
         row.key === 'kitchenDemoIslandCount'
           ? showIslandDemoRow
-          : notesNameApplianceRemoval
+          : showApplianceDemoRow
       )
     : KITCHEN_DEMO_STEPPER_ROWS;
   const showCabinetDemoRow = condensed
@@ -1640,10 +1780,10 @@ export function QmKitchenScopePanels({
     : condensedKitchenScope.backsplash;
   const showFloorDemoRow =
     showKitchenFloorField &&
-    hasExplicitKitchenFloorScope &&
     (condensed
       ? selectedKitchenDemo.floor
-      : condensedKitchenScope.flooring);
+      : hasExplicitKitchenFloorScope || selectedKitchenDemo.floor);
+  const floorDemoUsesRemovalArea = !hasExplicitKitchenFloorScope;
   const hasCondensedKitchenDemo =
     showCabinetDemoRow ||
     showCounterDemoRow ||
@@ -1672,6 +1812,7 @@ export function QmKitchenScopePanels({
   const backsplashField = handleKitchenMeasurementRowChange('backsplashSqft');
   const kitchenFloorField =
     handleKitchenMeasurementRowChange('kitchenFloorSqft');
+  const floorDemoField = handleKitchenMeasurementRowChange('floorDemoSqft');
   const handleInstallStepperAdjust = useCallback(
     (key: string, delta: number) =>
       adjustInstall(
@@ -1866,9 +2007,21 @@ export function QmKitchenScopePanels({
                 <QmSqftMeasurementRow
                   label='Floor demo'
                   helperText='Kitchen floor tear-out area.'
-                  value={kitchenFloorSqftValue}
-                  onChangeText={kitchenFloorField.onChangeText}
-                  onBlur={kitchenFloorField.onBlur}
+                  value={
+                    floorDemoUsesRemovalArea
+                      ? floorDemoSqftValue
+                      : kitchenFloorSqftValue
+                  }
+                  onChangeText={
+                    floorDemoUsesRemovalArea
+                      ? floorDemoField.onChangeText
+                      : kitchenFloorField.onChangeText
+                  }
+                  onBlur={
+                    floorDemoUsesRemovalArea
+                      ? floorDemoField.onBlur
+                      : kitchenFloorField.onBlur
+                  }
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -7862,6 +8015,7 @@ export function QmStuccoScopePanels({
   applying,
   darkMode,
   Colors,
+  notes = null,
 }: {
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<
@@ -7873,6 +8027,7 @@ export function QmStuccoScopePanels({
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
+  notes?: string | null;
 }) {
   const [wallExpanded, setWallExpanded] = useState(true);
   const [addonsExpanded, setAddonsExpanded] = useState(true);
@@ -8011,9 +8166,18 @@ export function QmStuccoScopePanels({
     ) ||
     hasMeasurement('stuccoStories') ||
     hasMeasurement('stuccoWallHeightFt');
-  const systemOptions = newHousePlanExport
-    ? STUCCO_SYSTEM_OPTIONS.filter(option => option.id !== 'finish_only')
-    : STUCCO_SYSTEM_OPTIONS;
+  const notedSystems = new Set<string>(stuccoInstallSystemIds(notes));
+  if (
+    systemChoiceId &&
+    STUCCO_SYSTEM_OPTIONS.some(option => option.id === systemChoiceId)
+  ) {
+    notedSystems.add(systemChoiceId);
+  }
+  const systemOptions = STUCCO_SYSTEM_OPTIONS.filter(
+    option =>
+      notedSystems.has(option.id) &&
+      !(newHousePlanExport && option.id === 'finish_only')
+  );
 
   return (
     <View style={{ gap: 12 }}>
@@ -8530,10 +8694,87 @@ export function QmSimpleTradeScopePanels({
       setLocalHvacSelections(null);
     }
   }, [scopeKey, measurements, localHvacSelections, hvacNotes]);
+  const deckRemovalSelectionIds = (() => {
+    if (scopeKey !== 'deck_patio') return [] as string[];
+    const pieces = Array.isArray(measurements.scopeFoundPieces)
+      ? measurements.scopeFoundPieces.map(piece => String(piece))
+      : [];
+    return [
+      pieces.includes('deck_surface') ? 'deck_surface_demo' : null,
+      pieces.includes('deck_railing') ? 'deck_railing_demo' : null,
+      pieces.includes('deck_stairs') ? 'deck_stairs_demo' : null,
+    ].filter((id): id is string => Boolean(id));
+  })();
   const selections =
     scopeKey === 'hvac'
       ? localHvacSelections || resolvedHvacSelections
-      : measurements.tradeScopeSelections?.[scopeKey] || [];
+      : scopeKey === 'deck_patio'
+        ? collapseDeckSurfaceSelections(
+            Array.from(
+              new Set([
+                ...(measurements.tradeScopeSelections?.[scopeKey] || []),
+                ...deckRemovalSelectionIds,
+              ])
+            )
+          )
+        : measurements.tradeScopeSelections?.[scopeKey] || [];
+  useEffect(() => {
+    if (scopeKey !== 'deck_patio') return;
+    const saved = measurements.tradeScopeSelections?.deck_patio || [];
+    const missingSelection = deckRemovalSelectionIds.some(id => !saved.includes(id));
+    const deckArea = Number(String(measurements.deckSqft ?? '').replace(/,/g, ''));
+    const savedDemo = Number(String(measurements.deckDemoSqft ?? '').replace(/,/g, ''));
+    const needsDemoArea =
+      deckRemovalSelectionIds.includes('deck_surface_demo') &&
+      deckArea > 0 &&
+      !(savedDemo > 0);
+    const surfaceCleared =
+      measurements.quickMeasurementUserOverrides?.deckSurfaceChoiceCleared ===
+      true;
+    const hasSurface =
+      saved.includes('wood_deck') || saved.includes('composite_deck');
+    const needsSurface =
+      !surfaceCleared &&
+      !hasSurface &&
+      notesDescribeDedicatedDeckJob(notes) &&
+      notesRequestDeckSurface(notes);
+    if (!missingSelection && !needsDemoArea && !needsSurface) return;
+    const surfaceId =
+      selectedDeckInstallMaterial(notes, {
+        tradeScopeSelections: { deck_patio: saved },
+      }) === 'wood'
+        ? 'wood_deck'
+        : 'composite_deck';
+    setMeasurements(prev => {
+      const current = prev.tradeScopeSelections?.deck_patio || [];
+      const alreadyHasSurface =
+        current.includes('wood_deck') || current.includes('composite_deck');
+      const nextSelections = Array.from(
+        new Set([
+          ...current,
+          ...deckRemovalSelectionIds,
+          ...(needsSurface && !alreadyHasSurface ? [surfaceId] : []),
+        ])
+      );
+      return {
+        ...prev,
+        tradeScopeSelections: {
+          ...(prev.tradeScopeSelections || {}),
+          deck_patio: nextSelections,
+        },
+        ...(needsDemoArea ? { deckDemoSqft: deckArea } : {}),
+      };
+    });
+  }, [
+    scopeKey,
+    notes,
+    deckRemovalSelectionIds,
+    measurements.tradeScopeSelections?.deck_patio,
+    measurements.deckSqft,
+    measurements.deckDemoSqft,
+    measurements.quickMeasurementUserOverrides?.deckSurfaceChoiceCleared,
+    setMeasurements,
+  ]);
   const toggle = (id: string, _canonicalId: string) => {
     // Selections are option IDs, not canonical checklist IDs. Multiple
     // options may intentionally converge on one checklist item (for example,
@@ -8549,15 +8790,34 @@ export function QmSimpleTradeScopePanels({
       return;
     }
     const selected = selections.includes(id);
-    const next = selected
-      ? selections.filter(value => value !== id)
-      : [...selections, id];
+    const surfaceToggle =
+      scopeKey === 'deck_patio' &&
+      (id === 'composite_deck' || id === 'wood_deck');
+    const next = surfaceToggle
+      ? nextDeckSurfaceSelections(selections, id)
+      : selected
+        ? selections.filter(value => value !== id)
+        : [...selections, id];
+    const clearingSurface =
+      surfaceToggle &&
+      selected &&
+      !selections.some(
+        value =>
+          (value === 'wood_deck' || value === 'composite_deck') && value !== id
+      );
     if (scopeKey === 'hvac') {
       setLocalHvacSelections(next);
     }
     const quickMeasurementUserOverrides = {
       ...(measurements.quickMeasurementUserOverrides || {}),
     };
+    if (surfaceToggle) {
+      if (clearingSurface) {
+        quickMeasurementUserOverrides.deckSurfaceChoiceCleared = true;
+      } else {
+        delete quickMeasurementUserOverrides.deckSurfaceChoiceCleared;
+      }
+    }
     if (scopeKey === 'hvac' && id === HVAC_CAPACITY_OPTION_ID) {
       if (selected) {
         quickMeasurementUserOverrides.hvacSystemTons = true;
@@ -8602,17 +8862,7 @@ export function QmSimpleTradeScopePanels({
     if (scopeKey === 'hvac') {
       return hvacScopeChipActive(option, selections, measurements, spec);
     }
-    const canonicalSelected = selections.includes(option.canonicalId);
-    const hasAlias = selections.some(value =>
-      spec.options.some(candidate => candidate.id === value)
-    );
-    const firstCanonicalOption = spec.options.find(
-      candidate => candidate.canonicalId === option.canonicalId
-    )?.id;
-    return (
-      selections.includes(option.id) ||
-      (canonicalSelected && !hasAlias && option.id === firstCanonicalOption)
-    );
+    return simpleTradeOptionActive(spec, option, selections, notes);
   });
   const measurementRows = new Map<string, (typeof spec.options)[number]>();
   for (const option of activeOptions) {
@@ -9288,21 +9538,7 @@ export function QmSimpleTradeScopePanels({
     const active =
       scopeKey === 'hvac'
         ? hvacScopeChipActive(option, selections, measurements, spec)
-        : (() => {
-            const canonicalSelected = selections.includes(option.canonicalId);
-            const hasAlias = selections.some(value =>
-              spec.options.some(candidate => candidate.id === value)
-            );
-            const firstCanonicalOption = spec.options.find(
-              candidate => candidate.canonicalId === option.canonicalId
-            )?.id;
-            return (
-              selections.includes(option.id) ||
-              (canonicalSelected &&
-                !hasAlias &&
-                option.id === firstCanonicalOption)
-            );
-          })();
+        : simpleTradeOptionActive(spec, option, selections, notes);
     const quantityCaption =
       scopeKey === 'hvac'
         ? (formatHvacScopeChipQuantity(measurements, option, selections) ??
@@ -9323,6 +9559,11 @@ export function QmSimpleTradeScopePanels({
               if (unitKey === 'SQFT') return `${value.toLocaleString()} sqft`;
               if (unitKey === 'EACH' || unitKey === 'EA') {
                 return `${Math.round(value).toLocaleString()} each`;
+              }
+              if (unitKey === 'RUN' || unitKey === 'RUNS' || unitKey === 'FLIGHT' || unitKey === 'FLIGHTS') {
+                const count = Math.round(value);
+                const flight = unitKey.startsWith('FLIGHT');
+                return `${count.toLocaleString()} ${count === 1 ? (flight ? 'flight' : 'run') : flight ? 'flights' : 'runs'}`;
               }
               const shown = Number.isInteger(value) ? Math.round(value) : value;
               return `${shown.toLocaleString()} ${unit}`;
@@ -9350,6 +9591,18 @@ export function QmSimpleTradeScopePanels({
   const deckOptionVisible = (optionId: string) => {
     if (scopeKey !== 'deck_patio' || !condensed) return true;
     if (selections.includes(optionId)) return true;
+    const pieces = Array.isArray(measurements.scopeFoundPieces)
+      ? measurements.scopeFoundPieces.map(piece => String(piece))
+      : [];
+    if (optionId === 'deck_surface_demo' && pieces.includes('deck_surface')) {
+      return true;
+    }
+    if (optionId === 'deck_railing_demo' && pieces.includes('deck_railing')) {
+      return true;
+    }
+    if (optionId === 'deck_stairs_demo' && pieces.includes('deck_stairs')) {
+      return true;
+    }
     const noteText = String(notes || '');
     const genericDeck =
       /\bdeck(?:ing)?\b/i.test(noteText) &&
@@ -9530,7 +9783,21 @@ export function QmSimpleTradeScopePanels({
               ] || ''
             )}
             placeholder='Enter'
-            unitLabel={option.unit}
+            unitLabel={
+              ['runs', 'flights'].includes(String(option.unit || '').toLowerCase())
+                ? Number(
+                    String(
+                      (measurements as Record<string, unknown>)[
+                        option.measurementKey!
+                      ] ?? ''
+                    ).replace(/,/g, '')
+                  ) === 1
+                  ? String(option.unit || '').toLowerCase() === 'flights'
+                    ? 'flight'
+                    : 'run'
+                  : option.unit
+                : option.unit
+            }
             onChangeText={value =>
               setMeasurements(prev => {
                 const key = option.measurementKey!;

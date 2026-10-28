@@ -24,17 +24,24 @@ export * from '@/utils/qmScopePanels/landscapingRemodel';
 export * from '@/utils/qmScopePanels/concreteRemodel';
 export * from '@/utils/qmScopePanels/simpleTradeRemodel';
 
-const QM_PANELS: QmPanelDefinition[] = [
-  bathroomWetAreaQmPanel,
-  bathroomFixturesQmPanel,
-  kitchenQmPanel,
-  flooringQmPanel,
-  landscapingQmPanel,
-  concreteQmPanel,
-  simpleTradePanelFor('deck_patio'),
-  simpleTradePanelFor('hvac'),
-  simpleTradePanelFor('roofing'),
-];
+let qmPanels: QmPanelDefinition[] | null = null;
+
+function getQmPanels(): QmPanelDefinition[] {
+  if (!qmPanels) {
+    qmPanels = [
+      bathroomWetAreaQmPanel,
+      bathroomFixturesQmPanel,
+      kitchenQmPanel,
+      flooringQmPanel,
+      landscapingQmPanel,
+      concreteQmPanel,
+      simpleTradePanelFor('deck_patio'),
+      simpleTradePanelFor('hvac'),
+      simpleTradePanelFor('roofing'),
+    ];
+  }
+  return qmPanels;
+}
 
 export function getActiveQmPanels(ctx: QmPhotoNotesContext): QmPanelDefinition[] {
   if (!isPhotoNotesScopeJob(ctx)) return [];
@@ -43,7 +50,7 @@ export function getActiveQmPanels(ctx: QmPhotoNotesContext): QmPanelDefinition[]
       String(trade || '').toLowerCase()
     )
   );
-  return QM_PANELS.filter(
+  return getQmPanels().filter(
     (p) =>
       p.isActive(ctx) ||
       p.templateKeys.some(key => mixedTrades.has(String(key).toLowerCase()))
@@ -80,5 +87,5 @@ export function syncQmPanelScopeItems(
 
 export function getQmPanelForTemplate(templateKey?: string | null): QmPanelDefinition | null {
   const key = String(templateKey || '').toLowerCase();
-  return QM_PANELS.find((p) => p.templateKeys.includes(key)) ?? null;
+  return getQmPanels().find((p) => p.templateKeys.includes(key)) ?? null;
 }

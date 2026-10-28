@@ -337,4 +337,56 @@ describe('syncSelectedScopePricing keeps scope-confirmed prices on review', () =
     expect(synced.scopePackages?.[0]?.price).toBe(8000);
     expect(sumStep3ReviewBudgetTotals(synced)?.total).toBe(8000);
   });
+
+  it('replaces a lower leftover cabinet package with the Confirm Scope card', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'painting',
+        items: [
+          {
+            id: 'cabinet_paint',
+            label: 'Cabinet paint',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+        ],
+      },
+      scopePackages: [
+        {
+          name: 'Cabinet paint',
+          checklistItemId: 'cabinet_paint',
+          price: 350,
+          knownSubtotal: 350,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          cabinet_paint__material: {
+            quantity: '333',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          cabinet_paint__labor: {
+            quantity: '1042',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          cabinet_paint: {
+            selectionStatus: 'accepted',
+            totalAmount: 1375,
+            materialAmount: 333,
+            laborAmount: 1042,
+          },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const synced = syncSelectedScopePricing(draft);
+    expect(synced.scopePackages?.[0]?.price).toBe(1375);
+  });
 });

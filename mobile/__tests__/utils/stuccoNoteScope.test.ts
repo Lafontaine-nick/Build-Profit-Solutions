@@ -30,12 +30,28 @@ import {
   filterStuccoWithWindowsConfirmItems,
   notesDescribeDedicatedStuccoJob,
   notesNameStuccoWithWindows,
+  stuccoInstallSystemIds,
 } from '@/utils/stuccoNoteScope';
 
 const NOTE =
   'Patch and install new stucco on 800 sqft of exterior wall, including mesh and base coat.';
 
 describe('dedicated stucco note', () => {
+  it('offers 3-coat and 1-coat until the note names another system', () => {
+    expect(stuccoInstallSystemIds('Rear house stucco, 800 sqft.')).toEqual([
+      'three_coat',
+      'one_coat',
+    ]);
+    expect(stuccoInstallSystemIds('Install EIFS on the rear wall.')).toEqual([
+      'three_coat',
+      'one_coat',
+      'eifs',
+    ]);
+    expect(
+      stuccoInstallSystemIds('Color coat the existing stucco, 800 sqft.')
+    ).toEqual(['three_coat', 'one_coat', 'finish_only']);
+  });
+
   it('keeps one stucco line at the stated wall area', () => {
     expect(notesDescribeDedicatedStuccoJob(NOTE)).toBe(true);
     expect(
@@ -102,6 +118,41 @@ describe('dedicated stucco note', () => {
           }),
         ],
       },
+    ]);
+    expect(
+      groupScopeChecklistItems(
+        [
+          {
+            id: 'stucco',
+            label: 'Stucco system',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+          {
+            id: 'cladding_demo__old_stucco',
+            label: 'Stucco removal',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+          {
+            id: 'cladding_demo__wood_siding',
+            label: 'Wood siding removal',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ] as ScopeChecklistItem[],
+        'stucco',
+        { notes: NOTE }
+      ).map(group => ({
+        title: group.title,
+        ids: group.items.map(item => item.id),
+      }))
+    ).toEqual([
+      {
+        title: 'Demo',
+        ids: ['cladding_demo__old_stucco', 'cladding_demo__wood_siding'],
+      },
+      { title: 'Stucco', ids: ['stucco'] },
     ]);
 
     const draft = {

@@ -687,6 +687,16 @@ describe('suggested card lines', () => {
       )
     ).toBe('Labor $175');
     expect(formatSuggestedCardSplitLine(block({ lumpSumOnly: true }))).toBeNull();
+    expect(
+      formatSuggestedCardSplitLine(
+        block({
+          material: 22.5,
+          labor: 202.5,
+          total: 225,
+          costBuckets: [],
+        })
+      )
+    ).toBe('Material $23 · Labor $202');
   });
 
   it('shows one slate source chip and gold only for a real check', () => {

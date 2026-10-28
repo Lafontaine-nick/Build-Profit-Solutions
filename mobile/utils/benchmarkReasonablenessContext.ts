@@ -1432,15 +1432,33 @@ function planningLineDollars(parts: {
   allowance?: number;
   total?: number;
 }): { material: number; labor: number; allowance: number; total: number } {
-  const material = planningWholeDollars(parts.material);
-  const labor = planningWholeDollars(parts.labor);
-  const allowance = planningWholeDollars(parts.allowance);
+  let material = planningWholeDollars(parts.material);
+  let labor = planningWholeDollars(parts.labor);
+  let allowance = planningWholeDollars(parts.allowance);
   const buckets = material + labor + allowance;
+  const raw =
+    Number(parts.material || 0) +
+    Number(parts.labor || 0) +
+    Number(parts.allowance || 0);
+  const headline = planningWholeDollars(parts.total);
+  // $22.50 and $202.50 each round up, so the parts print $1 over the card.
+  if (
+    buckets > 0 &&
+    headline > 0 &&
+    Math.abs(raw - Number(parts.total)) < 0.51 &&
+    buckets !== headline
+  ) {
+    const drift = headline - buckets;
+    if (labor > 0 && labor + drift > 0) labor += drift;
+    else if (material > 0 && material + drift > 0) material += drift;
+    else if (allowance > 0 && allowance + drift > 0) allowance += drift;
+  }
+  const reconciled = material + labor + allowance;
   return {
     material,
     labor,
     allowance,
-    total: buckets > 0 ? buckets : planningWholeDollars(parts.total),
+    total: reconciled > 0 ? reconciled : headline,
   };
 }
 

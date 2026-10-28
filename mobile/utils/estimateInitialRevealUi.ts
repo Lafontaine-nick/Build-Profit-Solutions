@@ -51,9 +51,11 @@ import { roofCoveringLabelForReveal } from '@/utils/qmScopePanels/simpleTradeRem
 import { getQuickMeasurementEstimate } from '@/utils/quickMeasurementEstimates';
 import { infersRoofingUnderlaymentUpgradeFromNotes } from '@/utils/scopeItemNoteHints';
 import {
+  deckInstallMaterialCopy,
   dedicatedDeckRevealQuantity,
   filterDedicatedDeckConfirmItems,
   notesDescribeDedicatedDeckJob,
+  selectedDeckInstallMaterial,
 } from '@/utils/deckNoteScope';
 import {
   dedicatedElectricalRevealLines,
@@ -172,7 +174,11 @@ import {
   getScopePackagesForReview,
   noteMentionsGeneralWallDemolition,
 } from '@/utils/scopePackagesForReview';
-import { listConfirmScopeAppliedPricingLines } from '@/utils/benchmarkReasonablenessContext';
+import {
+  clearSupersededStageHostPricing,
+  listConfirmScopeAppliedPricingLines,
+  mergeConfirmScopeSavedMeasurements,
+} from '@/utils/benchmarkReasonablenessContext';
 import {
   PLAN_SCOPE_CONFIRM_COUNT_SUFFIX,
   planScopeRecordSummaryLines,
@@ -210,7 +216,10 @@ import {
   parseRoofingDeckingAllowanceFromNotes,
   shouldLimitRoofingChecklistToNotes,
 } from '@/utils/scopeItemNoteHints';
-import { ROOF_TEAR_OFF_CARDS } from '@/utils/scopeFoundClarification';
+import {
+  interiorPaintSurfacesAnswered,
+  ROOF_TEAR_OFF_CARDS,
+} from '@/utils/scopeFoundClarification';
 import {
   hvacPlanImportStatesNewBuildSystem,
   NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY,
@@ -436,6 +445,24 @@ function whatAiDidNamesUnstatedPaint(
 ): boolean {
   if (/\bpaint(?:ing|ed)?\b/i.test(String(notes || ''))) return false;
   return /\bpaint(?:ing)?\b/i.test(line);
+}
+
+/** "Found 1 each for Bathroom" when Bathroom is not a scope line. */
+function whatAiDidNamesUnlistedScope(
+  line: string,
+  draft: EstimateAiDraft
+): boolean {
+  const match = String(line)
+    .trim()
+    .match(/^Found\s+.+?\s+for\s+(.+?)\.\s*$/i);
+  if (!match) return false;
+  const named = match[1].trim().toLowerCase();
+  const labels = (draft.scopeChecklist?.items || [])
+    .filter(item => String(item.state || 'included') !== 'excluded')
+    .map(item => String(item.label || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!labels.length) return false;
+  return !labels.some(label => label === named);
 }
 
 export function plainLanguageReviewItem(text: string): string {
@@ -899,7 +926,10 @@ function collectInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const vagueQuestion = vagueScopeQuestion(draft.originalNotes);
-  if (vagueQuestion) {
+  if (
+    vagueQuestion &&
+    !interiorPaintSurfacesAnswered(draft.scopeMeasurements)
+  ) {
     return splitInitialRevealConfirmItems([vagueQuestion]);
   }
   const paintingMissing = dedicatedPaintingMissingAreas(draft);
@@ -2042,6 +2072,30 @@ const PAINTING_INSTALL_REVEAL_IDS = new Set([
  * applied. Door installation is not part of a painting bid, and an unpriced
  * prep row is not a second scope item beside those prices.
  */
+const COVERED_COMBINED_PAINT_PLACEHOLDER =
+  /^(?:interior wall paint|ceiling paint)$/i;
+
+/**
+ * Combined walls and ceilings are one priced line. The Scope found
+ * placeholders for those surfaces are not a second unpriced row.
+ */
+export function omitPricedPaintPlaceholders<
+  T extends { name: string; amount: number },
+>(rows: T[], pricingVisible: boolean): T[] {
+  if (!pricingVisible) return rows;
+  const ownsCombined = rows.some(
+    row =>
+      row.amount > 0 &&
+      /interior paint/i.test(row.name) &&
+      !/\bdoor\b/i.test(row.name)
+  );
+  if (!ownsCombined) return rows;
+  return rows.filter(row => {
+    if (row.amount > 0) return true;
+    return !COVERED_COMBINED_PAINT_PLACEHOLDER.test(row.name.trim());
+  });
+}
+
 /** After Confirm Scope, a notes painting bid lists the same priced rows as Step 2. */
 function confirmedPaintingNotePreview(
   draft: EstimateAiDraft
@@ -5302,6 +5356,57 @@ const REVEAL_ROW_ITEM_IDS: Record<string, string> = {
 };
 
 /**
+ * After Confirm Scope, the initial estimate lists the same lines as Selected
+ * pricing. Scope found placeholders stay off that list.
+ */
+export function confirmedAppliedRevealLines(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  if (!initialRevealPricingVisible(draft)) return null;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return null;
+  const templateKey = draft.scopeChecklist?.templateKey;
+  const measurements = clearSupersededStageHostPricing(
+    mergeConfirmScopeSavedMeasurements(
+      initialScopeMeasurementInputExtended(draft, draft.originalNotes),
+      draft.scopeMeasurements,
+      draft.originalNotes
+    ),
+    templateKey
+  );
+  const lines = listConfirmScopeAppliedPricingLines({
+    items,
+    measurements,
+    templateKey,
+    notes: draft.originalNotes,
+    pricingContext: { checklistItems: items },
+  });
+  if (!lines.length) return null;
+  const packages = getScopePackagesForReview(draft);
+  return lines.map(line => {
+    const pkg = packages.find(
+      row =>
+        String(row.checklistItemId || row.costCode || '') === line.itemId ||
+        String(row.name || '')
+          .trim()
+          .toLowerCase() === line.label.trim().toLowerCase()
+    );
+    const quantity = pkg ? formatScopeQuantity(pkg, draft) : null;
+    const name =
+      line.itemId === 'decking' && notesDescribeDedicatedDeckJob(draft.originalNotes)
+        ? deckInstallMaterialCopy(
+            selectedDeckInstallMaterial(draft.originalNotes, measurements)
+          ).label
+        : line.label;
+    return {
+      name,
+      amount: line.total,
+      ...(quantity ? { quantity } : {}),
+    };
+  });
+}
+
+/**
  * Dollars already on the bid for a Scope found row. The same amount the
  * initial estimate and Review total, so a listed line is not $0 beside a
  * priced total.
@@ -6698,7 +6803,8 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     .filter(
       line =>
         !whatAiDidNamesUnstatedPaint(line, draft.originalNotes) &&
-        !whatAiDidClaimsUnstatedTotals(line, draft.originalNotes)
+        !whatAiDidClaimsUnstatedTotals(line, draft.originalNotes) &&
+        !whatAiDidNamesUnlistedScope(line, draft)
     )
     .map(line =>
       /detected flooring job/i.test(line) &&
@@ -6987,6 +7093,7 @@ export function getInitialRevealUnderstoodBullets(
       }
       if (whatAiDidNamesUnstatedPaint(line, draft.originalNotes)) return false;
       if (whatAiDidClaimsUnstatedTotals(line, draft.originalNotes)) return false;
+      if (whatAiDidNamesUnlistedScope(line, draft)) return false;
       return true;
     });
   if (fromAi.length > 0) return fromAi.slice(0, max);

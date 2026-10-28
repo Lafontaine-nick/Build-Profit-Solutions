@@ -1,4 +1,5 @@
 import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
+import { selectedDeckInstallMaterial } from '@/utils/deckNoteScope';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import type {
   QmPanelDefinition,
@@ -78,6 +79,31 @@ const DECK_OPTIONS: TradeOption[] = [
     unit: 'sqft',
   },
   {
+    id: 'deck_surface_demo',
+    label: 'Remove decking',
+    canonicalId: 'deck_surface_demo',
+    measurementKey: 'deckDemoSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'deck_railing_demo',
+    label: 'Remove railing',
+    canonicalId: 'deck_railing_demo',
+    measurementKey: 'deckRailingDemoLf',
+    measurementHelper: 'Enter the railing length being removed.',
+    unit: 'LF',
+  },
+  {
+    id: 'deck_stairs_demo',
+    label: 'Remove stairs',
+    quantityLabel: 'Stair flights',
+    canonicalId: 'deck_stairs_demo',
+    measurementKey: 'deckStairDemoCount',
+    measurementHelper:
+      'Count each flight from the deck to the ground. Not each step.',
+    unit: 'flights',
+  },
+  {
     id: 'footings',
     label: 'Footings',
     canonicalId: 'footings_piers',
@@ -136,11 +162,11 @@ const DECK_OPTIONS: TradeOption[] = [
   { id: 'gates', label: 'Gates', canonicalId: 'landscaping' },
   {
     id: 'stairs',
-    label: 'Stair runs',
+    label: 'Stair flights',
     canonicalId: 'stairs',
     measurementKey: 'deckStairCount',
-    measurementHelper: 'Enter the number of stair runs in this bid.',
-    unit: 'runs',
+    measurementHelper: 'Count each flight from the deck to the ground. Not each step.',
+    unit: 'flights',
   },
 ];
 
@@ -1174,6 +1200,9 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
     scopeKey: 'deck_patio',
     embeddedIds: [
       'demo_removal',
+      'deck_surface_demo',
+      'deck_railing_demo',
+      'deck_stairs_demo',
       'footings_piers',
       'framing_structure',
       'decking',
@@ -2118,6 +2147,74 @@ export function applyHvacScopeMeasurements(
   }
 
   return syncHvacEquipmentScopeMeasurements(next, { seedUnquantified });
+}
+
+const DECK_SURFACE_OPTION_IDS = ['composite_deck', 'wood_deck'] as const;
+
+function isDeckSurfaceOption(id: string): boolean {
+  return (DECK_SURFACE_OPTION_IDS as readonly string[]).includes(id);
+}
+
+/** Wood and composite are one deck surface. A saved pair keeps the latest choice. */
+export function collapseDeckSurfaceSelections(selections: string[]): string[] {
+  const surfaces = selections.filter(isDeckSurfaceOption);
+  if (surfaces.length <= 1) return selections;
+  const keep = surfaces[surfaces.length - 1];
+  return selections.filter(id => id === keep || !isDeckSurfaceOption(id));
+}
+
+/** Wood and composite share one checklist line. Other chips are not surface aliases. */
+export function simpleTradeOptionActive(
+  spec: TradeSpec,
+  option: TradeOption,
+  selections: string[],
+  notes?: string | null
+): boolean {
+  if (
+    spec.scopeKey === 'deck_patio' &&
+    (option.id === 'composite_deck' || option.id === 'wood_deck')
+  ) {
+    const explicit =
+      selections.includes('wood_deck') || selections.includes('composite_deck');
+    if (!explicit && !selections.includes('decking')) return false;
+    const material = selectedDeckInstallMaterial(notes, {
+      tradeScopeSelections: { deck_patio: selections },
+    });
+    return option.id === (material === 'wood' ? 'wood_deck' : 'composite_deck');
+  }
+  const hasAlias = selections.some(value =>
+    spec.options.some(candidate => candidate.id === value)
+  );
+  const firstCanonicalOption = spec.options.find(
+    candidate => candidate.canonicalId === option.canonicalId
+  )?.id;
+  return (
+    selections.includes(option.id) ||
+    (selections.includes(option.canonicalId) &&
+      !hasAlias &&
+      option.id === firstCanonicalOption)
+  );
+}
+
+/** Selecting one deck surface clears the other. Tapping the active one turns it off. */
+export function nextDeckSurfaceSelections(
+  selections: string[],
+  toggledId: string
+): string[] {
+  const current = collapseDeckSurfaceSelections(selections);
+  if (!isDeckSurfaceOption(toggledId)) {
+    return current.includes(toggledId)
+      ? current.filter(value => value !== toggledId)
+      : [...current, toggledId];
+  }
+  const withoutSurfaces = current.filter(id => !isDeckSurfaceOption(id));
+  const onlyThisSurface =
+    current.includes(toggledId) &&
+    !current.some(id => isDeckSurfaceOption(id) && id !== toggledId);
+  if (onlyThisSurface) {
+    return withoutSurfaces;
+  }
+  return [...withoutSurfaces, toggledId];
 }
 
 function selectedScope(

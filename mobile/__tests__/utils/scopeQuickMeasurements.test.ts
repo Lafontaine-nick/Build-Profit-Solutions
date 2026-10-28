@@ -1,4 +1,5 @@
 import {
+  cabinetPaintTakeoffKeys,
   countFilledQuickMeasurements,
   quickMeasurementDisplayLabel,
   quickMeasurementHelperText,
@@ -16,6 +17,20 @@ import {
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
 describe('scopeQuickMeasurements', () => {
+  it('asks for cabinet run length unless the note already has cabinet area', () => {
+    expect(cabinetPaintTakeoffKeys({ notes: 'Repaint entire interior' })).toEqual([
+      'cabinetRunLf',
+    ]);
+    expect(
+      cabinetPaintTakeoffKeys({ notes: 'Paint the cabinets, 200 sqft.' })
+    ).toEqual(['cabinetPaintSqft']);
+    expect(
+      cabinetPaintTakeoffKeys({
+        notes: 'Paint 24 LF of cabinets, 200 sqft of cabinet surface.',
+      })
+    ).toEqual(['cabinetPaintSqft', 'cabinetRunLf']);
+  });
+
   it('keeps stale generic paint and baseboard fields out of stucco takeoff cards', () => {
     const fields = quickMeasurementRowsForInput(
       'stucco',
@@ -108,6 +123,17 @@ describe('scopeQuickMeasurements', () => {
     expect(
       fields.find(field => field.key === 'bathroomFloorSqft')?.label
     ).toBe('Bathroom floor tile');
+  });
+
+  it('leaves cabinet tear-out on the kitchen demo card', () => {
+    const notes =
+      'Remove the cabinets and countertops. New island. New cabinets, 22 LF.';
+    const keys = quickMeasurementRowsForInput('kitchen', 'kitchen', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+    expect(keys).not.toContain('cabinetDemoLf');
   });
 
   it('hides the generic room-floor field for mixed interior refreshes', () => {

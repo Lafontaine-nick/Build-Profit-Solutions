@@ -451,6 +451,24 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   wall_demo: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],
   }),
+  cladding_demo: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  cladding_demo__old_stucco: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  cladding_demo__wood_siding: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  cladding_demo__vinyl_siding: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  cladding_demo__brick: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  cladding_demo__fiber_cement: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
   appliance_removal: EACH_SCOPE('demolition'),
   plumbing: ENTRY('plumbing', ['each'], ['fixture_count'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],

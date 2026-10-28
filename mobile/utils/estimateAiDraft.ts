@@ -2701,7 +2701,7 @@ export function repairDraftRatePricingFromNotes(
         templateKey: 'deck_patio',
         title: 'Deck & patio — confirm project scope',
         intro: 'Confirm the deck work named in the notes.',
-        items: dedicatedDeckConfirmScopeItems(text),
+        items: dedicatedDeckConfirmScopeItems(text, repairedDraft.scopeMeasurements),
         scopeFacts: [],
         suggestedMeasurements: measurements,
         requiresConfirmation: true,
@@ -8019,8 +8019,9 @@ function shouldPreserveUserPackagePrice(
   if (!pkg.priceProvidedByUser) return false;
   const current = Number(pkg.price);
   if (!(current > 0)) return false;
-  // Ask AI / manual row price wins whenever it differs from Confirm Scope sync.
-  return Math.abs(current - selected.total) > 0.01;
+  // A higher Ask AI or manual price stays. A lower leftover package price
+  // gives way to the Confirm Scope card the contractor just priced.
+  return current > selected.total + 0.01;
 }
 
 function applySelectedPricingToScopePackage(

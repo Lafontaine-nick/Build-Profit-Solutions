@@ -155,5 +155,8 @@ export function filterDedicatedWindowsDoorsConfirmItems<
   const custom = items.filter(item =>
     String(item.id || '').startsWith('custom_')
   );
-  return [...named, ...custom];
+  const removal = items.filter(item =>
+    String(item.id || '').startsWith('opening_demo')
+  );
+  return [...named, ...removal, ...custom];
 }

@@ -235,6 +235,8 @@ import {
   electricalConfirmScopeAttributesFromMeasurements,
   summarizeElectricalQuickMeasurementGroups,
   electricalQuickMeasurementSummaryLine,
+  embeddedElectricalQuantitySummaryLine,
+  inScopeElectricalMeasurementKeys,
   electricalScopeSyncSignature,
   restorePlanMeasurementConflict,
   unresolvedElectricalConflictFields,
@@ -340,6 +342,7 @@ import {
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
 import {
+  interiorPaintSurfacesAnswered,
   measurementsForScopeFoundChoice,
   readScopeFoundChoice,
   readScopeFoundClarificationId,
@@ -353,8 +356,10 @@ import {
 import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
 import { notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
 import {
+  deckInstallMaterialCopy,
   dedicatedDeckMissingQuantityPrompt,
   notesDescribeDedicatedDeckJob,
+  selectedDeckInstallMaterial,
 } from '@/utils/deckNoteScope';
 import {
   applyDedicatedElectricalNoteCounts,
@@ -597,6 +602,7 @@ import {
   quickMeasurementRowsForTemplate,
   wholeProjectPlanQuickMeasurementRows,
   quickMeasurementSectionsForRows,
+  cabinetPaintTakeoffKeys,
   notesRequireInteriorPaintMeasurements,
   resolveEffectiveQuickMeasurementTemplateKey,
   resolveQuickMeasurementDisplayValue,
@@ -729,6 +735,7 @@ import {
   QmRoofingScopePanels,
   QmStuccoScopePanels,
   QmSimpleTradeScopePanels,
+  QmScopeFoundRemovalMeasurements,
   QmSqftMeasurementRow,
   qmNeutralScopePanelStyle,
   qmExistingScopePanelStyle,
@@ -10015,6 +10022,9 @@ function scopeRowMeasurementSignature(
     quantityEntries,
     pricingAcceptance: measurementsInput.pricingAcceptance?.[itemId],
     scopeGapResolutions: measurementsInput.scopeGapResolutions?.[itemId],
+    deckSurface: Array.isArray(measurementsInput.tradeScopeSelections?.deck_patio)
+      ? measurementsInput.tradeScopeSelections.deck_patio.join(',')
+      : '',
   });
 }
 
@@ -10183,9 +10193,19 @@ function YesNoRow({
   const customPricingApplied =
     isCustom &&
     isCustomScopePricingApplied(item.id, measurementsInput.pricingAcceptance);
-  let helper = isCustom
-    ? 'Added manually. Enter material and labor; optional sqft, LF, or CY basis.'
-    : checklistDisplayHelper(item, templateKey);
+  const deckInstallCopy =
+    !isCustom &&
+    item.id === 'decking' &&
+    notesDescribeDedicatedDeckJob(originalNotes)
+      ? deckInstallMaterialCopy(
+          selectedDeckInstallMaterial(originalNotes, measurementsInput)
+        )
+      : null;
+  let helper = deckInstallCopy
+    ? deckInstallCopy.helperText
+    : isCustom
+      ? 'Added manually. Enter material and labor; optional sqft, LF, or CY basis.'
+      : checklistDisplayHelper(item, templateKey);
   if (
     !isCustom &&
     String(templateKey || '').toLowerCase() === 'flooring' &&
@@ -10684,7 +10704,7 @@ function YesNoRow({
         </View>
       ) : (
         <ScopeItemTitleRow
-          label={checklistDisplayLabel(item, templateKey)}
+          label={deckInstallCopy?.label || checklistDisplayLabel(item, templateKey)}
           noteBadge={noteBadge}
           rightAccessory={
             isCustom ? (
@@ -12102,6 +12122,9 @@ function YesNoRow({
           originalNotes={originalNotes}
           hideInlineTakeoff={
             Boolean(plumbingCardForItemId(item.id)) ||
+            (String(item.id).startsWith('floor_demo_style_') &&
+              String(templateKey || '').toLowerCase() === 'kitchen' &&
+              Number(measurementsInput.kitchenDemoFloorCount) > 0) ||
             item.id === 'air_sealing' ||
             (item.id === 'demo' &&
               String(templateKey || '').toLowerCase() === 'room_remodel') ||
@@ -16590,7 +16613,10 @@ function CollapsibleQuickMeasurements({
           'Square feet of existing flooring explicitly identified for removal.',
       });
     }
-    if (kitchenNoteNamesSurfaceDemo(notesTextForScopeFields, 'cabinet')) {
+    if (
+      kitchenNoteNamesSurfaceDemo(notesTextForScopeFields, 'cabinet') &&
+      String(effectiveTemplateKey || '').toLowerCase() !== 'kitchen'
+    ) {
       ensureScopeField('cabinetDemoLf', {
         label: 'Cabinet removal',
         helperText:
@@ -17261,16 +17287,9 @@ function CollapsibleQuickMeasurements({
     if (scope.includes('trim')) allowed.add('baseboardLf');
     if (scope.includes('doors')) allowed.add('interiorDoorCount');
     if (scope.includes('cabinets')) {
-      const noteKeys = new Set(noteQuickMeasurements.keys);
-      const hasCabinetSqft =
-        noteKeys.has('cabinetPaintSqft') ||
-        Number(String(measurements.cabinetPaintSqft || '').replace(/,/g, '')) >
-          0;
-      const hasCabinetLf =
-        noteKeys.has('cabinetRunLf') ||
-        Number(String(measurements.cabinetRunLf || '').replace(/,/g, '')) > 0;
-      if (hasCabinetSqft) allowed.add('cabinetPaintSqft');
-      if (hasCabinetLf || !hasCabinetSqft) allowed.add('cabinetRunLf');
+      for (const key of cabinetPaintTakeoffKeys({ notes })) {
+        allowed.add(key);
+      }
     }
     if (scope.includes('exterior')) allowed.add('exteriorPaintSqft');
     if (bothWallsCeilings && measurements.paintPricingMethod !== 'separate')
@@ -21456,6 +21475,9 @@ function CollapsibleQuickMeasurements({
         windowsDoorsSuppressedQuickMeasurementFields.has(result.key)) ||
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
       (kitchenQmJob &&
+        result.key === 'cabinetDemoLf' &&
+        kitchenNoteNamesSurfaceDemo(String(notes || ''), 'cabinet')) ||
+      (kitchenQmJob &&
         result.key === 'flooringSqft' &&
         !notesDescribeMeasuredWholeHomeRemodel(notes)) ||
       (compactMixedScope &&
@@ -22577,30 +22599,75 @@ function CollapsibleQuickMeasurements({
     () => [...unresolvedElectricalConflictFields(measurementConflicts)],
     [measurementConflicts]
   );
-  const electricalGroupSummary = useMemo(() => {
+  const embeddedElectricalMeasurementKeys = useMemo(() => {
     if (
-      tradeKey !== 'electrical' &&
-      String(effectiveTemplateKey || '').toLowerCase() !== 'electrical'
+      tradeKey === 'electrical' ||
+      String(effectiveTemplateKey || '').toLowerCase() === 'electrical' ||
+      String(measurements.planImportTradeKey || '') === 'electrical'
     ) {
       return null;
     }
+    const keys = inScopeElectricalMeasurementKeys(
+      includedScopeKeys,
+      measurements as unknown as Record<string, unknown>
+    );
+    return keys.size > 0 ? keys : null;
+  }, [
+    tradeKey,
+    effectiveTemplateKey,
+    measurements,
+    includedScopeKeys,
+  ]);
+  const electricalTakeoffKeys =
+    embeddedElectricalMeasurementKeys ?? electricalVisibleMeasurementKeys;
+  useEffect(() => {
+    if (!embeddedElectricalMeasurementKeys) return;
+    setMeasurements(prev => {
+      const itemQuantities = (
+        prev.itemQuantities && typeof prev.itemQuantities === 'object'
+          ? prev.itemQuantities
+          : {}
+      ) as Record<string, { quantity?: unknown }>;
+      const patch: Record<string, number> = {};
+      for (const card of ELECTRICAL_CARDS) {
+        if (!embeddedElectricalMeasurementKeys.has(card.measurementKey)) {
+          continue;
+        }
+        const current = Number(
+          String(prev[card.measurementKey] ?? '').replace(/,/g, '')
+        );
+        if (Number.isFinite(current) && current > 0) continue;
+        const stored = Number(itemQuantities[card.itemId]?.quantity);
+        if (!Number.isFinite(stored) || stored <= 0) continue;
+        patch[card.measurementKey] = stored;
+      }
+      if (!Object.keys(patch).length) return prev;
+      return { ...prev, ...patch };
+    });
+  }, [embeddedElectricalMeasurementKeys, setMeasurements]);
+  const electricalGroupSummary = useMemo(() => {
+    const electricalTemplate =
+      tradeKey === 'electrical' ||
+      String(effectiveTemplateKey || '').toLowerCase() === 'electrical';
+    if (!electricalTemplate && !embeddedElectricalMeasurementKeys) return null;
     return summarizeElectricalQuickMeasurementGroups(
       buildElectricalQuickMeasurementGroups({
         measurements: electricalQmMeasurements,
         conflictFields: electricalConflictFields,
         sources: measurements.quickMeasurementSources,
         userOverrides: measurements.quickMeasurementUserOverrides,
-        visibleMeasurementKeys: electricalVisibleMeasurementKeys,
+        visibleMeasurementKeys: electricalTakeoffKeys,
       })
     );
   }, [
     tradeKey,
     effectiveTemplateKey,
+    embeddedElectricalMeasurementKeys,
     electricalQmMeasurements,
     electricalConflictFields,
     measurements.quickMeasurementSources,
     measurements.quickMeasurementUserOverrides,
-    electricalVisibleMeasurementKeys,
+    electricalTakeoffKeys,
   ]);
   useEffect(() => {
     onElectricalMeasurementsSettled?.(
@@ -22620,7 +22687,7 @@ function CollapsibleQuickMeasurements({
             | undefined
         }
         userOverrides={measurements.quickMeasurementUserOverrides}
-        visibleMeasurementKeys={electricalVisibleMeasurementKeys}
+        visibleMeasurementKeys={electricalTakeoffKeys}
         preferExpandedKeys={resolvedConflictFields}
         onChangeQuantity={patchElectricalQuantity}
         serviceAmperage={electricalAttributeValues.serviceAmperage}
@@ -22645,7 +22712,7 @@ function CollapsibleQuickMeasurements({
       electricalConflictFields,
       measurements.quickMeasurementSources,
       measurements.quickMeasurementUserOverrides,
-      electricalVisibleMeasurementKeys,
+      electricalTakeoffKeys,
       resolvedConflictFields,
       patchElectricalQuantity,
       electricalAttributeValues.serviceAmperage,
@@ -22722,14 +22789,18 @@ function CollapsibleQuickMeasurements({
                 fontWeight: '600',
               }}
             >
-              {electricalGroupSummary
+              {embeddedElectricalMeasurementKeys
+                ? embeddedElectricalQuantitySummaryLine(
+                    embeddedElectricalMeasurementKeys.size
+                  )
+                : electricalGroupSummary
                 ? electricalQuickMeasurementSummaryLine(electricalGroupSummary)
                 : drywallCoverPackage && headerSummary.estimateAvailable > 0
                   ? `${headerSummary.estimateAvailable} planning estimates from the cover sheet`
                   : quickMeasurementSummaryLine(headerSummary)}
             </Text>
           ) : null}
-          {expanded ? (
+          {expanded && !embeddedElectricalMeasurementKeys ? (
             <Text
               style={{
                 color:
@@ -22765,6 +22836,13 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          <QmScopeFoundRemovalMeasurements
+            measurements={measurements}
+            setMeasurements={setMeasurements}
+            applying={applying}
+            darkMode={darkMode}
+            Colors={Colors}
+          />
           {String(measurements.planImportMode || '') === 'selected_trade' &&
           String(measurements.planImportTradeKey || '') === 'windows_doors' ? (
             <View style={{ marginBottom: 12 }}>
@@ -23017,12 +23095,15 @@ function CollapsibleQuickMeasurements({
               </View>
             </View>
           ) : null}
-          {String(templateKey || '').toLowerCase() === 'electrical' ? (
+          {String(templateKey || '').toLowerCase() === 'electrical' ||
+          embeddedElectricalMeasurementKeys ? (
             <>
-              {showElectricalProjectComplexity
+              {String(templateKey || '').toLowerCase() === 'electrical' &&
+              showElectricalProjectComplexity
                 ? renderProjectComplexityPanel('electrical')
                 : null}
               {electricalQuantityTakeoff}
+              {String(templateKey || '').toLowerCase() === 'electrical' ? (
               <ElectricalConfirmScopeAttributesPanel
                     values={electricalAttributeValues}
                     onCommit={patchElectricalAttributes}
@@ -23062,6 +23143,7 @@ function CollapsibleQuickMeasurements({
                         !measurements.electricalProjectCondition)
                     }
                   />
+              ) : null}
             </>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
@@ -23351,10 +23433,12 @@ function CollapsibleQuickMeasurements({
                   {measurements.paintScope?.includes('doors')
                     ? renderPaintEmbeddedField('interiorDoorCount', 4)
                     : null}
-                  {measurements.paintScope?.includes('cabinets')
+                  {measurements.paintScope?.includes('cabinets') &&
+                  cabinetPaintTakeoffKeys({ notes }).includes('cabinetPaintSqft')
                     ? renderPaintEmbeddedField('cabinetPaintSqft', 4)
                     : null}
-                  {measurements.paintScope?.includes('cabinets')
+                  {measurements.paintScope?.includes('cabinets') &&
+                  cabinetPaintTakeoffKeys({ notes }).includes('cabinetRunLf')
                     ? renderPaintEmbeddedField('cabinetRunLf', 5)
                     : null}
                   {measurements.paintScope?.includes('exterior')
@@ -23727,6 +23811,7 @@ function CollapsibleQuickMeasurements({
                   systemChoiceId={stuccoSystemChoiceId}
                   onSystemChoice={onStuccoSystemChange}
                   onStoriesChange={onStuccoStoriesChange}
+                  notes={notes}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -24362,9 +24447,18 @@ export default function AIEstimateScopeAssumptionsModal({
     if (scopeStructureDismissedRef.current || scopeStructureAnswer.trim()) {
       return;
     }
+    if (interiorPaintSurfacesAnswered(draft?.scopeMeasurements)) {
+      setScopeStructurePromptOpen(false);
+      return;
+    }
     if (!vagueScopeQuestion(authoredScopeNotes)) return;
     setScopeStructurePromptOpen(true);
-  }, [visible, authoredScopeNotes, scopeStructureAnswer]);
+  }, [
+    visible,
+    authoredScopeNotes,
+    scopeStructureAnswer,
+    draft?.scopeMeasurements,
+  ]);
   // Backward-compatible alias for quick-measurement helpers that expect the
   // original note text name.
   const originalNotes = scopeNotes;
@@ -25924,7 +26018,7 @@ export default function AIEstimateScopeAssumptionsModal({
       notesUseDedicatedDrywallScope(notes) ||
       notesDescribeSheetrockFinishJob(notes)
     ) {
-      return dedicatedDrywallConfirmScopeItems(notes);
+      return dedicatedDrywallConfirmScopeItems(notes, measurements);
     }
     // Step 3, the summary, and the PDF read this same filter. A second copy
     // here was relabeling demolition and dropping cards after Continue.
@@ -25971,6 +26065,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.scopeFoundClarificationId,
       measurements.scopeFoundChoice,
       measurements.scopeFoundPieces,
+      measurements.tradeScopeSelections?.deck_patio,
       measurements.demoTilePanCount,
       measurements.wallDemoSqft,
       notesFallback,
@@ -26577,6 +26672,13 @@ export default function AIEstimateScopeAssumptionsModal({
       const islandStillUnset =
         answeredScopeFoundPieces.includes('island') &&
         !(Number(prev.kitchenDemoIslandCount) > 0);
+      const drywallRemovalStillUnset =
+        (answeredScopeFoundPieces.includes('drywall_walls') &&
+          !(Number(String(prev.wallDemoSqft ?? '').replace(/,/g, '')) > 0)) ||
+        (answeredScopeFoundPieces.includes('drywall_ceilings') &&
+          !(
+            Number(String(prev.drywallCeilingSqft ?? '').replace(/,/g, '')) > 0
+          ));
       const electricalRemovalStillUnset =
         (answeredScopeFoundPieces.includes('electrical_panel') &&
           !(Number(prev.panelRemovalCount) > 0)) ||
@@ -26590,6 +26692,7 @@ export default function AIEstimateScopeAssumptionsModal({
         readScopeFoundChoice(prev.scopeFoundChoice) === answeredScopeFoundChoice &&
         samePieces &&
         !islandStillUnset &&
+        !drywallRemovalStillUnset &&
         !electricalRemovalStillUnset
       ) {
         return prev;
@@ -29382,6 +29485,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.flooringExistingTypes,
       measurements.scopeFoundPieces,
       measurements.scopeFoundChoice,
+      measurements.tradeScopeSelections?.deck_patio,
       measurements.itemQuantities,
       scopeNotes,
       wholeProjectPlanChecklist,
@@ -29570,6 +29674,9 @@ export default function AIEstimateScopeAssumptionsModal({
       if (
         notesDescribeDedicatedDeckJob(scopeNotes) &&
         (itemId === 'demo_removal' ||
+          itemId === 'deck_surface_demo' ||
+          itemId === 'deck_railing_demo' ||
+          itemId === 'deck_stairs_demo' ||
           itemId === 'footings_piers' ||
           itemId === 'framing_structure' ||
           itemId === 'decking' ||
@@ -30390,6 +30497,9 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.concreteCy,
     measurements.excavationCy,
     measurements.deckSqft,
+    measurements.deckDemoSqft,
+    measurements.deckRailingDemoLf,
+    measurements.deckStairDemoCount,
     measurements.railingLf,
     measurements.hvacVentilationCount,
     measurements.hvacPermitCount,
@@ -30779,7 +30889,12 @@ export default function AIEstimateScopeAssumptionsModal({
         deferredMeasurements.drywallSqft ?? '',
         deferredMeasurements.patchRepairSqft ?? '',
         deferredMeasurements.deckDemoSqft ?? '',
+        deferredMeasurements.deckRailingDemoLf ?? '',
+        deferredMeasurements.deckStairDemoCount ?? '',
         deferredMeasurements.deckSqft ?? '',
+        Array.isArray(deferredMeasurements.tradeScopeSelections?.deck_patio)
+          ? deferredMeasurements.tradeScopeSelections.deck_patio.join(',')
+          : '',
         deferredMeasurements.deckFootingCount ?? '',
         deferredMeasurements.deckStairCount ?? '',
         deferredMeasurements.railingLf ?? '',
@@ -35380,6 +35495,14 @@ export default function AIEstimateScopeAssumptionsModal({
                     ? measurements.exteriorFinishes.join(',')
                     : '',
                   measurements.patchRepairSqft,
+                  measurements.deckSqft,
+                  measurements.deckDemoSqft,
+                  measurements.deckRailingDemoLf,
+                  measurements.deckStairDemoCount,
+                  measurements.railingLf,
+                  Array.isArray(measurements.tradeScopeSelections?.deck_patio)
+                    ? measurements.tradeScopeSelections.deck_patio.join(',')
+                    : '',
                   measurements.demoClearingSqft,
                   measurements.gradingSqft,
                   measurements.sodSqft,

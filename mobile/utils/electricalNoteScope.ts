@@ -290,5 +290,11 @@ export function filterDedicatedElectricalConfirmItems<
   const custom = items.filter(item =>
     String(item.id || '').startsWith('custom_')
   );
-  return [...named, ...custom];
+  const removalIds = new Set([
+    'electrical_panel_removal',
+    'electrical_fixture_removal',
+    'electrical_abandoned_circuit',
+  ]);
+  const removal = items.filter(item => removalIds.has(String(item.id || '')));
+  return [...named, ...removal, ...custom];
 }

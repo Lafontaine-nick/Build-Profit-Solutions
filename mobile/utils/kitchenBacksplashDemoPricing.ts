@@ -101,8 +101,11 @@ export function buildBacksplashDemoPricingDetails(params: {
   );
   const rate = backsplashDemoRatePerSqft(stored);
   const total = round2(params.sqft * rate);
-  const material = round2(total * MATERIAL_SHARE);
-  const labor = round2(total - material);
+  // Whole dollars that add up to the headline. Rounding each 10% share on its
+  // own turns $22.50 + $202.50 into $23 + $203 and a $226 line under a $225 card.
+  const wholeTotal = Math.round(total);
+  const material = Math.round(wholeTotal * MATERIAL_SHARE);
+  const labor = wholeTotal - material;
   const tierLabel =
     KITCHEN_BACKSPLASH_DEMO_DIFFICULTY_OPTIONS.find(opt => opt.id === effective)
       ?.label ?? 'Moderate — standard tile removal';

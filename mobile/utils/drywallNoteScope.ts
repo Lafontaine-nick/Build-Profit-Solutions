@@ -118,6 +118,19 @@ export function notesNameDrywallFlooringPatchOnly(
   );
 }
 
+/** Scope Found chips for existing drywall. No demo and Not sure leave both off. */
+export function selectedDrywallRemovalSurfaces(
+  measurements?: { scopeFoundPieces?: unknown } | null
+): { walls: boolean; ceilings: boolean } {
+  const pieces = Array.isArray(measurements?.scopeFoundPieces)
+    ? measurements.scopeFoundPieces.map(piece => String(piece))
+    : [];
+  return {
+    walls: pieces.includes('drywall_walls'),
+    ceilings: pieces.includes('drywall_ceilings'),
+  };
+}
+
 /** A sentence that asks for drywall demolition. "No demo" does not. */
 export function notesRequestDrywallDemo(
   notes: string | null | undefined
@@ -341,7 +354,8 @@ export function confirmScopeDrywallSqftLabel(
 }
 
 export function dedicatedDrywallConfirmScopeItems(
-  notes: string | null | undefined
+  notes: string | null | undefined,
+  measurements?: { scopeFoundPieces?: unknown } | null
 ): Array<{
   id: string;
   inputType: 'yes_no';
@@ -353,6 +367,7 @@ export function dedicatedDrywallConfirmScopeItems(
 }> {
   const text = String(notes || '');
   const patchOnly = notesDescribeDedicatedDrywallPatchJob(text);
+  const selectedRemoval = selectedDrywallRemovalSurfaces(measurements);
   const items: Array<{
     id: string;
     inputType: 'yes_no';
@@ -362,7 +377,30 @@ export function dedicatedDrywallConfirmScopeItems(
     state: 'included';
     noteBacked: true;
   }> = [];
-  if (notesRequestDrywallDemo(text)) {
+  if (selectedRemoval.walls) {
+    items.push({
+      id: 'drywall_wall_demo',
+      inputType: 'yes_no',
+      label: 'Remove drywall walls',
+      helperText: 'Existing wall drywall comes out before the new drywall goes up.',
+      category: 'Drywall',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (selectedRemoval.ceilings) {
+    items.push({
+      id: 'drywall_ceiling_demo',
+      inputType: 'yes_no',
+      label: 'Remove drywall ceilings',
+      helperText:
+        'Existing ceiling drywall comes out before the new drywall goes up.',
+      category: 'Drywall',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (notesRequestDrywallDemo(text) && !selectedRemoval.walls && !selectedRemoval.ceilings) {
     items.push({
       id: 'demo_removal',
       inputType: 'yes_no',

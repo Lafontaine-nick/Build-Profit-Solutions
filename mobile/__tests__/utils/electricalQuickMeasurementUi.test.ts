@@ -3,6 +3,8 @@ import {
   releaseElectricalQuickMeasurementSelection,
   buildElectricalQuickMeasurementGroups,
   electricalQuickMeasurementSummaryLine,
+  embeddedElectricalQuantitySummaryLine,
+  inScopeElectricalMeasurementKeys,
   summarizeElectricalQuickMeasurementGroups,
   electricalQuickMeasurementSourceFromProvenance,
   electricalConfirmScopeAttributesEqual,
@@ -905,6 +907,52 @@ describe('electricalQuickMeasurementUi', () => {
     expect(
       fields.find(field => field.key === 'bathExhaustFanCount')
     ).toMatchObject({ value: null, selected: false, confirmInput: true });
+  });
+
+  it('shows only the electrical counts already on a remodel bid', () => {
+    const keys = inScopeElectricalMeasurementKeys(
+      [
+        'electrical_bath_exhaust_fan',
+        'electrical_ev_charger_hookup',
+        'electrical_smoke_detector',
+        'drywall',
+      ],
+      {
+        bathExhaustFanCount: 2,
+        evChargerHookupCount: 2,
+        smokeDetectorCount: 7,
+        receptacleCount: 12,
+      }
+    );
+    expect([...keys].sort()).toEqual([
+      'bathExhaustFanCount',
+      'evChargerHookupCount',
+      'smokeDetectorCount',
+    ]);
+    const fields = buildElectricalQuickMeasurementGroups({
+      measurements: {
+        bathExhaustFanCount: 2,
+        evChargerHookupCount: 2,
+        smokeDetectorCount: 7,
+        receptacleCount: 12,
+      },
+      visibleMeasurementKeys: keys,
+    }).flatMap(group => group.fields);
+    expect(fields.map(field => [field.key, field.value]).sort()).toEqual([
+      ['bathExhaustFanCount', 2],
+      ['evChargerHookupCount', 2],
+      ['smokeDetectorCount', 7],
+    ]);
+    expect(embeddedElectricalQuantitySummaryLine(keys.size)).toBe('3 quantities');
+  });
+
+  it('reads a stored item quantity when the measurement field is empty', () => {
+    expect(
+      [...inScopeElectricalMeasurementKeys(['electrical_smoke_detector'], {
+        itemQuantities: { electrical_smoke_detector: { quantity: 7 } },
+      })]
+    ).toEqual(['smokeDetectorCount']);
+    expect(embeddedElectricalQuantitySummaryLine(1)).toBe('1 quantity');
   });
 
   it('treats finger travel past the slop as a scroll, not a chip tap', () => {

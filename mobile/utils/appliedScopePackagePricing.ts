@@ -165,6 +165,56 @@ const DISTINCT_TILE_SCOPE_IDS = new Set([
   'floor_tile',
 ]);
 
+const SHARED_INTERIOR_PAINT_IDS = new Set([
+  'interior_paint',
+  'paint',
+  'paint_trim',
+]);
+
+const DISTINCT_PAINT_SURFACE_IDS = new Set([
+  ...SHARED_INTERIOR_PAINT_IDS,
+  'ceiling_paint',
+  'trim_paint',
+  'door_paint',
+  'door_casing_paint',
+  'cabinet_paint',
+  'exterior_paint',
+  'exterior_trim_paint',
+  'exterior_door_paint',
+]);
+
+function paintSurfacesKeepOwnDollars(
+  primaryId: string,
+  ruleKey: string
+): boolean {
+  if (primaryId === ruleKey) return false;
+  if (
+    SHARED_INTERIOR_PAINT_IDS.has(primaryId) &&
+    SHARED_INTERIOR_PAINT_IDS.has(ruleKey)
+  ) {
+    return false;
+  }
+  return (
+    DISTINCT_PAINT_SURFACE_IDS.has(primaryId) &&
+    DISTINCT_PAINT_SURFACE_IDS.has(ruleKey)
+  );
+}
+
+function committedCardAcceptanceTotal(
+  acceptance: ScopePricingAcceptanceMetadata | null | undefined
+): number {
+  const status = acceptance?.selectionStatus;
+  if (
+    status !== 'accepted' &&
+    status !== 'manual_adjusted' &&
+    status !== 'user_entered'
+  ) {
+    return 0;
+  }
+  const total = Number(acceptance?.totalAmount);
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
 function checklistItemAllowsAppliedRuleKey(
   ruleKey: string,
   primaryId: string | null | undefined,
@@ -179,6 +229,9 @@ function checklistItemAllowsAppliedRuleKey(
     DISTINCT_TILE_SCOPE_IDS.has(ruleKey) &&
     items.some(row => row.id === ruleKey && checklistItemInScope(row))
   ) {
+    return false;
+  }
+  if (primaryId && paintSurfacesKeepOwnDollars(primaryId, ruleKey)) {
     return false;
   }
   const item = items.find((row) => row.id === ruleKey);
@@ -276,7 +329,14 @@ export function resolveAppliedConfirmScopePackagePricing(
   for (const ruleKey of appliedPricingRuleKeysForPackage(pkg)) {
     const primaryId = pkg.checklistItemId || pkg.costCode || null;
     if (!checklistItemAllowsAppliedRuleKey(ruleKey, primaryId, items)) continue;
-    if (!hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap)) continue;
+    const ownsCard = !primaryId || ruleKey === primaryId;
+    const cardAcceptance = committedCardAcceptanceTotal(acceptanceMap[ruleKey]);
+    if (
+      !hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap) &&
+      !(ownsCard && cardAcceptance > 0)
+    ) {
+      continue;
+    }
 
     const acceptance = acceptanceMap[ruleKey];
     const manualPrice =

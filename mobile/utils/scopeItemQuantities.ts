@@ -20,6 +20,7 @@ import {
   readScopeFoundClarificationId,
   readScopeFoundPieces,
   roofTearOffChoiceForItem,
+  scopeFoundRemovalPricingSpec,
 } from '@/utils/scopeFoundClarification';
 import {
   TILE_DEMO_LABOR_RATE,
@@ -305,8 +306,10 @@ import {
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob, notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
 import {
+  deckInstallMaterialCopy,
   dedicatedDeckRailingLf,
   notesDescribeDedicatedDeckJob,
+  selectedDeckInstallMaterial,
 } from '@/utils/deckNoteScope';
 import {
   dedicatedFlooringAreaSqft,
@@ -829,6 +832,8 @@ export type NormalizedScopeMeasurements = {
   excavationDepthInches: number | null;
   deckSqft: number | null;
   deckDemoSqft?: number | null;
+  deckRailingDemoLf?: number | null;
+  deckStairDemoCount?: number | null;
   deckFootingCount?: number | null;
   deckStairCount?: number | null;
   garageSqft: number | null;
@@ -867,6 +872,7 @@ export type NormalizedScopeMeasurements = {
   planImportMode?: ScopeMeasurements['planImportMode'];
   planImportTradeKey?: ScopeMeasurements['planImportTradeKey'];
   planImportFingerprint?: ScopeMeasurements['planImportFingerprint'];
+  tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
   baseboardLf: number | null;
@@ -1098,6 +1104,48 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     materialBucketLabel: 'Equipment, protection, haul-off & disposal',
     sourceLabel:
       'Suggested budget split · National Average planning estimate · flooring demolition',
+  },
+  cladding_demo: {
+    unit: 'sqft',
+    material: 0.75,
+    labor: 2.25,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · stucco removal',
+  },
+  cladding_demo__old_stucco: {
+    unit: 'sqft',
+    material: 0.75,
+    labor: 2.25,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · stucco removal',
+  },
+  cladding_demo__wood_siding: {
+    unit: 'sqft',
+    material: 0.5,
+    labor: 1.75,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · wood siding removal',
+  },
+  cladding_demo__vinyl_siding: {
+    unit: 'sqft',
+    material: 0.35,
+    labor: 1.15,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · vinyl siding removal',
+  },
+  cladding_demo__brick: {
+    unit: 'sqft',
+    material: 1.25,
+    labor: 3.75,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · brick removal',
+  },
+  cladding_demo__fiber_cement: {
+    unit: 'sqft',
+    material: 0.6,
+    labor: 2.15,
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average · fiber cement removal',
   },
   underlayment: {
     unit: 'sqft',
@@ -6100,6 +6148,24 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Square feet of walls coming out. The note did not state an area.',
     missingMessage: 'Enter the wall area coming out.',
   },
+  drywall_wall_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['wallDemoSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Square feet of existing wall drywall to remove.',
+    missingMessage: 'Enter the wall drywall removal area.',
+  },
+  drywall_ceiling_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['drywallCeilingSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Square feet of existing ceiling drywall to remove.',
+    missingMessage: 'Enter the ceiling drywall removal area.',
+  },
   tub_surround: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -7329,8 +7395,35 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['each', 'allowance', 'lump_sum'],
     measurementKey: 'deckStairCount',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter the number of stair runs.',
-    missingMessage: 'Enter the number of stair runs.',
+    quantityHelper: 'Enter the number of stair flights.',
+    missingMessage: 'Enter the number of stair flights.',
+  },
+  deck_surface_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['deckDemoSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Square feet of existing decking to remove.',
+    missingMessage: 'Enter the decking removal area.',
+  },
+  deck_railing_demo: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKeys: ['deckRailingDemoLf'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Linear feet of existing railing to remove.',
+    missingMessage: 'Enter the railing length being removed.',
+  },
+  deck_stairs_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['deckStairDemoCount'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: true,
+    quantityHelper: 'Number of existing stair flights to remove.',
+    missingMessage: 'Enter the stair flights being removed.',
   },
   railing: {
     defaultUnit: 'lf',
@@ -7922,6 +8015,8 @@ export function normalizeScopeMeasurements(
     excavationDepthInches: num(measurements?.excavationDepthInches),
     deckSqft: num(measurements?.deckSqft),
     deckDemoSqft: num(measurements?.deckDemoSqft),
+    deckRailingDemoLf: num(measurements?.deckRailingDemoLf),
+    deckStairDemoCount: num(measurements?.deckStairDemoCount),
     deckFootingCount: num(measurements?.deckFootingCount),
     deckStairCount: num(measurements?.deckStairCount),
     garageSqft: num(measurements?.garageSqft),
@@ -8036,6 +8131,7 @@ export function normalizeScopeMeasurements(
     planImportMode: measurements?.planImportMode,
     planImportTradeKey: measurements?.planImportTradeKey,
     planImportFingerprint: measurements?.planImportFingerprint,
+    tradeScopeSelections: measurements?.tradeScopeSelections,
     showerRemovalPieces: readShowerRemovalPieces(measurements?.showerRemovalPieces),
     itemQuantities,
   };
@@ -11236,6 +11332,20 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  const removalSpec = scopeFoundRemovalPricingSpec(itemId);
+  if (removalSpec || itemId === 'cladding_demo') {
+    const unit = removalSpec?.unit || 'sqft';
+    return {
+      defaultUnit: unit,
+      allowedUnits: [unit, 'allowance', 'lump_sum'],
+      requiresUserQuantity: true,
+      quantityHelper:
+        unit === 'each'
+          ? 'Count of this existing item that comes out.'
+          : 'Area of this existing material that comes out.',
+      missingMessage: unit === 'each' ? 'Enter the removal count.' : 'Enter the removal area.',
+    };
+  }
   if (flooringDemoStyleFromItemId(itemId)) {
     return {
       defaultUnit: 'sqft',
@@ -12074,6 +12184,8 @@ function measurementsForRatePricing(
     excavationQuantityMode: measurements.excavationQuantityMode ?? undefined,
     deckSqft: measurements.deckSqft ?? undefined,
     deckDemoSqft: measurements.deckDemoSqft ?? undefined,
+    deckRailingDemoLf: measurements.deckRailingDemoLf ?? undefined,
+    deckStairDemoCount: measurements.deckStairDemoCount ?? undefined,
     deckFootingCount: measurements.deckFootingCount ?? undefined,
     deckStairCount: measurements.deckStairCount ?? undefined,
     railingLf: measurements.railingLf ?? undefined,
@@ -12153,6 +12265,10 @@ function measurementsPayloadForRatePricing(
     excavationCy: parseScopeMeasurementInput(input.excavationCy) ?? undefined,
     deckSqft: parseScopeMeasurementInput(input.deckSqft) ?? undefined,
     deckDemoSqft: parseScopeMeasurementInput(input.deckDemoSqft) ?? undefined,
+    deckRailingDemoLf:
+      parseScopeMeasurementInput(input.deckRailingDemoLf) ?? undefined,
+    deckStairDemoCount:
+      parseScopeMeasurementInput(input.deckStairDemoCount) ?? undefined,
     deckFootingCount:
       parseScopeMeasurementInput(input.deckFootingCount) ?? undefined,
     deckStairCount:
@@ -16634,6 +16750,54 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  const removalSpec = scopeFoundRemovalPricingSpec(itemId);
+  if (removalSpec) {
+    const quantity = Number(resolved.quantity);
+    const unit = String(resolved.unit || removalSpec.unit).toLowerCase();
+    if (!(quantity > 0) || unit !== removalSpec.unit) return empty;
+    const material = round2(quantity * removalSpec.material);
+    const labor = round2(quantity * removalSpec.labor);
+    const total = round2(material + labor);
+    const rate = round2(removalSpec.material + removalSpec.labor);
+    const rateLabel = Number.isInteger(rate) ? `$${rate}` : `$${rate.toFixed(2)}`;
+    const unitLabel = removalSpec.unit === 'each' ? 'each' : 'sqft';
+    return {
+      fill: {
+        material,
+        labor,
+        total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: removalSpec.sourceLabel,
+        helper: `${quantity.toLocaleString()} ${unitLabel} coming off.`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: unitLabel },
+        displayUnitRateLabel: `${quantity.toLocaleString()} ${unitLabel} × ${rateLabel}/${unitLabel}`,
+        benchmarkAction: 'price_ready',
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: itemId,
+        costBuckets: [
+          {
+            key: 'material',
+            label: 'Material',
+            amount: material,
+            rate: removalSpec.material,
+            source: 'national_average',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: labor,
+            rate: removalSpec.labor,
+            source: 'national_average',
+          },
+        ],
+      },
+      comparison: null,
+    };
+  }
   const demoStyle = flooringDemoStyleFromItemId(itemId);
   if (demoStyle) {
     const quantity = Number(resolved.quantity);
@@ -16952,7 +17116,54 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (
     notesDescribeDedicatedDeckJob(notesText) &&
-    itemId === 'demo_removal' &&
+    itemId === 'decking' &&
+    Number(resolved.quantity) > 0 &&
+    String(resolved.unit || '').toLowerCase() === 'sqft'
+  ) {
+    const quantity = Number(resolved.quantity);
+    const copy = deckInstallMaterialCopy(
+      selectedDeckInstallMaterial(notesText, measurementsInput)
+    );
+    const material = round2(quantity * copy.materialRate);
+    const labor = round2(quantity * copy.laborRate);
+    const combined = copy.materialRate + copy.laborRate;
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: copy.rateSourceLabel,
+        helper: copy.helperText,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        displayUnitRateLabel: `${quantity.toLocaleString()} sqft × $${combined}/sqft`,
+        benchmarkAction: 'price_ready',
+        costBuckets: [
+          {
+            key: 'material' as const,
+            label: 'Material',
+            amount: material,
+            rate: copy.materialRate,
+            source: 'national_average' as const,
+          },
+          {
+            key: 'labor' as const,
+            label: 'Labor',
+            amount: labor,
+            rate: copy.laborRate,
+            source: 'national_average' as const,
+          },
+        ],
+      },
+      comparison: null,
+    };
+  }
+  if (
+    notesDescribeDedicatedDeckJob(notesText) &&
+    (itemId === 'demo_removal' || itemId === 'deck_surface_demo') &&
     Number(resolved.quantity) > 0 &&
     String(resolved.unit || '').toLowerCase() === 'sqft'
   ) {
@@ -16997,6 +17208,95 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (
     notesDescribeDedicatedDeckJob(notesText) &&
+    itemId === 'deck_railing_demo' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const equipmentRate = 2;
+    const laborRate = 5;
+    const equipment = round2(quantity * equipmentRate);
+    const labor = round2(quantity * laborRate);
+    return {
+      fill: {
+        material: equipment,
+        labor,
+        total: round2(equipment + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'National average · railing removal',
+        helper: 'Remove the existing railing, including haul-off.',
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'lf' },
+        displayUnitRateLabel: `${quantity.toLocaleString()} LF × $7/LF`,
+        benchmarkAction: 'price_ready',
+        costBuckets: [
+          {
+            key: 'equipment' as const,
+            label: 'Equipment',
+            amount: equipment,
+            rate: equipmentRate,
+            source: 'national_average' as const,
+          },
+          {
+            key: 'labor' as const,
+            label: 'Labor',
+            amount: labor,
+            rate: laborRate,
+            source: 'national_average' as const,
+          },
+        ],
+      },
+      comparison: null,
+    };
+  }
+  if (
+    notesDescribeDedicatedDeckJob(notesText) &&
+    itemId === 'deck_stairs_demo' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const equipmentRate = 25;
+    const laborRate = 125;
+    const equipment = round2(quantity * equipmentRate);
+    const labor = round2(quantity * laborRate);
+    const flightLabel = quantity === 1 ? 'flight' : 'flights';
+    return {
+      fill: {
+        material: equipment,
+        labor,
+        total: round2(equipment + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'National average · stair removal',
+        helper: 'Remove the existing stair flight, including haul-off. New stair railing stays on the railing card.',
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'each' },
+        displayUnitRateLabel: `${quantity.toLocaleString()} ${flightLabel} × $150/flight`,
+        benchmarkAction: 'price_ready',
+        costBuckets: [
+          {
+            key: 'equipment' as const,
+            label: 'Equipment',
+            amount: equipment,
+            rate: equipmentRate,
+            source: 'national_average' as const,
+          },
+          {
+            key: 'labor' as const,
+            label: 'Labor',
+            amount: labor,
+            rate: laborRate,
+            source: 'national_average' as const,
+          },
+        ],
+      },
+      comparison: null,
+    };
+  }
+  if (
+    notesDescribeDedicatedDeckJob(notesText) &&
     itemId === 'stairs' &&
     Number(resolved.quantity) > 0
   ) {
@@ -17005,7 +17305,7 @@ export function resolveScopeItemSuggestedPricing(
     const laborRate = 380;
     const material = round2(quantity * materialRate);
     const labor = round2(quantity * laborRate);
-    const runLabel = quantity === 1 ? 'run' : 'runs';
+    const runLabel = quantity === 1 ? 'flight' : 'flights';
     return {
       fill: {
         material,
@@ -17013,12 +17313,12 @@ export function resolveScopeItemSuggestedPricing(
         total: round2(material + labor),
         materialSource: 'national_average',
         laborSource: 'national_average',
-        rateSourceLabel: 'National average · stair run',
-        helper: 'One stair run, including stringers and treads. Railing stays on its own card.',
+        rateSourceLabel: 'National average · stair flight',
+        helper: 'One stair flight, including stringers and treads. Railing stays on its own card.',
         mode: 'suggested_price',
         lumpSumOnly: false,
         basis: { quantity, unit: 'each' },
-        displayUnitRateLabel: `${quantity.toLocaleString()} ${runLabel} × $600/run`,
+        displayUnitRateLabel: `${quantity.toLocaleString()} ${runLabel} × $600/flight`,
         benchmarkAction: 'price_ready',
         costBuckets: [
           {
@@ -17188,7 +17488,10 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (
     dedicatedDrywallNote &&
-    (itemId === 'demo' || itemId === 'demo_removal') &&
+    (itemId === 'demo' ||
+      itemId === 'demo_removal' ||
+      itemId === 'drywall_wall_demo' ||
+      itemId === 'drywall_ceiling_demo') &&
     Number(resolved.quantity) > 0 &&
     String(resolved.unit || '').toLowerCase() === 'sqft'
   ) {
@@ -27469,10 +27772,49 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  const removalSpec = scopeFoundRemovalPricingSpec(itemId);
+  if (removalSpec || itemId === 'cladding_demo') {
+    const unit = removalSpec?.unit || 'sqft';
+    const direct = measurements.itemQuantities?.[itemId];
+    const quantity = Number(String(direct?.quantity ?? '').replace(/,/g, ''));
+    const helper =
+      unit === 'each'
+        ? 'Count of this existing item that comes out.'
+        : 'Area of this existing material that comes out.';
+    if (quantity > 0) {
+      return {
+        quantity,
+        unit,
+        quantitySource: 'user_entered',
+        sourceLabel: unit === 'each' ? 'Entered removal count' : 'Entered removal area',
+        pricingReady: true,
+        quantityHelper: helper,
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit,
+      quantitySource: 'missing',
+      sourceLabel: sourceLabel('missing'),
+      pricingReady: false,
+      quantityHelper: helper,
+      missingMessage: unit === 'each' ? 'Enter the removal count.' : 'Enter the removal area.',
+      showInput: true,
+    };
+  }
   const demoStyle = flooringDemoStyleFromItemId(itemId);
   if (demoStyle) {
-    const entry = measurements.itemQuantities?.[`floor_demo__${demoStyle}`];
-    const quantity = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    const direct = measurements.itemQuantities?.[`floor_demo__${demoStyle}`];
+    const styled =
+      measurements.itemQuantities?.[`floor_demo_style_${demoStyle}`];
+    const readQty = (entry?: { quantity?: unknown }) =>
+      Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    let quantity = readQty(direct);
+    if (!(quantity > 0)) quantity = readQty(styled);
+    if (!(quantity > 0) && demoStyle === 'unknown') {
+      quantity = Number(measurements.floorDemoSqft);
+    }
     if (quantity > 0) {
       return {
         quantity,
@@ -27819,11 +28161,18 @@ export function resolveChecklistItemQuantity(
     }
   }
   if (
-    (itemId === 'demo' || itemId === 'demo_removal') &&
+    (itemId === 'demo' ||
+      itemId === 'demo_removal' ||
+      itemId === 'drywall_wall_demo' ||
+      itemId === 'drywall_ceiling_demo') &&
     notesDescribeDedicatedDrywallJob(ctx.notes)
   ) {
     const measuredDemoSqft = Number(
-      String(measurements.wallDemoSqft ?? '').replace(/,/g, '')
+      String(
+        (itemId === 'drywall_ceiling_demo'
+          ? measurements.drywallCeilingSqft
+          : measurements.wallDemoSqft) ?? ''
+      ).replace(/,/g, '')
     );
     const demoSqft =
       Number.isFinite(measuredDemoSqft) && measuredDemoSqft > 0
@@ -27857,7 +28206,9 @@ export function resolveChecklistItemQuantity(
     };
   }
   if (
-    (itemId === 'demo' || itemId === 'demo_removal') &&
+    (itemId === 'demo' ||
+      itemId === 'demo_removal' ||
+      itemId === 'deck_surface_demo') &&
     notesDescribeDedicatedDeckJob(ctx.notes)
   ) {
     const measuredDemoSqft = Number(
@@ -27883,6 +28234,60 @@ export function resolveChecklistItemQuantity(
       pricingReady: false,
       quantityHelper: 'Enter the deck removal area. The note does not give one.',
       missingMessage: 'Enter the deck removal area.',
+      showInput: true,
+    };
+  }
+  if (itemId === 'deck_railing_demo' && notesDescribeDedicatedDeckJob(ctx.notes)) {
+    const length = Number(
+      String(measurements.deckRailingDemoLf ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(length) && length > 0) {
+      return {
+        quantity: length,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Quick Measurements',
+        pricingReady: true,
+        quantityHelper: 'Railing length being removed.',
+        missingMessage: 'Enter the railing length being removed.',
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit: 'lf',
+      quantitySource: 'missing',
+      sourceLabel: null,
+      pricingReady: false,
+      quantityHelper: 'Enter the railing length being removed.',
+      missingMessage: 'Enter the railing length being removed.',
+      showInput: true,
+    };
+  }
+  if (itemId === 'deck_stairs_demo' && notesDescribeDedicatedDeckJob(ctx.notes)) {
+    const count = Number(
+      String(measurements.deckStairDemoCount ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(count) && count > 0) {
+      return {
+        quantity: count,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Quick Measurements',
+        pricingReady: true,
+        quantityHelper: 'Stair flights being removed.',
+        missingMessage: 'Enter the stair flights being removed.',
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit: 'each',
+      quantitySource: 'missing',
+      sourceLabel: null,
+      pricingReady: false,
+      quantityHelper: 'Stair flights being removed.',
+      missingMessage: 'Enter the stair flights being removed.',
       showInput: true,
     };
   }
@@ -28689,10 +29094,10 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bappliance\s*reinstall\b|\breinstall\b.*\bappliances?\b|\bappliances?\s*(?:&|and)?\s*hookup\b|\bappliance\s+hookup\b|\bappliances?\b/i,
     key: 'appliances',
   },
-  // Cabinet paint before cabinets LF rates.
+  // Cabinet paint before cabinet install LF rates ($265/LF).
   {
     test: /\b(?:paint|painting|stain|refinish)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:paint|painting|stain|refinish)\b/i,
-    key: 'trim_paint',
+    key: 'cabinet_paint',
   },
   {
     test: /\bkitchen\s+island\b|\bisland\b.*\bcabinet|\bcabinet\b.*\bisland\b/i,
@@ -30394,6 +30799,8 @@ export function scopeMeasurementsToPayload(
       : null,
     deckSqft: parseScopeMeasurementInput(sanitized.deckSqft),
     deckDemoSqft: parseScopeMeasurementInput(sanitized.deckDemoSqft),
+    deckRailingDemoLf: parseScopeMeasurementInput(sanitized.deckRailingDemoLf),
+    deckStairDemoCount: parseScopeMeasurementInput(sanitized.deckStairDemoCount),
     deckFootingCount: parseScopeMeasurementInput(sanitized.deckFootingCount),
     deckStairCount: parseScopeMeasurementInput(sanitized.deckStairCount),
     garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
@@ -31260,6 +31667,12 @@ export function scopeMeasurementsInputFromPayload(
     deckSqft: measurementFieldString(payload.deckSqft),
     deckDemoSqft: measurementFieldString(
       (payload as { deckDemoSqft?: unknown }).deckDemoSqft
+    ),
+    deckRailingDemoLf: measurementFieldString(
+      (payload as { deckRailingDemoLf?: unknown }).deckRailingDemoLf
+    ),
+    deckStairDemoCount: measurementFieldString(
+      (payload as { deckStairDemoCount?: unknown }).deckStairDemoCount
     ),
     deckFootingCount: measurementFieldString(
       (payload as { deckFootingCount?: unknown }).deckFootingCount
@@ -33544,6 +33957,8 @@ export function initialScopeMeasurementInputExtended(
     excavationCy: pick('excavationCy'),
     deckSqft: pick('deckSqft'),
     deckDemoSqft: pick('deckDemoSqft'),
+    deckRailingDemoLf: pick('deckRailingDemoLf'),
+    deckStairDemoCount: pick('deckStairDemoCount'),
     deckFootingCount: pick('deckFootingCount'),
     deckStairCount: pick('deckStairCount'),
     garageSqft: pick('garageSqft'),

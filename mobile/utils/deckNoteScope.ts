@@ -137,13 +137,91 @@ export function notesRequestDeckStairs(
   return /\b(?:stairs?|steps?)\b/i.test(String(notes || ''));
 }
 
+export type DeckInstallMaterial = 'wood' | 'composite';
+
+export function deckInstallMaterialCopy(material: DeckInstallMaterial): {
+  label: string;
+  helperText: string;
+  materialRate: number;
+  laborRate: number;
+  rateSourceLabel: string;
+} {
+  if (material === 'wood') {
+    return {
+      label: 'Wood decking',
+      helperText: 'Install the wood decking area named in the notes.',
+      materialRate: 8,
+      laborRate: 12,
+      rateSourceLabel: 'National average · wood decking',
+    };
+  }
+  return {
+    label: 'Composite decking',
+    helperText: 'Install the composite decking area named in the notes.',
+    materialRate: 18,
+    laborRate: 14,
+    rateSourceLabel: 'National average · composite decking',
+  };
+}
+
+/** Saved chip wins. A generic deck note follows the composite chip. */
+export function selectedDeckInstallMaterial(
+  notes: string | null | undefined,
+  measurements?: {
+    tradeScopeSelections?: { deck_patio?: unknown } | null;
+  } | null
+): DeckInstallMaterial {
+  const saved = measurements?.tradeScopeSelections?.deck_patio;
+  const selections = Array.isArray(saved) ? saved.map(id => String(id)) : [];
+  const chosen = [...selections]
+    .reverse()
+    .find(id => id === 'wood_deck' || id === 'composite_deck');
+  if (chosen === 'wood_deck') return 'wood';
+  if (chosen === 'composite_deck') return 'composite';
+  const text = String(notes || '');
+  // The checklist id `decking` lights the composite chip unless the note names wood.
+  if (selections.includes('decking')) {
+    return /\bwood\s+deck(?:ing)?\b/i.test(text) ? 'wood' : 'composite';
+  }
+  if (/\bwood\s+deck(?:ing)?\b/i.test(text)) return 'wood';
+  if (/\bcomposite\b/i.test(text)) return 'composite';
+  return 'composite';
+}
+
 export function dedicatedDeckSurfaceLabel(
-  notes: string | null | undefined
+  notes: string | null | undefined,
+  measurements?: {
+    tradeScopeSelections?: { deck_patio?: unknown } | null;
+  } | null
 ): string {
+  if (notesDescribeDedicatedDeckJob(notes)) {
+    return deckInstallMaterialCopy(selectedDeckInstallMaterial(notes, measurements))
+      .label;
+  }
   const text = String(notes || '');
   if (/\bcomposite\b/i.test(text)) return 'Composite decking';
   if (/\bwood\s+deck(?:ing)?\b/i.test(text)) return 'Wood decking';
   return 'Decking / surface install';
+}
+
+export function applyDeckInstallMaterialLabel<
+  T extends { id?: string | null; label?: string | null; helperText?: string | null },
+>(
+  items: T[],
+  notes: string | null | undefined,
+  measurements?: {
+    tradeScopeSelections?: { deck_patio?: unknown } | null;
+  } | null
+): T[] {
+  if (!notesDescribeDedicatedDeckJob(notes)) return items;
+  const copy = deckInstallMaterialCopy(
+    selectedDeckInstallMaterial(notes, measurements)
+  );
+  return items.map(item =>
+    item.id === 'decking'
+      ? { ...item, label: copy.label, helperText: copy.helperText }
+      : item
+  );
 }
 
 export function dedicatedDeckScopeSelections(
@@ -164,13 +242,65 @@ export function dedicatedDeckScopeSelections(
   return ids;
 }
 
+/** Scope Found chips for an existing deck. No demo and Not sure leave these off. */
+export function selectedDeckRemovalSurfaces(
+  measurements?: { scopeFoundPieces?: unknown } | null
+): { decking: boolean; railing: boolean; stairs: boolean } {
+  const pieces = Array.isArray(measurements?.scopeFoundPieces)
+    ? measurements.scopeFoundPieces.map(piece => String(piece))
+    : [];
+  return {
+    decking: pieces.includes('deck_surface'),
+    railing: pieces.includes('deck_railing'),
+    stairs: pieces.includes('deck_stairs'),
+  };
+}
+
 export function dedicatedDeckConfirmScopeItems(
-  notes: string | null | undefined
+  notes: string | null | undefined,
+  measurements?: {
+    scopeFoundPieces?: unknown;
+    tradeScopeSelections?: { deck_patio?: unknown } | null;
+  } | null
 ): ExplicitScopeItem[] {
   if (!notesDescribeDedicatedDeckJob(notes)) return [];
   const text = String(notes || '');
+  const selectedRemoval = selectedDeckRemovalSurfaces(measurements);
   const items: ExplicitScopeItem[] = [];
-  if (notesRequestDeckDemo(text)) {
+  if (selectedRemoval.decking) {
+    items.push({
+      id: 'deck_surface_demo',
+      inputType: 'yes_no',
+      label: 'Remove decking',
+      helperText: 'Existing decking comes out before the new deck goes in.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (selectedRemoval.railing) {
+    items.push({
+      id: 'deck_railing_demo',
+      inputType: 'yes_no',
+      label: 'Remove railing',
+      helperText: 'Existing railing comes out. Enter the length being removed.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (selectedRemoval.stairs) {
+    items.push({
+      id: 'deck_stairs_demo',
+      inputType: 'yes_no',
+      label: 'Remove stairs',
+      helperText: 'Existing stair flights come out.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (notesRequestDeckDemo(text) && !selectedRemoval.decking) {
     items.push({
       id: 'demo_removal',
       inputType: 'yes_no',
@@ -204,12 +334,14 @@ export function dedicatedDeckConfirmScopeItems(
     });
   }
   if (notesRequestDeckSurface(text)) {
-    const label = dedicatedDeckSurfaceLabel(text);
+    const copy = deckInstallMaterialCopy(
+      selectedDeckInstallMaterial(text, measurements)
+    );
     items.push({
       id: 'decking',
       inputType: 'yes_no',
-      label,
-      helperText: `Install the ${label.toLowerCase()} area named in the notes.`,
+      label: copy.label,
+      helperText: copy.helperText,
       category: 'surface',
       state: 'included',
       noteBacked: true,
@@ -233,8 +365,8 @@ export function dedicatedDeckConfirmScopeItems(
     items.push({
       id: 'stairs',
       inputType: 'yes_no',
-      label: 'Stair runs',
-      helperText: 'Enter the number of stair runs. The note does not give one.',
+      label: 'Stair flights',
+      helperText: 'Enter the number of stair flights. The note does not give one.',
       category: 'surface',
       state: 'included',
       noteBacked: true,
@@ -250,9 +382,14 @@ export function filterDedicatedDeckConfirmItems<
   const allowed = new Set(
     dedicatedDeckConfirmScopeItems(notes).map(item => item.id)
   );
+  const selectedRemovalIds = new Set([
+    'deck_surface_demo',
+    'deck_railing_demo',
+    'deck_stairs_demo',
+  ]);
   return items.filter(item => {
     const id = String(item.id || '');
-    return id.startsWith('custom_') || allowed.has(id);
+    return id.startsWith('custom_') || allowed.has(id) || selectedRemovalIds.has(id);
   });
 }
 
@@ -363,7 +500,7 @@ export function dedicatedDeckMissingQuantityPrompt(
     missing.push('railing length');
   }
   if (notesRequestDeckStairs(notes) && !filled('deckStairCount')) {
-    missing.push('stair run count');
+    missing.push('stair flight count');
   }
   if (!missing.length) return null;
   if (missing.length === 1) {
@@ -383,6 +520,9 @@ export function scrubDedicatedDeckMeasurements<T extends Record<string, unknown>
   if (!notesDescribeDedicatedDeckJob(notes)) return measurements;
   const seed = dedicatedDeckMeasurementSeed(notes);
   const next: Record<string, unknown> = { ...measurements, ...seed };
+  const selectedRemoval = selectedDeckRemovalSurfaces(
+    measurements as { scopeFoundPieces?: unknown }
+  );
   for (const key of [
     'floorAreaSqft',
     'wallFramingSqft',
@@ -394,8 +534,11 @@ export function scrubDedicatedDeckMeasurements<T extends Record<string, unknown>
     'deckDemoSqft',
     'deckStairCount',
   ]) {
+    if (key === 'deckDemoSqft' && selectedRemoval.decking) continue;
     delete next[key];
   }
+  if (!selectedRemoval.railing) delete next.deckRailingDemoLf;
+  if (!selectedRemoval.stairs) delete next.deckStairDemoCount;
   const railingLf = dedicatedDeckRailingLf(notes);
   if (railingLf) next.railingLf = railingLf;
   else delete next.railingLf;
@@ -410,9 +553,30 @@ export function scrubDedicatedDeckMeasurements<T extends Record<string, unknown>
   delete quantities.stairs;
   if (!dedicatedDeckRailingLf(notes)) delete quantities.railing;
   next.itemQuantities = quantities;
+  const noteSelections = dedicatedDeckScopeSelections(notes);
+  const savedPatio = (
+    (measurements as { tradeScopeSelections?: { deck_patio?: unknown } })
+      .tradeScopeSelections?.deck_patio
+  );
+  const savedSurface = (Array.isArray(savedPatio) ? savedPatio.map(String) : [])
+    .reverse()
+    .find(id => id === 'wood_deck' || id === 'composite_deck');
+  const noteSurface = noteSelections.find(
+    id => id === 'wood_deck' || id === 'composite_deck'
+  );
+  const surface = savedSurface || noteSurface;
+  const removalSelections = [
+    selectedRemoval.decking ? 'deck_surface_demo' : null,
+    selectedRemoval.railing ? 'deck_railing_demo' : null,
+    selectedRemoval.stairs ? 'deck_stairs_demo' : null,
+  ].filter((id): id is string => Boolean(id));
   const selections = {
     ...((next.tradeScopeSelections as Record<string, unknown>) || {}),
-    deck_patio: dedicatedDeckScopeSelections(notes),
+    deck_patio: [
+      ...noteSelections.filter(id => id !== 'wood_deck' && id !== 'composite_deck'),
+      ...(surface ? [surface] : []),
+      ...removalSelections,
+    ],
   };
   next.tradeScopeSelections = selections;
   return next as T;

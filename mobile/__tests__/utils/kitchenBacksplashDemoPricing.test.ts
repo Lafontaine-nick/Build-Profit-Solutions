@@ -28,6 +28,20 @@ describe('kitchenBacksplashDemoPricing', () => {
     expect(details.planningAssumption).toMatch(/moderate removal/i);
   });
 
+  it('keeps the 30 sqft moderate split on the $225 headline', () => {
+    const details = buildBacksplashDemoPricingDetails({
+      sqft: 30,
+      difficulty: 'moderate',
+    });
+    expect(details).toMatchObject({
+      material: 23,
+      labor: 202,
+      total: 225,
+      rate: 7.5,
+    });
+    expect(details.material + details.labor).toBe(Math.round(details.total));
+  });
+
   it('returns suggested pricing with material/labor split', () => {
     const pricing = resolveKitchenBacksplashDemoSuggestedPricing({
       sqft: 40,

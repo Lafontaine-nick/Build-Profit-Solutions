@@ -1,11 +1,11 @@
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
-import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   getUniformStatusLabel,
   pendingProposalCalculatedTotal,
   resolveScopePackageBudgetBreakdown,
+  reviewScopePackages,
   scopePackageNeedsManualPrice,
   scopePackagePricedAmount,
   sumLiveScopePackageTotals,
@@ -35,7 +35,7 @@ export function computeStep3ReviewTotals(
   draft: EstimateAiDraft,
   markupPct = 0
 ): Step3ReviewTotals {
-  const scopePackages = getScopePackagesForReview(draft);
+  const scopePackages = reviewScopePackages(draft);
   const appliedScopeBreakdown = sumStep3ReviewBudgetTotals(draft);
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal ?? null;
   const pendingTotal = pendingProposalCalculatedTotal(draft);

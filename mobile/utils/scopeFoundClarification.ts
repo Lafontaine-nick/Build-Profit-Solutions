@@ -152,11 +152,17 @@ function notesLookLikeWholeHome(text: string): boolean {
 
 function kitchenInstallNote(text: string): boolean {
   if (notesLookLikeWholeHome(text) || notesLookLikeNewBuild(text)) return false;
-  if (/\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text)) return false;
+  if (
+    /\b(?:bathroom|bath|vanity|toilet|shower|tub)\b/i.test(text) &&
+    !/\bkitchen\b/i.test(text)
+  ) {
+    return false;
+  }
   if (notesDescribeDedicatedKitchenRemodel(text)) return true;
   return (
-    kitchenNoteNamesCabinetWork(text) &&
-    (kitchenNoteNamesCounterWork(text) || kitchenNoteNamesBacksplash(text))
+    kitchenNoteNamesCabinetWork(text) ||
+    kitchenNoteNamesCounterWork(text) ||
+    kitchenNoteNamesBacksplash(text)
   );
 }
 
@@ -191,13 +197,24 @@ function statedSqftNear(text: string, subject: RegExp): number | null {
   const flags = subject.flags.replace('g', '');
   const subjectRe = new RegExp(subject.source, flags);
   const clauses = String(text || '').split(/,(?!\d)|[.;\n]+/);
-  for (const clause of clauses) {
-    if (!subjectRe.test(clause)) continue;
+  const sqftIn = (clause: string) => {
     const match = clause.match(
       /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
     );
     const qty = Number(String(match?.[1] || '').replace(/,/g, ''));
-    if (Number.isFinite(qty) && qty > 0) return qty;
+    return Number.isFinite(qty) && qty > 0 ? qty : null;
+  };
+  for (let index = 0; index < clauses.length; index += 1) {
+    const clause = clauses[index];
+    if (!subjectRe.test(clause)) continue;
+    const inClause = sqftIn(clause);
+    if (inClause) return inClause;
+    const next = clauses[index + 1] || '';
+    if (!/^\s*\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s*$/i.test(next)) {
+      continue;
+    }
+    const following = sqftIn(next);
+    if (following) return following;
   }
   return null;
 }
@@ -305,8 +322,11 @@ const PIECE_IDS = new Set<string>([
   ...ROOF_PIECES.map(piece => piece.id),
   ...KITCHEN_PIECES.map(piece => piece.id),
   ...STRUCTURE_PIECES.map(piece => piece.id),
+  'walls',
   'ceilings',
   'trim',
+  'doors',
+  'paint_cabinets',
 ]);
 
 const FLOOR_TYPE_BY_PIECE: Record<string, string> = {
@@ -338,8 +358,18 @@ function pieceQuestion(
 function subjectAlreadyComingOut(text: string, subject: RegExp): boolean {
   const verb =
     'remove|removal|demo|demolition|tear[\\s-]?out|tear[\\s-]?off|rip[\\s-]?out|coming out|replace(?:ment)?';
+  const subjectPattern = `(?:${subject.source})`;
   return new RegExp(
-    `\\b(?:${verb})\\b[^.]{0,50}${subject.source}|${subject.source}[^.]{0,50}\\b(?:${verb})\\b`,
+    `\\b(?:${verb})\\b[^.]{0,50}${subjectPattern}|${subjectPattern}[^.]{0,50}\\b(?:${verb})\\b`,
+    'i'
+  ).test(text);
+}
+
+function subjectStays(text: string, subject: RegExp): boolean {
+  const verb = 'stay(?:s|ing)?(?:\\s+off)?|keep(?:s|ing)?|leave|left|remain(?:s|ing)?';
+  const subjectPattern = `(?:${subject.source})`;
+  return new RegExp(
+    `\\b(?:${verb})\\b[^.]{0,40}${subjectPattern}|${subjectPattern}[^.]{0,40}\\b(?:${verb})\\b`,
     'i'
   ).test(text);
 }
@@ -349,7 +379,11 @@ function piecesStillUnknown(
   pieces: ReadonlyArray<{ id: string; label: string; subject: RegExp }>
 ): Array<{ id: string; label: string }> {
   return pieces
-    .filter(piece => !subjectAlreadyComingOut(text, piece.subject))
+    .filter(
+      piece =>
+        !subjectAlreadyComingOut(text, piece.subject) &&
+        !subjectStays(text, piece.subject)
+    )
     .map(piece => ({ id: piece.id, label: piece.label }));
 }
 
@@ -404,27 +438,71 @@ function paintExtentPrompt(text: string): ScopeFoundClarification | null {
   if (/\b(?:ceilings?|trim|baseboards?)\b/i.test(text)) return null;
   return {
     id: 'interior_paint_extent',
-    question: 'Does this include ceilings and trim?',
+    question: 'Which interior surfaces are included?',
     multi: true,
     options: [
+      { id: 'walls', label: 'Walls' },
       { id: 'ceilings', label: 'Ceilings' },
       { id: 'trim', label: 'Trim' },
-      { id: 'walls', label: 'Walls only' },
+      { id: 'doors', label: 'Doors' },
+      { id: 'paint_cabinets', label: 'Cabinets' },
       decline('unsure', 'Not sure'),
     ],
   };
 }
 
+const KITCHEN_DEMO_PIECES: Array<{
+  id: string;
+  label: string;
+  subject: RegExp;
+  named: (text: string) => boolean;
+}> = [
+  {
+    id: 'cabinets',
+    label: 'Cabinets',
+    subject: /\bcabinets?\b/,
+    named: kitchenNoteNamesCabinetWork,
+  },
+  {
+    id: 'countertops',
+    label: 'Countertops',
+    subject: /\b(?:countertops?|counters?|quartz|granite)\b/,
+    named: kitchenNoteNamesCounterWork,
+  },
+  {
+    id: 'backsplash',
+    label: 'Backsplash',
+    subject: /\bbacksplashes?\b|\bback\s*splash\b|\bsplash\b/,
+    named: kitchenNoteNamesBacksplash,
+  },
+  {
+    id: 'kitchen_floor',
+    label: 'Flooring',
+    subject: /\b(?:flooring|lvp|vinyl|laminate|carpet)\b/,
+    named: kitchenNoteIncludesFloorWork,
+  },
+  {
+    id: 'island',
+    label: 'Island',
+    subject: /\bislands?\b/,
+    named: text => /\bislands?\b/i.test(text),
+  },
+  {
+    id: 'appliances',
+    label: 'Appliances',
+    subject: /\bappliances?\b/,
+    named: text => /\bappliances?\b/i.test(text),
+  },
+];
+
 function kitchenDemoPrompt(text: string): ScopeFoundClarification | null {
   if (!kitchenInstallNote(text)) return null;
-  const pieces = piecesStillUnknown(text, [
-    { id: 'cabinets', label: 'Cabinets', subject: /\bcabinets?\b/ },
-    { id: 'countertops', label: 'Countertops', subject: /\b(?:countertops?|counters?)\b/ },
-    { id: 'backsplash', label: 'Backsplash', subject: /\bbacksplashes?\b/ },
-    { id: 'kitchen_floor', label: 'Flooring', subject: /\b(?:flooring|lvp|vinyl)\b/ },
-    { id: 'island', label: 'Island', subject: /\bislands?\b/ },
-    { id: 'appliances', label: 'Appliances', subject: /\bappliances?\b/ },
-  ]);
+  const pieces = piecesStillUnknown(
+    text,
+    KITCHEN_DEMO_PIECES.filter(
+      piece => piece.id === 'kitchen_floor' || piece.named(text)
+    )
+  );
   if (!pieces.length) return null;
   return pieceQuestion(
     'kitchen_demo',
@@ -615,6 +693,7 @@ const TRADE_DEMOS: TradeDemo[] = [
       { id: 'concrete_slab', label: 'Concrete', subject: /\b(?:concrete|slab|driveway)\b/, reveal: 'Remove concrete', line: HARDSCAPE_LINE, area: true },
       { id: 'asphalt', label: 'Asphalt', subject: /\basphalt\b/, reveal: 'Remove asphalt', line: HARDSCAPE_LINE, area: true },
       { id: 'concrete_pavers', label: 'Pavers', subject: /\bpavers?\b/, reveal: 'Remove pavers', line: HARDSCAPE_LINE, area: true },
+      { id: 'gravel', label: 'Gravel', subject: /\bgravel\b(?!\s+base)/, reveal: 'Remove gravel', line: HARDSCAPE_LINE, area: true },
     ],
   },
   {
@@ -891,6 +970,27 @@ export function readScopeFoundPieces(value: unknown): string[] {
   return value.filter((piece): piece is string => PIECE_IDS.has(String(piece)));
 }
 
+/** Scope Found already named the interior paint surfaces. */
+export function interiorPaintSurfacesAnswered(
+  measurements: {
+    scopeFoundClarificationId?: unknown;
+    scopeFoundPieces?: unknown;
+    scopeFoundChoice?: unknown;
+  } | null
+  | undefined
+): boolean {
+  if (
+    readScopeFoundClarificationId(measurements?.scopeFoundClarificationId) !==
+    'interior_paint_extent'
+  ) {
+    return false;
+  }
+  return (
+    readScopeFoundPieces(measurements?.scopeFoundPieces).length > 0 ||
+    readScopeFoundChoice(measurements?.scopeFoundChoice) != null
+  );
+}
+
 function line(
   id: string,
   label: string,
@@ -998,14 +1098,32 @@ const OWNED_LINE_IDS: Record<Exclude<ScopeFoundClarificationId, 'shower'>, strin
     'backsplash_demo',
     'appliance_removal',
   ],
-  interior_paint_extent: ['ceiling_paint', 'trim_paint'],
-  stucco_demo: ['cladding_demo'],
+  interior_paint_extent: [
+    'interior_paint',
+    'ceiling_paint',
+    'trim_paint',
+    'door_paint',
+    'cabinet_paint',
+  ],
+  stucco_demo: [
+    'cladding_demo',
+    'cladding_demo__old_stucco',
+    'cladding_demo__wood_siding',
+    'cladding_demo__vinyl_siding',
+    'cladding_demo__brick',
+    'cladding_demo__fiber_cement',
+  ],
   concrete_demo: ['demo_removal'],
   landscape_demo: ['demo_clearing', 'paver_demo'],
   insulation_demo: ['insulation_removal'],
   framing_demo: ['framing_demo'],
-  drywall_demo: ['demo_removal'],
-  deck_demo: ['demo_removal'],
+  drywall_demo: ['demo_removal', 'drywall_wall_demo', 'drywall_ceiling_demo'],
+  deck_demo: [
+    'demo_removal',
+    'deck_surface_demo',
+    'deck_railing_demo',
+    'deck_stairs_demo',
+  ],
   hvac_demo: ['hvac_demo'],
   electrical_demo: [
     'electrical_panel_removal',
@@ -1082,6 +1200,202 @@ export function splitRoofTearOffCards<T extends { id?: string | null }>(
   ];
 }
 
+/** Selected Scope Found chips that already have their own Quick Measurement field. */
+const SCOPE_FOUND_PIECES_WITH_OWN_MEASUREMENT = new Set([
+  'carpet',
+  'tile',
+  'hardwood',
+  'vinyl',
+  'laminate',
+  'kitchen_floor',
+  'shingles',
+  'roof_tile',
+  'metal',
+  'flat',
+  'cabinets',
+  'countertops',
+  'backsplash',
+  'island',
+  'appliances',
+  'deck_surface',
+  'deck_railing',
+  'deck_stairs',
+  'walls',
+  'ceilings',
+  'trim',
+  'doors',
+  'paint_cabinets',
+  'drywall_walls',
+  'drywall_ceilings',
+  'house',
+  'garage',
+  'electrical_panel',
+  'electrical_fixtures',
+  'electrical_wiring',
+]);
+
+export type ScopeFoundRemovalMeasurement = {
+  pieceId: string;
+  label: string;
+  unit: 'sqft' | 'each';
+  quantityKey: string;
+};
+
+const SCOPE_FOUND_REMOVAL_MEASUREMENTS: ScopeFoundRemovalMeasurement[] = [
+  { pieceId: 'old_stucco', label: 'Stucco removal', unit: 'sqft', quantityKey: 'cladding_demo__old_stucco' },
+  { pieceId: 'wood_siding', label: 'Wood siding removal', unit: 'sqft', quantityKey: 'cladding_demo__wood_siding' },
+  { pieceId: 'vinyl_siding', label: 'Vinyl siding removal', unit: 'sqft', quantityKey: 'cladding_demo__vinyl_siding' },
+  { pieceId: 'brick', label: 'Brick removal', unit: 'sqft', quantityKey: 'cladding_demo__brick' },
+  { pieceId: 'fiber_cement', label: 'Fiber cement removal', unit: 'sqft', quantityKey: 'cladding_demo__fiber_cement' },
+  { pieceId: 'concrete_slab', label: 'Concrete removal', unit: 'sqft', quantityKey: 'demo_removal__concrete_slab' },
+  { pieceId: 'asphalt', label: 'Asphalt removal', unit: 'sqft', quantityKey: 'demo_removal__asphalt' },
+  { pieceId: 'concrete_pavers', label: 'Paver removal', unit: 'sqft', quantityKey: 'demo_removal__concrete_pavers' },
+  { pieceId: 'gravel', label: 'Gravel removal', unit: 'sqft', quantityKey: 'demo_removal__gravel' },
+  { pieceId: 'sod', label: 'Sod removal', unit: 'sqft', quantityKey: 'demo_clearing__sod' },
+  { pieceId: 'landscape_rock', label: 'Rock removal', unit: 'sqft', quantityKey: 'demo_clearing__landscape_rock' },
+  { pieceId: 'mulch', label: 'Mulch removal', unit: 'sqft', quantityKey: 'demo_clearing__mulch' },
+  { pieceId: 'plants', label: 'Plant removal', unit: 'sqft', quantityKey: 'demo_clearing__plants' },
+  { pieceId: 'landscape_pavers', label: 'Paver removal', unit: 'sqft', quantityKey: 'paver_demo__landscape_pavers' },
+  { pieceId: 'batts', label: 'Batt removal', unit: 'sqft', quantityKey: 'insulation_removal__batts' },
+  { pieceId: 'blown', label: 'Blown-in removal', unit: 'sqft', quantityKey: 'insulation_removal__blown' },
+  { pieceId: 'spray_foam', label: 'Spray foam removal', unit: 'sqft', quantityKey: 'insulation_removal__spray_foam' },
+  { pieceId: 'interior_walls', label: 'Interior wall removal', unit: 'sqft', quantityKey: 'framing_demo__interior_walls' },
+  { pieceId: 'exterior_walls', label: 'Exterior wall removal', unit: 'sqft', quantityKey: 'framing_demo__exterior_walls' },
+  { pieceId: 'hvac_furnace', label: 'Furnace removal', unit: 'each', quantityKey: 'hvac_demo__hvac_furnace' },
+  { pieceId: 'hvac_condenser', label: 'Condenser removal', unit: 'each', quantityKey: 'hvac_demo__hvac_condenser' },
+  { pieceId: 'hvac_air_handler', label: 'Air handler removal', unit: 'each', quantityKey: 'hvac_demo__hvac_air_handler' },
+  { pieceId: 'hvac_ductwork', label: 'Ductwork removal', unit: 'each', quantityKey: 'hvac_demo__hvac_ductwork' },
+  { pieceId: 'water_heater', label: 'Water heater removal', unit: 'each', quantityKey: 'plumbing_demo__water_heater' },
+  { pieceId: 'plumbing_fixtures', label: 'Plumbing fixture removal', unit: 'each', quantityKey: 'plumbing_demo__plumbing_fixtures' },
+  { pieceId: 'piping', label: 'Piping removal', unit: 'each', quantityKey: 'plumbing_demo__piping' },
+  { pieceId: 'existing_windows', label: 'Window removal', unit: 'each', quantityKey: 'opening_demo__existing_windows' },
+  { pieceId: 'existing_exterior_doors', label: 'Exterior door removal', unit: 'each', quantityKey: 'opening_demo__existing_exterior_doors' },
+  { pieceId: 'existing_interior_doors', label: 'Interior door removal', unit: 'each', quantityKey: 'opening_demo__existing_interior_doors' },
+  { pieceId: 'existing_sliding_doors', label: 'Sliding door removal', unit: 'each', quantityKey: 'opening_demo__existing_sliding_doors' },
+  { pieceId: 'existing_garage_doors', label: 'Garage door removal', unit: 'each', quantityKey: 'opening_demo__existing_garage_doors' },
+  { pieceId: 'site_trees', label: 'Tree removal', unit: 'each', quantityKey: 'demo_clearing__site_trees' },
+  { pieceId: 'site_brush', label: 'Brush removal', unit: 'sqft', quantityKey: 'demo_clearing__site_brush' },
+  { pieceId: 'site_concrete', label: 'Concrete removal', unit: 'sqft', quantityKey: 'demo_removal__site_concrete' },
+  { pieceId: 'site_structure', label: 'Structure removal', unit: 'each', quantityKey: 'existing_structure_demo__site_structure' },
+];
+
+const SCOPE_FOUND_REMOVAL_BY_PIECE = new Map(
+  SCOPE_FOUND_REMOVAL_MEASUREMENTS.map(row => [row.pieceId, row])
+);
+
+const SCOPE_FOUND_REMOVAL_BY_ITEM = new Map(
+  SCOPE_FOUND_REMOVAL_MEASUREMENTS.map(row => [row.quantityKey, row])
+);
+
+/** Planning rates for one removal card per selected Scope Found chip. */
+const SCOPE_FOUND_REMOVAL_RATES: Record<
+  string,
+  { material: number; labor: number; label: string }
+> = {
+  cladding_demo__old_stucco: { material: 0.75, labor: 2.25, label: 'stucco removal' },
+  cladding_demo__wood_siding: { material: 0.5, labor: 1.75, label: 'wood siding removal' },
+  cladding_demo__vinyl_siding: { material: 0.35, labor: 1.15, label: 'vinyl siding removal' },
+  cladding_demo__brick: { material: 1.25, labor: 3.75, label: 'brick removal' },
+  cladding_demo__fiber_cement: { material: 0.6, labor: 2.15, label: 'fiber cement removal' },
+  demo_removal__concrete_slab: { material: 1.5, labor: 2.5, label: 'concrete removal' },
+  demo_removal__asphalt: { material: 1, labor: 2, label: 'asphalt removal' },
+  demo_removal__concrete_pavers: { material: 1.25, labor: 2.25, label: 'paver removal' },
+  demo_removal__gravel: { material: 0.75, labor: 1.25, label: 'gravel removal' },
+  demo_removal__site_concrete: { material: 1.5, labor: 2.5, label: 'concrete removal' },
+  demo_clearing__sod: { material: 0.15, labor: 0.45, label: 'sod removal' },
+  demo_clearing__landscape_rock: { material: 0.4, labor: 0.85, label: 'rock removal' },
+  demo_clearing__mulch: { material: 0.15, labor: 0.35, label: 'mulch removal' },
+  demo_clearing__plants: { material: 0.35, labor: 0.75, label: 'plant removal' },
+  demo_clearing__site_brush: { material: 0.4, labor: 1.1, label: 'brush clearing' },
+  paver_demo__landscape_pavers: { material: 1.25, labor: 2.25, label: 'paver removal' },
+  insulation_removal__batts: { material: 0.15, labor: 0.85, label: 'batt removal' },
+  insulation_removal__blown: { material: 0.2, labor: 1.05, label: 'blown-in removal' },
+  insulation_removal__spray_foam: { material: 0.35, labor: 1.65, label: 'spray foam removal' },
+  framing_demo__interior_walls: { material: 0.75, labor: 2.25, label: 'interior wall removal' },
+  framing_demo__exterior_walls: { material: 1.25, labor: 3.75, label: 'exterior wall removal' },
+  hvac_demo__hvac_furnace: { material: 75, labor: 225, label: 'furnace removal' },
+  hvac_demo__hvac_condenser: { material: 75, labor: 225, label: 'condenser removal' },
+  hvac_demo__hvac_air_handler: { material: 75, labor: 225, label: 'air handler removal' },
+  hvac_demo__hvac_ductwork: { material: 150, labor: 450, label: 'ductwork removal' },
+  plumbing_demo__water_heater: { material: 40, labor: 160, label: 'water heater removal' },
+  plumbing_demo__plumbing_fixtures: { material: 25, labor: 125, label: 'plumbing fixture removal' },
+  plumbing_demo__piping: { material: 50, labor: 200, label: 'piping removal' },
+  opening_demo__existing_windows: { material: 25, labor: 75, label: 'window removal' },
+  opening_demo__existing_exterior_doors: { material: 40, labor: 110, label: 'exterior door removal' },
+  opening_demo__existing_interior_doors: { material: 20, labor: 55, label: 'interior door removal' },
+  opening_demo__existing_sliding_doors: { material: 50, labor: 175, label: 'sliding door removal' },
+  opening_demo__existing_garage_doors: { material: 75, labor: 225, label: 'garage door removal' },
+  demo_clearing__site_trees: { material: 150, labor: 450, label: 'tree removal' },
+  existing_structure_demo__site_structure: {
+    material: 2500,
+    labor: 7500,
+    label: 'existing structure removal',
+  },
+  electrical_panel_removal: { material: 50, labor: 250, label: 'panel removal' },
+  electrical_fixture_removal: { material: 10, labor: 40, label: 'fixture removal' },
+  electrical_abandoned_circuit: { material: 15, labor: 60, label: 'abandoned circuit removal' },
+};
+
+const EXTRA_REMOVAL_UNITS: Record<string, 'sqft' | 'each'> = {
+  electrical_panel_removal: 'each',
+  electrical_fixture_removal: 'each',
+  electrical_abandoned_circuit: 'each',
+};
+
+export function scopeFoundRemovalPricingSpec(itemId: string): {
+  unit: 'sqft' | 'each';
+  material: number;
+  labor: number;
+  sourceLabel: string;
+} | null {
+  const rate = SCOPE_FOUND_REMOVAL_RATES[itemId];
+  const row = SCOPE_FOUND_REMOVAL_BY_ITEM.get(itemId);
+  const unit = row?.unit || EXTRA_REMOVAL_UNITS[itemId];
+  if (!rate || !unit) return null;
+  return {
+    unit,
+    material: rate.material,
+    labor: rate.labor,
+    sourceLabel: `Suggested budget split · National Average · ${rate.label}`,
+  };
+}
+
+const STUCCO_REMOVAL_PIECE_IDS = [
+  'old_stucco',
+  'wood_siding',
+  'vinyl_siding',
+  'brick',
+  'fiber_cement',
+] as const;
+
+/** Every Scope Found chip either has its own Quick Measurement or one of these rows. */
+export function scopeFoundTradePieceIds(): string[] {
+  return TRADE_DEMOS.flatMap(trade => trade.pieces.map(piece => piece.id));
+}
+
+export function scopeFoundPieceHasQuickMeasurement(pieceId: string): boolean {
+  return (
+    SCOPE_FOUND_PIECES_WITH_OWN_MEASUREMENT.has(pieceId) ||
+    SCOPE_FOUND_REMOVAL_BY_PIECE.has(pieceId)
+  );
+}
+
+export function scopeFoundRemovalMeasurements(
+  pieces: readonly string[] | null | undefined
+): ScopeFoundRemovalMeasurement[] {
+  const selected = new Set(pieces || []);
+  return SCOPE_FOUND_REMOVAL_MEASUREMENTS.filter(row => selected.has(row.pieceId));
+}
+
+export function readScopeFoundRemovalQuantity(
+  quantities: Record<string, { quantity?: unknown } | undefined> | null | undefined,
+  quantityKey: string
+): string {
+  const raw = String(quantities?.[quantityKey]?.quantity ?? '').replace(/,/g, '');
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? raw : '';
+}
+
 const PIECE_REVEAL: Record<string, string> = {
   carpet: 'Remove carpet',
   tile: 'Remove tile',
@@ -1098,8 +1412,11 @@ const PIECE_REVEAL: Record<string, string> = {
   kitchen_floor: 'Flooring demo / removal',
   island: 'Island demo',
   appliances: 'Appliance removal',
+  walls: 'Interior wall paint',
   ceilings: 'Ceiling paint',
   trim: 'Trim paint',
+  doors: 'Interior door paint',
+  paint_cabinets: 'Cabinet paint',
   house: 'Remove existing house',
   garage: 'Remove existing garage',
 };
@@ -1132,6 +1449,56 @@ function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
       line('appliance_removal', 'Appliance removal', 'The existing appliances come out.', 'demo')
     );
   }
+  if (selected.has('drywall_walls')) {
+    lines.push(
+      line(
+        'drywall_wall_demo',
+        'Remove drywall walls',
+        'Existing wall drywall comes out before the new drywall goes up.',
+        'drywall'
+      )
+    );
+  }
+  if (selected.has('drywall_ceilings')) {
+    lines.push(
+      line(
+        'drywall_ceiling_demo',
+        'Remove drywall ceilings',
+        'Existing ceiling drywall comes out before the new drywall goes up.',
+        'drywall'
+      )
+    );
+  }
+  if (selected.has('deck_surface')) {
+    lines.push(
+      line(
+        'deck_surface_demo',
+        'Remove decking',
+        'Existing decking comes out before the new deck goes in.',
+        'demo'
+      )
+    );
+  }
+  if (selected.has('deck_railing')) {
+    lines.push(
+      line(
+        'deck_railing_demo',
+        'Remove railing',
+        'Existing railing comes out. Enter the length being removed.',
+        'demo'
+      )
+    );
+  }
+  if (selected.has('deck_stairs')) {
+    lines.push(
+      line(
+        'deck_stairs_demo',
+        'Remove stairs',
+        'Existing stair flights come out.',
+        'demo'
+      )
+    );
+  }
   if (['shingles', 'roof_tile', 'metal', 'flat'].some(piece => selected.has(piece))) {
     lines.push(
       line(
@@ -1142,11 +1509,24 @@ function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
       )
     );
   }
+  if (selected.has('walls')) {
+    lines.push(
+      line('interior_paint', 'Interior wall paint', 'Paint the interior walls.', 'paint')
+    );
+  }
   if (selected.has('ceilings')) {
     lines.push(line('ceiling_paint', 'Ceiling paint', 'Paint the ceilings with the walls.', 'paint'));
   }
   if (selected.has('trim')) {
     lines.push(line('trim_paint', 'Trim paint', 'Paint the trim with the walls.', 'paint'));
+  }
+  if (selected.has('doors')) {
+    lines.push(
+      line('door_paint', 'Interior door paint', 'Paint the interior door slabs.', 'paint')
+    );
+  }
+  if (selected.has('paint_cabinets')) {
+    lines.push(line('cabinet_paint', 'Cabinet paint', 'Paint the cabinets.', 'paint'));
   }
   if (selected.has('house')) {
     lines.push(
@@ -1160,7 +1540,30 @@ function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
   }
   const seen = new Set(lines.map(item => item.id));
   for (const pieceId of pieces) {
+    const row = SCOPE_FOUND_REMOVAL_BY_PIECE.get(pieceId);
+    if (!row || seen.has(row.quantityKey)) continue;
+    seen.add(row.quantityKey);
+    lines.push(
+      line(
+        row.quantityKey,
+        row.label,
+        row.unit === 'each'
+          ? 'Count of this existing item that comes out.'
+          : 'Area of this existing material that comes out.',
+        'demo'
+      )
+    );
+  }
+  for (const pieceId of pieces) {
     const piece = TRADE_PIECE_BY_ID.get(pieceId);
+    if (
+      pieceId === 'deck_surface' ||
+      pieceId === 'deck_railing' ||
+      pieceId === 'deck_stairs' ||
+      SCOPE_FOUND_REMOVAL_BY_PIECE.has(pieceId)
+    ) {
+      continue;
+    }
     if (!piece || seen.has(piece.line.id)) continue;
     seen.add(piece.line.id);
     lines.push(piece.line);
@@ -1244,19 +1647,63 @@ export function scopeFoundRevealLines(
       name: PIECE_REVEAL[piece] || TRADE_PIECE_BY_ID.get(piece)?.reveal || piece,
       amount: 0,
       quantity:
-        kitchenPieceQuantity(text, piece) ||
-        (FLOOR_TYPE_BY_PIECE[piece] || piece === 'kitchen_floor'
-          ? quantityLabel(
-              (FLOOR_TYPE_BY_PIECE[piece]
-                ? enteredRemovalSqft(measurements, FLOOR_TYPE_BY_PIECE[piece])
-                : null) || area,
-              'sqft'
-            )
-          : ['shingles', 'roof_tile', 'metal', 'flat'].includes(piece)
-            ? quantityLabel(typedRoofTearOffSquares(measurements, piece), 'squares')
-            : TRADE_PIECE_BY_ID.get(piece)?.area
-              ? quantityLabel(area, 'sqft')
-              : '1'),
+        piece === 'kitchen_floor'
+          ? quantityLabel(statedKitchenFloorSqft(text), 'sqft')
+          : kitchenPieceQuantity(text, piece) ||
+            (FLOOR_TYPE_BY_PIECE[piece]
+              ? quantityLabel(
+                  enteredRemovalSqft(measurements, FLOOR_TYPE_BY_PIECE[piece]) ||
+                    area,
+                  'sqft'
+                )
+              : SCOPE_FOUND_REMOVAL_BY_PIECE.has(piece)
+                ? quantityLabel(
+                    Number(
+                      readScopeFoundRemovalQuantity(
+                        measurements?.itemQuantities,
+                        SCOPE_FOUND_REMOVAL_BY_PIECE.get(piece)?.quantityKey || ''
+                      )
+                    ) ||
+                      (pieces.filter(item =>
+                        STUCCO_REMOVAL_PIECE_IDS.includes(
+                          item as (typeof STUCCO_REMOVAL_PIECE_IDS)[number]
+                        )
+                      ).length === 1
+                        ? area
+                        : null),
+                    SCOPE_FOUND_REMOVAL_BY_PIECE.get(piece)?.unit === 'each'
+                      ? 'each'
+                      : 'sqft'
+                  )
+              : ['shingles', 'roof_tile', 'metal', 'flat'].includes(piece)
+                ? quantityLabel(typedRoofTearOffSquares(measurements, piece), 'squares')
+                : piece === 'deck_railing'
+                  ? (() => {
+                      const length = Number(
+                        String(
+                          (
+                            measurements as { deckRailingDemoLf?: unknown } | null
+                          )?.deckRailingDemoLf ?? ''
+                        ).replace(/,/g, '')
+                      );
+                      if (!(length > 0)) return '';
+                      return `${length.toLocaleString('en-US')} LF`;
+                    })()
+                  : piece === 'deck_stairs'
+                  ? (() => {
+                      const counted = Number(
+                        String(
+                          (
+                            measurements as { deckStairDemoCount?: unknown } | null
+                          )?.deckStairDemoCount ?? ''
+                        ).replace(/,/g, '')
+                      );
+                      if (!(counted > 0)) return '';
+                      return `${counted.toLocaleString('en-US')} ${counted === 1 ? 'flight' : 'flights'}`;
+                    })()
+                  : TRADE_PIECE_BY_ID.get(piece)?.area
+                    ? quantityLabel(area, 'sqft')
+                    : '1'),
     }));
   }
   const lines = prompt
@@ -1280,7 +1727,7 @@ function withQuantity(
   quantities: Record<string, unknown>,
   id: string,
   quantity: number | null,
-  unit: 'sqft' | 'squares' | 'lf'
+  unit: 'sqft' | 'squares' | 'lf' | 'each'
 ) {
   if (!quantity) {
     delete quantities[id];
@@ -1454,31 +1901,150 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
     }
   }
   const areaPiece = pieces.some(piece => TRADE_PIECE_BY_ID.get(piece)?.area);
-  const concreteOn = ['concrete_slab', 'asphalt', 'concrete_pavers', 'site_concrete'].some(piece =>
+  const concreteOn = ['concrete_slab', 'asphalt', 'concrete_pavers', 'gravel', 'site_concrete'].some(piece =>
     selected.has(piece)
   );
   const clearingOn = ['sod', 'landscape_rock', 'mulch', 'plants', 'site_trees', 'site_brush'].some(
     piece => selected.has(piece)
   );
-  const drywallOn = selected.has('drywall_walls') || selected.has('drywall_ceilings');
+  const drywallWalls = selected.has('drywall_walls');
+  const drywallCeilings = selected.has('drywall_ceilings');
+  const drywallOn = drywallWalls || drywallCeilings;
   if (concreteOn && area > 0) next.concreteDemoSqft = area;
   if (!concreteOn && (id === 'concrete_demo' || id === 'excavation_demo')) next.concreteDemoSqft = null;
   if (clearingOn && area > 0) next.demoClearingSqft = area;
   if (!clearingOn && (id === 'landscape_demo' || id === 'excavation_demo')) {
     next.demoClearingSqft = null;
   }
-  if (drywallOn && area > 0) next.wallDemoSqft = area;
-  if (!drywallOn && id === 'drywall_demo') next.wallDemoSqft = null;
+  if (drywallWalls && area > 0) next.wallDemoSqft = area;
+  if (drywallCeilings && area > 0) next.drywallCeilingSqft = area;
+  if (!drywallOn && id === 'drywall_demo') {
+    next.wallDemoSqft = null;
+    next.drywallCeilingSqft = null;
+  }
+  if (id === 'drywall_demo' && !drywallWalls) next.wallDemoSqft = null;
+  if (id === 'drywall_demo' && !drywallCeilings) next.drywallCeilingSqft = null;
+  if (id === 'deck_demo') {
+    const selections = {
+      ...((next.tradeScopeSelections as Record<string, unknown> | null | undefined) ||
+        {}),
+    };
+    const deckSelections = Array.isArray(selections.deck_patio)
+      ? (selections.deck_patio as unknown[]).map(item => String(item))
+      : [];
+    const removalIds = ['deck_surface_demo', 'deck_railing_demo', 'deck_stairs_demo'];
+    const kept = deckSelections.filter(item => !removalIds.includes(item));
+    if (selected.has('deck_surface')) {
+      kept.push('deck_surface_demo');
+      if (area > 0) next.deckDemoSqft = area;
+      withQuantity(quantities, 'deck_surface_demo', area > 0 ? area : null, 'sqft');
+    } else {
+      next.deckDemoSqft = null;
+      delete quantities.deck_surface_demo;
+    }
+    if (selected.has('deck_railing')) {
+      kept.push('deck_railing_demo');
+    } else {
+      next.deckRailingDemoLf = null;
+      delete quantities.deck_railing_demo;
+    }
+    if (selected.has('deck_stairs')) {
+      kept.push('deck_stairs_demo');
+      const existingStairs = Number(
+        String(next.deckStairDemoCount ?? '').replace(/,/g, '')
+      );
+      if (existingStairs > 0) {
+        next.deckStairDemoCount = existingStairs;
+        quantities.deck_stairs_demo = {
+          quantity: existingStairs,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        };
+      } else {
+        next.deckStairDemoCount = null;
+        delete quantities.deck_stairs_demo;
+      }
+    } else {
+      next.deckStairDemoCount = null;
+      delete quantities.deck_stairs_demo;
+    }
+    selections.deck_patio = kept.length ? kept : null;
+    next.tradeScopeSelections = selections;
+  }
   if (areaPiece && area > 0) {
     for (const pieceId of pieces) {
       const piece = TRADE_PIECE_BY_ID.get(pieceId);
-      if (piece?.area) withQuantity(quantities, piece.line.id, area, 'sqft');
+      if (!piece?.area) continue;
+      if (pieceId === 'drywall_walls') {
+        withQuantity(quantities, 'drywall_wall_demo', area, 'sqft');
+        continue;
+      }
+      if (pieceId === 'drywall_ceilings') {
+        withQuantity(quantities, 'drywall_ceiling_demo', area, 'sqft');
+        continue;
+      }
+      if (pieceId === 'deck_surface') continue;
+      if (SCOPE_FOUND_REMOVAL_BY_PIECE.has(pieceId)) continue;
+      withQuantity(quantities, piece.line.id, area, 'sqft');
     }
+  }
+  const selectedStucco = STUCCO_REMOVAL_PIECE_IDS.filter(pieceId =>
+    selected.has(pieceId)
+  );
+  const selectedSqftRows = SCOPE_FOUND_REMOVAL_MEASUREMENTS.filter(
+    row => selected.has(row.pieceId) && row.unit === 'sqft'
+  );
+  let stuccoRemovalSqft = 0;
+  for (const row of SCOPE_FOUND_REMOVAL_MEASUREMENTS) {
+    if (!selected.has(row.pieceId)) {
+      delete quantities[row.quantityKey];
+      continue;
+    }
+    const existing = Number(
+      String(
+        (quantities[row.quantityKey] as { quantity?: unknown } | undefined)?.quantity ?? ''
+      ).replace(/,/g, '')
+    );
+    if (existing > 0) {
+      if (selectedStucco.includes(row.pieceId as (typeof STUCCO_REMOVAL_PIECE_IDS)[number])) {
+        stuccoRemovalSqft += existing;
+      }
+      continue;
+    }
+    if (row.unit === 'each') {
+      withQuantity(quantities, row.quantityKey, 1, 'each');
+      continue;
+    }
+    const onlyThisArea = selectedSqftRows.length === 1 && area > 0;
+    if (onlyThisArea) {
+      withQuantity(quantities, row.quantityKey, area, 'sqft');
+      if (selectedStucco.includes(row.pieceId as (typeof STUCCO_REMOVAL_PIECE_IDS)[number])) {
+        stuccoRemovalSqft += area;
+      }
+    }
+  }
+  if (selectedStucco.length) {
+    withQuantity(
+      quantities,
+      'cladding_demo',
+      stuccoRemovalSqft > 0 ? stuccoRemovalSqft : null,
+      'sqft'
+    );
   }
   if (selected.has('hvac_furnace') || selected.has('hvac_condenser') || selected.has('hvac_air_handler') || selected.has('hvac_ductwork')) {
     quantities.hvac_demo = { quantity: 1, unit: 'each', quantitySource: 'user_entered' };
   } else if (id === 'hvac_demo') {
     delete quantities.hvac_demo;
+  }
+  if (id === 'interior_paint_extent') {
+    const surfaces = [
+      selected.has('walls') ? 'walls' : null,
+      selected.has('ceilings') ? 'ceilings' : null,
+      selected.has('trim') ? 'trim' : null,
+      selected.has('doors') ? 'doors' : null,
+      selected.has('paint_cabinets') ? 'cabinets' : null,
+    ].filter((surface): surface is string => Boolean(surface));
+    next.paintScope = surfaces.length ? surfaces : null;
   }
   if (id === 'electrical_demo') {
     const removalCounts: Array<[string, string, string]> = [
@@ -1504,6 +2070,16 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
 }
 
 /** Adds the lines the answer confirmed. No demo and not sure add nothing. */
+function ownedLineIds(id: string): string[] {
+  const base =
+    OWNED_LINE_IDS[id as Exclude<ScopeFoundClarificationId, 'shower'>] || [];
+  const trade = TRADE_DEMOS.find(item => item.id === id);
+  const extra = (trade?.pieces || [])
+    .map(piece => SCOPE_FOUND_REMOVAL_BY_PIECE.get(piece.id)?.quantityKey)
+    .filter((key): key is string => Boolean(key));
+  return [...base, ...extra];
+}
+
 export function applyScopeFoundClarification<T extends { id?: string | null }>(
   items: T[],
   notes: string | null | undefined,
@@ -1526,7 +2102,7 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
   }
   if (prompt && storedId && storedId !== prompt.id) return items;
   if (!choice && !pieces.length) return items;
-  const owned = OWNED_LINE_IDS[id as Exclude<ScopeFoundClarificationId, 'shower'>] || [];
+  const owned = ownedLineIds(id);
   const wanted = wantedLines(text, id, choice, pieces);
   return appendLines(items, wanted, owned);
 }

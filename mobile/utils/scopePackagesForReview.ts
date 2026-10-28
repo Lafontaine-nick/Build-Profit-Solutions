@@ -37,6 +37,7 @@ import {
   notesOpeningMentionIsKeepOnly,
 } from '@/utils/wholeHomeRemodelNote';
 import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import { applyDeckInstallMaterialLabel } from '@/utils/deckNoteScope';
 import { isDrywallCompletePackageScope } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   notesFrameExplicitWallArea,
@@ -843,12 +844,16 @@ export function applyStep2NoteScopeFilters(
   const existingTypes = Array.isArray(measurements.flooringExistingTypes)
     ? measurements.flooringExistingTypes.map(type => String(type))
     : [];
-  return splitRoofTearOffCards(
-    splitFlooringDemoIntoStyleCards(
-      clarified,
-      existingTypes,
-      Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+  return applyDeckInstallMaterialLabel(
+    splitRoofTearOffCards(
+      splitFlooringDemoIntoStyleCards(
+        clarified,
+        existingTypes,
+        Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+      ),
+      measurements
     ),
+    notes,
     measurements
   );
 }

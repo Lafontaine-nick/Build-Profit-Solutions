@@ -445,13 +445,18 @@ export function getMeasurementRelevance(params: {
     );
   const dedicatedDrywallRemoval =
     measurementKey === 'wallDemoSqft' &&
-    notesDescribeDedicatedDrywallJob(notesText) &&
-    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(notesText);
+    (includedSet.has('drywall_wall_demo') ||
+      (notesDescribeDedicatedDrywallJob(notesText) &&
+        /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(notesText)));
+  const selectedCeilingDrywallRemoval =
+    measurementKey === 'drywallCeilingSqft' &&
+    includedSet.has('drywall_ceiling_demo');
   if (
     (measurementKey === 'drywallSqft' && explicitDrywallNotes) ||
     (measurementKey === 'patchRepairSqft' && explicitDrywallPatchNotes) ||
     (measurementKey === 'wallDemoSqft' && explicitWallDemolitionNotes) ||
     dedicatedDrywallRemoval ||
+    selectedCeilingDrywallRemoval ||
     (measurementKey === 'floorDemoSqft' && explicitFlooringRemovalNotes)
   ) {
     return {

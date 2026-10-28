@@ -225,6 +225,7 @@ export function filterDedicatedInsulationConfirmItems<
     const id = String(item.id || '');
     if (id === 'insulation') return true;
     if (id === 'air_sealing') return keepAirSealing;
+    if (id === 'insulation_removal' || id.startsWith('insulation_removal__')) return true;
     return id.startsWith('custom_');
   });
   return named.map(item =>

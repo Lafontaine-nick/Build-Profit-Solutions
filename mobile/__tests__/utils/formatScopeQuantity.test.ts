@@ -219,4 +219,45 @@ describe('formatScopeQuantity', () => {
       )
     ).toBe('1 each');
   });
+
+  test('deck removal quantities use the measured length and flights', () => {
+    const draft = {
+      scopeMeasurements: {
+        deckRailingDemoLf: 10,
+        deckStairDemoCount: 15,
+        deckDemoSqft: 200,
+        deckSqft: 200,
+      },
+    } as EstimateAiDraft;
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Remove railing',
+          checklistItemId: 'deck_railing_demo',
+          scopeQuantities: [{ quantity: 1, unit: 'each' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('10 LF');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Remove stairs',
+          checklistItemId: 'deck_stairs_demo',
+          scopeQuantities: [{ quantity: 15, unit: 'each' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('15 flights');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Remove decking',
+          checklistItemId: 'deck_surface_demo',
+          scopeQuantities: [{ quantity: 1, unit: 'sqft' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('200 sqft');
+  });
 });

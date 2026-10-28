@@ -15,9 +15,9 @@ import {
   formatPlanningMoney,
   type EstimateAiDraft,
 } from '@/utils/estimateAiDraft';
-import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   compactPackageAmount,
+  reviewScopePackages,
   compactPackagePricingSourceColor,
   compactPackagePricingSourceLabel,
   compactPackageStatusLabel,
@@ -230,7 +230,7 @@ export default function AIEstimateDraftReviewCompact({
 }: Props) {
   const [showRoughSuggestions, setShowRoughSuggestions] = useState(false);
   const [showAllScope, setShowAllScope] = useState(() => {
-    const count = getScopePackagesForReview(draft).length;
+    const count = reviewScopePackages(draft).length;
     return (
       Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) ||
       shouldDefaultShowAllStep3ScopeItems(count)
@@ -241,7 +241,7 @@ export default function AIEstimateDraftReviewCompact({
   const [liveSplitByPackage, setLiveSplitByPackage] = useState<
     Record<string, { material: number; labor: number }>
   >({});
-  const scopePackages = getScopePackagesForReview(draft);
+  const scopePackages = reviewScopePackages(draft);
   const step3Totals = useMemo(() => computeStep3ReviewTotals(draft, markupPct), [draft, markupPct]);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};

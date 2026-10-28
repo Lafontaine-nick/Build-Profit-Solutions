@@ -48,6 +48,7 @@ export function kitchenSelectedDemoSurfaces(params: {
   backsplash: boolean;
   floor: boolean;
   island: boolean;
+  appliances: boolean;
 } {
   const notes = String(params.notes || '');
   const measurements = params.measurements || {};
@@ -87,7 +88,17 @@ export function kitchenSelectedDemoSurfaces(params: {
       demo.kitchenDemoFloorCount
     ),
     island: on('island', 'island', ['yes', 'all'], demo.kitchenDemoIslandCount),
+    appliances:
+      (demo.kitchenDemoApplianceCount ?? 0) > 0 ||
+      scopeFoundKeepsKitchenDemo(measurements, 'appliances', ['yes', 'all']) ||
+      notesNameKitchenApplianceRemoval(notes),
   };
+}
+
+function notesNameKitchenApplianceRemoval(notes: string): boolean {
+  return /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.]{0,50}\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b|\b(?:appliances?|dishwashers?|refrigerators?|fridges?|ranges?|ovens?|hoods?|microwaves?)\b[^.]{0,50}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+    notes
+  );
 }
 
 /** Combined perimeter + island countertop SF for kitchen pricing. */
@@ -239,11 +250,23 @@ export function suggestKitchenDemoFromExistingInstall(params: {
         : null;
   }
   if (!overrides.kitchenDemoApplianceCount) {
-    next.kitchenDemoApplianceCount =
+    const saved = positiveCount(params.demo.kitchenDemoApplianceCount);
+    const chosen = chosenDemo('appliances', ['yes', 'all']);
+    const namedRemoval = notesNameKitchenApplianceRemoval(notes);
+    if (chosen || namedRemoval) {
+      next.kitchenDemoApplianceCount =
+        saved ||
+        namedKitchenApplianceCount(notes.toLowerCase()) ||
+        positiveCount(params.existing.kitchenExistingApplianceCount) ||
+        1;
+    } else if (
       positiveCount(params.existing.kitchenExistingApplianceCount) != null &&
       positiveCount(params.install.kitchenInstallApplianceCount) != null
-        ? 1
-        : null;
+    ) {
+      next.kitchenDemoApplianceCount = saved || 1;
+    } else {
+      next.kitchenDemoApplianceCount = null;
+    }
   }
   if (!overrides.kitchenDemoIslandCount) {
     const namedIslandDemo = notes.trim()
@@ -281,6 +304,31 @@ export function patchKitchenMeasurementItemQuantities(
     } else {
       delete next.countertops;
       delete next.countertop_demo;
+    }
+    return next;
+  }
+  if (key === 'floorDemoSqft') {
+    const qty = String(value || '').trim();
+    if (!qty) {
+      delete next.floor_demo;
+      for (const id of Object.keys(next)) {
+        if (id.startsWith('floor_demo__') || id.startsWith('floor_demo_style_')) {
+          delete next[id];
+        }
+      }
+      return next;
+    }
+    const patch = {
+      quantity: qty,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    };
+    next.floor_demo = patch;
+    const types = measurements?.flooringExistingTypes;
+    if (Array.isArray(types)) {
+      for (const type of types) {
+        next[`floor_demo__${String(type)}`] = patch;
+      }
     }
     return next;
   }
@@ -613,15 +661,15 @@ export function resolveKitchenDemoFromIntent(params: {
   }
 
   if (
-    (checklistIncluded(items, 'appliance_removal') ||
-      inferItemStateFromNotes('appliance_removal', n) === 'included' ||
-      (positiveCount(ex.kitchenExistingApplianceCount) && positiveCount(ins.kitchenInstallApplianceCount))) &&
-    positiveCount(ex.kitchenExistingApplianceCount)
+    checklistIncluded(items, 'appliance_removal') ||
+    inferItemStateFromNotes('appliance_removal', n) === 'included' ||
+    (positiveCount(ex.kitchenExistingApplianceCount) &&
+      positiveCount(ins.kitchenInstallApplianceCount))
   ) {
     demo.kitchenDemoApplianceCount =
       namedKitchenApplianceCount(n) ||
       positiveCount(ex.kitchenExistingApplianceCount) ||
-      null;
+      1;
   }
 
   if (
@@ -952,7 +1000,8 @@ export function syncKitchenQmScopeItems(
       case 'appliance_removal':
         return syncIncluded(
           positiveCount(demo.kitchenDemoApplianceCount) != null ||
-            positiveCount(m.kitchenDemoApplianceCount) != null
+            positiveCount(m.kitchenDemoApplianceCount) != null ||
+            scopeFoundKeepsKitchenDemo(m, 'appliances', ['yes', 'all'])
         );
       case 'floor_demo':
         return syncNamedDemo(

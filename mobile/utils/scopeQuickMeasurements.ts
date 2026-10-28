@@ -34,6 +34,7 @@ import {
   notesIncludeDrywallPatchInHang,
   notesRequestDrywallDemo,
   notesUseDedicatedDrywallScope,
+  selectedDrywallRemovalSurfaces,
   statedDedicatedDrywallDemoSqft,
 } from '@/utils/drywallNoteScope';
 import {
@@ -1389,6 +1390,30 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'other'
   ),
 };
+
+/** Cabinet paint is priced by run length. Surface area shows only when the note states it. */
+export function cabinetPaintTakeoffKeys(input: {
+  notes?: string | null;
+}): Array<'cabinetPaintSqft' | 'cabinetRunLf'> {
+  const text = String(input.notes || '');
+  const hasSqft =
+    /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,40}\bcabinets?\b/i.test(
+      text
+    ) ||
+    /\bcabinets?\b[^.;]{0,40}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i.test(
+      text
+    );
+  const hasLf =
+    /\d[\d,]*(?:\.\d+)?\s*(?:lf|lin(?:ear)?\.?\s*(?:ft|feet)|linear\s+feet)\b[^.;]{0,40}\bcabinets?\b/i.test(
+      text
+    ) ||
+    /\bcabinets?\b[^.;]{0,40}\d[\d,]*(?:\.\d+)?\s*(?:lf|lin(?:ear)?\.?\s*(?:ft|feet)|linear\s+feet)/i.test(
+      text
+    );
+  if (hasSqft && hasLf) return ['cabinetPaintSqft', 'cabinetRunLf'];
+  if (hasSqft) return ['cabinetPaintSqft'];
+  return ['cabinetRunLf'];
+}
 
 const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'showerWallTileSqft',
@@ -3555,10 +3580,34 @@ function applyDrywallNoteSemantics(
 }
 
 function dedicatedDrywallMeasurementRows(
-  notes: string
+  notes: string,
+  measurements?: Record<string, unknown> | null
 ): QuickMeasurementRow[] {
   const rows: QuickMeasurementRow[] = [];
-  if (notesRequestDrywallDemo(notes)) {
+  const selectedRemoval = selectedDrywallRemovalSurfaces(measurements);
+  const demoField = QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft;
+  if (selectedRemoval.walls && demoField) {
+    rows.push([
+      {
+        ...demoField,
+        label: 'Remove drywall walls',
+        placeholder: 'Enter',
+        helperText: 'Square feet of existing wall drywall to remove.',
+      },
+    ]);
+  }
+  if (selectedRemoval.ceilings && demoField) {
+    rows.push([
+      {
+        ...demoField,
+        key: 'drywallCeilingSqft',
+        label: 'Remove drywall ceilings',
+        placeholder: 'Enter',
+        helperText: 'Square feet of existing ceiling drywall to remove.',
+      },
+    ]);
+  }
+  if (notesRequestDrywallDemo(notes) && !selectedRemoval.walls && !selectedRemoval.ceilings) {
     rows.push([
       {
         ...QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft,
@@ -3767,7 +3816,10 @@ export function quickMeasurementRowsForInput(
     notesUseDedicatedDrywallScope(options?.scopeNotes) ||
     notesDescribeSheetrockFinishJob(options?.scopeNotes)
   ) {
-    return dedicatedDrywallMeasurementRows(String(options?.scopeNotes || ''));
+    return dedicatedDrywallMeasurementRows(
+      String(options?.scopeNotes || ''),
+      measurements as Record<string, unknown>
+    );
   }
   const wholeHomeMeasurements =
     notesDescribeMeasuredWholeHomeRemodel(String(options?.scopeNotes || '')) &&
@@ -3982,6 +4034,7 @@ export function quickMeasurementRowsForInput(
   const cabinetRemovalField = cabinetRemovalQuickField(scopeNotes);
   if (
     cabinetRemovalField &&
+    resolvedKey !== 'kitchen' &&
     !baseRows.some(row => row.some(field => field.key === 'cabinetDemoLf'))
   ) {
     noteBackedFieldsToAppend.push(cabinetRemovalField);
@@ -4574,7 +4627,9 @@ export function quickMeasurementRowsForInput(
             )
           : filteredRows;
       const backsplashMentioned = /\bbacksplash\b/i.test(notes);
-      const cabinetRemovalField = cabinetRemovalQuickField(notes);
+      // The kitchen demo card already takes cabinet tear-out from the install run.
+      const cabinetRemovalField =
+        resolvedKey === 'kitchen' ? null : cabinetRemovalQuickField(notes);
       const withCabinetRemoval =
         cabinetRemovalField &&
         !kitchenRows.some(row =>
@@ -5236,7 +5291,7 @@ const QUICK_MEASUREMENT_INFO: Partial<Record<QuickMeasurementFieldKey, string>> 
   deckSqft: 'Square feet of deck surface.',
   deckDemoSqft: 'Square feet of existing deck to remove.',
   deckFootingCount: 'How many deck footings.',
-  deckStairCount: 'How many stair runs.',
+  deckStairCount: 'How many stair flights.',
   railingLf: 'Linear feet of railing.',
   excavationCy: 'Cubic yards of soil to excavate.',
   cabinetLf:

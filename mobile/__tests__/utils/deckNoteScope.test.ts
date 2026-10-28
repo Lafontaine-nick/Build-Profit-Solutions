@@ -81,7 +81,7 @@ describe('dedicated deck note', () => {
       'Deck framing',
       'Composite decking',
       'Railing / guardrails',
-      'Stair runs',
+      'Stair flights',
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
     expect(
@@ -94,19 +94,48 @@ describe('dedicated deck note', () => {
       'Deck framing · 320 sqft',
       'Composite decking · 320 sqft',
       'Railing / guardrails',
-      'Stair runs',
+      'Stair flights',
     ]);
     expect(
       groupScopeChecklistItems(repaired.scopeChecklist?.items || [], 'deck_patio', {
         notes: NOTE,
-      }).flatMap(group => group.items.map(item => item.id))
+      }).map(group => ({
+        title: group.title,
+        ids: group.items.map(item => item.id),
+      }))
     ).toEqual([
-      'demo_removal',
-      'footings_piers',
-      'framing_structure',
-      'decking',
-      'railing',
-      'stairs',
+      { title: 'Demo', ids: ['demo_removal'] },
+      {
+        title: 'Deck',
+        ids: [
+          'footings_piers',
+          'framing_structure',
+          'decking',
+          'railing',
+          'stairs',
+        ],
+      },
+    ]);
+    expect(
+      groupScopeChecklistItems(
+        [
+          { id: 'decking', label: 'Composite decking', state: 'included', inputType: 'yes_no' },
+          { id: 'deck_surface_demo', label: 'Remove decking', state: 'included', inputType: 'yes_no' },
+          { id: 'deck_railing_demo', label: 'Remove railing', state: 'included', inputType: 'yes_no' },
+          { id: 'deck_stairs_demo', label: 'Remove stairs', state: 'included', inputType: 'yes_no' },
+        ],
+        'deck_patio',
+        { notes: 'Build a new 200 sqft deck' }
+      ).map(group => ({
+        title: group.title,
+        ids: group.items.map(item => item.id),
+      }))
+    ).toEqual([
+      {
+        title: 'Demo',
+        ids: ['deck_surface_demo', 'deck_railing_demo', 'deck_stairs_demo'],
+      },
+      { title: 'Composite decking', ids: ['decking'] },
     ]);
 
     const measurements = normalizeScopeMeasurements(
@@ -136,7 +165,7 @@ describe('dedicated deck note', () => {
     expect(
       dedicatedDeckMissingQuantityPrompt(NOTE, measurements)
     ).toBe(
-      'Enter the deck removal area, railing length, and stair run count before they can be priced.'
+      'Enter the deck removal area, railing length, and stair flight count before they can be priced.'
     );
     const price = (id: string) =>
       resolveScopeItemSuggestedPricing(
@@ -149,9 +178,11 @@ describe('dedicated deck note', () => {
         NOTE
       ).fill;
     expect(price('decking')).toMatchObject({
-      material: 2560,
-      labor: 3840,
-      total: 6400,
+      material: 5760,
+      labor: 4480,
+      total: 10240,
+      displayUnitRateLabel: '320 sqft × $32/sqft',
+      rateSourceLabel: 'National average · composite decking',
     });
     expect(price('framing_structure')).toMatchObject({
       material: 1920,
@@ -217,7 +248,7 @@ describe('dedicated deck note', () => {
       material: 220,
       labor: 380,
       total: 600,
-      displayUnitRateLabel: '1 run × $600/run',
+      displayUnitRateLabel: '1 flight × $600/flight',
     });
     expect(
       repaired.scopeChecklist?.items?.find(item => item.id === 'railing')
@@ -274,6 +305,91 @@ describe('dedicated deck note', () => {
       material: 1920,
       labor: 2880,
       total: 4800,
+      displayUnitRateLabel: '240 sqft × $20/sqft',
+      rateSourceLabel: 'National average · wood decking',
+    });
+    const generic = normalizeScopeMeasurements({
+      deckSqft: 200,
+      deckDemoSqft: 200,
+      deckRailingDemoLf: 10,
+      deckStairDemoCount: 15,
+      tradeScopeSelections: {
+        deck_patio: [
+          'deck_surface_demo',
+          'deck_railing_demo',
+          'deck_stairs_demo',
+          'composite_deck',
+        ],
+      },
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'decking',
+        generic,
+        'deck_patio',
+        resolveChecklistItemQuantity('decking', generic, {
+          templateKey: 'deck_patio',
+          notes: 'Build a new 200 sqft deck',
+        }),
+        null,
+        null,
+        'Build a new 200 sqft deck'
+      ).fill
+    ).toMatchObject({
+      material: 3600,
+      labor: 2800,
+      total: 6400,
+      helper: 'Install the composite decking area named in the notes.',
+      displayUnitRateLabel: '200 sqft × $32/sqft',
+      rateSourceLabel: 'National average · composite decking',
+    });
+    const composite = normalizeScopeMeasurements({
+      deckSqft: 200,
+      tradeScopeSelections: { deck_patio: ['composite_deck'] },
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'decking',
+        composite,
+        'deck_patio',
+        resolveChecklistItemQuantity('decking', composite, {
+          templateKey: 'deck_patio',
+          notes: 'New 200 sqft deck',
+        }),
+        null,
+        null,
+        'New 200 sqft deck'
+      ).fill
+    ).toMatchObject({
+      material: 3600,
+      labor: 2800,
+      total: 6400,
+      displayUnitRateLabel: '200 sqft × $32/sqft',
+      rateSourceLabel: 'National average · composite decking',
+    });
+    const woodChip = normalizeScopeMeasurements({
+      deckSqft: 200,
+      tradeScopeSelections: { deck_patio: ['wood_deck'] },
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'decking',
+        woodChip,
+        'deck_patio',
+        resolveChecklistItemQuantity('decking', woodChip, {
+          templateKey: 'deck_patio',
+          notes: 'New 200 sqft deck',
+        }),
+        null,
+        null,
+        'New 200 sqft deck'
+      ).fill
+    ).toMatchObject({
+      material: 1600,
+      labor: 2400,
+      total: 4000,
+      displayUnitRateLabel: '200 sqft × $20/sqft',
+      rateSourceLabel: 'National average · wood decking',
     });
     expect(quantity('railing')).toMatchObject({
       quantity: 36,

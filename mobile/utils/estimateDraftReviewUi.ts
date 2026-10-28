@@ -155,6 +155,9 @@ export function scopePackagePricedAmount(
     const applied = resolveAppliedConfirmScopePackageAmount(pkg, draft);
 
     if (confirmedFromScope) {
+      // The Confirm Scope card is the bid. A leftover package price below
+      // that card must not show up as a smaller Step 3 / initial-estimate row.
+      if (applied > fromPkg + 0.01) return applied;
       if (userProvided && fromPkg > 0) {
         const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
         if (breakdown?.total && breakdown.total > 0) {
@@ -413,6 +416,36 @@ function reviewCountEachQuantity(
   return `${count.toLocaleString()} each`;
 }
 
+function deckRemovalReviewQuantity(
+  draft: EstimateAiDraft,
+  ruleKey: string
+): string | null {
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const read = (key: string) => {
+    const value = Number(String(measurements[key] ?? '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  if (ruleKey === 'deck_railing_demo') {
+    const length = read('deckRailingDemoLf');
+    return length ? `${length.toLocaleString()} LF` : null;
+  }
+  if (ruleKey === 'deck_stairs_demo') {
+    const count = read('deckStairDemoCount');
+    return count
+      ? `${count.toLocaleString()} ${count === 1 ? 'flight' : 'flights'}`
+      : null;
+  }
+  if (ruleKey === 'deck_surface_demo') {
+    const area = read('deckDemoSqft');
+    return area ? `${area.toLocaleString()} sqft` : null;
+  }
+  if (ruleKey === 'decking') {
+    const area = read('deckSqft');
+    return area ? `${area.toLocaleString()} sqft` : null;
+  }
+  return null;
+}
+
 function positiveReviewSqft(value: unknown): number {
   const n = Number(String(value ?? '').replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -477,6 +510,10 @@ export function formatScopeQuantity(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       ''
     : '';
+  const deckQuantity = draft
+    ? deckRemovalReviewQuantity(draft, previewRuleKey)
+    : null;
+  if (deckQuantity) return deckQuantity;
   const demoStyle = flooringDemoStyleFromItemId(previewRuleKey);
   if (demoStyle && draft) {
     const entered = Number(
@@ -825,6 +862,17 @@ export function pendingProposalCalculatedTotal(draft: EstimateAiDraft | null | u
   if (!p || p.empty) return 0;
   if ((p.totalSuggested || 0) > 0) return p.totalSuggested;
   return (p.lines || []).reduce((sum, line) => sum + (line.total || 0), 0);
+}
+
+/** Step 3 rows. A ceiling already inside combined wall-and-ceiling paint is not its own line. */
+export function reviewScopePackages(
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage[] {
+  return getScopePackagesForReview(draft).filter(pkg => {
+    const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
+    if (!id) return true;
+    return !isPaintingAddonCoveredByAppliedSurfacePricing(id, draft);
+  });
 }
 
 export function compactPackageAmount(

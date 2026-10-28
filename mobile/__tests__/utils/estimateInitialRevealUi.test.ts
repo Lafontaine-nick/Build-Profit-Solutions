@@ -1869,6 +1869,51 @@ describe('estimateInitialRevealUi', () => {
     ).toBe('Planning estimate — review before sending');
   });
 
+  it('drops a room quantity that is not one of the scope lines', () => {
+    const draft = {
+      projectType: 'other',
+      originalNotes: 'Service the existing home.',
+      scopeAssumptionsConfirmed: true,
+      whatAiDid: [
+        'Detected existing home interior remodel.',
+        'Found 1 each for Bathroom.',
+      ],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'electrical_bath_exhaust_fan',
+            label: 'Bathroom exhaust fan electrical install',
+            state: 'included',
+          },
+          {
+            id: 'electrical_ev_charger_hookup',
+            label: 'EV charger circuit + hookup',
+            state: 'included',
+          },
+          {
+            id: 'electrical_smoke_detector',
+            label: 'Smoke detectors',
+            state: 'included',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      'Detected existing home interior remodel.',
+    ]);
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Detected existing home interior remodel.'
+    );
+    expect(
+      shouldShowInitialRevealWhatWeFound(
+        getInitialRevealUnderstoodBullets(draft),
+        getInitialRevealTagline(draft)
+      )
+    ).toBe(false);
+  });
+
   it('hides what we found when it duplicates the tagline', () => {
     expect(
       shouldShowInitialRevealWhatWeFound(

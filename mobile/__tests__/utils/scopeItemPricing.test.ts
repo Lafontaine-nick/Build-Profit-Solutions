@@ -1092,6 +1092,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('prices an untyped kitchen floor tear-out from the demo measurement', () => {
+    const input = inputWith({
+      floorDemoSqft: '125',
+      flooringExistingTypes: ['unknown'],
+      kitchenDemoFloorCount: 1,
+    });
+    const quantity = resolveChecklistItemQuantity(
+      'floor_demo_style_unknown',
+      input as never,
+      { templateKey: 'kitchen' }
+    );
+    expect(quantity.quantity).toBe(125);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo_style_unknown',
+      input,
+      'kitchen',
+      quantity
+    );
+    expect(fill?.total).toBe(375);
+    expect(fill?.basis).toMatchObject({ quantity: 125, unit: 'sqft' });
+  });
+
   it.each([
     ['lvp', 'floating', 2, 2400],
     ['lvp', 'glue_down', 3.25, 3900],

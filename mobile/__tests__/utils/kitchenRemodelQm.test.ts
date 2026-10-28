@@ -12,6 +12,7 @@ import {
   shouldHideKitchenScopeCardInQmEmbed,
   kitchenSelectedDemoSurfaces,
   suggestKitchenDemoFromExistingInstall,
+  patchKitchenMeasurementItemQuantities,
   syncKitchenQmScopeItems,
 } from '@/utils/qmScopePanels/kitchenRemodel';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
@@ -21,6 +22,20 @@ function item(id: string, state: ScopeChecklistItem['state'] = 'unsure'): ScopeC
 }
 
 describe('kitchenRemodel QM', () => {
+  it('writes a selected floor tear-out onto the removal card', () => {
+    expect(
+      patchKitchenMeasurementItemQuantities(
+        {},
+        'floorDemoSqft',
+        '120',
+        { flooringExistingTypes: ['unknown'] }
+      )
+    ).toMatchObject({
+      floor_demo: { quantity: '120', unit: 'sqft' },
+      floor_demo__unknown: { quantity: '120', unit: 'sqft' },
+    });
+  });
+
   it('keeps the cabinet install scope card visible in Confirm Scope', () => {
     expect(KITCHEN_QM_EMBEDDED_IDS.has('cabinets')).toBe(false);
   });
@@ -277,12 +292,19 @@ describe('kitchenRemodel QM', () => {
       backsplash: true,
       floor: false,
       island: false,
+      appliances: false,
     });
     expect(
       kitchenSelectedDemoSurfaces({
         notes,
         measurements: { scopeFoundPieces: ['kitchen_floor'] },
       }).floor
+    ).toBe(true);
+    expect(
+      kitchenSelectedDemoSurfaces({
+        notes,
+        measurements: { scopeFoundPieces: ['appliances'] },
+      }).appliances
     ).toBe(true);
     expect(
       kitchenSelectedDemoSurfaces({
@@ -295,7 +317,44 @@ describe('kitchenRemodel QM', () => {
       backsplash: false,
       floor: false,
       island: false,
+      appliances: false,
     });
+  });
+
+  it('puts a selected Appliances chip on the demo stepper', () => {
+    const notes =
+      'Kitchen remodel. New cabinets, quartz counters, and a new island.';
+    const demo = suggestKitchenDemoFromExistingInstall({
+      existing: {
+        kitchenExistingCabinetCount: null,
+        kitchenExistingCounterCount: null,
+        kitchenExistingApplianceCount: null,
+        kitchenExistingBacksplashCount: null,
+        kitchenExistingFloorCount: null,
+      },
+      install: {
+        kitchenInstallCabinetCount: 1,
+        kitchenInstallCounterCount: 1,
+        kitchenInstallApplianceCount: null,
+        kitchenInstallBacksplashCount: null,
+        kitchenInstallFlooringCount: null,
+        kitchenInstallIslandCount: 1,
+      },
+      demo: {
+        kitchenDemoCabinetCount: null,
+        kitchenDemoCounterCount: null,
+        kitchenDemoBacksplashCount: null,
+        kitchenDemoIslandCount: null,
+        kitchenDemoApplianceCount: null,
+        kitchenDemoFloorCount: null,
+        kitchenDemoWallCount: null,
+      },
+      measurements: { scopeFoundPieces: ['backsplash', 'kitchen_floor', 'appliances'] },
+      notes,
+    });
+    expect(demo.kitchenDemoApplianceCount).toBe(1);
+    expect(demo.kitchenDemoBacksplashCount).toBe(1);
+    expect(demo.kitchenDemoFloorCount).toBe(1);
   });
 
   it('keeps chip-selected kitchen demos on an install-only note', () => {

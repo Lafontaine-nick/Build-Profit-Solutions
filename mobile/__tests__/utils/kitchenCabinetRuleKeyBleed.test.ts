@@ -107,7 +107,9 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
   });
 
   test('cabinet painting does not inherit cabinet LF rates', () => {
-    expect(lookupRuleKeyForPackage('Cabinet painting')).toBe('trim_paint');
+    expect(lookupRuleKeyForPackage('Cabinet painting')).toBe('cabinet_paint');
+    expect(lookupRuleKeyForPackage('Cabinet paint')).toBe('cabinet_paint');
+    expect(lookupRuleKeyForPackage('Trim paint')).toBe('trim_paint');
   });
 
   test('HVAC ventilation does not inherit bath exhaust fan', () => {

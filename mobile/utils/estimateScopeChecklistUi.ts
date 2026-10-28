@@ -7966,7 +7966,15 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   deck_patio: [
-    { title: 'Demo', itemIds: ['demo_removal'] },
+    {
+      title: 'Demo',
+      itemIds: [
+        'demo_removal',
+        'deck_surface_demo',
+        'deck_railing_demo',
+        'deck_stairs_demo',
+      ],
+    },
     { title: 'Structure', itemIds: ['footings_piers', 'framing_structure'] },
     {
       title: 'Surface',
@@ -8019,6 +8027,8 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Drywall',
       itemIds: [
         'demo_removal',
+        'drywall_wall_demo',
+        'drywall_ceiling_demo',
         'hang',
         'finish_tape',
         'drywall',
@@ -8396,7 +8406,19 @@ export function groupScopeChecklistItems(
   }
   if (notesDescribeDedicatedStuccoJob(context.notes)) {
     const named = filterDedicatedStuccoConfirmItems(items, context.notes);
-    if (named.length) return [{ title: 'Stucco', items: named }];
+    const demo = named.filter(item =>
+      String(item.id || '').startsWith('cladding_demo')
+    );
+    const install = named.filter(
+      item => !String(item.id || '').startsWith('cladding_demo')
+    );
+    const groups = [
+      demo.length ? { title: 'Demo', items: demo } : null,
+      install.length ? { title: 'Stucco', items: install } : null,
+    ].filter((group): group is { title: string; items: ScopeChecklistItem[] } =>
+      Boolean(group)
+    );
+    if (groups.length) return groups;
   }
   if (notesNameStuccoWithWindows(context.notes)) {
     const named = filterStuccoWithWindowsConfirmItems(items, context.notes);
@@ -8462,6 +8484,13 @@ export function groupScopeChecklistItems(
     const allowed = new Set(
       dedicatedDeckConfirmScopeItems(context.notes).map(item => item.id)
     );
+    for (const id of [
+      'deck_surface_demo',
+      'deck_railing_demo',
+      'deck_stairs_demo',
+    ]) {
+      allowed.add(id);
+    }
     const named: ScopeChecklistItem[] = [];
     const seen = new Set<string>();
     for (const item of items) {
@@ -8471,7 +8500,27 @@ export function groupScopeChecklistItems(
       seen.add(item.id);
       named.push(item);
     }
-    if (named.length) return [{ title: '', items: named }];
+    if (named.length) {
+      const demoIds = new Set([
+        'demo_removal',
+        'deck_surface_demo',
+        'deck_railing_demo',
+        'deck_stairs_demo',
+      ]);
+      const demo = named.filter(item => demoIds.has(item.id));
+      const install = named.filter(item => !demoIds.has(item.id));
+      const groups: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
+      if (demo.length) groups.push({ title: 'Demo', items: demo });
+      if (install.length === 1) {
+        groups.push({
+          title: String(install[0].label || 'Deck'),
+          items: install,
+        });
+      } else if (install.length) {
+        groups.push({ title: 'Deck', items: install });
+      }
+      if (groups.length) return groups;
+    }
   }
   const flooringNote = dedicatedFlooringNoteText(context.notes);
   if (notesDescribeDedicatedFlooringJob(flooringNote)) {
@@ -8598,8 +8647,14 @@ export function groupScopeChecklistItems(
     String(templateKey || '').toLowerCase() === 'insulation'
       ? remainder.filter(item => item.id !== 'cleanup')
       : remainder;
-  if (visibleRemainder.length)
-    result.push({ title: 'Other', items: visibleRemainder });
+  const demoRemainder = visibleRemainder.filter(item =>
+    String(item.id || '').startsWith('demo_removal')
+  );
+  const otherRemainder = visibleRemainder.filter(
+    item => !String(item.id || '').startsWith('demo_removal')
+  );
+  if (demoRemainder.length) result.push({ title: 'Demo', items: demoRemainder });
+  if (otherRemainder.length) result.push({ title: 'Other', items: otherRemainder });
 
   return result;
 }

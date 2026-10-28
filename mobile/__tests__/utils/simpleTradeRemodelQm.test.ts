@@ -26,6 +26,8 @@ import {
   inferHvacScopeSelectionsFromNotes,
   inferHvacScopeSelectionsFromMeasurements,
   resolveHvacTradeScopeSelections,
+  collapseDeckSurfaceSelections,
+  nextDeckSurfaceSelections,
   summarizeHvacScopePanel,
   ROOFING_ACCESSORY_OPTION_IDS,
   ROOFING_DEMO_OPTION_IDS,
@@ -396,6 +398,28 @@ describe('simple trade QM panels', () => {
     expect(synced.find(item => item.id === 'heat_pump')?.state).toBe('included');
     expect(synced.find(item => item.id === 'ductwork')?.state).toBe('included');
     expect(synced.find(item => item.id === 'thermostat')?.state).toBe('included');
+  });
+
+  it('keeps wood and composite deck as one surface', () => {
+    expect(
+      nextDeckSurfaceSelections(['composite_deck', 'railings'], 'wood_deck')
+    ).toEqual(['railings', 'wood_deck']);
+    expect(
+      nextDeckSurfaceSelections(['wood_deck', 'railings'], 'composite_deck')
+    ).toEqual(['railings', 'composite_deck']);
+    expect(
+      collapseDeckSurfaceSelections([
+        'composite_deck',
+        'wood_deck',
+        'stairs',
+      ])
+    ).toEqual(['wood_deck', 'stairs']);
+    expect(
+      nextDeckSurfaceSelections(
+        ['composite_deck', 'wood_deck'],
+        'composite_deck'
+      )
+    ).toEqual(['composite_deck']);
   });
 
   it('defines the three remaining simple-trade templates', () => {

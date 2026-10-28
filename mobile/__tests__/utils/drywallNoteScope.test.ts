@@ -16,6 +16,12 @@ import {
   notesDescribeDedicatedDrywallJob,
 } from '@/utils/drywallNoteScope';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
+import { getScopeUnitDefinition } from '@/utils/scopeIntelligence';
+import {
+  groupQuickMeasurementFields,
+  quickMeasurementPlanningEstimateNote,
+  resolveQuickMeasurementFields,
+} from '@/utils/quickMeasurementProvenance';
 import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
@@ -990,6 +996,83 @@ describe('dedicated drywall note', () => {
       total: 2800,
     });
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([]);
+  });
+
+  it('shows selected drywall wall and ceiling removal in measurements', () => {
+    const notes = 'Hang and finish 1,200 sqft of drywall';
+    const measurements = {
+      scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+      drywallSqft: 1200,
+      wallDemoSqft: 1200,
+      drywallCeilingSqft: 1200,
+    };
+    expect(
+      dedicatedDrywallConfirmScopeItems(notes, measurements).map(item => item.label)
+    ).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    expect(
+      quickMeasurementRowsForInput('drywall', 'drywall', measurements, undefined, {
+        scopeNotes: notes,
+      })
+        .flat()
+        .map(field => field.label)
+    ).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    const normalized = normalizeScopeMeasurements(measurements);
+    expect(
+      resolveChecklistItemQuantity('drywall_wall_demo', normalized, {
+        templateKey: 'drywall',
+        notes,
+      }).quantity
+    ).toBe(1200);
+    expect(
+      resolveChecklistItemQuantity('drywall_ceiling_demo', normalized, {
+        templateKey: 'drywall',
+        notes,
+      }).quantity
+    ).toBe(1200);
+    expect(getScopeUnitDefinition('drywall_wall_demo', 'drywall').preferredUnits).toContain(
+      'sqft'
+    );
+    expect(
+      getScopeUnitDefinition('drywall_ceiling_demo', 'drywall').preferredUnits
+    ).toContain('sqft');
+    const items = dedicatedDrywallConfirmScopeItems(notes, measurements);
+    expect(
+      groupScopeChecklistItems(items, 'drywall', { notes }).map(group => group.title)
+    ).toEqual(['Drywall']);
+    const rows = quickMeasurementRowsForInput(
+      'drywall',
+      'drywall',
+      measurements,
+      undefined,
+      { scopeNotes: notes }
+    );
+    const fields = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      noteValues: { drywallSqft: '1200' },
+      noteBackedKeys: ['drywallSqft'],
+      includedScopeKeys: items.map(item => item.id),
+      templateKey: 'drywall',
+      notes,
+    });
+    const grouped = groupQuickMeasurementFields(fields);
+    expect(grouped.confirmed.map(field => field.key)).toEqual([
+      'wallDemoSqft',
+      'drywallCeilingSqft',
+      'drywallSqft',
+    ]);
+    expect(grouped.more).toEqual([]);
+    for (const field of grouped.confirmed) {
+      expect(quickMeasurementPlanningEstimateNote(field)).toBeNull();
+    }
   });
 
   it('keeps hang / finish on the attic insulation measurement', () => {

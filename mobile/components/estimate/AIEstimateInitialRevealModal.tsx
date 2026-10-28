@@ -60,6 +60,8 @@ import {
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
   initialRevealPricingVisible,
+  confirmedAppliedRevealLines,
+  omitPricedPaintPlaceholders,
   getScopeTotalCoverageLine,
   shouldDefaultExpandInitialRevealScope,
   planRevealOmitsWhatWeFound,
@@ -126,24 +128,23 @@ function packChipRows<T>(options: T[], size: number): T[][] {
   return rows;
 }
 
-/** Full rows only. A long label switches the group to pairs so no chip sits alone. */
+/**
+ * Full rows only. Short labels use threes. A long label uses pairs, and an odd
+ * count puts the three shortest labels on one row so the last chip is not alone.
+ */
 function scopeFoundChipRows<T extends { label: string }>(options: T[]): T[][] {
   if (!options.length) return [];
   const longLabel = (option: T) => option.label.length > CHIP_LABEL_FITS_THREE;
   if (!options.some(longLabel)) return packChipRows(options, 3);
-  if (options.length % 2 === 1) {
-    for (let index = 0; index <= options.length - 3; index += 1) {
-      const trio = options.slice(index, index + 3);
-      if (trio.every(option => !longLabel(option))) {
-        return [
-          ...packChipRows(options.slice(0, index), 2),
-          trio,
-          ...packChipRows(options.slice(index + 3), 2),
-        ].filter(row => row.length > 0);
-      }
-    }
-  }
-  return packChipRows(options, 2);
+  if (options.length % 2 === 0) return packChipRows(options, 2);
+
+  const ranked = options
+    .map((option, index) => ({ index, length: option.label.length }))
+    .sort((a, b) => a.length - b.length || a.index - b.index);
+  const trioIndexes = new Set(ranked.slice(0, 3).map(item => item.index));
+  const trio = options.filter((_, index) => trioIndexes.has(index));
+  const rest = options.filter((_, index) => !trioIndexes.has(index));
+  return [trio, ...packChipRows(rest, 2)].filter(row => row.length > 0);
 }
 
 function ReliablePress({
@@ -316,6 +317,8 @@ function AIEstimateInitialRevealModal({
   const scopeFoundPieces = scopeFoundIdMatches
     ? readScopeFoundPieces(draft?.scopeMeasurements?.scopeFoundPieces)
     : [];
+  const scopeFoundPiecesRef = useRef(scopeFoundPieces);
+  scopeFoundPiecesRef.current = scopeFoundPieces;
   const scopeFoundSelected = scopeFoundIdMatches
     ? readScopeFoundChoice(draft?.scopeMeasurements?.scopeFoundChoice)
     : null;
@@ -338,6 +341,13 @@ function AIEstimateInitialRevealModal({
         )
       : null;
   const scopeListRows = useMemo(() => {
+    const confirmedLines =
+      draft && initialRevealPricingVisible(draft)
+        ? confirmedAppliedRevealLines(draft)
+        : null;
+    if (confirmedLines?.length) {
+      return confirmedLines.map(row => ({ ...row, awaitingPrice: false }));
+    }
     const preview = viewModel?.scopePreview ?? [];
     const added = [
       ...priceShowerRemovalRevealRows(
@@ -389,10 +399,13 @@ function AIEstimateInitialRevealModal({
       claimed.add(hit.id);
       return { ...row, amount: hit.amount, awaitingPrice: false };
     };
-    return [
-      ...added.map(row => fill(row, true)),
-      ...previewRows.map(row => fill(row, false)),
-    ];
+    return omitPricedPaintPlaceholders(
+      [
+        ...added.map(row => fill(row, true)),
+        ...previewRows.map(row => fill(row, false)),
+      ],
+      Boolean(draft && initialRevealPricingVisible(draft))
+    );
   }, [
     viewModel,
     draft,
@@ -743,29 +756,24 @@ function AIEstimateInitialRevealModal({
                     </View>
                     {scopeFoundChipRows(
                       clarification.options.filter(
-                        option =>
-                          option.id !== 'none' &&
-                          option.id !== 'unsure' &&
-                          option.id !== 'walls'
+                        option => option.id !== 'none' && option.id !== 'unsure'
                       )
                     )
                       .concat(
                         scopeFoundChipRows(
                           clarification.options.filter(
-                            option =>
-                              option.id === 'none' ||
-                              option.id === 'unsure' ||
-                              option.id === 'walls'
+                            option => option.id === 'none' || option.id === 'unsure'
                           )
                         )
                       )
-                      .map((row, rowIndex) => (
-                      <View key={`removal-row-${rowIndex}`} style={styles.removalChipRow}>
+                      .map(row => (
+                      <View
+                        key={`removal-row-${row.map(option => option.id).join('-')}`}
+                        style={styles.removalChipRow}
+                      >
                         {row.map(option => {
                           const exclusive =
-                            option.id === 'none' ||
-                            option.id === 'unsure' ||
-                            option.id === 'walls';
+                            option.id === 'none' || option.id === 'unsure';
                           const selected =
                             clarification.id === 'shower'
                               ? exclusive
@@ -794,13 +802,16 @@ function AIEstimateInitialRevealModal({
                                 }
                                 if (clarification.multi) {
                                   if (exclusive) {
+                                    scopeFoundPiecesRef.current = [];
                                     const choice = readScopeFoundChoice(option.id);
                                     if (choice) onScopeFoundChoice?.(clarification.id, choice);
                                     return;
                                   }
-                                  const next = scopeFoundPieces.includes(option.id)
-                                    ? scopeFoundPieces.filter(item => item !== option.id)
-                                    : [...scopeFoundPieces, option.id];
+                                  const current = scopeFoundPiecesRef.current;
+                                  const next = current.includes(option.id)
+                                    ? current.filter(item => item !== option.id)
+                                    : [...current, option.id];
+                                  scopeFoundPiecesRef.current = next;
                                   onScopeFoundChoice?.(clarification.id, next);
                                   return;
                                 }
@@ -812,6 +823,7 @@ function AIEstimateInitialRevealModal({
                               containerStyle={styles.removalChipCell}
                               style={[
                                 styles.removalChip,
+                                row.length >= 3 && styles.removalChipTight,
                                 {
                                   borderColor: selected
                                     ? brandAccent
@@ -829,6 +841,8 @@ function AIEstimateInitialRevealModal({
                               ) : null}
                               <Text
                                 numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.85}
                                 style={[
                                   styles.removalChipText,
                                   {
@@ -1236,6 +1250,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  removalChipTight: {
+    paddingHorizontal: 6,
   },
   removalChipText: {
     flexShrink: 1,
