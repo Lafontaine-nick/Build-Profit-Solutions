@@ -3895,6 +3895,43 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('shows an amber exclusion when the note leaves the gutters', () => {
+    const notes =
+      'Roof replacement. 18 squares. Leave the gutters. Roof replacement at 18 squares. Gutters stay off.';
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      whatAiDid: ['Detected roofing job.'],
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included' },
+          { id: 'gutters', label: 'Gutters', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).not.toContain('Gutters');
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toContain(
+      'Gutters are not in this bid'
+    );
+    expect(getInitialRevealAttentionTitle(draft, true)).toBe(
+      'Needs your attention'
+    );
+    expect(
+      getInitialRevealStatusLabel(draft, countInitialRevealAttentionItems(draft))
+        .tone
+    ).toBe('review');
+  });
+
   it('uses the yellow check list for exclusions on any note', () => {
     const flooring = {
       projectType: 'flooring',

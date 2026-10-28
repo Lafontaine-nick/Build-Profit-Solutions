@@ -716,6 +716,22 @@ describe('scopeItemNoteHints roofing inference', () => {
       'Sitework is not in this bid',
       'Utilities are not in this bid',
     ]);
+    expect(
+      noteExclusionNotices(
+        'Roof replacement. 18 squares. Leave the gutters. Roof replacement at 18 squares. Gutters stay off.'
+      )
+    ).toEqual(['Gutters are not in this bid']);
+    expect(
+      inferItemStateFromNotes(
+        'gutters',
+        'Roof replacement. 18 squares. Leave the gutters. Gutters stay off.'
+      )
+    ).toBe('excluded');
+    expect(
+      inferRoofingTradeScopeSelectionsFromNotes(
+        'Roof replacement. 18 squares. Leave the gutters. Gutters stay off.'
+      )
+    ).not.toContain('gutters');
     expect(noteExclusionNotices('Kitchen remodel. No prices yet.')).toEqual([]);
     expect(
       noteExclusionNotices(

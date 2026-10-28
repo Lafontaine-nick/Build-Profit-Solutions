@@ -705,6 +705,16 @@ export function notesNameAffirmativeDeckOrPatio(
   return deck || patio || porch;
 }
 
+/** "Leave the gutters" and "Gutters stay off" are the same as "No gutters". */
+export function mentionLeftOutOfBid(clause: string, pattern: RegExp): boolean {
+  if (!pattern.test(clause)) return false;
+  const source = pattern.source;
+  return new RegExp(
+    `\\b(?:leave|left|keep(?:s|ing)?|remain(?:s|ing)?)\\b[^.;\\n]{0,48}(?:${source})|(?:${source})[^.;\\n]{0,48}\\b(?:stay(?:s|ing)?(?:\\s+off)?|keep(?:s|ing)?(?:\\s+off)?|leave|left|remain(?:s|ing)?)\\b`,
+    'i'
+  ).test(clause);
+}
+
 /** A leading "no / not / without" clause is the only mention of this term. */
 export function noteMentionIsOnlyNegated(
   notes: string | null | undefined,
@@ -718,11 +728,11 @@ export function noteMentionIsOnlyNegated(
     if (
       /^(?:no|not|without|do not|don't|does not|doesn't|excludes?|excluded|not\s+included|not\s+to\s+include)\b/i.test(
         clause
-      )
+      ) ||
+      mentionLeftOutOfBid(clause, pattern)
     ) {
       negated = true;
-    }
-    else positive = true;
+    } else positive = true;
   }
   return negated && !positive;
 }
@@ -753,6 +763,14 @@ export function noteExclusionNotices(
     if (matched) continue;
     for (const label of genericExclusionLabels(clause)) {
       pushExclusionNotice(notices, seen, label);
+    }
+  }
+  for (const raw of String(notes || '').split(/[.\n;]+/)) {
+    const clause = raw.trim();
+    if (!clause) continue;
+    for (const entry of LEADING_EXCLUSION_NOTICES) {
+      if (!mentionLeftOutOfBid(clause, entry.pattern)) continue;
+      pushExclusionNotice(notices, seen, entry.label);
     }
   }
   const ownerLabels: Array<[OwnerHandledScopeCategory, string]> = [
