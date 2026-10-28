@@ -447,10 +447,11 @@ function hvacItemQuantitySelected(
  */
 export function isHvacQmScopeItemActive(
   itemId: string,
-  measurements: Record<string, unknown>
+  measurements: Record<string, unknown>,
+  notes?: string | null
 ): boolean {
   if (!isHvacQmGatedScopeItem(itemId)) return true;
-  const selections = resolveHvacTradeScopeSelections(measurements);
+  const selections = resolveHvacTradeScopeSelections(measurements, notes);
   if (itemId === 'ventilation') {
     return (
       selections.includes('ventilation') ||
@@ -1491,17 +1492,8 @@ export function inferHvacScopeSelectionsFromNotes(
   const text = String(notes || '');
   const inferred: string[] = [];
   const miniSplitMentioned = /\bmini[\s-]?split\b/i.test(text);
-  const heatPumpIsTheEquipment =
-    /\bheat[\s-]*pumps?\b/i.test(text) && !hvacNotesNameInstalledSystem(text);
   if (miniSplitMentioned) inferred.push('mini_split');
-  if (
-    !miniSplitMentioned &&
-    !heatPumpIsTheEquipment &&
-    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i.test(
-      text
-    ) &&
-    !hvacNotesDropSystemPackage(text)
-  ) {
+  if (hvacNotesNameInstalledSystem(text)) {
     inferred.push(HVAC_SYSTEMS_OPTION_ID);
   }
   if (/\bheat[\s-]*pump\b/i.test(text)) inferred.push('heat_pump');
@@ -1533,13 +1525,14 @@ export function hvacScopeOptionMentionedInNotes(
   notes: string | null | undefined
 ): boolean {
   if (hvacNotesLeaveOptionAlone(notes, optionId)) return false;
+  if (
+    optionId === HVAC_SYSTEMS_OPTION_ID ||
+    optionId === HVAC_CAPACITY_OPTION_ID
+  ) {
+    return hvacNotesNameInstalledSystem(notes);
+  }
   const text = String(notes || '');
   const patterns: Record<string, RegExp> = {
-    [HVAC_SYSTEMS_OPTION_ID]:
-      /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|mini[\s-]?split)\b/i,
-    // Capacity is a required companion measurement for an explicitly scoped system.
-    [HVAC_CAPACITY_OPTION_ID]:
-      /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|mini[\s-]?split)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:ton|tons|tonnage)\b/i,
     furnace: /\bfurnaces?\b/i,
     condenser: /\bcondensers?\b|\bair\s*condition(?:er|ing)?\b/i,
     heat_pump: /\bheat[\s-]*pumps?\b/i,
@@ -1683,28 +1676,29 @@ export function resolveHvacTradeScopeSelections(
     ),
     inferred
   ).filter(id => !hvacNotesLeaveOptionAlone(notes, id));
-  const hasEquipmentSelection = resolved.some(id =>
-    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
-  );
-  const noteNamesSystem = !hvacNotesDropSystemPackage(notes);
-  if (
-    hasEquipmentSelection &&
-    noteNamesSystem &&
-    !resolved.includes(HVAC_SYSTEMS_OPTION_ID)
-  ) {
+  const noteNamesSystem = hvacNotesNameInstalledSystem(notes);
+  if (noteNamesSystem && !resolved.includes(HVAC_SYSTEMS_OPTION_ID)) {
     resolved.push(HVAC_SYSTEMS_OPTION_ID);
   }
   if (
-    hasEquipmentSelection &&
-    resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
+    noteNamesSystem &&
     !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
-    !measurements.quickMeasurementUserOverrides?.hvacSystemTons &&
-    !hvacNotesOmitTonnage(notes)
+    !measurements.quickMeasurementUserOverrides?.hvacSystemTons
   ) {
     resolved.push(HVAC_CAPACITY_OPTION_ID);
   }
   let next = resolved;
   if (
+    String(notes || '').trim() &&
+    !noteNamesSystem &&
+    !hvacPlanImportAssumesSystemScope(measurements)
+  ) {
+    next = next.filter(
+      id => id !== HVAC_SYSTEMS_OPTION_ID && id !== HVAC_CAPACITY_OPTION_ID
+    );
+  }
+  if (
+    !noteNamesSystem &&
     next.includes(HVAC_CAPACITY_OPTION_ID) &&
     hvacNotesOmitTonnage(notes) &&
     coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
@@ -1852,7 +1846,25 @@ function finalizeHvacScopeSelections(
     'hvacSystemTons'
   );
   let next = resolved;
-  if (
+  const noteNamesSystem = hvacNotesNameInstalledSystem(notes);
+  if (noteNamesSystem) {
+    if (!next.includes(HVAC_SYSTEMS_OPTION_ID)) {
+      next = [...next, HVAC_SYSTEMS_OPTION_ID];
+    }
+    if (
+      !next.includes(HVAC_CAPACITY_OPTION_ID) &&
+      !measurements.quickMeasurementUserOverrides?.hvacSystemTons
+    ) {
+      next = [...next, HVAC_CAPACITY_OPTION_ID];
+    }
+  } else if (
+    String(notes || '').trim() &&
+    !hvacPlanImportAssumesSystemScope(measurements)
+  ) {
+    next = next.filter(
+      id => id !== HVAC_SYSTEMS_OPTION_ID && id !== HVAC_CAPACITY_OPTION_ID
+    );
+  } else if (
     next.includes(HVAC_SYSTEMS_OPTION_ID) &&
     !next.includes(HVAC_CAPACITY_OPTION_ID) &&
     capacityWasNotDocumented &&
@@ -1861,6 +1873,7 @@ function finalizeHvacScopeSelections(
     next = [...next, HVAC_CAPACITY_OPTION_ID];
   }
   if (
+    !noteNamesSystem &&
     next.includes(HVAC_CAPACITY_OPTION_ID) &&
     hvacNotesOmitTonnage(notes) &&
     coalesceHvacFieldValue(measurements, 'hvacSystemTons') == null
@@ -2359,12 +2372,20 @@ function syncSimpleTrade(
   measurements: Record<string, unknown>,
   spec: TradeSpec
 ): ScopeChecklistItem[] {
+  const hvacNotes =
+    spec.scopeKey === 'hvac' && typeof measurements.scopeNotes === 'string'
+      ? measurements.scopeNotes
+      : null;
+  const hvacSelections =
+    spec.scopeKey === 'hvac'
+      ? resolveHvacTradeScopeSelections(measurements, hvacNotes)
+      : [];
   const included = includedIds(
     spec,
-    selectedScope(measurements, spec.scopeKey)
+    spec.scopeKey === 'hvac'
+      ? hvacSelections
+      : selectedScope(measurements, spec.scopeKey)
   );
-  const hvacSelections =
-    spec.scopeKey === 'hvac' ? selectedScope(measurements, 'hvac') : [];
   const miniSplitSelected = hvacSelections.includes('mini_split');
   const namedEquipmentSelected = hvacSelections.some(id =>
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
@@ -2483,9 +2504,10 @@ export function dedicatedHvacEquipmentChecklistItems(
 /** Confirm Scope priced cards for selected HVAC equipment types. */
 export function expandHvacEquipmentScopeDisplayItems(
   items: ScopeChecklistItem[],
-  measurements: Record<string, unknown>
+  measurements: Record<string, unknown>,
+  notes?: string | null
 ): ScopeChecklistItem[] {
-  const selections = resolveHvacTradeScopeSelections(measurements);
+  const selections = resolveHvacTradeScopeSelections(measurements, notes);
   const selectedIds = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).filter(
     id => selections.includes(id)
   );

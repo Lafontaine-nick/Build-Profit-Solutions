@@ -112,9 +112,6 @@ function fireHaptic(style: Haptics.ImpactFeedbackStyle) {
   void Haptics.impactAsync(style).catch(() => {});
 }
 
-/** Labels longer than this do not fit three chips across on one line. */
-const CHIP_LABEL_FITS_THREE = 11;
-
 function packChipRows<T>(options: T[], size: number): T[][] {
   const rows: T[][] = [];
   let index = 0;
@@ -128,23 +125,9 @@ function packChipRows<T>(options: T[], size: number): T[][] {
   return rows;
 }
 
-/**
- * Full rows only. Short labels use threes. A long label uses pairs, and an odd
- * count puts the three shortest labels on one row so the last chip is not alone.
- */
+/** Two choices per row keeps the pill layout from feeling cramped. */
 function scopeFoundChipRows<T extends { label: string }>(options: T[]): T[][] {
-  if (!options.length) return [];
-  const longLabel = (option: T) => option.label.length > CHIP_LABEL_FITS_THREE;
-  if (!options.some(longLabel)) return packChipRows(options, 3);
-  if (options.length % 2 === 0) return packChipRows(options, 2);
-
-  const ranked = options
-    .map((option, index) => ({ index, length: option.label.length }))
-    .sort((a, b) => a.length - b.length || a.index - b.index);
-  const trioIndexes = new Set(ranked.slice(0, 3).map(item => item.index));
-  const trio = options.filter((_, index) => trioIndexes.has(index));
-  const rest = options.filter((_, index) => !trioIndexes.has(index));
-  return [trio, ...packChipRows(rest, 2)].filter(row => row.length > 0);
+  return options.length ? packChipRows(options, 2) : [];
 }
 
 function ReliablePress({
@@ -823,7 +806,6 @@ function AIEstimateInitialRevealModal({
                               containerStyle={styles.removalChipCell}
                               style={[
                                 styles.removalChip,
-                                row.length >= 3 && styles.removalChipTight,
                                 {
                                   borderColor: selected
                                     ? brandAccent
@@ -999,8 +981,8 @@ export default memo(AIEstimateInitialRevealModal);
 
 const styles = StyleSheet.create({
   embeddedShell: {
-    zIndex: 101,
-    elevation: 101,
+    zIndex: 110,
+    elevation: 110,
   },
   screen: {
     flex: 1,
@@ -1250,9 +1232,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 999,
     borderWidth: 1,
-  },
-  removalChipTight: {
-    paddingHorizontal: 6,
   },
   removalChipText: {
     flexShrink: 1,

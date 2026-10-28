@@ -503,6 +503,44 @@ export function noteUsesSeparateJobReader(
   return readNoteWork(notes).lines.length >= 2;
 }
 
+/**
+ * A project-level note can still contain several independent bids. Keep a
+ * service call from taking over when the same note also names a build,
+ * addition, or multiple other trades.
+ */
+export function notesDescribeMixedProjectScope(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '').trim();
+  if (!text) return false;
+
+  const hasProjectContext = /\b(?:new\s+(?:build|construction|home|house)|ground[-\s]?up|custom\s+home|(?:room|home|bedroom|garage)\s+addition|adu)\b/i.test(
+    text
+  );
+  const hasServiceVisit = /\b(?:service\s+calls?|diagnos(?:e|is|ing))\b/i.test(
+    text
+  );
+  const hasIndependentRepairWork = /\b(?:replace|replacement|reroof|re[\s-]?roof|patch|repair|service\s+calls?|diagnos(?:e|is|ing))\b/i.test(
+    text
+  );
+  const tradeSignals = [
+    /\b(?:floor(?:ing)?|lvp|carpet|laminate|vinyl\s+plank)\b/i,
+    /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i,
+    /\b(?:paint(?:ing)?|repaint)\b/i,
+    /\bstucco\b/i,
+    /\b(?:drywall|sheetrock|gypsum)\b/i,
+    /\b(?:hvac|furnace|condenser|heat[\s-]*pump|air\s*condition)\b/i,
+    /\b(?:electrical|wiring|outlets?|receptacles?)\b/i,
+    /\b(?:plumbing|toilet|faucet|drain|water\s+line)\b/i,
+    /\b(?:windows?|doors?)\b/i,
+  ].filter(pattern => pattern.test(text)).length;
+
+  if (hasProjectContext) {
+    return hasIndependentRepairWork && tradeSignals >= 2;
+  }
+  return hasServiceVisit && tradeSignals >= 3;
+}
+
 export function separateJobRevealRows(
   notes: string | null | undefined
 ): Array<{ id: string; name: string; quantity?: string }> {

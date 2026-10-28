@@ -307,6 +307,42 @@ export function patchKitchenMeasurementItemQuantities(
     }
     return next;
   }
+  if (
+    key === 'backsplashSqft' &&
+    String(value || '').trim() &&
+    (positiveCount(measurements?.kitchenDemoBacksplashCount) != null ||
+      scopeFoundKeepsKitchenDemo(measurements || {}, 'backsplash', [
+        'yes',
+        'all',
+        'backsplash',
+      ]))
+  ) {
+    next.backsplash_demo = {
+      quantity: value,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    };
+  } else if (key === 'backsplashSqft') {
+    delete next.backsplash_demo;
+  }
+  if (
+    key === 'kitchenFloorSqft' &&
+    String(value || '').trim() &&
+    (positiveCount(measurements?.kitchenDemoFloorCount) != null ||
+      scopeFoundKeepsKitchenDemo(measurements || {}, 'flooring', [
+        'yes',
+        'all',
+        'flooring',
+      ]))
+  ) {
+    next.floor_demo = {
+      quantity: value,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    };
+  } else if (key === 'kitchenFloorSqft') {
+    delete next.floor_demo;
+  }
   if (key === 'floorDemoSqft') {
     const qty = String(value || '').trim();
     if (!qty) {

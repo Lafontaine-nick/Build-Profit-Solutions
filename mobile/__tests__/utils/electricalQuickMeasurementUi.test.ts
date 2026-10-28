@@ -123,6 +123,7 @@ describe('electricalQuickMeasurementUi', () => {
       'Circuits',
       'Receptacles',
       'Switches / controls',
+      'Demo',
       'Lighting / fans',
       'Appliance circuit + hookup',
       'Life safety / low voltage',

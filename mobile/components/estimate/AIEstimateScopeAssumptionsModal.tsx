@@ -135,6 +135,7 @@ import {
   parsePlumbingProjectContextFromNotes,
   parsePlumbingMeasurementsFromNotes,
   notesDescribeDedicatedPlumbingFixtureRelocate,
+  notesNameDedicatedWaterHeaterJob,
   plumbingJobTypePickerVisible,
   stripUnstatedPlumbingNoteMeasurements,
   filterPlumbingNoteAuthorityConfirmItems,
@@ -375,6 +376,7 @@ import {
   insulationAssembliesMatchingNote,
   insulationNoteNamesAtticArea,
   insulationNoteNamesWallArea,
+  notesDescribeDedicatedInsulationJob,
   notesNameAtticInsulationWithDrywallHang,
 } from '@/utils/insulationNoteScope';
 import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
@@ -3924,7 +3926,7 @@ function scopeCardStyle(
   tier: ReturnType<typeof scopeItemVisualTier>,
   item: Pick<
     ScopeChecklistItem,
-    'state' | 'choiceId' | 'inputType' | 'choiceIds' | 'noteBacked'
+    'id' | 'state' | 'choiceId' | 'inputType' | 'choiceIds' | 'noteBacked'
   >,
   Colors: ReturnType<typeof getColors>,
   darkMode: boolean,
@@ -3936,12 +3938,18 @@ function scopeCardStyle(
     darkMode,
     measuredSelection
   );
+  const excavationCard =
+    item.id === 'excavation' || item.id === 'allowance-excavation';
   return [
     styles.card,
     estimateFlowCardStyle(Colors, darkMode),
     {
       backgroundColor:
-        accent.backgroundColor || (darkMode ? '#3A3A3C' : Colors.surface),
+        excavationCard
+          ? darkMode
+            ? '#2A2A2E'
+            : Colors.surface2
+          : accent.backgroundColor || (darkMode ? '#3A3A3C' : Colors.surface),
       borderRadius: 16,
       opacity: accent.opacity,
       ...(accent.borderColor ? { borderColor: accent.borderColor } : {}),
@@ -6039,6 +6047,9 @@ function QuantitySection({
     [measurementsInput.itemQuantities, measurementsInput.pricingAcceptance]
   );
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  const hideQmManagedVanityTakeoff =
+    itemId === 'vanity' &&
+    Number(measurementsInput.bathroomInstallVanityCount || 0) > 0;
   const fixturesCoveredByDevices =
     itemId === 'electrical_trim' &&
     electricalFixturesCoveredByDeviceLines(
@@ -7042,7 +7053,8 @@ function QuantitySection({
                 statedWallPaintSqft > 0))) ||
           (itemId === 'insulation' &&
             (notesDescribeMeasuredWholeHomeRemodel(originalNotes) ||
-              noteUsesSeparateJobReader(originalNotes))) ||
+              noteUsesSeparateJobReader(originalNotes) ||
+              notesDescribeDedicatedInsulationJob(originalNotes))) ||
           noteBackedFlooring ||
           (itemId === 'flooring' &&
             notesDescribeAreaOnlyAddition(originalNotes)) ||
@@ -8563,7 +8575,8 @@ function QuantitySection({
                     statedWallPaintSqft > 0))) ||
               (itemId === 'insulation' &&
                 (notesDescribeMeasuredWholeHomeRemodel(originalNotes) ||
-                  noteUsesSeparateJobReader(originalNotes))) ||
+                  noteUsesSeparateJobReader(originalNotes) ||
+                  notesDescribeDedicatedInsulationJob(originalNotes))) ||
               noteBackedFlooring ||
               noteBackedDrywall ||
               (itemId === 'drywall' &&
@@ -9021,6 +9034,7 @@ function QuantitySection({
         {!hideInlineTakeoff &&
         !showGrossFloorPlanning &&
         !cardOwnsMissingCopy &&
+        !hideQmManagedVanityTakeoff &&
         quantityHelperText &&
         !(
           suggestedBudgetSplit?.mode === 'note_total_split' &&
@@ -9052,6 +9066,7 @@ function QuantitySection({
           </Text>
         ) : null}
         {!hideInlineTakeoff &&
+        !hideQmManagedVanityTakeoff &&
         (repairSystemCard ||
           (!openingOnlyExteriorPrep &&
             step2TierNeedsInlineTakeoffEntry(
@@ -14384,7 +14399,7 @@ function InsulationAssemblyCard({
       pricedAssemblyCount === 1 ? 'assembly' : 'assemblies'
     }`,
     `${totalConfirmedSqft.toLocaleString()} sqft`,
-    assemblyPricingTotal > 0 ? formatDraftMoney(assemblyPricingTotal) : null,
+    assemblyPricingTotal > 0 ? formatPlanningMoney(assemblyPricingTotal) : null,
     setupAssemblyCount > 0 ? `${setupAssemblyCount} need setup` : null,
     hiddenRowCount > 0 ? `${hiddenRowCount} hidden` : null,
     totalNeedsConfirmationSqft > 0
@@ -14967,6 +14982,11 @@ function InsulationAssemblyCard({
             {typeRows.map(row => {
               const isExpanded = expandedAssemblyId === row.id;
               const area = String(row.sqft ?? '').trim();
+              const areaNumber = Number(area.replace(/,/g, ''));
+              const areaLabel =
+                Number.isFinite(areaNumber) && areaNumber > 0
+                  ? areaNumber.toLocaleString('en-US')
+                  : area;
               const needsConfirmation =
                 row.confirmed === false ||
                 row.source === 'calculated_from_plan';
@@ -15023,8 +15043,8 @@ function InsulationAssemblyCard({
                       >
                         {area
                           ? pricing
-                            ? `${formatDraftMoney(pricing.installedRate)}/SF · ${area} sqft${needsConfirmation ? ' · confirm' : ''}`
-                            : `${area} sqft${needsConfirmation ? ' · confirm' : ''}`
+                            ? `${formatDraftMoney(pricing.installedRate)}/SF · ${areaLabel} sqft${needsConfirmation ? ' · confirm' : ''}`
+                            : `${areaLabel} sqft${needsConfirmation ? ' · confirm' : ''}`
                           : 'Square feet needed'}
                         {isDuplicate ? ' · possible duplicate' : ''}
                         {facingNeedsReview ? ' · review facing before bid' : ''}
@@ -15047,7 +15067,7 @@ function InsulationAssemblyCard({
                               fontWeight: '800',
                             }}
                           >
-                            {formatDraftMoney(pricing.total)}
+                            {formatPlanningMoney(pricing.total)}
                           </Text>
                           <Text
                             style={{
@@ -15056,8 +15076,8 @@ function InsulationAssemblyCard({
                               marginTop: 1,
                             }}
                           >
-                            {formatDraftMoney(pricing.material)} mat +{' '}
-                            {formatDraftMoney(pricing.labor)} lab
+                            {formatPlanningMoney(pricing.material)} mat +{' '}
+                            {formatPlanningMoney(pricing.labor)} lab
                           </Text>
                         </View>
                       ) : null}
@@ -15083,45 +15103,6 @@ function InsulationAssemblyCard({
                         paddingBottom: 9,
                       }}
                     >
-                      {pricing ? (
-                        <View
-                          style={{
-                            marginBottom: 8,
-                            paddingHorizontal: 9,
-                            paddingVertical: 7,
-                            borderRadius: 8,
-                            backgroundColor: darkMode
-                              ? 'rgba(52,211,153,0.08)'
-                              : 'rgba(16,185,129,0.08)',
-                            borderWidth: 1,
-                            borderColor: 'rgba(52,211,153,0.22)',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: '#2dcc9a',
-                              fontSize: 10,
-                              fontWeight: '800',
-                            }}
-                          >
-                            {assemblyPlanningRateLabel}{' '}
-                            {formatDraftMoney(pricing.total)}
-                          </Text>
-                          <Text
-                            style={{
-                              color: captionColor(darkMode, Colors),
-                              fontSize: 10,
-                              marginTop: 2,
-                              lineHeight: 14,
-                            }}
-                          >
-                            {assemblyPlanningRateLabel} ·{' '}
-                            {formatDraftMoney(pricing.installedRate)}/SF
-                            installed · {formatDraftMoney(pricing.material)}{' '}
-                            material + {formatDraftMoney(pricing.labor)} labor
-                          </Text>
-                        </View>
-                      ) : null}
                       {needsConfirmation ? (
                         <TouchableOpacity
                           onPress={() =>
@@ -15870,6 +15851,17 @@ function CollapsibleQuickMeasurements({
       !mixedScopeMode &&
       isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
   const compactMixedScope = mixedScopeMode && !singleTradeImport;
+  const mixedScopeFlooringSelected =
+    compactMixedScope &&
+    (includedScopeKeys.includes('flooring') ||
+      includedScopeKeys.includes('floor_demo') ||
+      includedScopeKeys.includes('floor_tile') ||
+      readScopeFoundPieces(measurements.scopeFoundPieces).some(piece =>
+        ['flooring', 'floor_demo', 'floor_tile'].includes(piece)
+      ) ||
+      /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+        String(notes || '')
+      ));
   const planBackedMeasurements = Boolean(
     String(measurements.planImportMode || '').trim() ||
     measurements.planImportFingerprint
@@ -16421,6 +16413,62 @@ function CollapsibleQuickMeasurements({
         scopeNotes: notes,
       }
     );
+    if (mixedScopeFlooringSelected) {
+      const flooringField = quickMeasurementFieldDef('flooringSqft');
+      const floorDemoField = quickMeasurementFieldDef('floorDemoSqft');
+      const flooringRows: QuickMeasurementRow[] = [];
+      if (!baseRows.some(row => row.some(field => field.key === 'flooringSqft'))) {
+        if (flooringField) {
+          flooringRows.push([
+            {
+              ...flooringField,
+              label: 'Flooring installation',
+              helperText: 'Area receiving new flooring.',
+            },
+          ]);
+        }
+      }
+      if (!baseRows.some(row => row.some(field => field.key === 'floorDemoSqft'))) {
+        if (floorDemoField) {
+          flooringRows.push([
+            {
+              ...floorDemoField,
+              label: 'Flooring demo / removal',
+              helperText: 'Area where existing flooring will be removed.',
+            },
+          ]);
+        }
+      }
+      if (flooringRows.length) {
+        baseRows = [...baseRows, ...flooringRows];
+      }
+      if (compactMixedScope) {
+        const flooringMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+          'flooringSqft',
+          'floorDemoSqft',
+          'flooringLvpSqft',
+          'flooringLaminateSqft',
+          'flooringEngineeredHardwoodSqft',
+          'flooringSolidHardwoodSqft',
+          'flooringTileSqft',
+          'flooringCarpetSqft',
+        ]);
+        const movedFlooringRows: QuickMeasurementRow[] = [];
+        baseRows = baseRows
+          .map(row => {
+            const remaining = row.filter(field => {
+              if (!flooringMeasurementKeys.has(field.key)) return true;
+              movedFlooringRows.push([field]);
+              return false;
+            });
+            return remaining;
+          })
+          .filter(row => row.length > 0);
+        if (movedFlooringRows.length) {
+          baseRows = [...baseRows, ...movedFlooringRows];
+        }
+      }
+    }
     // R-value is edited on Insulation assemblies now. Keep the legacy
     // standalone field out of every Quick Measurements layout.
     baseRows = baseRows
@@ -16673,7 +16721,10 @@ function CollapsibleQuickMeasurements({
       const framed = quickMeasurementFieldDef('framedAreaSqft');
       baseRows = framed ? [[{ ...framed, label: 'Framed floor area' }]] : [];
     }
-    if (notesNameShowerTileWithFlooring(notesTextForScopeFields)) {
+    if (
+      notesNameShowerTileWithFlooring(notesTextForScopeFields) &&
+      !mixedScopeFlooringSelected
+    ) {
       const wall = quickMeasurementFieldDef('showerWallTileSqft');
       const lvp = quickMeasurementFieldDef('flooringLvpSqft');
       baseRows = [
@@ -17176,6 +17227,9 @@ function CollapsibleQuickMeasurements({
                 noteText
               ) &&
               !notesDescribeDedicatedFlooringJob(noteText);
+            const mixedScopeFlooringField =
+              mixedScopeFlooringSelected &&
+              (field.key === 'flooringSqft' || field.key === 'floorDemoSqft');
             const affirmativeFramingNotes = notesWithoutDeniedSentences(
               activeNotesForScopeFields
             );
@@ -17201,6 +17255,7 @@ function CollapsibleQuickMeasurements({
               (notesRequirePaintTakeoff && paintField) ||
               notesMentionDemolitionField ||
               notesMentionFlooringField ||
+              mixedScopeFlooringField ||
               notesMentionFramingField
             );
           })
@@ -17426,6 +17481,17 @@ function CollapsibleQuickMeasurements({
           )
       )
       .map(result => {
+        if (
+          mixedScopeFlooringSelected &&
+          (result.key === 'flooringSqft' || result.key === 'floorDemoSqft')
+        ) {
+          return {
+            ...result,
+            relevant: true,
+            blockingPrice: !result.filled || result.blockingPrice,
+            state: result.filled ? ('confirmed' as const) : ('needs_confirmation' as const),
+          };
+        }
         const hasPlanEvidence =
           Boolean(result.estimate?.planEvidence?.length) ||
           [
@@ -17485,6 +17551,7 @@ function CollapsibleQuickMeasurements({
     measurements.tradeScopeSelections,
     editingFieldKey,
     mixedAdditionDrywallNeedsMeasurement,
+    mixedScopeFlooringSelected,
     stuccoNoteFlow,
     dedicatedElectricalMeasurementKeys,
   ]);
@@ -18111,15 +18178,8 @@ function CollapsibleQuickMeasurements({
         )
       : grouped;
     let positioned = pinned;
-    const stickyMeasurementKeys = new Set<QuickMeasurementFieldKey>([
-      'wallPaintSqft',
-      'paintAreaSqft',
-      'patchRepairSqft',
-      'baseboardLf',
-    ]);
     for (const [key, home] of Object.entries(typedMeasurementHomes)) {
       if (!home) continue;
-      if (stickyMeasurementKeys.has(key as QuickMeasurementFieldKey)) continue;
       // A typed count stays in the section the contractor tapped. Moving it
       // to Confirmed remounts the box as soon as the value is entered.
       positioned = pinQuickMeasurementFieldInGroup(
@@ -18295,7 +18355,6 @@ function CollapsibleQuickMeasurements({
     }
     for (const [key, home] of Object.entries(typedMeasurementHomes)) {
       if (!home) continue;
-      if (stickyMeasurementKeys.has(key as QuickMeasurementFieldKey)) continue;
       positioned = pinQuickMeasurementFieldInGroup(
         positioned,
         key as QuickMeasurementFieldKey,
@@ -21494,6 +21553,7 @@ function CollapsibleQuickMeasurements({
           String(notes || '')
         )) ||
       (flooringQmJob &&
+        !compactMixedScope &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
       (flooringQmJob &&
@@ -21638,7 +21698,8 @@ function CollapsibleQuickMeasurements({
   const showPlumbingProjectComplexity =
     plumbingMeasurementFlow &&
     measurements.plumbingWorkflowMode !== 'service' &&
-    !notesDescribeDedicatedPlumbingFixtureRelocate(notes);
+    !notesDescribeDedicatedPlumbingFixtureRelocate(notes) &&
+    !notesNameDedicatedWaterHeaterJob(notes);
   const showElectricalProjectComplexity = false;
   const electricalNoteMeasurementKeys = useMemo(() => {
     const noteKeys = new Set(noteQuickMeasurements.keys);
@@ -24439,6 +24500,13 @@ export default function AIEstimateScopeAssumptionsModal({
     if (!answer || base.endsWith(answer)) return base;
     return `${base}\n${answer}`.trim();
   }, [authoredScopeNotes, scopeStructureAnswer]);
+  const repairedScopeDraft = useMemo(
+    () =>
+      draft && scopeNotes.trim()
+        ? repairDraftRatePricingFromNotes(draft, scopeNotes)
+        : draft,
+    [draft, scopeNotes]
+  );
   useEffect(() => {
     if (!visible) {
       scopeStructureDismissedRef.current = false;
@@ -24463,8 +24531,8 @@ export default function AIEstimateScopeAssumptionsModal({
   // original note text name.
   const originalNotes = scopeNotes;
   const mixedScopeReviewMode = useMemo(
-    () => isMixedScopeLayout(draft),
-    [draft]
+    () => isMixedScopeLayout(repairedScopeDraft),
+    [repairedScopeDraft]
   );
   const dedicatedElectricalChecklist = useMemo(() => {
     if (notesNameReceptaclesWithToilet(scopeNotes)) return false;
@@ -27116,10 +27184,15 @@ export default function AIEstimateScopeAssumptionsModal({
     if (hydratedVisibleSessionRef.current) return;
     hydratedVisibleSessionRef.current = true;
     selectedPricingRef.current = {};
-    let sourceItems = notesNameDedicatedHvacEquipmentJob(scopeNotes) &&
+    const draftForScope =
+      draft && scopeNotes.trim()
+        ? repairDraftRatePricingFromNotes(draft, scopeNotes)
+        : draft;
+    let sourceItems =
+      notesNameDedicatedHvacEquipmentJob(scopeNotes) &&
       String(checklist?.templateKey || '').toLowerCase() !== 'hvac'
-      ? dedicatedHvacEquipmentChecklistItems(scopeNotes)
-      : scopeChecklistItemsForEditing(draft);
+        ? dedicatedHvacEquipmentChecklistItems(scopeNotes)
+        : scopeChecklistItemsForEditing(draftForScope);
     const catalogFactItems = (checklist?.scopeFacts || [])
       .filter(fact => fact.scopeId && fact.status !== 'excluded')
       .map(fact => ({
@@ -27239,10 +27312,6 @@ export default function AIEstimateScopeAssumptionsModal({
       setScopeDisplayReady(true);
       return;
     }
-    const draftForScope =
-      draft && scopeNotes.trim()
-        ? repairDraftRatePricingFromNotes(draft, scopeNotes)
-        : draft;
     let nextMeasurements = prepareScopeMeasurementsInputForUi(
       mergeConfirmScopeSavedMeasurements(
         initialScopeMeasurementInputExtended(draftForScope, measurementNotes),
@@ -27919,7 +27988,7 @@ export default function AIEstimateScopeAssumptionsModal({
       roofingNotesFlow
     ) {
       const roofingInferenceNotes = collectRoofingInferenceNotes(
-        draft,
+        draftForScope,
         scopeNotes
       );
       nextMeasurements = simpleTradePanelFor('roofing').hydrateMeasurements({
@@ -27978,9 +28047,9 @@ export default function AIEstimateScopeAssumptionsModal({
           templateKey: effectiveTemplateKey,
           wholeHomeLayout: false,
           mixedScopeTrades: mixedScopeQmTradesFromDraft(
-            draft,
+            draftForScope,
             effectiveTemplateKey,
-            mixedScopeTradesFromDraft(draft),
+            mixedScopeTradesFromDraft(draftForScope),
             scopeNotes
           ),
           notes: scopeNotes,
@@ -27998,14 +28067,14 @@ export default function AIEstimateScopeAssumptionsModal({
       nextMeasurements,
       scopeNotes,
       effectiveTemplateKey,
-      draft?.projectType
+      draftForScope?.projectType
     );
     let normalized = hydrateScopeChecklistFromNotes(
       sourceItems,
       effectiveTemplateKey,
       scopeNotes,
       norm,
-      draft?.projectType
+      draftForScope?.projectType
     );
     const bathroomNotesFlow =
       String(checklist.templateKey || '').toLowerCase() === 'bathroom' ||
@@ -28087,9 +28156,9 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey: singleTradeKey || effectiveTemplateKey,
         wholeHomeLayout: false,
         mixedScopeTrades: mixedScopeQmTradesFromDraft(
-          draft,
+          draftForScope,
           singleTradeKey || effectiveTemplateKey,
-          mixedScopeTradesFromDraft(draft),
+          mixedScopeTradesFromDraft(draftForScope),
           scopeNotes
         ),
       },
@@ -28101,7 +28170,7 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       normalized = simpleTradePanelFor('hvac').syncScopeItems(
         normalized,
-        nextMeasurements as Record<string, unknown>
+        { ...nextMeasurements, scopeNotes } as Record<string, unknown>
       );
     }
     if (
@@ -28228,18 +28297,18 @@ export default function AIEstimateScopeAssumptionsModal({
     // electrical row and lose explicit note-backed items like "8 receptacles".
     normalized = syncElectricalScopeItems(normalized, {
       templateKey: checklist.templateKey,
-      projectType: draft?.projectType,
+      projectType: draftForScope?.projectType,
       notes: scopeNotes,
       electricalScope: nextMeasurements.electricalScope,
       quantities: nextMeasurements as Partial<Record<string, unknown>>,
     });
     const mixedScopeInput = {
-      draft,
+      draft: draftForScope,
       templateKey: checklist.templateKey,
-      projectType: draft?.projectType,
+      projectType: draftForScope?.projectType,
       notes: scopeNotes,
       measurements: nextMeasurements as Record<string, unknown>,
-      mixedScopeTrades: mixedScopeTradesFromDraft(draft),
+      mixedScopeTrades: mixedScopeTradesFromDraft(draftForScope),
       wholeHomeLayout: isWholeHomeQuickMeasurementTemplate(
         checklist.templateKey
       ),
@@ -29637,7 +29706,8 @@ export default function AIEstimateScopeAssumptionsModal({
         if (isHvacQmGatedScopeItem(itemId)) {
           return !isHvacQmScopeItemActive(
             itemId,
-            measurements as Record<string, unknown>
+            measurements as Record<string, unknown>,
+            scopeNotes
           );
         }
         if (
@@ -29742,7 +29812,10 @@ export default function AIEstimateScopeAssumptionsModal({
     (nextMeasurements: Record<string, unknown>) => {
       setItems(prev => {
         const next = nextMeasurements.tradeScopeSelections?.hvac
-          ? simpleTradePanelFor('hvac').syncScopeItems(prev, nextMeasurements)
+          ? simpleTradePanelFor('hvac').syncScopeItems(prev, {
+              ...nextMeasurements,
+              scopeNotes,
+            })
           : syncQmPanelScopeItems(
               prev,
               {
@@ -29976,7 +30049,8 @@ export default function AIEstimateScopeAssumptionsModal({
                   )
                 : isHvacQmScopeItemActive(
                     item.id,
-                    measurements as Record<string, unknown>
+                    measurements as Record<string, unknown>,
+                    scopeNotes
                   ))) &&
             (showGroundUpPlanShell ||
               !embedQmScopeInQuickMeasurements ||
@@ -34182,9 +34256,20 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleConfirm = () => {
-    if (applying || confirmTransitionRef.current || items.length === 0) return;
+    const confirmSource = displayItems.length
+      ? displayItems
+      : noteScopedChecklistItems.length
+        ? noteScopedChecklistItems
+        : items;
+    if (applying || confirmTransitionRef.current || confirmSource.length === 0) {
+      return;
+    }
     confirmTransitionRef.current = true;
-    bathroomQmFlushRef.current?.();
+    try {
+      bathroomQmFlushRef.current?.();
+    } catch (error) {
+      console.warn('confirm scope flush failed', error);
+    }
 
     // Do not auto-apply remaining suggestions — Applied pricing is what Continue
     // carries to Step 3. Unpriced scopes stay available to price on review.
@@ -34215,9 +34300,7 @@ export default function AIEstimateScopeAssumptionsModal({
         });
       }
       // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
-      const baseItems = scopeItemsForCurrentMeasurements(
-        displayItems.length ? displayItems : items
-      );
+      const baseItems = scopeItemsForCurrentMeasurements(confirmSource);
       const tradeFilteredItems =
         singleTradePlanImport && singleTradeKey
           ? filterChecklistItemsForTrade(
@@ -34822,16 +34905,16 @@ export default function AIEstimateScopeAssumptionsModal({
                     ? 'room_remodel'
                     : checklist?.templateKey
             }
-            projectType={draft?.projectType}
+            projectType={repairedScopeDraft?.projectType}
             notes={Array.from(
               new Set([quickMeasurementNotes, scopeNotes].filter(Boolean))
             ).join('\n')}
             hvacNotes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             qmScopeTrades={mixedScopeQmTradesFromDraft(
-              draft,
-              checklist?.templateKey,
-              mixedScopeTradesFromDraft(draft),
+              repairedScopeDraft,
+              mixedScopeReviewMode ? 'room_remodel' : checklist?.templateKey,
+              mixedScopeTradesFromDraft(repairedScopeDraft),
               scopeNotes
             )}
             mixedScopeMode={
@@ -35412,6 +35495,37 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
                   return true;
                 });
+                const kitchenPanelOwnsScope = regularItems.some(
+                  item =>
+                    new Set([
+                      'cabinets',
+                      'countertops',
+                      'backsplash',
+                      'kitchen_floor',
+                      'island',
+                      'appliances',
+                      'cabinet_demo',
+                      'countertop_demo',
+                      'backsplash_demo',
+                      'floor_demo',
+                      'island_demo',
+                      'appliance_removal',
+                    ]).has(item.id) &&
+                    checklistItemInScope(item)
+                );
+                const bathroomPanelOwnsScope = regularItems.some(
+                  item =>
+                    new Set([
+                      'vanity',
+                      'vanity_demo',
+                      'toilet',
+                      'shower_tile',
+                      'shower_floor_tile',
+                      'floor_tile',
+                      'fixture_demo',
+                    ]).has(item.id) &&
+                    checklistItemInScope(item)
+                );
                 const visibleItems = regularItems.filter(item => {
                   // Yes, or a selected finish, stays. No and Not sure come off.
                   if (!checklistItemInScope(item)) {
@@ -35439,9 +35553,11 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
                   if (
                     (item.id === 'kitchen_updates' &&
-                      notesNameKitchenRemodelPanel(scopeNotes)) ||
+                      notesNameKitchenRemodelPanel(scopeNotes) &&
+                      kitchenPanelOwnsScope) ||
                     (item.id === 'bathroom_updates' &&
-                      notesNameBathroomRemodelPanel(scopeNotes))
+                      notesNameBathroomRemodelPanel(scopeNotes) &&
+                      bathroomPanelOwnsScope)
                   ) {
                     return false;
                   }

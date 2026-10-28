@@ -1078,6 +1078,92 @@ describe('scopePackagesForReview', () => {
     );
   });
 
+  it('keeps broad kitchen and bathroom scopes visible until their detail rows exist', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'flooring', label: 'Flooring installation', state: 'included', inputType: 'yes_no' },
+      { id: 'interior_paint', label: 'Interior paint', state: 'included', inputType: 'yes_no' },
+      { id: 'interior_door_install', label: 'Interior door installation', state: 'included', inputType: 'yes_no' },
+      { id: 'baseboard_install', label: 'Trim / baseboard installation', state: 'included', inputType: 'yes_no' },
+      { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included', inputType: 'yes_no' },
+      { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      originalNotes: notes,
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'room_remodel', items },
+      confirmedAssumptions: items,
+      scopeMeasurements: {},
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const ids = getScopePackagesForReview(draft).map(pkg => pkg.checklistItemId);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'flooring',
+        'interior_paint',
+        'interior_door_install',
+        'baseboard_install',
+        'kitchen_updates',
+        'bathroom_updates',
+      ])
+    );
+  });
+
+  it('does not let a kitchen countertop hide the bathroom parent scope', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included', inputType: 'yes_no' },
+      { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included', inputType: 'yes_no' },
+      { id: 'countertops', label: 'Countertops', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      originalNotes: notes,
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'room_remodel', items },
+      confirmedAssumptions: items,
+      scopeMeasurements: {},
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const ids = getScopePackagesForReview(draft).map(pkg => pkg.checklistItemId);
+    expect(ids).not.toContain('kitchen_updates');
+    expect(ids).toContain('bathroom_updates');
+    expect(ids).toContain('countertops');
+  });
+
+  it('uses current detail rows instead of a stale confirmed parent snapshot', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const parentItems: ScopeChecklistItem[] = [
+      { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included', inputType: 'yes_no' },
+      { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included', inputType: 'yes_no' },
+    ];
+    const currentItems: ScopeChecklistItem[] = [
+      ...parentItems,
+      { id: 'cabinets', label: 'Cabinets', state: 'included', inputType: 'yes_no' },
+      { id: 'toilet', label: 'Toilet', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      originalNotes: notes,
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'room_remodel', items: currentItems },
+      confirmedAssumptions: parentItems,
+      scopeMeasurements: {},
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const ids = getScopePackagesForReview(draft).map(pkg => pkg.checklistItemId);
+    expect(ids).toEqual(expect.arrayContaining(['cabinets', 'toilet']));
+    expect(ids).not.toContain('kitchen_updates');
+    expect(ids).not.toContain('bathroom_updates');
+  });
+
   it('applyDraftToEstimate scope text matches Step 3 selected rows (PDF export source)', () => {
     const checklistItems = bathroomChecklistFromGroups().map((item) => {
       if (item.id === 'demo' || item.id === 'cleanup') {

@@ -38,6 +38,20 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('keeps excavation pricing on CY instead of accepting an area basis', () => {
+    expect(getChecklistItemQuantityRuleOrDefault('excavation', 'ground_up')).toMatchObject({
+      defaultUnit: 'cy',
+      allowedUnits: ['cy', 'allowance', 'lump_sum'],
+    });
+    const resolved = resolveChecklistItemQuantity(
+      'excavation',
+      inputWith({ excavationCy: '' }),
+      { templateKey: 'ground_up' }
+    );
+    expect(resolved.unit).toBe('cy');
+    expect(resolved.pricingReady).toBe(false);
+  });
+
   it('prices note-backed interior trim LF with the national LF rate', () => {
     const pricing = resolveScopeItemSuggestedPricing(
       'interior_trim',

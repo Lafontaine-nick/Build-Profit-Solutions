@@ -15,6 +15,7 @@ import {
 } from '@/utils/kitchenNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
 import {
+  notesDescribeMixedProjectScope,
   noteUsesSeparateJobReader,
   readNoteWork,
 } from '@/utils/noteClauseReader';
@@ -2242,7 +2243,26 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   room_remodel: [
     row(
       F('floorAreaSqft', 'Living area', '1400', 'sqft', 'structure', true),
-      F('flooringSqft', 'Total flooring area', 'Enter', 'sqft', 'interior')
+      F(
+        'flooringSqft',
+        'Flooring installation',
+        'Enter',
+        'sqft',
+        'interior',
+        undefined,
+        'Area receiving new flooring.'
+      )
+    ),
+    row(
+      F(
+        'floorDemoSqft',
+        'Flooring demo / removal',
+        'Enter',
+        'sqft',
+        'interior',
+        undefined,
+        'Area where existing flooring will be removed.'
+      )
     ),
     row(
       F('cabinetLf', 'Cabinets', '42', 'LF', 'interior'),
@@ -2637,9 +2657,12 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
     params.projectType
   );
   const notes = String(params.notes || '');
+  if (notesDescribeMixedProjectScope(notes) && !params.planImportMode) {
+    return 'room_remodel';
+  }
   if (
-    notesNameDedicatedHvacServiceVisit(notes) ||
-    notesNameDedicatedHvacEquipmentJob(notes)
+    (notesNameDedicatedHvacServiceVisit(notes) ||
+      notesNameDedicatedHvacEquipmentJob(notes))
   ) {
     return 'hvac';
   }
@@ -3239,6 +3262,7 @@ export function quickMeasurementRowsForTemplate(
   const optionalKeys = new Set<QuickMeasurementFieldKey>([
     'floorAreaSqft',
     'flooringSqft',
+    'floorDemoSqft',
     'drywallSqft',
     'baseboardLf',
     'wallPaintSqft',
@@ -3266,7 +3290,11 @@ export function quickMeasurementRowsForTemplate(
     .map(row =>
       row.filter(field => {
         if (!optionalKeys.has(field.key)) return true;
-        if (field.key === 'floorAreaSqft' || field.key === 'flooringSqft')
+        if (
+          field.key === 'floorAreaSqft' ||
+          field.key === 'flooringSqft' ||
+          field.key === 'floorDemoSqft'
+        )
           return hasFlooring;
         if (field.key === 'drywallSqft') return hasDrywall;
         if (field.key === 'baseboardLf') return hasBaseboard;
@@ -3762,7 +3790,10 @@ export function quickMeasurementRowsForInput(
   if (notesNameLinearFootStudWall(String(options?.scopeNotes || ''))) {
     return linearFootStudWallRows(String(options?.scopeNotes || ''));
   }
-  if (notesDescribeDrywallAndFlooringJob(options?.scopeNotes)) {
+  if (
+    notesDescribeDrywallAndFlooringJob(options?.scopeNotes) &&
+    !options?.crossScopeMode
+  ) {
     const patchOnly = /\b(?:patch(?:ing|es)?|repair)\b/i.test(
       String(options?.scopeNotes || '')
     ) && !/\bhang\b/i.test(String(options?.scopeNotes || ''));
@@ -3834,10 +3865,18 @@ export function quickMeasurementRowsForInput(
     ['plumbing', 'plumbing_service'].includes(
       String(templateKey || '').toLowerCase()
     );
-  if (notesNameShowerTileWithFlooring(String(options?.scopeNotes || ''))) {
+  if (
+    notesNameShowerTileWithFlooring(String(options?.scopeNotes || '')) &&
+    !options?.crossScopeMode
+  ) {
     return showerTileWithFlooringRows(String(options?.scopeNotes || ''));
   }
-  if (notesNameWallAreaFramingWithFlooring(String(options?.scopeNotes || ''))) {
+  if (
+    notesNameWallAreaFramingWithFlooring(
+      String(options?.scopeNotes || '')
+    ) &&
+    !options?.crossScopeMode
+  ) {
     return wallAreaFramingWithFlooringRows(String(options?.scopeNotes || ''));
   }
   if (notesNameFramingOnlyAddition(String(options?.scopeNotes || ''))) {
@@ -4029,6 +4068,43 @@ export function quickMeasurementRowsForInput(
   for (const field of wholeHomeTakeoffFields(scopeNotes)) {
     if (!baseRows.some(row => row.some(existing => existing.key === field.key))) {
       noteBackedFieldsToAppend.push(field);
+    }
+  }
+  if (resolvedKey === 'room_remodel') {
+    if (
+      noteKeySet?.has('hvacServiceCallCount') &&
+      !baseRows.some(row =>
+        row.some(field => field.key === 'hvacServiceCallCount')
+      ) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.hvacServiceCallCount
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.hvacServiceCallCount
+      );
+    }
+    if (
+      /\bstucco\b/i.test(scopeNotes) &&
+      hasQuickMeasurementValue(measurements.stuccoGrossWallSqft) &&
+      !baseRows.some(row =>
+        row.some(field => field.key === 'stuccoGrossWallSqft')
+      ) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.stuccoGrossWallSqft
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.stuccoGrossWallSqft
+      );
+    }
+    if (
+      /\bstucco\b/i.test(scopeNotes) &&
+      hasQuickMeasurementValue(measurements.stuccoNetWallSqft) &&
+      !baseRows.some(row =>
+        row.some(field => field.key === 'stuccoNetWallSqft')
+      ) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.stuccoNetWallSqft
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.stuccoNetWallSqft
+      );
     }
   }
   const cabinetRemovalField = cabinetRemovalQuickField(scopeNotes);
@@ -4896,6 +4972,25 @@ export function quickMeasurementRowsForInput(
           noteText
         );
       }
+      if (field.key === 'floorDemoSqft') {
+        return /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'roofSquares') {
+        return /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'hvacServiceCallCount') {
+        return /\b(?:hvac|furnace|service\s+call)\b/i.test(noteText);
+      }
+      if (
+        field.key === 'stuccoGrossWallSqft' ||
+        field.key === 'stuccoNetWallSqft'
+      ) {
+        return /\bstucco\b/i.test(noteText);
+      }
       if (field.key === 'drywallSqft') {
         return /\b(?:drywall|sheetrock|gypsum)\b/i.test(noteText);
       }
@@ -4945,9 +5040,16 @@ export function quickMeasurementRowsForInput(
       }
       return false;
     };
-    return normalizedRows
-      .map(row => row.filter(noteMentions))
-      .filter(row => row.length > 0);
+    return [
+      ...normalizedRows
+        .map(row => row.filter(noteMentions))
+        .filter(row => row.length > 0),
+      ...chunkRows(
+        filteredExtras
+          .filter(noteMentions)
+          .map(field => applyContextLabels([field])[0] || field)
+      ),
+    ];
   }
   const groundUpNamesDeck =
     resolvedKey === 'ground_up' &&

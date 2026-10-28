@@ -1,5 +1,9 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import {
+  readScopeFoundPieces,
+  scopeFoundNamesLandscapeClearing,
+} from '@/utils/scopeFoundClarification';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
 /** Checklist lines synced from the landscaping QM panel. */
@@ -430,7 +434,16 @@ function hydrateLandscaping(ctx: QmPanelHydrateContext): Record<string, unknown>
     ? saved.map((id) => (id === 'sod' || id === 'sod_turf' ? 'artificial_turf' : id))
     : saved;
   const scope = migratedSaved.length ? [...migratedSaved] : [...inferred];
-  if (
+  const namedRemoval = scopeFoundNamesLandscapeClearing(
+    readScopeFoundPieces(ctx.measurements.scopeFoundPieces)
+  );
+  if (namedRemoval) {
+    for (let index = scope.length - 1; index >= 0; index -= 1) {
+      if (landscapingScopeCanonicalId(scope[index]) === 'demo_clearing') {
+        scope.splice(index, 1);
+      }
+    }
+  } else if (
     LANDSCAPE_DEMO_NOTE.test(notes) &&
     !scope.some(id => landscapingScopeCanonicalId(id) === 'demo_clearing')
   ) {

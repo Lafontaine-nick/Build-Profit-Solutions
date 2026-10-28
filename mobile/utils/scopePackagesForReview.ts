@@ -23,6 +23,7 @@ import {
   areaOnlyAdditionScopeIds,
   ensureWholeProjectGroundUpScopeItems,
   isWholeProjectPlanExport,
+  scopeChecklistItemsForEditing,
   WET_AREA_DERIVED_ITEM_IDS,
   type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
@@ -602,7 +603,7 @@ export function buildConfirmScopeDisplayItems(
         : row
     );
   }
-  expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements);
+  expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements, notes);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
     const hasSpecificFlooringProduct = expanded.some(
       row =>
@@ -715,6 +716,10 @@ export function applyStep2NoteScopeFilters(
       measurements
     );
   }
+  const wholeHomeRemodelMentioned =
+    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+      notes
+    );
   const noteScopeParams = {
     notes,
     templateKey: draft.scopeChecklist?.templateKey || templateKey,
@@ -725,7 +730,7 @@ export function applyStep2NoteScopeFilters(
         measurements.planImportFingerprint ||
         measurements.planImportSession
     ),
-    wholeHome: wholeHomeMixedRemodelNote(notes),
+    wholeHome: wholeHomeMixedRemodelNote(notes) || wholeHomeRemodelMentioned,
   };
   const roofingNoteParams = {
     ...noteScopeParams,
@@ -777,6 +782,76 @@ export function applyStep2NoteScopeFilters(
     notes,
     { planBacked: noteScopeParams.planBacked }
   );
+  if (wholeHomeRemodelMentioned) {
+    const namedWholeHomeScopes = [
+      { id: 'flooring', pattern: /\bflooring\b/i },
+      { id: 'kitchen_updates', pattern: /\bkitchen\b/i },
+      { id: 'bathroom_updates', pattern: /\b(?:bathroom|bath)s?\b/i },
+    ];
+    for (const scope of namedWholeHomeScopes) {
+      if (!scope.pattern.test(notes)) {
+        continue;
+      }
+      const existingIndex = filtered.findIndex(item => item.id === scope.id);
+      if (existingIndex >= 0 && filtered[existingIndex].state !== 'excluded') {
+        continue;
+      }
+      const sourceItem = items.find(item => item.id === scope.id);
+      if (sourceItem) {
+        const includedItem = {
+          ...sourceItem,
+          state: 'included' as const,
+          noteBacked: true,
+        };
+        if (existingIndex >= 0) {
+          filtered = filtered.map((item, index) =>
+            index === existingIndex ? includedItem : item
+          );
+        } else {
+          filtered = [...filtered, includedItem];
+        }
+      }
+    }
+    const kitchenDetailIds = new Set([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'kitchen_floor',
+      'island',
+      'appliances',
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'floor_demo',
+      'island_demo',
+      'appliance_removal',
+    ]);
+    const bathroomDetailIds = new Set([
+      'vanity',
+      'vanity_demo',
+      'toilet',
+      'shower_tile',
+      'shower_floor_tile',
+      'floor_tile',
+      'fixture_demo',
+    ]);
+    const hasIncludedDetail = (ids: Set<string>) =>
+      filtered.some(
+        item =>
+          ids.has(String(item.id || '')) &&
+          item.state !== 'excluded' &&
+          item.state !== 'unsure'
+      );
+    const kitchenHasDetails = hasIncludedDetail(kitchenDetailIds);
+    const bathroomHasDetails = hasIncludedDetail(bathroomDetailIds);
+    if (kitchenHasDetails || bathroomHasDetails) {
+      filtered = filtered.filter(item => {
+        if (item.id === 'kitchen_updates') return !kitchenHasDetails;
+        if (item.id === 'bathroom_updates') return !bathroomHasDetails;
+        return true;
+      });
+    }
+  }
   if (paintingPlanAssumesNewConstruction(measurements, notes)) {
     filtered = filtered.filter(item => item.id !== 'prep');
   }
@@ -860,9 +935,13 @@ export function applyStep2NoteScopeFilters(
 
 /** Checklist rows for Applied-pricing math after Continue — mirrors Step 2 displayItems. */
 export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): ScopeChecklistItem[] {
-  const base = draft.confirmedAssumptions?.length
-    ? draft.confirmedAssumptions
-    : draft.scopeChecklist?.items;
+  // `confirmedAssumptions` is a Step 2 snapshot. Quick-measurement edits can
+  // add detail rows to `scopeChecklist.items` afterward; prefer the current
+  // checklist and overlay the saved states instead of reviving the stale
+  // parent-only snapshot for Step 3.
+  const base = draft.scopeChecklist?.items?.length
+    ? scopeChecklistItemsForEditing(draft)
+    : draft.confirmedAssumptions;
   if (!base?.length) return [];
   const measurements = {
     ...((draft.scopeMeasurements || {}) as Record<string, unknown>),
@@ -1132,6 +1211,35 @@ function paintingScopeOmitsReviewItem(
   return !surfaces.includes(surface);
 }
 
+const KITCHEN_PANEL_SCOPE_IDS = new Set([
+  'cabinets',
+  'countertops',
+  'backsplash',
+  'kitchen_floor',
+  'flooring',
+  'island',
+  'appliances',
+  'cabinet_demo',
+  'countertop_demo',
+  'backsplash_demo',
+  'floor_demo',
+  'island_demo',
+  'appliance_removal',
+]);
+
+// Countertop IDs are shared with the kitchen panel. Their ownership is
+// resolved below from note context so a kitchen counter cannot hide the
+// bathroom parent scope.
+const BATHROOM_PANEL_SCOPE_IDS = new Set([
+  'vanity',
+  'vanity_demo',
+  'toilet',
+  'shower_tile',
+  'shower_floor_tile',
+  'floor_tile',
+  'fixture_demo',
+]);
+
 /**
  * Flat scope row order shared by Step 2 cards and Step 3 review lines.
  * Step 3 uses the same top-to-bottom order but only rows selected on Confirm Scope.
@@ -1170,13 +1278,35 @@ export function flattenConfirmScopeVisibleRows(
       const reviewNotes = String(
         ctx.measurements.originalNotes || ctx.measurements.scopeNotes || ''
       );
+      // `countertops` and `countertop_demo` are shared checklist IDs. They
+      // belong to the kitchen when the note names a kitchen, but they must
+      // not hide the bathroom parent merely because a kitchen countertop
+      // quantity was entered.
+      const kitchenPanelOwnsScope =
+        displayItems.some(
+          item =>
+            KITCHEN_PANEL_SCOPE_IDS.has(item.id) &&
+            !['flooring', 'countertops', 'countertop_demo'].includes(item.id)
+        ) ||
+        (/\bkitchen\b/i.test(reviewNotes) &&
+          displayItems.some(item =>
+            ['countertops', 'countertop_demo'].includes(item.id)
+          ));
+      const bathroomPanelOwnsScope =
+        displayItems.some(item => BATHROOM_PANEL_SCOPE_IDS.has(item.id)) ||
+        (!/\bkitchen\b/i.test(reviewNotes) &&
+          displayItems.some(item =>
+            ['countertops', 'countertop_demo'].includes(item.id)
+          ));
       // The kitchen and bathroom panels own these lines on Confirm Scope.
       // The parent "updates" rows have no price of their own.
       if (
         (item.id === 'kitchen_updates' &&
-          notesNameKitchenRemodelPanel(reviewNotes)) ||
+          notesNameKitchenRemodelPanel(reviewNotes) &&
+          kitchenPanelOwnsScope) ||
         (item.id === 'bathroom_updates' &&
-          notesNameBathroomRemodelPanel(reviewNotes))
+          notesNameBathroomRemodelPanel(reviewNotes) &&
+          bathroomPanelOwnsScope)
       ) {
         return false;
       }

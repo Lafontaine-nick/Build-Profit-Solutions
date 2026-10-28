@@ -144,6 +144,37 @@ describe('framing canonical architecture', () => {
     ]);
   });
 
+  it('puts wall framing removals in Demo above the stud wall', () => {
+    const grouped = groupScopeChecklistItems(
+      [
+        {
+          id: 'wall_framing',
+          label: 'Wall framing',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'framing_demo__interior_walls',
+          label: 'Interior wall removal',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'framing_demo__exterior_walls',
+          label: 'Exterior wall removal',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      'framing'
+    );
+    expect(grouped.map(group => group.title)).toEqual(['Demo', 'Wall framing']);
+    expect(grouped[0]?.items.map(item => item.id)).toEqual([
+      'framing_demo__interior_walls',
+      'framing_demo__exterior_walls',
+    ]);
+  });
+
   it('derives covered framed SF from living plus garage', () => {
     expect(
       resolveCoveredFramedAreaSqft({ floorAreaSqft: 2000, garageSqft: 400 })

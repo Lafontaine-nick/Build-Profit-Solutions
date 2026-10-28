@@ -73,11 +73,19 @@ export function stuccoWithWindowsCount(
 export function dedicatedStuccoWallSqft(
   notes: string | null | undefined
 ): number | null {
-  const parsed = parseStuccoMeasurementsFromNotes(String(notes || ''));
+  const text = String(notes || '');
+  const parsed = parseStuccoMeasurementsFromNotes(text);
   const net = Number(parsed.stuccoNetWallSqft);
   if (Number.isFinite(net) && net > 0) return net;
   const gross = Number(parsed.stuccoGrossWallSqft);
   if (Number.isFinite(gross) && gross > 0) return gross;
+  const genericMatch = text.match(
+    /(?:\bstucco\b[^0-9.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))|(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))[^0-9.;\n]{0,80}?\bstucco\b)/i
+  );
+  const generic = Number(
+    String(genericMatch?.[1] || genericMatch?.[2] || '').replace(/,/g, '')
+  );
+  if (Number.isFinite(generic) && generic > 0) return generic;
   return null;
 }
 

@@ -365,14 +365,33 @@ describe('scope found clarification', () => {
       'Countertops',
       'Backsplash',
       'Appliances',
-      'Carpet',
-      'Tile',
-      'Hardwood',
-      'Vinyl',
-      'Laminate',
+      'Flooring',
       'No demo',
       'Not sure',
     ]);
+  });
+
+  it('keeps generic whole-home flooring as one removal choice', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const selected = measurementsForScopeFoundChoice(
+      {},
+      'whole_home_demo',
+      ['flooring'],
+      notes
+    );
+    expect(
+      applyScopeFoundClarification([], notes, selected).map(item => item.id)
+    ).toEqual(['floor_demo']);
+    expect(
+      scopeFoundRevealLines(
+        notes,
+        'whole_home_demo',
+        null,
+        ['flooring'],
+        selected
+      )
+    ).toEqual([{ name: 'Remove flooring', amount: 0, quantity: '' }]);
   });
 
   it('puts selected deck removal on its own lines and prices the surface at the deck removal rate', () => {
@@ -623,13 +642,32 @@ describe('scope found clarification', () => {
     expect(resolveScopeFoundClarification('Install 12 recessed lights.')?.id).toBe(
       'electrical_demo'
     );
-    expect(resolveScopeFoundClarification('Install a new water heater.')?.id).toBe(
-      'plumbing_demo'
-    );
+    expect(resolveScopeFoundClarification('Install a new water heater.')).toMatchObject({
+      id: 'plumbing_demo',
+      question: 'Is the existing water heater being removed?',
+    });
+    expect(
+      resolveScopeFoundClarification('Install a new water heater.')?.options.map(
+        option => option.label
+      )
+    ).toEqual(['Water heater', 'No demo', 'Not sure']);
+    expect(
+      resolveScopeFoundClarification('Install a new water heater and repipe the house.')?.options.map(
+        option => option.label
+      )
+    ).toEqual(['Water heater', 'Piping', 'No demo', 'Not sure']);
     expect(resolveScopeFoundClarification('Install 8 new windows.')?.id).toBe('openings_demo');
-    expect(resolveScopeFoundClarification('Excavate 2,000 sqft for a foundation.')?.id).toBe(
-      'excavation_demo'
+    const excavationPrompt = resolveScopeFoundClarification(
+      'Excavate 2,000 sqft for a foundation.'
     );
+    expect(excavationPrompt?.id).toBe('excavation_demo');
+    expect(excavationPrompt?.options.map(option => option.label)).toEqual([
+      'Trees',
+      'Brush',
+      'Concrete',
+      'No demo',
+      'Not sure',
+    ]);
   });
 
   it('treats a stucco replacement as removal and asks nothing', () => {
@@ -713,6 +751,7 @@ describe('scope found clarification', () => {
         notes
       ).fill
     ).toMatchObject({ material: 300, labor: 500, total: 800 });
+
     const groups = groupScopeChecklistItems(
       [
         { id: 'pour_flatwork', label: 'Pour flatwork', state: 'included', inputType: 'yes_no' },
@@ -734,13 +773,25 @@ describe('scope found clarification', () => {
       'concrete',
       { notes }
     );
-    expect(groups.map(group => group.title)).toEqual(['Pour', 'Demo']);
-    expect(groups[1]?.items.map(item => item.id)).toEqual([
+    expect(groups.map(group => group.title)).toEqual(['Demo', 'Pour']);
+    expect(groups[0]?.items.map(item => item.id)).toEqual([
       'demo_removal__concrete_slab',
       'demo_removal__asphalt',
       'demo_removal__concrete_pavers',
       'demo_removal__gravel',
     ]);
+  });
+
+  it('does not reuse excavation area for selected site-removal materials', () => {
+    const excavation = measurementsForScopeFoundChoice(
+      {},
+      'excavation_demo',
+      ['site_trees', 'site_brush', 'site_concrete', 'site_structure'],
+      'Excavate 2,000 sqft for a foundation.'
+    );
+
+    expect(excavation.concreteDemoSqft).toBeNull();
+    expect(excavation.itemQuantities).toEqual({});
   });
 
   it('prices the other single-trade demos on their own cards', () => {
@@ -752,6 +803,18 @@ describe('scope found clarification', () => {
       'insulation_removal__batts',
       'insulation_removal__blown',
     ]);
+    expect(
+      groupScopeChecklistItems(
+        insulation.map(id => ({
+          id,
+          label: id,
+          state: 'included' as const,
+          inputType: 'yes_no' as const,
+        })),
+        'insulation',
+        { notes: 'Install R-38 attic insulation, 1,200 sqft.' }
+      ).map(group => group.title)
+    ).toContain('Demo');
     const hvac = measurementsForScopeFoundChoice(
       {},
       'hvac_demo',
@@ -761,6 +824,30 @@ describe('scope found clarification', () => {
     expect(
       applyScopeFoundClarification([], 'Install a new furnace.', hvac).map(item => item.id)
     ).toEqual(['hvac_demo__hvac_furnace']);
+    const heater = measurementsForScopeFoundChoice(
+      {},
+      'plumbing_demo',
+      ['water_heater'],
+      'Install a new water heater.'
+    );
+    expect(
+      applyScopeFoundClarification([], 'Install a new water heater.', heater).map(item => item.id)
+    ).toEqual(['plumbing_demo__water_heater']);
+    expect(
+      groupScopeChecklistItems(
+        [
+          { id: 'water_heater', label: 'Water heater', state: 'included', inputType: 'yes_no' },
+          {
+            id: 'plumbing_demo__water_heater',
+            label: 'Water heater removal',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+        'plumbing',
+        { notes: 'Install a new water heater.' }
+      ).map(group => group.title)
+    ).toContain('Demo');
     const normalized = normalizeScopeMeasurements({
       itemQuantities: hvac.itemQuantities,
     });
@@ -779,6 +866,77 @@ describe('scope found clarification', () => {
         'Install a new furnace.'
       ).fill
     ).toMatchObject({ material: 75, labor: 225, total: 300 });
+  });
+
+  it('prices landscape removals in whole dollars and groups them above the install', () => {
+    const notes = 'Install 2,000 sqft of sod.';
+    const itemQuantities = {
+      demo_clearing__sod: { quantity: 2000, unit: 'sqft' },
+      demo_clearing__landscape_rock: { quantity: 50, unit: 'sqft' },
+      demo_clearing__mulch: { quantity: 100, unit: 'sqft' },
+      demo_clearing__plants: { quantity: 50, unit: 'sqft' },
+      paver_demo__landscape_pavers: { quantity: 100, unit: 'sqft' },
+    };
+    const price = (id: string) =>
+      resolveScopeItemSuggestedPricing(
+        id,
+        { itemQuantities },
+        'landscaping',
+        resolveChecklistItemQuantity(
+          id,
+          normalizeScopeMeasurements({ itemQuantities }),
+          { notes }
+        ),
+        null,
+        null,
+        notes
+      ).fill;
+    expect(price('demo_clearing__sod')).toMatchObject({
+      material: 300,
+      labor: 900,
+      total: 1200,
+    });
+    expect(price('demo_clearing__landscape_rock')).toMatchObject({
+      material: 20,
+      labor: 42,
+      total: 62,
+    });
+    expect(price('demo_clearing__mulch')).toMatchObject({
+      material: 15,
+      labor: 35,
+      total: 50,
+    });
+    expect(price('demo_clearing__plants')).toMatchObject({
+      material: 17,
+      labor: 38,
+      total: 55,
+    });
+    expect(price('paver_demo__landscape_pavers')).toMatchObject({
+      material: 125,
+      labor: 225,
+      total: 350,
+    });
+    const groups = groupScopeChecklistItems(
+      [
+        { id: 'sod_turf', label: 'Sod', state: 'included', inputType: 'yes_no' },
+        { id: 'demo_clearing__sod', label: 'Sod removal', state: 'included', inputType: 'yes_no' },
+        {
+          id: 'demo_clearing__landscape_rock',
+          label: 'Rock removal',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'paver_demo__landscape_pavers',
+          label: 'Paver removal',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      'landscaping',
+      { notes }
+    );
+    expect(groups.map(group => group.title)).toEqual(['Demo', 'Landscape']);
   });
 
   it('prices a confirmed panel and wiring removal at one each', () => {

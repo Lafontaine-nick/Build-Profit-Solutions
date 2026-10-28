@@ -20,8 +20,10 @@ import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
+import { resolveEffectiveQuickMeasurementTemplateKey } from '@/utils/scopeQuickMeasurements';
 import {
   applyNoteClauseReads,
+  notesDescribeMixedProjectScope,
   noteUsesSeparateJobReader,
   readNoteWork,
 } from '@/utils/noteClauseReader';
@@ -71,6 +73,70 @@ function draftFor(notes: string) {
 }
 
 describe('note clause reader', () => {
+  it('keeps a service call note with build and repair work in mixed scope', () => {
+    const notes =
+      'Replace carpet with 900 sqft LVP. Reroof 26 squares of architectural shingles. Paint walls, 2,000 sqft. Replace the stucco, 1,800 sqft. HVAC service call to diagnose the furnace. Patch and texture 300 sqft of drywall. No new hang. Build a 2,600 sqft single-family home. 500 sqft bedroom addition with a tie-in roof.';
+    expect(notesDescribeMixedProjectScope(notes)).toBe(true);
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'hvac',
+        projectType: 'hvac',
+        notes,
+      })
+    ).toBe('room_remodel');
+
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'hvac',
+        projectTitle: 'HVAC service call',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        scopeMode: 'dedicated',
+        classification: {
+          scopeMode: 'dedicated',
+          primaryTrade: 'hvac',
+          detectedTrades: ['hvac'],
+        },
+        scopeChecklist: {
+          templateKey: 'hvac',
+          items: [
+            { id: 'stucco', label: 'Stucco', state: 'included' },
+            { id: 'flooring', label: 'LVP', state: 'included' },
+            { id: 'interior_paint', label: 'Interior painting', state: 'included' },
+            { id: 'patch_repair', label: 'Drywall repair', state: 'included' },
+          ],
+        },
+        scopeMeasurements: {},
+        scopePackages: [],
+        whatAiDid: [],
+      } as never,
+      notes
+    );
+
+    expect(repaired.scopeMode).toBe('mixed');
+    expect(repaired.scopeChecklist?.templateKey).toBe('room_remodel');
+    expect(getInitialRevealDisplayTitle(repaired)).toBe('Mixed-scope estimate');
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: repaired.scopeChecklist?.templateKey,
+        projectType: repaired.projectType,
+        notes,
+      })
+    ).toBe('room_remodel');
+    expect(repaired.scopeMeasurements?.stuccoGrossWallSqft).toBe(1800);
+    expect(repaired.scopeMeasurements?.hvacServiceCallCount).toBe(1);
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(900);
+    expect(repaired.scopeMeasurements?.flooringSqft).toBe(900);
+    expect(repaired.scopeMeasurements?.floorDemoSqft).toBe(900);
+    expect(repaired.scopeMeasurements?.roofSquares).toBe(26);
+    expect(repaired.scopeMeasurements?.wallPaintSqft).toBe(2000);
+    expect(repaired.scopeMeasurements?.patchRepairSqft).toBe(300);
+    expect(repaired.scopeMeasurements?.drywallSqft).toBeUndefined();
+    const ids = repaired.scopeChecklist?.items?.map(item => item.id) || [];
+    expect(ids).toEqual(expect.arrayContaining(['service_call', 'roofing', 'stucco']));
+    expect(ids.filter(id => id === 'flooring_lvp')).toHaveLength(0);
+  });
+
   it('keeps a taught drywall and LVP pair on its own checklist', () => {
     const read = readNoteWork(TAUGHT);
     expect(read.lines.map(line => [line.label, line.quantity])).toEqual([

@@ -122,6 +122,49 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.baseboardLf).toBe(160);
   });
 
+  it('puts a trailing attic area on the R-38 install', () => {
+    expect(
+      parseInsulationAssembliesFromNotes(
+        'Install R-38 attic insulation, 1,200 sqft.'
+      )
+    ).toEqual([
+      expect.objectContaining({
+        location: 'attic_ceiling',
+        materialType: 'Batt',
+        rValue: 'R-38',
+        sqft: 1200,
+      }),
+    ]);
+    const resolved = resolveChecklistItemQuantity(
+      'insulation',
+      normalizeScopeMeasurements({
+        insulationAssemblies: [
+          {
+            id: 'attic',
+            materialType: 'Batt',
+            rValue: 'R-38',
+            sqft: 1200,
+            location: 'attic_ceiling',
+            confirmed: true,
+            battFacing: 'not_sure',
+          },
+        ],
+      }),
+      {
+        templateKey: 'insulation',
+        notes: 'Install R-38 attic insulation, 1,200 sqft.',
+      }
+    );
+    expect(resolved.quantity).toBe(1200);
+    expect(resolved.pricingReady).toBe(true);
+    expect(
+      parseScopeMeasurementsFromNotes(
+        'Install R-38 attic insulation, 1,200 sqft.',
+        { templateKey: 'insulation' }
+      ).floorAreaSqft
+    ).toBeUndefined();
+  });
+
   it('preserves explicit wall and attic insulation locations without inventing quantities', () => {
     const assemblies = parseInsulationAssembliesFromNotes(
       'Remodel a 2,400 sqft home with wall and attic insulation, air sealing, and interior paint.'
@@ -1673,6 +1716,20 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.concreteSqft).toBe(400);
     expect(parsed.complexFormingLf).toBe(80);
     expect(parsed.concreteReinforcementSqft).toBe(400);
+  });
+
+  it('keeps foundation excavation area when depth is not stated', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Excavate 2,000 sqft for a foundation.',
+      {
+        templateKey: 'concrete',
+        projectType: 'concrete',
+      }
+    );
+
+    expect(parsed.excavationAreaSqft).toBe(2000);
+    expect(parsed.excavationDepthInches).toBeUndefined();
+    expect(parsed.excavationCy).toBeUndefined();
   });
 
   it('does not borrow patio or paver areas for exterior paint or landscape coverage', () => {

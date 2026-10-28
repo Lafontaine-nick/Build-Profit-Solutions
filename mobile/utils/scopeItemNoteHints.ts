@@ -410,15 +410,19 @@ function hvacClauseAffirmsSubject(clause: string, subject: string): boolean {
   ).test(clause);
 }
 
-/** A complete system or a stated tonnage. A furnace or heat pump by itself is equipment. */
+/** A new system or a new unit. A furnace or heat pump by itself is equipment. */
 export function hvacNotesNameInstalledSystem(
   notes: string | null | undefined
 ): boolean {
   const text = String(notes || '');
   return (
-    /\b(?:hvac|heating|cooling|heat[\s-]*pump|furnace|condenser|air\s*handler|mini[\s-]?split)\s+systems?\b/i.test(
+    /\b(?:hvac|heating|cooling|heat[\s-]*pumps?|furnaces?|condensers?|air\s*handlers?|mini[\s-]?splits?)\s+systems?\b/i.test(
       text
-    ) || /\b\d[\d,]*(?:\.\d+)?\s*(?:-\s*)?tons?\b/i.test(text)
+    ) ||
+    /\bnew\s+(?:hvac\s+)?systems?\b/i.test(text) ||
+    /\bnew\s+hvac\b/i.test(text) ||
+    /\b(?:new\s+)?(?:hvac|heating|cooling)\s+units?\b/i.test(text) ||
+    /\bnew\s+units?\b/i.test(text)
   );
 }
 

@@ -84,6 +84,21 @@ describe('getMeasurementRelevance', () => {
     ).toBe(true);
   });
 
+  test('whole-home flooring exposes both install and demo measurements', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    for (const measurementKey of ['flooringSqft', 'floorDemoSqft'] as const) {
+      expect(
+        getMeasurementRelevance({
+          measurementKey,
+          includedScopeKeys: [],
+          templateKey: 'room_remodel',
+          notes,
+        }).relevant
+      ).toBe(true);
+    }
+  });
+
   test('kitchen floor hides when kitchen flooring work is deselected', () => {
     expect(
       getMeasurementRelevance({
@@ -152,6 +167,17 @@ describe('getMeasurementRelevance', () => {
         includedScopeKeys: ['backsplash'],
       }).relevant
     ).toBe(true);
+  });
+
+  test('selected kitchen flooring exposes its measurement field', () => {
+    const result = getMeasurementRelevance({
+      measurementKey: 'flooringSqft',
+      includedScopeKeys: ['flooring'],
+      templateKey: 'room_remodel',
+      notes:
+        'Update the kitchen and bathroom. Cabinets, countertops, backsplash, appliances, and flooring are included.',
+    });
+    expect(result.relevant).toBe(true);
   });
 
   test('kitchen cross-trade notes expose drywall and wall insulation measurements', () => {

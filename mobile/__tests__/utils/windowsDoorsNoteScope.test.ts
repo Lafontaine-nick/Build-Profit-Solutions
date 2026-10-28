@@ -16,6 +16,7 @@ import {
   windowsDoorsPlanOpeningSettled,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { bucketWindowsDoorsPriceGroups } from '@/utils/estimateScopeChecklistUi';
 
 const NOTE = 'Replace 6 windows, 2 exterior doors, and 4 interior doors.';
 
@@ -234,5 +235,38 @@ describe('dedicated windows and doors note', () => {
     expect(summary.detected).toBe(4);
     expect(summary.confirmed).toBe(0);
     expect(summary.relevantTotal).toBe(4);
+  });
+
+  it('puts selected opening removals in Demo above the window install', () => {
+    const groups = bucketWindowsDoorsPriceGroups([
+      {
+        title: 'Windows',
+        items: [
+          { id: 'windows', label: 'Windows', state: 'included', inputType: 'yes_no' },
+        ],
+      },
+      {
+        title: 'Other',
+        items: [
+          {
+            id: 'opening_demo__existing_windows',
+            label: 'Window removal',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+          {
+            id: 'opening_demo__existing_exterior_doors',
+            label: 'Exterior door removal',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+    ]);
+    expect(groups.map(group => group.title)).toEqual(['Demo', 'Windows']);
+    expect(groups[0]?.items.map(item => item.id)).toEqual([
+      'opening_demo__existing_windows',
+      'opening_demo__existing_exterior_doors',
+    ]);
   });
 });

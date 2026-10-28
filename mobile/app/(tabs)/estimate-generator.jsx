@@ -5830,7 +5830,13 @@ export default function EstimateGeneratorScreen() {
         setAiClarifyQuestions(null);
         setAiClarifyQuestionItems(null);
         setAiClarifyAppliedSummary(null);
-        openAiDraftReviewAfterScope(syncedDraft);
+        // Continue to review is Step 3. Scope found is the screen before
+        // Confirm scope; opening it again leaves the green button looking dead.
+        if (skipPricing) {
+          transitionToAiReview();
+        } else {
+          openAiDraftReviewAfterScope(syncedDraft);
+        }
         return;
       }
 
@@ -5893,6 +5899,7 @@ export default function EstimateGeneratorScreen() {
       syncDraftWithLatestScopeMeasurements,
       prefetchClarifyForDraft,
       openAiDraftReviewAfterScope,
+      transitionToAiReview,
     ]
   );
 
@@ -6337,8 +6344,17 @@ export default function EstimateGeneratorScreen() {
           await applyScopeAssumptionsToDraft(draftForScope, confirmedItems, scopeMeasurements)
         );
         // The temporary progress snapshot is no longer needed once the
-        // server-confirmed scope has been returned.
-        enriched = { ...enriched, scopeProgressItems: undefined };
+        // server-confirmed scope has been returned. Keep the confirmed flag
+        // on the client even if a later merge only saved in-progress rows.
+        enriched = {
+          ...enriched,
+          scopeProgressItems: undefined,
+          scopeAssumptionsConfirmed: true,
+          requiresScopeConfirmation: false,
+          confirmedAssumptions: enriched.confirmedAssumptions?.length
+            ? enriched.confirmedAssumptions
+            : confirmedItems,
+        };
         if (__DEV__) {
           const q = enriched.scopeMeasurements?.itemQuantities || {};
           const pkg = enriched.scopePackages?.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));

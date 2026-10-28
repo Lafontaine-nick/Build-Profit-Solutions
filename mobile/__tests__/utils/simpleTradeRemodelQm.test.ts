@@ -54,7 +54,7 @@ describe('simple trade QM panels', () => {
   it('routes mini-split notes to mini-split equipment pricing', () => {
     expect(
       inferHvacScopeSelectionsFromNotes('Install one mini-split HVAC system.')
-    ).toEqual(['mini_split']);
+    ).toEqual(['mini_split', 'hvac_systems']);
 
     const measurements = applyHvacScopeMeasurements({
       tradeScopeSelections: { hvac: ['mini_split'] },
@@ -293,6 +293,67 @@ describe('simple trade QM panels', () => {
     );
   });
 
+  it('puts a new furnace install on its own pricing card', () => {
+    const notes = 'Install a new furnace';
+    expect(isHvacQmScopeItemActive('furnace', {}, notes)).toBe(true);
+    const display = expandHvacEquipmentScopeDisplayItems(
+      [{ id: 'hvac', label: 'HVAC', state: 'included', inputType: 'yes_no' }],
+      {},
+      notes
+    );
+    expect(display.find(item => item.id === 'furnace')).toMatchObject({
+      label: 'Furnace',
+      state: 'included',
+    });
+    const quantity = resolveChecklistItemQuantity('furnace', { itemQuantities: {} } as any, {
+      notes,
+      templateKey: 'hvac',
+    });
+    expect(quantity).toMatchObject({ quantity: 1, unit: 'each', pricingReady: true });
+    expect(
+      resolveScopeItemSuggestedPricing('furnace', { itemQuantities: {} }, 'hvac', quantity, null, null, notes)
+        .fill?.total
+    ).toBe(6000);
+  });
+
+  it('keeps a new furnace on the furnace line', () => {
+    const notes = 'Install a new furnace';
+    expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(['furnace']);
+    expect(hvacScopeOptionMentionedInNotes(HVAC_SYSTEMS_OPTION_ID, notes)).toBe(
+      false
+    );
+    expect(hvacScopeOptionMentionedInNotes(HVAC_CAPACITY_OPTION_ID, notes)).toBe(
+      false
+    );
+    const resolved = resolveHvacTradeScopeSelections(
+      {
+        tradeScopeSelections: {
+          hvac: ['hvac_systems', 'hvac_capacity', 'furnace'],
+        },
+        hvacSystemTons: 4,
+      },
+      notes
+    );
+    expect(resolved).toEqual(['furnace']);
+  });
+
+  it('opens systems and capacity when the note names a new system or unit', () => {
+    for (const notes of [
+      'Install a new HVAC system',
+      'Install a new unit',
+      'Install a new heat-pump system',
+    ]) {
+      expect(inferHvacScopeSelectionsFromNotes(notes)).toEqual(
+        expect.arrayContaining(['hvac_systems'])
+      );
+      const resolved = resolveHvacTradeScopeSelections({}, notes);
+      expect(resolved).toEqual(
+        expect.arrayContaining(['hvac_systems', 'hvac_capacity'])
+      );
+      expect(resolved).not.toContain('furnace');
+    }
+  });
+
   it('keeps a named heat pump, mini-split, and air handler off the system package', () => {
     expect(inferHvacScopeSelectionsFromNotes('Replace the heat pump')).toEqual([
       'heat_pump',
@@ -348,7 +409,7 @@ describe('simple trade QM panels', () => {
     expect(hvacScopeOptionMentionedInNotes('ventilation', notes)).toBe(false);
   });
 
-  it('opens the HVAC system package when equipment is selected', () => {
+  it('keeps a selected heat pump off the system package until the note names one', () => {
     const measurements = applyHvacScopeMeasurements({
       tradeScopeSelections: { hvac: ['heat_pump'] },
       itemQuantities: {
@@ -356,12 +417,9 @@ describe('simple trade QM panels', () => {
       },
     });
     expect(measurements.hvacSystemCount).toBe(1);
-    expect(resolveHvacTradeScopeSelections(measurements)).toEqual(
-      expect.arrayContaining([
-        HVAC_SYSTEMS_OPTION_ID,
-        HVAC_CAPACITY_OPTION_ID,
-        'heat_pump',
-      ])
+    expect(resolveHvacTradeScopeSelections(measurements)).toEqual(['heat_pump']);
+    expect(resolveHvacTradeScopeSelections(measurements)).not.toEqual(
+      expect.arrayContaining([HVAC_SYSTEMS_OPTION_ID, HVAC_CAPACITY_OPTION_ID])
     );
     const synced = simpleTradePanelFor('hvac').syncScopeItems(
       [
@@ -1465,9 +1523,10 @@ describe('simple trade QM panels', () => {
     expect(summarizeHvacScopePanel(measurements, notes)).toMatchObject({
       needsConfirmationCount: 0,
     });
-    expect(resolveHvacTradeScopeSelections(measurements, notes)).not.toContain(
-      'hvac_capacity'
+    expect(resolveHvacTradeScopeSelections(measurements, notes)).toEqual(
+      expect.arrayContaining(['hvac_systems', 'hvac_capacity', 'heat_pump'])
     );
+    expect(measurements.hvacSystemTons).toBeUndefined();
   });
 
   it('recognizes qualified HVAC note quantities as explicit', () => {
@@ -1616,12 +1675,13 @@ describe('simple trade QM panels', () => {
       true
     );
     const resolved = resolveHvacTradeScopeSelections(measurements, notes);
+    expect(resolved).not.toContain(HVAC_SYSTEMS_OPTION_ID);
     expect(resolved).not.toContain(HVAC_CAPACITY_OPTION_ID);
     expect(resolved).toEqual(
       expect.arrayContaining(['furnace', 'condenser'])
     );
     expect(summarizeHvacScopePanel(measurements, notes)).toEqual({
-      inBidCount: 7,
+      inBidCount: 6,
       needsConfirmationCount: 0,
     });
   });

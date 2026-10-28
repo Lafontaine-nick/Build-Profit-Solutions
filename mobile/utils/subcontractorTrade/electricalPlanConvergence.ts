@@ -172,6 +172,7 @@ export type ElectricalCardGroupId =
   | 'fans'
   | 'appliances'
   | 'life_safety'
+  | 'demo'
   | 'rough_modifications';
 
 export type ElectricalCardDefinition = {
@@ -193,6 +194,7 @@ export const ELECTRICAL_CARD_GROUPS: Array<{
   { id: 'circuits', title: 'Circuits' },
   { id: 'receptacles', title: 'Receptacles' },
   { id: 'switches', title: 'Switches / controls' },
+  { id: 'demo', title: 'Demo' },
   { id: 'lighting', title: 'Lighting' },
   { id: 'fans', title: 'Fans' },
   { id: 'appliances', title: 'Appliance circuit + hookup' },
@@ -578,21 +580,21 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'panelRemovalCount',
     'Remove panel',
     'Remove the existing panel. Make-safe only. Not a new panel, meter, or service upgrade.',
-    'rough_modifications'
+    'demo'
   ),
   C(
     'electrical_device_removal',
     'deviceRemovalCount',
     'Device removal',
     'Remove existing receptacles or switches. Cap / make-safe only. Not a relocate and not a new device. Wall repair is a separate trade.',
-    'rough_modifications'
+    'demo'
   ),
   C(
     'electrical_fixture_removal',
     'fixtureRemovalCount',
     'Fixture removal',
     'Remove existing light fixtures or fans. Cap / make-safe only. Not a relocate and not a new fixture.',
-    'rough_modifications'
+    'demo'
   ),
   C(
     'electrical_relocate',
@@ -606,7 +608,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'abandonedCircuitCount',
     'Abandoned circuits',
     'Make-safe / abandon existing circuits. Not a new homerun. Tracing in finished walls is specialty / confirm.',
-    'rough_modifications'
+    'demo'
   ),
   C(
     'electrical_conduit',

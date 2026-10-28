@@ -281,6 +281,13 @@ function quantityLabel(value: number | null, unit: string): string {
   return `${value.toLocaleString('en-US')} ${unit}`;
 }
 
+function flooringAreaForNote(text: string): number | null {
+  return (
+    dedicatedFlooringAreaSqft(text) ||
+    (notesLookLikeWholeHome(text) ? null : statedArea(text))
+  );
+}
+
 function decline(id: ScopeFoundChoice, label = 'No demo'): {
   id: ScopeFoundChoice;
   label: string;
@@ -322,6 +329,7 @@ const PIECE_IDS = new Set<string>([
   ...ROOF_PIECES.map(piece => piece.id),
   ...KITCHEN_PIECES.map(piece => piece.id),
   ...STRUCTURE_PIECES.map(piece => piece.id),
+  'flooring',
   'walls',
   'ceilings',
   'trim',
@@ -522,13 +530,13 @@ function wholeHomeDemoPrompt(text: string): ScopeFoundClarification | null {
           { id: 'appliances', label: 'Appliances', subject: /\bappliances?\b/ },
         ])
       : []),
-    ...(/\b(?:flooring|lvp|carpet|vinyl|hardwood)\b/i.test(text)
+    ...(/\b(?:flooring|lvp|carpet|vinyl|hardwood|laminate)\b/i.test(text)
       ? piecesStillUnknown(text, [
-          { id: 'carpet', label: 'Carpet', subject: /\bcarpets?\b/ },
-          { id: 'tile', label: 'Tile', subject: /\btiles?\b/ },
-          { id: 'hardwood', label: 'Hardwood', subject: /\bhardwood\b/ },
-          { id: 'vinyl', label: 'Vinyl', subject: /\bvinyl\b/ },
-          { id: 'laminate', label: 'Laminate', subject: /\blaminate\b/ },
+          {
+            id: 'flooring',
+            label: 'Flooring',
+            subject: /\bflooring\b|\bfloors?\b/,
+          },
         ])
       : []),
   ];
@@ -883,12 +891,37 @@ function tradeForText(text: string): TradeDemo | null {
   return TRADE_DEMOS.find(trade => trade.matches(text)) || null;
 }
 
+function notesNameExistingExcavationStructure(text: string): boolean {
+  return /\b(?:existing|old|current|standing)\s+(?:house|home|garage|building|structures?)\b/i.test(
+    text
+  ) || /\b(?:remove|demo(?:lish|lition)?|tear[\s-]?out)\b[^.;]{0,60}\b(?:house|home|garage|building|structures?)\b/i.test(
+    text
+  );
+}
+
+function scopeFoundPiecesForNote(
+  text: string,
+  id: ScopeFoundClarificationId | null,
+  pieces: string[]
+): string[] {
+  if (id === 'excavation_demo' && !notesNameExistingExcavationStructure(text)) {
+    return pieces.filter(piece => piece !== 'site_structure');
+  }
+  return pieces;
+}
+
 function tradePrompt(text: string): ScopeFoundClarification | null {
   const trade = tradeForText(text);
   if (!trade) return null;
   if (/\breplace(?:ment)?\b/i.test(text)) return null;
   if (REMOVAL_NAMED.test(text) && !/\b(?:install|new)\b/i.test(text)) return null;
   let pieces = piecesStillUnknown(text, trade.pieces);
+  if (
+    trade.id === 'excavation_demo' &&
+    !notesNameExistingExcavationStructure(text)
+  ) {
+    pieces = pieces.filter(piece => piece.id !== 'site_structure');
+  }
   // A panel or service upgrade already replaces that panel.
   if (
     trade.id === 'electrical_demo' &&
@@ -896,8 +929,38 @@ function tradePrompt(text: string): ScopeFoundClarification | null {
   ) {
     pieces = pieces.filter(piece => piece.id !== 'electrical_panel');
   }
+  let question = trade.question;
+  if (trade.id === 'plumbing_demo') {
+    pieces = plumbingDemoPiecesForNote(text, pieces);
+    if (pieces.length === 1 && pieces[0].id === 'water_heater') {
+      question = 'Is the existing water heater being removed?';
+    }
+  }
   if (!pieces.length) return null;
-  return pieceQuestion(trade.id, trade.question, pieces);
+  return pieceQuestion(trade.id, question, pieces);
+}
+
+/** A heater note asks about the heater. A repipe asks about piping. */
+function plumbingDemoPiecesForNote<T extends { id: string }>(
+  text: string,
+  pieces: T[]
+): T[] {
+  const namesHeater = /\b(?:water\s+heaters?|tankless)\b/i.test(text);
+  const namesPiping = /\b(?:piping|repipes?|repipe|supply\s+lines?)\b/i.test(text);
+  const namesFixtures = /\bfixtures?\b/i.test(text);
+  const broaderJob =
+    /\b(?:remodels?|renovations?|fixtures?|repipes?|repipe|rough[-\s]?in|toilets?|vanit(?:y|ies)|sinks?|faucets?|showers?|tubs?|kitchens?|bathrooms?|baths?)\b/i.test(
+      text
+    ) || /\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/i.test(text);
+  if (namesHeater && !broaderJob && !namesPiping) {
+    return pieces.filter(piece => piece.id === 'water_heater');
+  }
+  return pieces.filter(piece => {
+    if (piece.id === 'water_heater') return namesHeater;
+    if (piece.id === 'piping') return namesPiping;
+    if (piece.id === 'plumbing_fixtures') return namesFixtures;
+    return false;
+  });
 }
 
 function notesReplaceElectricalPanel(text: string): boolean {
@@ -1003,7 +1066,7 @@ function line(
 function flooringDemoLine(text: string): ClarificationLine {
   const area = kitchenInstallNote(text)
     ? statedKitchenFloorSqft(text) || dedicatedFlooringAreaSqft(text)
-    : dedicatedFlooringAreaSqft(text) || statedArea(text);
+    : flooringAreaForNote(text);
   return line(
     'floor_demo',
     'Flooring demo / removal',
@@ -1202,6 +1265,7 @@ export function splitRoofTearOffCards<T extends { id?: string | null }>(
 
 /** Selected Scope Found chips that already have their own Quick Measurement field. */
 const SCOPE_FOUND_PIECES_WITH_OWN_MEASUREMENT = new Set([
+  'flooring',
   'carpet',
   'tile',
   'hardwood',
@@ -1342,6 +1406,29 @@ const EXTRA_REMOVAL_UNITS: Record<string, 'sqft' | 'each'> = {
   electrical_abandoned_circuit: 'each',
 };
 
+/** A half dollar stays down so a removal card does not add a dollar the rate does not have. */
+function roundRemovalHalfDown(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  const frac = abs - Math.floor(abs);
+  if (Math.abs(frac - 0.5) < 1e-6) return sign * Math.floor(abs);
+  return Math.round(value);
+}
+
+/** Whole-dollar material and labor that add up to the removal card. */
+export function scopeFoundRemovalCardDollars(
+  quantity: number,
+  materialRate: number,
+  laborRate: number
+): { material: number; labor: number; total: number } {
+  const rawMaterial = quantity * materialRate;
+  const rawLabor = quantity * laborRate;
+  const total = roundRemovalHalfDown(rawMaterial + rawLabor);
+  const material = Math.min(total, Math.max(0, roundRemovalHalfDown(rawMaterial)));
+  return { material, labor: Math.max(0, total - material), total };
+}
+
 export function scopeFoundRemovalPricingSpec(itemId: string): {
   unit: 'sqft' | 'each';
   material: number;
@@ -1358,6 +1445,23 @@ export function scopeFoundRemovalPricingSpec(itemId: string): {
     labor: rate.labor,
     sourceLabel: `Suggested budget split · National Average · ${rate.label}`,
   };
+}
+
+const LANDSCAPE_CLEARING_PIECE_IDS = [
+  'sod',
+  'landscape_rock',
+  'mulch',
+  'plants',
+  'site_trees',
+  'site_brush',
+] as const;
+
+/** Named landscape removals replace the generic Demo / clearing card. */
+export function scopeFoundNamesLandscapeClearing(
+  pieces: readonly string[] | null | undefined
+): boolean {
+  const selected = new Set(pieces || []);
+  return LANDSCAPE_CLEARING_PIECE_IDS.some(pieceId => selected.has(pieceId));
 }
 
 const STUCCO_REMOVAL_PIECE_IDS = [
@@ -1397,6 +1501,7 @@ export function readScopeFoundRemovalQuantity(
 }
 
 const PIECE_REVEAL: Record<string, string> = {
+  flooring: 'Remove flooring',
   carpet: 'Remove carpet',
   tile: 'Remove tile',
   hardwood: 'Remove hardwood',
@@ -1424,7 +1529,7 @@ const PIECE_REVEAL: Record<string, string> = {
 function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
   const selected = new Set(pieces);
   const lines: ClarificationLine[] = [];
-  const floor = ['carpet', 'tile', 'hardwood', 'vinyl', 'laminate', 'kitchen_floor'].some(
+  const floor = ['flooring', 'carpet', 'tile', 'hardwood', 'vinyl', 'laminate', 'kitchen_floor'].some(
     piece => selected.has(piece)
   );
   if (floor) lines.push(flooringDemoLine(text));
@@ -1639,9 +1744,13 @@ export function scopeFoundRevealLines(
   const prompt = activeClarification(notes, storedId);
   const text = noteText(notes);
   const choice = readScopeFoundChoice(storedChoice);
-  const pieces = readScopeFoundPieces(storedPieces);
+  const pieces = scopeFoundPiecesForNote(
+    text,
+    prompt?.id || readScopeFoundClarificationId(storedId),
+    readScopeFoundPieces(storedPieces)
+  );
   if (pieces.length) {
-    const area = dedicatedFlooringAreaSqft(text) || statedArea(text);
+    const area = flooringAreaForNote(text);
     const squares = statedSquares(text);
     return pieces.map(piece => ({
       name: PIECE_REVEAL[piece] || TRADE_PIECE_BY_ID.get(piece)?.reveal || piece,
@@ -1649,6 +1758,8 @@ export function scopeFoundRevealLines(
       quantity:
         piece === 'kitchen_floor'
           ? quantityLabel(statedKitchenFloorSqft(text), 'sqft')
+          : piece === 'flooring'
+            ? quantityLabel(area, 'sqft')
           : kitchenPieceQuantity(text, piece) ||
             (FLOOR_TYPE_BY_PIECE[piece]
               ? quantityLabel(
@@ -1747,13 +1858,14 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
   choice: ScopeFoundChoice | string[],
   notes?: string | null
 ): T {
-  const pieces = Array.isArray(choice) ? readScopeFoundPieces(choice) : [];
+  const text = noteText(notes);
+  const rawPieces = Array.isArray(choice) ? readScopeFoundPieces(choice) : [];
+  const pieces = scopeFoundPiecesForNote(text, id, rawPieces);
   const declined = !Array.isArray(choice) ? choice : null;
   const next: Record<string, unknown> = { ...(measurements || {}) };
   next.scopeFoundClarificationId = id;
   next.scopeFoundPieces = pieces;
   next.scopeFoundChoice = declined;
-  const text = noteText(notes);
   const quantities = {
     ...((next.itemQuantities as Record<string, unknown> | null | undefined) || {}),
   };
@@ -1772,7 +1884,9 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
       ? kitchenFloor
       : storedArea > 0
         ? storedArea
-        : statedArea(text) || 0;
+        : id === 'whole_home_demo'
+          ? flooringAreaForNote(text) || 0
+          : statedArea(text) || 0;
   const storedSquares = Number(String(next.roofSquares ?? '').replace(/,/g, ''));
   const squares = storedSquares > 0 ? storedSquares : statedSquares(text) || 0;
   const selected = new Set(pieces);
@@ -1782,6 +1896,7 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
   if (id === 'flooring_demo' || id === 'kitchen_demo' || id === 'whole_home_demo') {
     const floorOn =
       floorPieces.length > 0 ||
+      selected.has('flooring') ||
       selected.has('kitchen_floor') ||
       declined === 'yes' ||
       declined === 'flooring' ||
@@ -1824,6 +1939,7 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
       declined === 'all' ||
       declined === 'cabinets';
     const floor =
+      selected.has('flooring') ||
       selected.has('kitchen_floor') ||
       floorPieces.length > 0 ||
       declined === 'yes' ||
@@ -1900,7 +2016,9 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
       }
     }
   }
-  const areaPiece = pieces.some(piece => TRADE_PIECE_BY_ID.get(piece)?.area);
+  const areaPiece =
+    id !== 'excavation_demo' &&
+    pieces.some(piece => TRADE_PIECE_BY_ID.get(piece)?.area);
   const concreteOn = ['concrete_slab', 'asphalt', 'concrete_pavers', 'gravel', 'site_concrete'].some(piece =>
     selected.has(piece)
   );
@@ -1910,9 +2028,13 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
   const drywallWalls = selected.has('drywall_walls');
   const drywallCeilings = selected.has('drywall_ceilings');
   const drywallOn = drywallWalls || drywallCeilings;
-  if (concreteOn && area > 0) next.concreteDemoSqft = area;
-  if (!concreteOn && (id === 'concrete_demo' || id === 'excavation_demo')) next.concreteDemoSqft = null;
-  if (clearingOn && area > 0) next.demoClearingSqft = area;
+  if (concreteOn && area > 0 && id !== 'excavation_demo') {
+    next.concreteDemoSqft = area;
+  }
+  if (!concreteOn || id === 'excavation_demo') {
+    next.concreteDemoSqft = null;
+  }
+  if (clearingOn) next.demoClearingSqft = null;
   if (!clearingOn && (id === 'landscape_demo' || id === 'excavation_demo')) {
     next.demoClearingSqft = null;
   }
@@ -2005,6 +2127,14 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
         (quantities[row.quantityKey] as { quantity?: unknown } | undefined)?.quantity ?? ''
       ).replace(/,/g, '')
     );
+    if (
+      id === 'excavation_demo' &&
+      ((row.unit === 'each' && existing === 1) ||
+        (row.unit === 'sqft' && existing === area))
+    ) {
+      delete quantities[row.quantityKey];
+      continue;
+    }
     if (existing > 0) {
       if (selectedStucco.includes(row.pieceId as (typeof STUCCO_REMOVAL_PIECE_IDS)[number])) {
         stuccoRemovalSqft += existing;
@@ -2012,10 +2142,12 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
       continue;
     }
     if (row.unit === 'each') {
+      if (id === 'excavation_demo') continue;
       withQuantity(quantities, row.quantityKey, 1, 'each');
       continue;
     }
-    const onlyThisArea = selectedSqftRows.length === 1 && area > 0;
+    const onlyThisArea =
+      id !== 'excavation_demo' && selectedSqftRows.length === 1 && area > 0;
     if (onlyThisArea) {
       withQuantity(quantities, row.quantityKey, area, 'sqft');
       if (selectedStucco.includes(row.pieceId as (typeof STUCCO_REMOVAL_PIECE_IDS)[number])) {
@@ -2093,7 +2225,11 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
   const prompt = resolveScopeFoundClarification(text);
   const storedId = readScopeFoundClarificationId(measurements?.scopeFoundClarificationId);
   const choice = readScopeFoundChoice(measurements?.scopeFoundChoice);
-  const pieces = readScopeFoundPieces(measurements?.scopeFoundPieces);
+  const pieces = scopeFoundPiecesForNote(
+    text,
+    prompt?.id || storedId,
+    readScopeFoundPieces(measurements?.scopeFoundPieces)
+  );
   const id = prompt && prompt.id !== 'shower' ? prompt.id : storedId;
   if (!id || id === 'shower') {
     const replacement = replacementDemoLines(text);

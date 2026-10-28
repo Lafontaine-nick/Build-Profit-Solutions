@@ -319,6 +319,29 @@ export function getMeasurementRelevance(params: {
     String(params.templateKey || '').toLowerCase() === 'kitchen' ||
     String(params.projectType || '').toLowerCase() === 'kitchen' ||
     /\bkitchen(?:\s+remodel)?\b/i.test(notesText);
+  const wholeHomeRemodelNote =
+    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+      notesText
+    );
+  const wholeHomeFlooringScope =
+    (wholeHomeRemodelNote ||
+      (String(params.templateKey || '').toLowerCase() === 'room_remodel' &&
+        /\bkitchen\b/i.test(notesText) &&
+        /\bbath(?:room)?s?\b/i.test(notesText))) &&
+    /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+      notesText
+    );
+  if (
+    wholeHomeFlooringScope &&
+    (measurementKey === 'flooringSqft' || measurementKey === 'floorDemoSqft')
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   if (
     kitchenMeasurementContext &&
     measurementKey === 'floorAreaSqft' &&
@@ -537,7 +560,9 @@ export function getMeasurementRelevance(params: {
     };
   }
   const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
-  const floorWorkIncluded = floorWorkScope.some(id => includedSet.has(id));
+  const floorWorkIncluded =
+    floorWorkScope.some(id => includedSet.has(id)) &&
+    !/\bfloor(?:ing)?\s+protection\b/i.test(notesText);
 
   if (garageConversion) {
     if (measurementKey === 'garageSqft') {
@@ -675,6 +700,7 @@ export function getMeasurementRelevance(params: {
     ]);
     if (kitchenOptionalMeasurementKeys.has(measurementKey)) {
       const explicitFloorWork =
+        !/\bfloor(?:ing)?\s+protection\b/i.test(notesText) &&
         /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
           notesText
         );
@@ -692,11 +718,14 @@ export function getMeasurementRelevance(params: {
       const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(
         notesText
       );
+      const selectedFlooringWork =
+        floorWorkIncluded &&
+        !/\bfloor(?:ing)?\s+protection\b/i.test(notesText);
       const relevant =
         measurementKey === 'floorAreaSqft' ||
         measurementKey === 'flooringSqft' ||
         measurementKey === 'kitchenFloorSqft'
-          ? explicitFloorWork
+          ? selectedFlooringWork || explicitFloorWork
           : measurementKey === 'drywallSqft'
             ? explicitDrywall
             : measurementKey === 'exteriorWallInsulationSqft'

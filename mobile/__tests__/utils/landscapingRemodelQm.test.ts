@@ -107,6 +107,20 @@ describe('landscaping QM', () => {
     );
   });
 
+  it('drops generic demo clearing when scope found names the materials', () => {
+    const hydrated = landscapingQmPanel.hydrateMeasurements({
+      measurements: {
+        landscapeScope: ['sod', 'demo_clearing'],
+        scopeFoundPieces: ['sod', 'landscape_rock', 'mulch', 'plants', 'landscape_pavers'],
+      },
+      notes: 'Install 2,000 sqft of sod.',
+      checklistItems: [],
+      templateKey: 'landscaping',
+    });
+    expect(hydrated.landscapeScope).not.toContain('demo_clearing');
+    expect(hydrated.landscapeScope).toEqual(expect.arrayContaining(['sod']));
+  });
+
   it('activates scope cards from QM selection or measurements', () => {
     expect(
       isLandscapingQmScopeItemActive('demo_clearing', { landscapeScope: ['demo_clearing'] })

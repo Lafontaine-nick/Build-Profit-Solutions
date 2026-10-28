@@ -21,6 +21,7 @@ import { notesNameReceptaclesWithToilet } from '@/utils/electricalNoteScope';
 import {
   syncWindowsDoorsScopeItems,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { notesDescribeMixedProjectScope } from '@/utils/noteClauseReader';
 
 export type MixedScopeTradeKey =
   | 'bathroom'
@@ -113,7 +114,7 @@ export function mixedScopeTradesFromDraft(
   const explicitHvac = /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
     notes
   );
-  return notes.trim() && !explicitHvac
+  return notes.trim() && !explicitHvac && !notesDescribeMixedProjectScope(notes)
     ? trades.filter(trade => trade !== 'hvac')
     : trades;
 }
@@ -148,7 +149,11 @@ export function mixedScopeQmTradesFromDraft(
     const explicitHvac = /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       notesText
     );
-    return notesText.trim() && !explicitHvac
+    return (
+      notesText.trim() &&
+      !explicitHvac &&
+      !notesDescribeMixedProjectScope(notesText)
+    )
       ? canonicalTrades.filter(trade => trade !== 'hvac')
       : canonicalTrades;
   }

@@ -107,8 +107,15 @@ function removalOf(notes: string, term: string): boolean {
   return notesNameRemovalOf(notes, term);
 }
 
+function notesNameWholeHomeRemodelScope(text: string): boolean {
+  return (
+    notesDescribeMeasuredWholeHomeRemodel(text) ||
+    (/\bremodel/i.test(text) && notesNameWholeHome(text))
+  );
+}
+
 /**
- * A measured whole-home note that names a kitchen remodel without a takeoff.
+ * A whole-home note that names a kitchen without a takeoff.
  * Confirm Scope uses the kitchen remodel panel, not a lump updates card.
  */
 export function notesNameKitchenRemodelPanel(
@@ -116,14 +123,16 @@ export function notesNameKitchenRemodelPanel(
 ): boolean {
   const text = String(notes || '');
   return (
-    notesDescribeMeasuredWholeHomeRemodel(text) &&
+    notesNameWholeHomeRemodelScope(text) &&
     /\bkitchen\b/i.test(text) &&
-    /\b(?:updat(?:e|es|ing)|remodel|renovation|reno)\b/i.test(text)
+    !/\b(?:cabinets?|countertops?|counters?|backsplashes?|quartz|granite)\b/i.test(
+      text
+    )
   );
 }
 
 /**
- * A measured whole-home note that names a bathroom remodel without a takeoff.
+ * A whole-home note that names a bathroom without a takeoff.
  * Confirm Scope uses the bathroom remodel panel, not a lump updates card.
  */
 export function notesNameBathroomRemodelPanel(
@@ -131,9 +140,11 @@ export function notesNameBathroomRemodelPanel(
 ): boolean {
   const text = String(notes || '');
   return (
-    notesDescribeMeasuredWholeHomeRemodel(text) &&
+    notesNameWholeHomeRemodelScope(text) &&
     /\bbath(?:room)?s?\b/i.test(text) &&
-    /\b(?:updat(?:e|es|ing)|remodel|renovation|reno)\b/i.test(text)
+    !/\b(?:vanit(?:y|ies)|toilets?|showers?|tubs?|bathtubs?|bath(?:room)?\s+fixtures?)\b/i.test(
+      text
+    )
   );
 }
 
@@ -384,7 +395,14 @@ export function wholeHomeRemodelNamedItemIds(
     ids.add('exterior_doors');
     ids.add('exterior_door_install');
   }
-  if (/\binterior\s+doors?\b/i.test(text)) ids.add('interior_door_install');
+  if (
+    /\binterior\s+doors?\b/i.test(text) ||
+    (/\bdoors?\b/i.test(text) &&
+      !/\bexterior\s+doors?\b/i.test(text) &&
+      !notesOpeningMentionIsKeepOnly(text, 'doors'))
+  ) {
+    ids.add('interior_door_install');
+  }
   if (/\binsulat/i.test(text)) ids.add('insulation');
   if (/\btrim\b/i.test(text)) {
     ids.add('trim');
@@ -464,14 +482,15 @@ export function wholeHomeRemodelNamedItemIds(
   // or a kitchen-floor quantity.
   if (
     /\bkitchen\b/i.test(text) &&
-    /\bupdat(?:e|es|ing)\b/i.test(text) &&
-    !ids.has('cabinets')
+    !ids.has('cabinets') &&
+    !ids.has('countertops') &&
+    !ids.has('backsplash') &&
+    !ids.has('appliances')
   ) {
     ids.add('kitchen_updates');
   }
   if (
     /\bbath(?:room)?s?\b/i.test(text) &&
-    /\bupdat(?:e|es|ing)\b/i.test(text) &&
     !ids.has('vanity') &&
     !ids.has('shower_tile') &&
     !ids.has('floor_tile')

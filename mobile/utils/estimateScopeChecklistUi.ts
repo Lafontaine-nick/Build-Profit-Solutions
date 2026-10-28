@@ -5167,6 +5167,8 @@ export function filterRoomRemodelNoteScopeItems(
       );
     if (id === 'plumbing') return has(/\bplumbing|fixture/i);
     if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
+    if (id === 'kitchen_updates') return has(/\bkitchen\b/i);
+    if (id === 'bathroom_updates') return has(/\bbath(?:room)?s?\b/i);
     if (id === 'flooring') return has(/\b(?:lvp|flooring|floor\s+install)\b/i);
     if (
       id === 'paint' ||
@@ -5176,9 +5178,10 @@ export function filterRoomRemodelNoteScopeItems(
     )
       return has(
         /\b(?:paint|painting|repaint)\b[\s\S]{0,60}\b(?:wall|ceiling|interior|inside)s?\b|\b(?:interior|inside)\s+paint(?:ing)?\b/i
-      );
+      ) || (id === 'interior_paint' && has(/\b(?:paint|painting|repaint)\b/i));
     if (id === 'baseboard_install')
-      return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
+      return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i) ||
+        has(/\bbaseboards?\b/i);
     if (id === 'trim_paint')
       return has(
         /\b(?:paint|painting|finish|finished|repaint)\b[^.;\n]{0,25}\b(?:baseboards?|trim)\b|\b(?:baseboards?|trim)\b\s+(?:painted|finished)\b/i
@@ -5217,7 +5220,12 @@ export function filterRoomRemodelNoteScopeItems(
     )
       return has(/\b(?:exterior|sliding|patio|entry)\s+doors?\b/i);
     if (id === 'interior_doors' || id === 'interior_door_install')
-      return has(/\binterior\s+doors?\b/i);
+      return (
+        has(/\binterior\s+doors?\b/i) ||
+        (has(/\bdoors?\b/i) &&
+          !has(/\bexterior\s+doors?\b/i) &&
+          !has(/\b(?:keep|leave|remain(?:ing)?)\b[^.;\n]{0,35}\bdoors?\b/i))
+      );
     if (id === 'insulation' || id === 'wall_insulation' || id === 'attic_insulation')
       return has(/\binsulat(?:e|ed|ion)\b/i);
     if (id === 'air_sealing') {
@@ -8313,18 +8321,24 @@ export function bucketWindowsDoorsPriceGroups(
     title: group.title,
     items: [] as ScopeChecklistItem[],
   }));
+  const demo: ScopeChecklistItem[] = [];
   const other: ScopeChecklistItem[] = [];
   const seen = new Set<string>();
   for (const group of groups) {
     for (const item of group.items) {
       if (seen.has(item.id)) continue;
       seen.add(item.id);
+      if (String(item.id || '').startsWith('opening_demo')) {
+        demo.push(item);
+        continue;
+      }
       const bucket = WINDOWS_DOORS_PRICE_GROUPS.find(entry => entry.test(item.id));
       const target = buckets.find(entry => entry.title === bucket?.title);
       if (target) target.items.push(item);
       else other.push(item);
     }
   }
+  if (demo.length) buckets.unshift({ title: 'Demo', items: demo });
   if (other.length) buckets.push({ title: 'Other', items: other });
   return buckets.filter(group => group.items.length > 0);
 }
@@ -8647,13 +8661,29 @@ export function groupScopeChecklistItems(
     String(templateKey || '').toLowerCase() === 'insulation'
       ? remainder.filter(item => item.id !== 'cleanup')
       : remainder;
+  const isLandscapeRemoval = (id: string) =>
+    id.startsWith('demo_clearing__') || id.startsWith('paver_demo__');
+  const isOpeningRemoval = (id: string) => id.startsWith('opening_demo');
+  const isFramingRemoval = (id: string) => id.startsWith('framing_demo');
+  const isStructureRemoval = (id: string) =>
+    id.startsWith('existing_structure_demo__');
+  const isDemoRemainder = (id: string) =>
+    id.startsWith('demo_removal') ||
+    id.startsWith('hvac_demo__') ||
+    id.startsWith('plumbing_demo__') ||
+    id.startsWith('insulation_removal__') ||
+    id.startsWith('cladding_demo__') ||
+    isLandscapeRemoval(id) ||
+    isOpeningRemoval(id) ||
+    isFramingRemoval(id) ||
+    isStructureRemoval(id);
   const demoRemainder = visibleRemainder.filter(item =>
-    String(item.id || '').startsWith('demo_removal')
+    isDemoRemainder(String(item.id || ''))
   );
   const otherRemainder = visibleRemainder.filter(
-    item => !String(item.id || '').startsWith('demo_removal')
+    item => !isDemoRemainder(String(item.id || ''))
   );
-  if (demoRemainder.length) result.push({ title: 'Demo', items: demoRemainder });
+  if (demoRemainder.length) result.unshift({ title: 'Demo', items: demoRemainder });
   if (otherRemainder.length) result.push({ title: 'Other', items: otherRemainder });
 
   return result;

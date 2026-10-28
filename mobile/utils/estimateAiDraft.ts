@@ -39,6 +39,7 @@ import { vagueScopeQuestion } from '@/utils/vagueScopeNote';
 import {
   applyNoteClauseReads,
   noteKeepsItsOwnChecklist,
+  notesDescribeMixedProjectScope,
   noteUsesSeparateJobReader,
   readerHeroTitle,
   readNoteWork,
@@ -102,6 +103,7 @@ import {
 } from '@/utils/hydratePaintingPlanMeasurements';
 import {
   isCustomScopeChecklistItem,
+  hydrateScopeChecklistFromNotes,
   repairMisroutedConversionScopeChecklist,
   stripBathroomFalsePositiveFloorDemoQuantities,
 } from '@/utils/estimateScopeChecklistUi';
@@ -1584,6 +1586,203 @@ export function repairDraftRatePricingFromNotes(
   });
   if (notesNameLinearFootStudWall(text)) {
     Object.assign(parsed, parseFramingMeasurementsFromNotes(text));
+  }
+  if (notesDescribeMixedProjectScope(text) && !draft.scopeAssumptionsConfirmed) {
+    const stuccoArea = dedicatedStuccoWallSqft(text);
+    const serviceCallCount = /\bservice\s+calls?\b/i.test(text) ? 1 : 0;
+    const measurements = {
+      ...(draft.scopeMeasurements || {}),
+      ...parsed,
+      ...(stuccoArea
+        ? {
+            stuccoGrossWallSqft: stuccoArea,
+            stuccoNetWallSqft: stuccoArea,
+          }
+        : {}),
+      ...(serviceCallCount
+        ? { hvacServiceCallCount: serviceCallCount }
+        : {}),
+      itemQuantities: {
+        ...((draft.scopeMeasurements?.itemQuantities as Record<string, unknown>) ||
+          {}),
+        ...((parsed.itemQuantities as Record<string, unknown>) || {}),
+      },
+    } as ScopeMeasurements;
+    const itemQuantities = measurements.itemQuantities as Record<string, unknown>;
+    const replacementFlooringSqft = Number(
+      parsed.flooringLvpSqft || parsed.flooringSqft || 0
+    );
+    if (
+      replacementFlooringSqft > 0 &&
+      /\breplace\s+(?:the\s+)?carpet\b/i.test(text)
+    ) {
+      measurements.floorDemoSqft = replacementFlooringSqft;
+      measurements.flooringCarpetSqft = replacementFlooringSqft;
+    }
+    if (/\bno\s+new\s+hang\b/i.test(text)) {
+      delete measurements.drywallSqft;
+      delete itemQuantities.drywall;
+    }
+    if (stuccoArea && !itemQuantities.stucco) {
+      itemQuantities.stucco = {
+        quantity: stuccoArea,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      };
+    }
+    if (serviceCallCount > 0 && !itemQuantities.service_call) {
+      itemQuantities.service_call = {
+        quantity: serviceCallCount,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+    }
+    const addNoteItem = (
+      id: string,
+      label: string,
+      category: string,
+      helperText: string
+    ) => {
+      const flooringAlreadyPresent =
+        id === 'flooring_lvp' &&
+        draft.scopeChecklist?.items?.some(item =>
+          ['flooring', 'flooring_lvp', 'flooring_install'].includes(item.id)
+        );
+      if (
+        draft.scopeChecklist?.items?.some(item => item.id === id) ||
+        flooringAlreadyPresent
+      ) {
+        return;
+      }
+      const quantity =
+        id === 'service_call'
+          ? Number(parsed.hvacServiceCallCount || 1)
+          : id === 'roofing'
+            ? Number(parsed.roofSquares || 0)
+            : 0;
+      if (quantity > 0) {
+        itemQuantities[id] = {
+          quantity,
+          unit: id === 'roofing' ? 'squares' : 'each',
+          quantitySource: 'notes',
+        };
+      }
+      noteItems.push({
+        id,
+        inputType: 'yes_no',
+        label,
+        helperText,
+        category,
+        state: 'included',
+        noteBacked: true,
+      });
+    };
+    const noteItems = [...(draft.scopeChecklist?.items || [])];
+    addNoteItem(
+      'service_call',
+      'HVAC service call',
+      'hvac',
+      'Diagnose the furnace as described in the job notes.'
+    );
+    addNoteItem(
+      'roofing',
+      'Roofing replacement',
+      'roofing',
+      'Replace the roof covering identified in the job notes.'
+    );
+    addNoteItem(
+      'stucco',
+      'Stucco / exterior wall finish',
+      'exterior',
+      'Replace the stucco area identified in the job notes.'
+    );
+    addNoteItem(
+      'flooring_lvp',
+      'LVP',
+      'flooring',
+      'Install the LVP area identified in the job notes.'
+    );
+    addNoteItem(
+      'interior_paint',
+      'Interior wall painting',
+      'painting',
+      'Paint the wall area identified in the job notes.'
+    );
+    addNoteItem(
+      'patch_repair',
+      'Drywall patch / repair',
+      'drywall',
+      'Patch and texture the drywall area identified in the job notes.'
+    );
+    const existingItems = noteItems;
+    const hydratedItems = hydrateScopeChecklistFromNotes(
+      existingItems,
+      'room_remodel',
+      text,
+      measurements as never,
+      'other'
+    );
+    const hydratedIds = new Set(hydratedItems.map(item => item.id));
+    const mixedItems = [
+      ...hydratedItems,
+      ...noteItems.filter(item => !hydratedIds.has(item.id)),
+    ];
+    const tradeLabels = [
+      [/\b(?:floor(?:ing)?|lvp|carpet|laminate|vinyl\s+plank)\b/i, 'Flooring'],
+      [/\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i, 'Roofing'],
+      [/\b(?:paint(?:ing)?|repaint)\b/i, 'Painting'],
+      [/\bstucco\b/i, 'Stucco'],
+      [/\b(?:drywall|sheetrock|gypsum)\b/i, 'Drywall'],
+      [
+        /\b(?:hvac|furnace|condenser|heat[\s-]*pump|air\s*condition)\b/i,
+        'HVAC',
+      ],
+      [/\b(?:electrical|wiring|outlets?|receptacles?)\b/i, 'Electrical'],
+      [/\b(?:plumbing|toilet|faucet|drain|water\s+line)\b/i, 'Plumbing'],
+      [/\b(?:windows?|doors?)\b/i, 'Windows & doors'],
+    ]
+      .filter(([pattern]) => (pattern as RegExp).test(text))
+      .map(([, label]) => label as string);
+    const detectedTrades = Array.from(
+      new Set([
+        ...(draft.classification?.detectedTrades || draft.detectedTrades || []),
+        ...tradeLabels.map(label => label.toLowerCase().replace(/ & /g, '_')),
+      ])
+    );
+    return {
+      ...draft,
+      originalNotes: text,
+      projectType: 'other',
+      projectTitle: 'Mixed-scope estimate',
+      estimateTier: 'room_remodel',
+      scopeMode: 'mixed',
+      scopeSummary: 'Mixed-scope estimate',
+      scopeTradeLabels: tradeLabels,
+      detectedTrades,
+      whatAiDid: ['Detected multiple named jobs and kept them in one estimate.'],
+      classification: {
+        ...(draft.classification || {}),
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades,
+        scopeSummary: 'Mixed-scope estimate',
+      },
+      scopeChecklist: {
+        ...(draft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'room_remodel',
+        title: 'Confirm the work named in the notes',
+        intro: 'Confirm each named job before pricing.',
+        items: mixedItems,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
   }
   if (
     notesNameReceptaclesWithToilet(text) &&

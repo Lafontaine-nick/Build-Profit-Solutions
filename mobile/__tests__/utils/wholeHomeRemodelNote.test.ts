@@ -40,6 +40,7 @@ import {
   notesStateFlooringArea,
   scrubWholeHomeRemodelMeasurements,
   statedWholeHomeSizeSqft,
+  wholeHomeRemodelNamedItemIds,
   wholeHomeRemodelSuppressesInventedPrice,
   wholeHomeTradeQuestion,
 } from '@/utils/wholeHomeRemodelNote';
@@ -51,6 +52,166 @@ const WHOLE_HOME_NOTES =
   'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.';
 
 describe('whole-home remodel note authority', () => {
+  it('keeps bare kitchen and bathroom mentions as broad scope cards', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const ids = wholeHomeRemodelNamedItemIds(notes);
+    expect(ids).not.toBeNull();
+    expect([...ids!]).toEqual(
+      expect.arrayContaining([
+        'kitchen_updates',
+        'bathroom_updates',
+        'flooring',
+        'interior_paint',
+        'interior_door_install',
+        'baseboard_install',
+      ])
+    );
+    expect([...ids!]).not.toContain('plumbing');
+    expect(notesNameKitchenRemodelPanel(notes)).toBe(true);
+    expect(notesNameBathroomRemodelPanel(notes)).toBe(true);
+  });
+
+  it('shows separate whole-home flooring install and demo measurements', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('flooringSqft');
+    expect(keys).toContain('floorDemoSqft');
+  });
+
+  it('keeps flooring measurements in mixed notes that also name shower tile', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms. Shower wall tile, shower floor tile, bathroom floor tile, flooring, paint, doors, and baseboard.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes, crossScopeMode: true }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('flooringSqft');
+    expect(keys).toContain('floorDemoSqft');
+  });
+
+  it('replaces whole-home parent cards when QM detail cards are selected', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const items = [
+      { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included' },
+      { id: 'cabinets', label: 'Cabinets', state: 'included' },
+      { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included' },
+      { id: 'vanity', label: 'Vanity', state: 'included' },
+      { id: 'toilet', label: 'Toilet', state: 'included' },
+    ];
+    const result = applyStep2NoteScopeFilters(
+      items,
+      {
+        originalNotes: notes,
+        projectType: 'other',
+        scopeChecklist: { templateKey: 'room_remodel', items },
+      } as never,
+      {},
+      'room_remodel'
+    );
+    expect(result.map(item => item.id)).toEqual(
+      expect.not.arrayContaining(['kitchen_updates', 'bathroom_updates'])
+    );
+    expect(result.map(item => item.id)).toEqual(
+      expect.arrayContaining(['cabinets', 'vanity', 'toilet'])
+    );
+  });
+
+  it('uses whole-home QM quantities for vanity and backsplash demo pricing', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const measurements = {
+      cabinetLf: '30',
+      backsplashSqft: '30',
+      bathroomInstallVanityCount: 1,
+      scopeFoundPieces: ['cabinets', 'countertops', 'backsplash', 'appliances'],
+    };
+    const vanity = resolveChecklistItemQuantity('vanity', measurements as never, {
+      templateKey: 'room_remodel',
+      notes,
+    });
+    const backsplashDemo = resolveChecklistItemQuantity(
+      'backsplash_demo',
+      measurements as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    const floorDemo = resolveChecklistItemQuantity(
+      'floor_demo',
+      { kitchenFloorSqft: '120' } as never,
+      { templateKey: 'room_remodel', notes }
+    );
+    expect(vanity.quantity).toBe(1);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'vanity',
+        measurements as never,
+        'room_remodel',
+        vanity,
+        null,
+        null,
+        notes
+      ).fill?.total
+    ).toBeGreaterThan(0);
+    expect(backsplashDemo.quantity).toBe(30);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'backsplash_demo',
+        measurements as never,
+        'room_remodel',
+        backsplashDemo,
+        null,
+        null,
+        notes
+      ).fill?.basis?.quantity
+    ).toBe(30);
+    expect(floorDemo.quantity).toBe(120);
+  });
+
+  it('removes whole-home parent rows from the Scope found summary after QM details exist', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const preview = getInitialRevealChecklistScopePreview({
+      originalNotes: notes,
+      projectType: 'other',
+      scopeMode: 'mixed',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'kitchen_updates', label: 'Kitchen updates', state: 'included' },
+          { id: 'cabinet_demo', label: 'Cabinet demo', state: 'included' },
+          { id: 'bathroom_updates', label: 'Bathroom updates', state: 'included' },
+          { id: 'vanity', label: 'Vanity', state: 'included' },
+          { id: 'toilet', label: 'Toilet', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        bathroomInstallVanityCount: 1,
+        bathroomInstallToiletCount: 1,
+        scopeFoundPieces: ['cabinets', 'countertops', 'backsplash', 'appliances'],
+      },
+    } as EstimateAiDraft);
+    expect(preview.map(row => row.name)).not.toEqual(
+      expect.arrayContaining(['Kitchen updates', 'Bathroom updates'])
+    );
+  });
+
   it('leaves unnamed whole-home drywall blank and prices an entered area', () => {
     const notes =
       'Whole house remodel. The house is 2,000 sqft. Kitchen updates, Bathroom updates, Flooring, Paint the interior, Drywall.';

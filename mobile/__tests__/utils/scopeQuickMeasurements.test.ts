@@ -17,6 +17,52 @@ import {
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
 describe('scopeQuickMeasurements', () => {
+  it('shows every named trade measurement for a mixed repair note', () => {
+    const notes =
+      'Replace carpet with 900 sqft LVP. Reroof 26 squares of architectural shingles. Paint walls, 2,000 sqft. Replace the stucco, 1,800 sqft. HVAC service call to diagnose the furnace. Patch and texture 300 sqft of drywall. No new hang.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {
+        flooringSqft: '900',
+        floorDemoSqft: '900',
+        roofSquares: '26',
+        wallPaintSqft: '2000',
+        drywallSqft: '300',
+        hvacServiceCallCount: '1',
+        stuccoGrossWallSqft: '1800',
+        stuccoNetWallSqft: '1800',
+      },
+      [
+        'flooringSqft',
+        'floorDemoSqft',
+        'roofSquares',
+        'wallPaintSqft',
+        'drywallSqft',
+        'hvacServiceCallCount',
+        'stuccoGrossWallSqft',
+      ],
+      { crossScopeMode: true, scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'flooringSqft',
+        'floorDemoSqft',
+        'roofSquares',
+        'wallPaintSqft',
+        'drywallSqft',
+        'hvacServiceCallCount',
+        'stuccoGrossWallSqft',
+        'stuccoNetWallSqft',
+      ])
+    );
+    expect(keys).not.toContain('framedAreaSqft');
+    expect(keys).not.toContain('wallFramingSqft');
+  });
+
   it('asks for cabinet run length unless the note already has cabinet area', () => {
     expect(cabinetPaintTakeoffKeys({ notes: 'Repaint entire interior' })).toEqual([
       'cabinetRunLf',

@@ -312,6 +312,7 @@ describe('electrical canonical architecture', () => {
       'Circuits',
       'Receptacles',
       'Switches / controls',
+      'Demo',
       'Lighting',
       'Fans',
       'Appliance circuit + hookup',

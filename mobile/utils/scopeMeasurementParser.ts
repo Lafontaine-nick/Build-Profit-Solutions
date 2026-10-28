@@ -247,7 +247,7 @@ function isDemoClause(clause: string): boolean {
 function isDirtExcavationClause(clause: string): boolean {
   const c = clause.toLowerCase();
   return (
-    /\b(?:dirt|soil|earth|subgrade)\b/.test(c) &&
+    /\b(?:dirt|soil|earth|subgrade|foundation|footings?)\b/.test(c) &&
     /\b(?:excavat(?:e|ion)|remove|dig|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/.test(
       c
     )
@@ -764,6 +764,18 @@ export function parseInsulationAssembliesFromNotes(
         ...(battFacing(clause) ? { battFacing: battFacing(clause) } : {}),
       });
     }
+    // "Install R-38 attic insulation, 1,200 sqft" splits on the comma, so the
+    // area is the next clause. Put it on the assembly that was just created.
+    const trailingArea = trailingInsulationAreaSqft(clause);
+    const lastAssembly = assemblies[assemblies.length - 1];
+    if (
+      trailingArea > 0 &&
+      lastAssembly &&
+      assemblies.length === assemblyCountBeforeClause &&
+      !(lastAssembly.sqft > 0)
+    ) {
+      lastAssembly.sqft = trailingArea;
+    }
   }
   const framedWallMatch = String(text || '').match(
     /(?:frame|framing|framed)\b[^.;\n]{0,48}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s*(?:of\s+)?(?:new\s+)?walls?\b/i
@@ -781,6 +793,26 @@ export function parseInsulationAssembliesFromNotes(
     }
   }
   return assemblies;
+}
+
+/** A clause that is only an area, left after a comma split. */
+function trailingInsulationAreaSqft(clause: string): number {
+  const match = clause.match(
+    /([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+  );
+  if (!match) return 0;
+  const sqft = Number(match[1].replace(/,/g, ''));
+  if (!(sqft > 0)) return 0;
+  const rest = clause.replace(match[0], ' ');
+  if (
+    /\b(?:home|house|walls?|attics?|ceilings?|floors?|roofs?|drywall|paint|garages?|doors?|windows?|siding)\b/i.test(
+      rest
+    )
+  ) {
+    return 0;
+  }
+  if (clauseMentionsInsulation(clause)) return 0;
+  return sqft;
 }
 
 function clauseHomeSqftBeforeGarage(clause: string): number | null {
@@ -2714,6 +2746,7 @@ export function parseScopeMeasurementsFromNotes(
       if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(c)) continue;
       if (/\bhang\s+and\s+finish\b/i.test(c)) continue;
       if (isExteriorFlatworkClause(c)) continue;
+      if (/\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(c)) continue;
       if (
         !/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(
           c
@@ -3162,11 +3195,13 @@ export function parseScopeMeasurementsFromNotes(
     const depthMatch =
       clause.match(DEPTH_INCHES_RE) || text.match(DEPTH_INCHES_RE);
     const depth = depthMatch?.[1] ? Number(depthMatch[1]) : null;
-    if (area && depth && depth > 0) {
+    if (area) {
       out.excavationAreaSqft = area;
-      out.excavationDepthInches = depth;
-      if (!out.excavationCy) {
-        out.excavationCy = Math.round(((area * (depth / 12)) / 27) * 100) / 100;
+      if (depth && depth > 0) {
+        out.excavationDepthInches = depth;
+        if (!out.excavationCy) {
+          out.excavationCy = Math.round(((area * (depth / 12)) / 27) * 100) / 100;
+        }
       }
       break;
     }

@@ -15,6 +15,7 @@ import {
   notesDescribeRoomContextPlumbingRelocate,
   filterDedicatedPlumbingConfirmItems,
   filterPlumbingNoteAuthorityConfirmItems,
+  notesNameDedicatedWaterHeaterJob,
   plumbingJobTypePickerVisible,
   stripUnstatedPlumbingNoteMeasurements,
   notesSuggestPlumbingBid,
@@ -1349,6 +1350,26 @@ describe('plumbing notes routing', () => {
         templateKey: 'plumbing',
       })
     ).toBe(false);
+  });
+
+  it('keeps a water heater install off the room remodel chooser', () => {
+    const notes = 'Install a new water heater.';
+    expect(notesNameDedicatedWaterHeaterJob(notes)).toBe(true);
+    expect(
+      plumbingJobTypePickerVisible({
+        notes,
+        templateKey: 'plumbing',
+      })
+    ).toBe(false);
+    expect(notesNameDedicatedWaterHeaterJob('Remodel the bathroom and install a new water heater.')).toBe(
+      false
+    );
+    expect(
+      plumbingJobTypePickerVisible({
+        notes: 'Remodel the bathroom. Relocate 12 LF of supply and drain for the vanity.',
+        templateKey: 'plumbing',
+      })
+    ).toBe(true);
   });
 
   it('keeps a bathroom remodel note on Confirm scope instead of the simple review', () => {

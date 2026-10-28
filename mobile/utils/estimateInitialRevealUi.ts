@@ -35,7 +35,10 @@ import {
   drywallBesideFlooringRevealRows,
 } from '@/utils/drywallNoteScope';
 import { notesDescribeDrywallAndFlooringJob } from '@/utils/noteScopeLines';
-import { separateJobRevealRows } from '@/utils/noteClauseReader';
+import {
+  notesDescribeMixedProjectScope,
+  separateJobRevealRows,
+} from '@/utils/noteClauseReader';
 import { vagueScopeQuestion, vagueScopeTitle } from '@/utils/vagueScopeNote';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
@@ -4855,6 +4858,31 @@ function getInitialRevealScopeRows(
       )
     : framingRevealRows;
   const namedWholeHomeIds = wholeHomeRemodelNamedItemIds(notes);
+  const scopeMeasurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const scopeFoundPieces = Array.isArray(scopeMeasurements.scopeFoundPieces)
+    ? scopeMeasurements.scopeFoundPieces.map(piece => String(piece))
+    : [];
+  const hasPositiveMeasurement = (...keys: string[]) =>
+    keys.some(key => Number(scopeMeasurements[key] || 0) > 0);
+  const kitchenDetailIds = new Set([
+    'cabinets',
+    'countertops',
+    'backsplash',
+    'appliances',
+    'cabinet_demo',
+    'countertop_demo',
+    'backsplash_demo',
+    'appliance_removal',
+  ]);
+  const bathroomDetailIds = new Set([
+    'vanity',
+    'vanity_demo',
+    'toilet',
+    'shower_tile',
+    'shower_floor_tile',
+    'floor_tile',
+    'fixture_demo',
+  ]);
   const withRoomUpdates = (() => {
     const base = scopedRevealRows.length
       ? scopedRevealRows
@@ -4862,15 +4890,50 @@ function getInitialRevealScopeRows(
         ? [{ id: 'openings', name: 'Door / window openings' }]
         : scopedRevealRows;
     if (!namedWholeHomeIds) return base;
-    const next = [...base];
+    const kitchenHasDetails =
+      base.some(row => kitchenDetailIds.has(row.id)) ||
+      scopeFoundPieces.some(piece =>
+        ['cabinets', 'countertops', 'backsplash', 'appliances'].includes(piece)
+      ) ||
+      hasPositiveMeasurement(
+        'cabinetLf',
+        'countertopSqft',
+        'backsplashSqft',
+        'kitchenInstallCabinetCount',
+        'kitchenInstallCounterCount',
+        'kitchenInstallBacksplashCount',
+        'kitchenInstallApplianceCount',
+        'kitchenDemoCabinetCount',
+        'kitchenDemoCounterCount',
+        'kitchenDemoBacksplashCount',
+        'kitchenDemoApplianceCount'
+      );
+    const bathroomHasDetails =
+      base.some(row => bathroomDetailIds.has(row.id)) ||
+      hasPositiveMeasurement(
+        'bathroomInstallVanityCount',
+        'bathroomInstallToiletCount',
+        'showerWallTileSqft',
+        'showerFloorTileSqft',
+        'bathroomFloorSqft',
+        'bathFloorTileCount',
+        'tilePanBathCount'
+      );
+    const next = [...base].filter(row => {
+      if (row.id === 'kitchen_updates' && kitchenHasDetails) return false;
+      if (row.id === 'bathroom_updates' && bathroomHasDetails) return false;
+      return true;
+    });
     if (
       namedWholeHomeIds.has('kitchen_updates') &&
+      !kitchenHasDetails &&
       !next.some(row => row.id === 'kitchen_updates' || row.id === 'cabinets')
     ) {
       next.push({ id: 'kitchen_updates', name: 'Kitchen updates' });
     }
     if (
       namedWholeHomeIds.has('bathroom_updates') &&
+      !bathroomHasDetails &&
       !next.some(
         row =>
           row.id === 'bathroom_updates' ||
@@ -6253,7 +6316,10 @@ export function getInitialRevealAttentionTitle(
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   const vagueTitle = vagueScopeTitle(draft.originalNotes);
   if (vagueTitle) return vagueTitle;
-  if (notesNameDedicatedHvacServiceVisit(draft.originalNotes)) {
+  if (
+    notesNameDedicatedHvacServiceVisit(draft.originalNotes) &&
+    !notesDescribeMixedProjectScope(draft.originalNotes)
+  ) {
     return 'HVAC service call';
   }
   const classification = getRevealClassification(draft);
@@ -6725,8 +6791,9 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
       : `${covering}.`;
   }
   if (
-    notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
-    notesNameDedicatedHvacEquipmentJob(draft.originalNotes)
+    !notesDescribeMixedProjectScope(draft.originalNotes) &&
+    (notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
+      notesNameDedicatedHvacEquipmentJob(draft.originalNotes))
   ) {
     return 'Detected HVAC.';
   }

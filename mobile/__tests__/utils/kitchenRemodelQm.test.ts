@@ -36,6 +36,25 @@ describe('kitchenRemodel QM', () => {
     });
   });
 
+  it('writes backsplash and floor demo quantities from their displayed QM fields', () => {
+    expect(
+      patchKitchenMeasurementItemQuantities({}, 'backsplashSqft', '30', {
+        kitchenDemoBacksplashCount: 1,
+      })
+    ).toMatchObject({
+      backsplash: { quantity: '30', unit: 'sqft' },
+      backsplash_demo: { quantity: '30', unit: 'sqft' },
+    });
+    expect(
+      patchKitchenMeasurementItemQuantities({}, 'kitchenFloorSqft', '120', {
+        kitchenDemoFloorCount: 1,
+      })
+    ).toMatchObject({
+      flooring: { quantity: '120', unit: 'sqft' },
+      floor_demo: { quantity: '120', unit: 'sqft' },
+    });
+  });
+
   it('keeps the cabinet install scope card visible in Confirm Scope', () => {
     expect(KITCHEN_QM_EMBEDDED_IDS.has('cabinets')).toBe(false);
   });

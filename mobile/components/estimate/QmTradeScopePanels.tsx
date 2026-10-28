@@ -33,6 +33,7 @@ import {
   ROOF_TEAR_OFF_CARDS,
   readScopeFoundPieces,
   readScopeFoundRemovalQuantity,
+  scopeFoundNamesLandscapeClearing,
   scopeFoundRemovalMeasurements,
 } from '@/utils/scopeFoundClarification';
 import { stuccoInstallSystemIds } from '@/utils/stuccoNoteScope';
@@ -242,9 +243,11 @@ const styles = StyleSheet.create({
   },
   hvacScopeSelectedCard: {
     width: '100%',
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
   },
   hvacScopeSelectedList: {
     gap: 6,
@@ -952,7 +955,10 @@ export function QmScopeFoundRemovalMeasurements({
     readScopeFoundPieces(measurements.scopeFoundPieces)
   );
   if (!rows.length) return null;
-  const panelStyle = qmPanelShellStyle(darkMode);
+  const panelStyle = {
+    ...qmPanelShellStyle(darkMode),
+    backgroundColor: darkMode ? '#2A2A2E' : Colors.surface2,
+  };
   const writeQuantity = (
     quantityKey: string,
     unit: 'sqft' | 'each',
@@ -5070,6 +5076,9 @@ export function QmLandscapingScopePanels({
   const selected = readLandscapingScope(
     measurements as Record<string, unknown>
   );
+  const namedLandscapeRemoval = scopeFoundNamesLandscapeClearing(
+    readScopeFoundPieces(measurements.scopeFoundPieces)
+  );
   const noteText = String(notes || '');
   const [demoChosen, setDemoChosen] = useState(false);
   const demoSelected = selected.includes('demo_clearing');
@@ -5115,6 +5124,7 @@ export function QmLandscapingScopePanels({
 
   return (
     <>
+      {namedLandscapeRemoval ? null : (
       <View
         style={[
           styles.qmPanel,
@@ -5323,6 +5333,7 @@ export function QmLandscapingScopePanels({
           </>
         ) : null}
       </View>
+      )}
       <View
         style={[
           styles.qmPanel,
@@ -5722,9 +5733,45 @@ export function QmConcreteScopePanels({
     });
   }, [notes, promptGroundUpStructure, setMeasurements]);
   const selected = readConcreteScope(measurements as Record<string, unknown>);
-  const [expanded, setExpanded] = useState(true);
+  const scopeFoundPieces = Array.isArray(
+    (measurements as Record<string, unknown>).scopeFoundPieces
+  )
+    ? ((measurements as Record<string, unknown>).scopeFoundPieces as unknown[]).map(
+        String
+      )
+    : [];
+  const concreteDemoQuantityOwnedByScopeFound =
+    ['concrete_demo', 'excavation_demo'].includes(
+      String((measurements as Record<string, unknown>).scopeFoundClarificationId || '')
+    ) &&
+    scopeFoundPieces.some(piece =>
+      [
+        'concrete_slab',
+        'asphalt',
+        'concrete_pavers',
+        'gravel',
+        'site_concrete',
+      ].includes(piece)
+    );
+  const notesIncludeExcavation = /\b(?:excavat(?:e|ion|ing)|dig(?:ging)?|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/i.test(
+    String(notes || '')
+  );
+  const excavationOnlyGroundUp =
+    notesIncludeExcavation &&
+    /\b(?:foundation|footings?)\b/i.test(String(notes || '')) &&
+    !/\b(?:pour|place|install|construct|build)\b[^.;\n]{0,40}\b(?:foundation|footings?|slab)\b/i.test(
+      String(notes || '')
+    );
+  const groundUpExcavationFlow =
+    (promptGroundUpStructure && notesIncludeExcavation) ||
+    excavationOnlyGroundUp;
+  const collapseSecondaryPanels =
+    groundUpExcavationFlow;
+  const [expanded, setExpanded] = useState(!collapseSecondaryPanels);
   const [sitePrepExpanded, setSitePrepExpanded] = useState(true);
-  const [optionalExpanded, setOptionalExpanded] = useState(true);
+  const [optionalExpanded, setOptionalExpanded] = useState(
+    !collapseSecondaryPanels
+  );
   const flatworkActive = CONCRETE_FLATWORK_OPTIONS.some(option =>
     selected.includes(option.id)
   );
@@ -5908,6 +5955,11 @@ export function QmConcreteScopePanels({
     return Number.isFinite(value) && value > 0;
   };
   const selectedThickness = Number(measurements.concreteThicknessInches) || 4;
+  const excavationQuantityMode =
+    measurements.excavationQuantityMode ||
+    (Number(measurements.excavationAreaSqft) > 0
+      ? 'area_depth'
+      : 'direct_cy');
   const nationalFlatworkRate = 6 + 4 * (selectedThickness / 4);
   const sitePrepOptionIds = new Set([
     'demo_removal',
@@ -5927,7 +5979,9 @@ export function QmConcreteScopePanels({
   const dedicatedFlatwork =
     !showStructuralConcrete && String(notes || '').trim().length > 0;
   const visibleSitePrepOptionIds =
-    mixedExteriorScope || dedicatedFlatwork
+    groundUpExcavationFlow
+      ? new Set(['excavation'])
+      : mixedExteriorScope || dedicatedFlatwork
       ? new Set(
           Array.from(sitePrepOptionIds).filter(id => selected.includes(id))
         )
@@ -5943,28 +5997,34 @@ export function QmConcreteScopePanels({
     (dedicatedFlatwork && selectedFlatworkOptions.length > 0)
       ? selectedFlatworkOptions
       : CONCRETE_FLATWORK_OPTIONS;
-  const flatworkPanelTitle = showStructuralConcrete
-    ? 'Flatwork & footing/foundation pour'
+  const flatworkPanelTitle = excavationOnlyGroundUp
+    ? 'Foundation pour & flatwork'
+    : showStructuralConcrete
+      ? 'Flatwork & footing/foundation pour'
     : selectedFlatworkOptions.length === 1
       ? `${selectedFlatworkOptions[0].label} pour`
       : 'Flatwork pour';
   const showSitePrepPanel =
-    !promptGroundUpStructure &&
-    (dedicatedFlatwork
-      ? visibleSitePrepOptionIds.size > 0
-      : !mixedExteriorScope || visibleSitePrepOptionIds.size > 0);
+    (groundUpExcavationFlow
+      ? true
+      : dedicatedFlatwork
+        ? visibleSitePrepOptionIds.size > 0
+        : !mixedExteriorScope || visibleSitePrepOptionIds.size > 0);
   const showOptionalPanel = dedicatedFlatwork
     ? visibleOptionalOptionIds.size > 0
     : !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
-  const panelStyle = qmPanelShellStyle(darkMode);
+  const panelStyle = groundUpExcavationFlow
+    ? {
+        ...qmPanelShellStyle(darkMode),
+        backgroundColor: darkMode ? '#2A2A2E' : Colors.surface2,
+      }
+    : qmPanelShellStyle(darkMode);
   if (notesNameConcretePatioWithSod(notes)) return null;
 
   return (
     <View style={{ gap: 12 }}>
-      {expanded ? (
-        <>
-          {showSitePrepPanel ? (
-            <View style={[styles.qmPanel, panelStyle]}>
+      {showSitePrepPanel ? (
+        <View style={[styles.qmPanel, panelStyle]}>
               <TouchableOpacity
                 onPress={() => setSitePrepExpanded(value => !value)}
                 activeOpacity={0.75}
@@ -5976,7 +6036,10 @@ export function QmConcreteScopePanels({
                     { color: darkMode ? '#cbd5e1' : Colors.text },
                   ]}
                 >
-                  Site prep & existing conditions {sitePrepExpanded ? '⌃' : '⌄'}
+                    {groundUpExcavationFlow
+                      ? 'Excavation'
+                      : 'Site prep & existing conditions'}{' '}
+                    {sitePrepExpanded ? '⌃' : '⌄'}
                 </Text>
                 <Text
                   style={[
@@ -5984,7 +6047,9 @@ export function QmConcreteScopePanels({
                     { color: darkMode ? '#d7e1f0' : '#64748b', marginTop: 2 },
                   ]}
                 >
-                  Demo, grading, excavation, and other site conditions.
+                  {groundUpExcavationFlow
+                    ? 'Enter the excavation quantity for this scope.'
+                    : 'Demo, grading, excavation, and other site conditions.'}
                 </Text>
               </TouchableOpacity>
               {sitePrepExpanded
@@ -6054,9 +6119,25 @@ export function QmConcreteScopePanels({
                                 Quantity needed before this scope can be priced.
                               </Text>
                             ) : null}
+                            {option.id === 'demo_removal' &&
+                            concreteDemoQuantityOwnedByScopeFound ? (
+                              <Text
+                                style={{
+                                  color: darkMode ? '#d7e1f0' : '#64748b',
+                                  fontSize: 11,
+                                  lineHeight: 15,
+                                  marginTop: 8,
+                                }}
+                              >
+                                Concrete removal quantity is managed in the
+                                Demo / tear-out card above.
+                              </Text>
+                            ) : null}
                             {option.id === 'demo_removal' ? (
                               <>
-                                {hasDemoArea && selectedDemoBands.length === 0 ? (
+                                {!concreteDemoQuantityOwnedByScopeFound &&
+                                hasDemoArea &&
+                                selectedDemoBands.length === 0 ? (
                                   <>
                                     <Text
                                       style={[
@@ -6094,7 +6175,8 @@ export function QmConcreteScopePanels({
                                       highlighted
                                     />
                                   </>
-                                ) : !hasDemoArea ? (
+                                ) : !concreteDemoQuantityOwnedByScopeFound &&
+                                  !hasDemoArea ? (
                                   <Text
                                     style={{
                                       color: darkMode ? '#fbbf24' : '#a16207',
@@ -6108,7 +6190,8 @@ export function QmConcreteScopePanels({
                                     the existing area or thickness.
                                   </Text>
                                 ) : null}
-                                {selectedDemoBands.map(band => {
+                                {!concreteDemoQuantityOwnedByScopeFound &&
+                                selectedDemoBands.map(band => {
                                   const bandLabel =
                                     CONCRETE_DEMO_THICKNESS_OPTIONS.find(
                                       item => item.id === band
@@ -6270,14 +6353,7 @@ export function QmConcreteScopePanels({
                                     ] as const
                                   ).map(mode => {
                                     const selectedMode =
-                                      measurements.excavationQuantityMode ||
-                                      (Number(measurements.excavationAreaSqft) >
-                                        0 &&
-                                      Number(
-                                        measurements.excavationDepthInches
-                                      ) > 0
-                                        ? 'area_depth'
-                                        : 'direct_cy');
+                                      excavationQuantityMode;
                                     const modeActive = selectedMode === mode.id;
                                     return (
                                       <QmConcreteScopeChoiceChip
@@ -6309,12 +6385,7 @@ export function QmConcreteScopePanels({
                                     );
                                   })}
                                 </View>
-                                {(measurements.excavationQuantityMode ||
-                                  (Number(measurements.excavationAreaSqft) >
-                                    0 &&
-                                  Number(measurements.excavationDepthInches) > 0
-                                    ? 'area_depth'
-                                    : 'direct_cy')) === 'direct_cy' ? (
+                                {excavationQuantityMode === 'direct_cy' ? (
                                   <QmSqftMeasurementRow
                                     label='Direct excavation quantity'
                                     helperText='This CY value controls pricing. Area and depth are not used in this mode.'
@@ -6418,23 +6489,43 @@ export function QmConcreteScopePanels({
                     );
                   })
                 : null}
-            </View>
-          ) : null}
-        </>
+        </View>
       ) : null}
       <View style={[styles.qmPanel, panelStyle]}>
         <TouchableOpacity
           onPress={() => setExpanded(value => !value)}
           activeOpacity={0.75}
         >
-          <Text
-            style={[
-              styles.qmPanelTitle,
-              { color: darkMode ? '#cbd5e1' : '#475569' },
-            ]}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              gap: 10,
+            }}
           >
-            {flatworkPanelTitle} {expanded ? '⌃' : '⌄'}
-          </Text>
+            <Text
+              style={[
+                styles.qmPanelTitle,
+                {
+                  color: darkMode ? '#cbd5e1' : '#475569',
+                  flexShrink: 1,
+                },
+              ]}
+            >
+              {flatworkPanelTitle}
+            </Text>
+            <Text
+              style={{
+                color: darkMode ? '#cbd5e1' : '#475569',
+                fontSize: 18,
+                fontWeight: '800',
+                lineHeight: 20,
+              }}
+            >
+              {expanded ? '⌃' : '⌄'}
+            </Text>
+          </View>
           <Text
             style={[
               styles.qmPanelCaption,
@@ -6886,7 +6977,7 @@ export function QmConcreteScopePanels({
           </>
         ) : null}
       </View>
-      {expanded && showOptionalPanel ? (
+      {showOptionalPanel ? (
         <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
@@ -7108,8 +7199,8 @@ type TradeOptionRow = {
 function qmPanelShellStyle(darkMode: boolean) {
   return {
     borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
-    // Transparent on the #202022 Quick measurements card — chips/inputs share one surface.
-    backgroundColor: 'transparent',
+    // Shared top-level job-scope card surface; chips and inputs remain nested.
+    backgroundColor: darkMode ? '#2A2A2E' : '#f8fafc',
   };
 }
 
@@ -8925,8 +9016,6 @@ export function QmSimpleTradeScopePanels({
     );
     const needsCapacityQuantity =
       option.id === HVAC_CAPACITY_OPTION_ID && needsQuantity;
-    const cardBorder = hvacPanelColors.borderColor;
-    const cardBackground = hvacPanelColors.backgroundColor;
     const statusPillLabel = needsReview
       ? 'Needs review'
       : needsQuantity
@@ -8959,8 +9048,8 @@ export function QmSimpleTradeScopePanels({
         style={[
           styles.hvacScopeSelectedCard,
           {
-            borderColor: cardBorder,
-            backgroundColor: cardBackground,
+            borderColor: 'transparent',
+            backgroundColor: 'transparent',
           },
         ]}
       >

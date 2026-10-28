@@ -25,6 +25,7 @@ import {
   formatScopeQuantity,
   getCompactProjectSummary,
   resolveScopePackageBudgetBreakdown,
+  scopePackageIndicativePricedAmount,
   type ScopePackageBudgetBreakdown,
   scopePackagePricingHint,
   scopePackageReviewUnpricedLabel,
@@ -520,6 +521,9 @@ export default function AIEstimateDraftReviewCompact({
         {visibleScope.map((pkg, index) => {
           const qty = formatScopeQuantity(pkg, draft);
           const amount = compactPackageAmount(pkg, draft);
+          const suggestedAmount = amount
+            ? 0
+            : scopePackageIndicativePricedAmount(pkg, draft);
           const isSoftCost = isSoftCostScopePackage(pkg, draft);
           const resolvedBreakdown = amount ? resolveScopePackageBudgetBreakdown(pkg, draft) : null;
           // Soft costs are flat allowances — never show a fake Material $0 / Labor split.
@@ -528,7 +532,12 @@ export default function AIEstimateDraftReviewCompact({
           const pricingSourceLabel = compactPackagePricingSourceLabel(pkg, draft);
           const takeoffCaption = reviewPackageTakeoffCaption(pkg, draft);
           const rowCaption =
-            [pricingSourceLabel, takeoffCaption].filter(Boolean).join(' · ') ||
+            [
+              suggestedAmount > 0 ? 'Suggested' : pricingSourceLabel,
+              takeoffCaption,
+            ]
+              .filter(Boolean)
+              .join(' · ') ||
             null;
           const unpricedLabel = !amount
             ? scopePackageReviewUnpricedLabel(pkg, draft)
@@ -541,7 +550,10 @@ export default function AIEstimateDraftReviewCompact({
           const liveSplitTotal =
             liveSplit != null ? roundedMoney(liveSplit.material + liveSplit.labor) : null;
           const rowAmount =
-            liveSplitTotal != null && liveSplitTotal > 0 ? formatPlanningMoney(liveSplitTotal) : amount;
+            liveSplitTotal != null && liveSplitTotal > 0
+              ? formatPlanningMoney(liveSplitTotal)
+              : amount || (suggestedAmount > 0 ? formatPlanningMoney(suggestedAmount) : null);
+          const rowAmountColor = suggestedAmount > 0 ? '#fbbf24' : '#2dcc9a';
           const editorBreakdown =
             isEditingPricing && canEditInline && !isSoftCost
               ? emptyBudgetBreakdown(pkg, resolvedBreakdown)
@@ -663,7 +675,7 @@ export default function AIEstimateDraftReviewCompact({
                           <View style={styles.budgetSplitToggleInner}>
                             <Text
                               style={{
-                                color: '#2dcc9a',
+                                color: rowAmountColor,
                                 fontSize: 15,
                                 fontWeight: '600',
                                 letterSpacing: -0.2,
@@ -702,7 +714,7 @@ export default function AIEstimateDraftReviewCompact({
                         <>
                           <Text
                             style={{
-                              color: '#2dcc9a',
+                              color: rowAmountColor,
                               fontSize: 15,
                               fontWeight: '600',
                               letterSpacing: -0.2,

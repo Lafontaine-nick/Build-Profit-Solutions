@@ -805,6 +805,7 @@ export function plumbingJobTypePickerVisible(params: {
   templateKey?: string | null;
 }): boolean {
   const notes = String(params.notes || '');
+  if (notesNameDedicatedWaterHeaterJob(notes)) return false;
   const explicitBathroomRemodel =
     /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notes) ||
     /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes);
@@ -1496,6 +1497,28 @@ export function notesSuggestPlumbingBid(notes: string): boolean {
     return false;
   }
   return standalone;
+}
+
+/**
+ * A water heater set. A bathroom, kitchen, fixture, or repipe note is a
+ * different job and keeps the plumbing job-type chooser.
+ */
+export function notesNameDedicatedWaterHeaterJob(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '').trim();
+  if (!/\b(?:water\s+heaters?|tankless)\b/i.test(text)) return false;
+  if (
+    /\b(?:remodels?|renovations?|fixtures?|repipes?|repipe|rough[-\s]?in|toilets?|vanit(?:y|ies)|sinks?|faucets?|showers?|tubs?|kitchens?|bathrooms?|baths?)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  if (/\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/i.test(text)) {
+    return false;
+  }
+  return true;
 }
 
 export function inferPlumbingWorkflowModeFromNotes(

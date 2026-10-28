@@ -20,6 +20,7 @@ import {
   readScopeFoundClarificationId,
   readScopeFoundPieces,
   roofTearOffChoiceForItem,
+  scopeFoundRemovalCardDollars,
   scopeFoundRemovalPricingSpec,
 } from '@/utils/scopeFoundClarification';
 import {
@@ -7830,7 +7831,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   excavation: {
     defaultUnit: 'cy',
-    allowedUnits: ['cy', 'sqft', 'lf', 'allowance', 'lump_sum'],
+    allowedUnits: ['cy', 'allowance', 'lump_sum'],
     measurementKey: 'excavationCy',
     requiresUserQuantity: true,
     quantityHelper:
@@ -8589,7 +8590,7 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   floor_demo: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'floorDemoSqft',
+    measurementKeys: ['floorDemoSqft', 'kitchenFloorSqft', 'flooringSqft'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter the existing flooring removal area from the notes.',
     missingMessage: 'Enter flooring removal sqft.',
@@ -8642,10 +8643,19 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter countertop linear feet from the notes.',
     missingMessage: 'Enter countertop LF.',
   },
+  backsplash_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'backsplashSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter backsplash sqft for removal.',
+    missingMessage: 'Enter backsplash demo sqft.',
+  },
   vanity: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.vanity,
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'bathroomInstallVanityCount',
     requiresUserQuantity: true,
     quantityHelper: 'Enter bathroom vanity replacement count from the notes.',
     missingMessage: 'Enter vanity replacement count.',
@@ -16755,9 +16765,14 @@ export function resolveScopeItemSuggestedPricing(
     const quantity = Number(resolved.quantity);
     const unit = String(resolved.unit || removalSpec.unit).toLowerCase();
     if (!(quantity > 0) || unit !== removalSpec.unit) return empty;
-    const material = round2(quantity * removalSpec.material);
-    const labor = round2(quantity * removalSpec.labor);
-    const total = round2(material + labor);
+    const priced = scopeFoundRemovalCardDollars(
+      quantity,
+      removalSpec.material,
+      removalSpec.labor
+    );
+    const material = priced.material;
+    const labor = priced.labor;
+    const total = priced.total;
     const rate = round2(removalSpec.material + removalSpec.labor);
     const rateLabel = Number.isInteger(rate) ? `$${rate}` : `$${rate.toFixed(2)}`;
     const unitLabel = removalSpec.unit === 'each' ? 'each' : 'sqft';
@@ -19851,7 +19866,12 @@ export function resolveScopeItemSuggestedPricing(
   // not mistaken for the kitchen benchmark card.
   if (
     itemId === 'backsplash_demo' &&
-    String(templateKey || '').toLowerCase() === 'kitchen'
+    (String(templateKey || '').toLowerCase() === 'kitchen' ||
+      /\bkitchen\b/i.test(notesText) ||
+      (Array.isArray(measurementsInput.scopeFoundPieces) &&
+        measurementsInput.scopeFoundPieces
+          .map(piece => String(piece))
+          .includes('backsplash')))
   ) {
     const measuredCount = Number(
       String(measurementsInput.backsplashSqft ?? '').replace(/,/g, '')
@@ -26533,16 +26553,25 @@ function resolveChecklistItemQuantityCore(
       const hasCeilingAssembly = assemblyRows.some(row =>
         ['attic_ceiling', 'roof_deck'].includes(String(row.location || ''))
       );
+      const noteText = String(ctx.notes || '');
+      const noteNamesWall = /\bwalls?\b/i.test(noteText);
+      const noteNamesCeiling = /\b(?:attic|ceiling|roof\s+deck)\b/i.test(
+        noteText
+      );
+      const singleSurfaceReady =
+        (hasCeilingAssembly && !hasWallAssembly && !noteNamesWall) ||
+        (hasWallAssembly && !hasCeilingAssembly && !noteNamesCeiling);
+      const assembliesReady =
+        (hasWallAssembly && hasCeilingAssembly) || singleSurfaceReady;
       return {
         quantity: assemblySqft,
         unit: 'sqft',
         quantitySource: 'inferred',
         sourceLabel: 'Insulation assemblies · plan takeoff',
-        pricingReady: hasWallAssembly && hasCeilingAssembly,
-        quantityHelper:
-          hasWallAssembly && hasCeilingAssembly
-            ? rule.quantityHelper
-            : 'Add a confirmed attic/ceiling or roof-deck assembly before pricing this whole-house scope.',
+        pricingReady: assembliesReady,
+        quantityHelper: assembliesReady
+          ? rule.quantityHelper
+          : 'Add a confirmed attic/ceiling or roof-deck assembly before pricing this whole-house scope.',
         showInput: true,
       };
     }

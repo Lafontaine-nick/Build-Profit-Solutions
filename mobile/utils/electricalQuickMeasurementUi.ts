@@ -100,6 +100,7 @@ const QM_GROUP_TITLES: Record<ElectricalCardGroupId, string> = {
   switches: 'Switches / controls',
   lighting: 'Lighting / fans',
   fans: 'Lighting / fans',
+  demo: 'Demo',
   appliances: 'Appliance circuit + hookup',
   life_safety: 'Life safety / low voltage',
   rough_modifications: 'Modifications',
@@ -137,6 +138,7 @@ const QM_GROUP_CAPTIONS: Record<ElectricalCardGroupId, string> = {
     'Switch devices own the location. Do not also count a dimmer, occupancy, or smart switch as a single-pole.',
   lighting:
     'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
+  demo: 'Existing electrical that comes out. Make-safe only.',
   fans: 'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
   appliances:
     'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
@@ -325,6 +327,7 @@ const QM_GROUP_ORDER: ElectricalCardGroupId[] = [
   'circuits',
   'receptacles',
   'switches',
+  'demo',
   'lighting',
   'appliances',
   'life_safety',

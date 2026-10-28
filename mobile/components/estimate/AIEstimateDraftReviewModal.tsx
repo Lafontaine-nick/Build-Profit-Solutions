@@ -565,8 +565,8 @@ export default function AIEstimateDraftReviewModal({
 
 const styles = StyleSheet.create({
   embeddedShell: {
-    zIndex: 101,
-    elevation: 101,
+    zIndex: 120,
+    elevation: 120,
   },
   primaryBtn: {
     backgroundColor: '#2dcc9a',
