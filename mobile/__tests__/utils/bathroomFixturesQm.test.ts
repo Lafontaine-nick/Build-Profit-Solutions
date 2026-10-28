@@ -1,5 +1,9 @@
 import { inferBathroomVanityCountertopMaterialFromNotes } from '@/utils/bathroomVanityCountertopPricing';
-import { checklistItemInScope, resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
+import {
+  checklistItemInScope,
+  countScopePricingReadiness,
+  resolveChecklistItemQuantity,
+} from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import {
   inferBathroomFixtureInstallFromIntent,
@@ -208,6 +212,92 @@ describe('bathroomFixturesQm', () => {
     });
     expect(demo.bathroomDemoVanityCount).toBeNull();
     expect(demo.bathroomDemoCounterCount).toBe(1);
+  });
+
+  test('a prefab quartz top does not need countertop area', () => {
+    const note =
+      'Remove the vanity and the countertop. New vanity, 60 inches. New quartz top.';
+    const measurements = {
+      itemQuantities: {},
+      cabinetLf: 5,
+      bathroomInstallVanityCount: 1,
+      bathroomInstallCounterCount: 1,
+      bathroomDemoVanityCount: 1,
+      bathroomDemoCounterCount: 1,
+      bathroomVanityCountertopMaterialType: 'prefab_quartz_stone',
+    } as never;
+    const items = [
+      item('vanity_demo', 'included'),
+      item('countertop_demo', 'included'),
+      item('vanity', 'included'),
+      item('countertops', 'included'),
+    ];
+    expect(
+      countScopePricingReadiness(items, measurements, 'bathroom', note)
+        .needsMeasurement
+    ).toBe(0);
+    const custom = countScopePricingReadiness(
+      items,
+      {
+        ...measurements,
+        bathroomVanityCountertopMaterialType: 'custom_quartz_granite',
+      } as never,
+      'bathroom',
+      note
+    );
+    expect(custom.needsMeasurement).toBe(1);
+  });
+
+  test('a named removal stays selected without an existing count', () => {
+    const note =
+      'Remove the vanity and the countertop. New vanity, 60 inches. New quartz top.';
+    const demo = resolveBathroomFixtureDemoFromIntent({
+      notes: note,
+      existing: {
+        bathroomExistingVanityCount: null,
+        bathroomExistingCounterCount: null,
+      },
+      install: {
+        bathroomInstallVanityCount: 1,
+        bathroomInstallCounterCount: 1,
+      },
+      checklistItems: [],
+    });
+    expect(demo.bathroomDemoVanityCount).toBe(1);
+    expect(demo.bathroomDemoCounterCount).toBe(1);
+    const kept = suggestBathroomFixtureDemoFromExistingInstall({
+      existing: {
+        bathroomExistingVanityCount: null,
+        bathroomExistingCounterCount: null,
+      },
+      install: {
+        bathroomInstallVanityCount: 1,
+        bathroomInstallCounterCount: 1,
+      },
+      demo,
+      materialType: 'prefab_quartz_stone',
+      keepNamedVanityDemo: true,
+      keepNamedCounterDemo: true,
+    });
+    expect(kept.bathroomDemoVanityCount).toBe(1);
+    expect(kept.bathroomDemoCounterCount).toBe(1);
+    const filled = suggestBathroomFixtureDemoFromExistingInstall({
+      existing: {
+        bathroomExistingVanityCount: null,
+        bathroomExistingCounterCount: null,
+      },
+      install: {
+        bathroomInstallVanityCount: 1,
+        bathroomInstallCounterCount: 1,
+      },
+      demo: { bathroomDemoVanityCount: null, bathroomDemoCounterCount: null },
+      countertopSqft: '25',
+      materialType: 'prefab_quartz_stone',
+      keepNamedVanityDemo: true,
+      keepNamedCounterDemo: true,
+    });
+    expect(filled.bathroomDemoVanityCount).toBe(1);
+    expect(filled.bathroomDemoCounterCount).toBe(1);
   });
 
   test('clearing existing clears remove even with manual demo override', () => {

@@ -19,6 +19,7 @@ import { resolveBathroomPaintRepairSuggestedPricing } from '@/utils/bathroomPain
 import { resolveBathroomPlumbingRoughSuggestedPricing } from '@/utils/bathroomPlumbingRoughPricing';
 import { resolveBathroomPlumbingTrimSuggestedPricing } from '@/utils/bathroomPlumbingTrimPricing';
 import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
+import { readShowerRemovalPieces } from '@/utils/bathroomNoteScope';
 import {
   PREFAB_ENCLOSURE_DEMO_EACH,
   PREFAB_PAN_DEMO_EACH,
@@ -577,7 +578,7 @@ export function resolveStep2ComponentSuggestedPricing(
     tub_demo: { ...TUB_DEMO_EACH, label: 'existing tub removal' },
     shower_floor_demo: {
       ...PREFAB_PAN_DEMO_EACH,
-      label: 'existing prefab shower pan removal',
+      label: 'existing shower pan removal',
     },
     shower_enclosure_demo: {
       ...PREFAB_ENCLOSURE_DEMO_EACH,
@@ -609,16 +610,41 @@ export function resolveStep2ComponentSuggestedPricing(
 
   if (itemId === 'demo') {
     const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
-    const tileSqft =
-      storedBasis ??
-      (resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
-        ? resolved.quantity
-        : 0);
+    const wallSqft = Number(measurementsInput.showerWallTileSqft) || 0;
+    const floorSqft = Number(measurementsInput.showerFloorTileSqft) || 0;
+    // The Tile pan chip prices that area on Remove tile pan. This card keeps the walls.
+    const tilePanOnItsOwnLine = readShowerRemovalPieces(
+      measurementsInput.showerRemovalPieces
+    ).includes('tile_pan');
+    const storedBasisIsWallPlusPan =
+      storedBasis != null &&
+      wallSqft > 0 &&
+      floorSqft > 0 &&
+      Math.abs(storedBasis - (wallSqft + floorSqft)) < 0.02;
+    const tileSqft = tilePanOnItsOwnLine
+      ? storedBasis != null && !storedBasisIsWallPlusPan
+        ? storedBasis
+        : wallSqft
+      : storedBasis ??
+        (resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
+          ? resolved.quantity
+          : 0);
+    const pricingInput = tilePanOnItsOwnLine
+      ? {
+          ...measurementsInput,
+          itemQuantities: {
+            ...itemQuantities,
+            ...(storedBasisIsWallPlusPan || storedBasis == null
+              ? { demo__sqft_basis: undefined }
+              : {}),
+          },
+        }
+      : measurementsInput;
     const wetAreaDemo = resolveBathroomWetAreaDemoSuggestedPricing({
-      measurementsInput,
+      measurementsInput: pricingInput,
       tileSqft,
-      wallTileSqft: Number(measurementsInput.showerWallTileSqft) || undefined,
-      panSqft: Number(measurementsInput.showerFloorTileSqft) || undefined,
+      wallTileSqft: wallSqft || undefined,
+      panSqft: tilePanOnItsOwnLine ? undefined : floorSqft || undefined,
       sourceLabel: resolved.sourceLabel,
     });
     if (wetAreaDemo.fill) return wetAreaDemo as ScopeItemSuggestedPricing;

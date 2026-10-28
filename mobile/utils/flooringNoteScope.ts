@@ -3,6 +3,7 @@
  * Other trades, and other flooring products, stay off.
  */
 import {
+  flooringDemoStyleItemId,
   inferExistingFlooringFromNotes,
   type FlooringExistingCounts,
 } from '@/utils/qmScopePanels/flooringRemodel';
@@ -359,6 +360,77 @@ export function selectedFlooringProductItemIds(
   for (const product of scope) {
     const id = PRODUCT_RULES.find(rule => rule.product === String(product))?.id;
     if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+const FLOORING_REMOVAL_PIECES = [
+  'carpet',
+  'tile',
+  'hardwood',
+  'vinyl',
+  'laminate',
+];
+
+/**
+ * Install-only flooring notes omit the demo card. Keep it once the contractor
+ * selects existing flooring on Scope Found or the Existing flooring card.
+ */
+export function flooringRemovalSelectedOnConfirm(
+  measurements: {
+    flooringExistingTypes?: unknown;
+    scopeFoundPieces?: unknown;
+    scopeFoundChoice?: unknown;
+    itemQuantities?: unknown;
+  } | null | undefined
+): boolean {
+  if (!measurements) return false;
+  const types = Array.isArray(measurements.flooringExistingTypes)
+    ? measurements.flooringExistingTypes.filter(
+        (type): type is string => typeof type === 'string' && type.length > 0
+      )
+    : [];
+  if (types.length > 0) return true;
+  const pieces = Array.isArray(measurements.scopeFoundPieces)
+    ? measurements.scopeFoundPieces.map(piece => String(piece))
+    : [];
+  if (pieces.some(piece => FLOORING_REMOVAL_PIECES.includes(piece))) return true;
+  const choice = String(measurements.scopeFoundChoice || '');
+  if (choice === 'yes') return true;
+  if (choice === 'none' || choice === 'unsure') return false;
+  const quantities = measurements.itemQuantities;
+  if (!quantities || typeof quantities !== 'object' || Array.isArray(quantities)) {
+    return false;
+  }
+  return Object.entries(
+    quantities as Record<string, { quantity?: unknown }>
+  ).some(
+    ([key, entry]) =>
+      key.startsWith('floor_demo__') && Number(entry?.quantity || 0) > 0
+  );
+}
+
+/** Product cards plus the demo card when existing flooring is in this bid. */
+export function retainedFlooringConfirmItemIds(
+  measurements: {
+    flooringProductScope?: unknown;
+    flooringExistingTypes?: unknown;
+    scopeFoundPieces?: unknown;
+    scopeFoundChoice?: unknown;
+    itemQuantities?: unknown;
+  } | null | undefined
+): string[] {
+  const ids = selectedFlooringProductItemIds(measurements);
+  if (flooringRemovalSelectedOnConfirm(measurements) && !ids.includes('floor_demo')) {
+    ids.push('floor_demo');
+  }
+  const types = Array.isArray(measurements?.flooringExistingTypes)
+    ? measurements.flooringExistingTypes
+    : [];
+  for (const type of types) {
+    if (typeof type !== 'string' || !type) continue;
+    const id = flooringDemoStyleItemId(type);
+    if (!ids.includes(id)) ids.push(id);
   }
   return ids;
 }

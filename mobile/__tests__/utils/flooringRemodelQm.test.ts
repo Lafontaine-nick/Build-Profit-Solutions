@@ -103,6 +103,24 @@ describe('flooringRemodel QM', () => {
     expect(next.find(r => r.id === 'cleanup')?.state).toBe('excluded');
   });
 
+  it('adds a demo card for each selected existing flooring style', () => {
+    const next = syncFlooringQmScopeItems([item('flooring_lvp', 'included')], {
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringExistingCount: 1,
+      flooringProductScope: ['lvp'],
+    });
+    expect(next.find(row => row.id === 'floor_demo')).toBeUndefined();
+    expect(next.find(row => row.id === 'floor_demo_style_carpet')).toMatchObject({
+      label: 'Remove carpet',
+      state: 'included',
+      noteBacked: false,
+    });
+    expect(next.find(row => row.id === 'floor_demo_style_tile')).toMatchObject({
+      label: 'Remove tile',
+      state: 'included',
+    });
+  });
+
   it('selects product cards from detected product types without inventing quantities', () => {
     const items = [item('flooring')];
     const next = syncFlooringQmScopeItems(items, {

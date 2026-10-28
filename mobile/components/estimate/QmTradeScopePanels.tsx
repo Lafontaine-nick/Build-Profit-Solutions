@@ -30,6 +30,10 @@ import {
   qmInactiveMeasurementShellStyle,
 } from '@/constants/qmMeasurementShellStyle';
 import {
+  ROOF_TEAR_OFF_CARDS,
+  readScopeFoundPieces,
+} from '@/utils/scopeFoundClarification';
+import {
   kitchenNoteIncludesFloorWork,
   kitchenNoteNamesBacksplash,
   kitchenNoteNamesCabinetWork,
@@ -40,7 +44,7 @@ import {
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
 } from '@/utils/wholeHomeRemodelNote';
-import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
+import { type ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
   roofingStoryCountForReview,
   stuccoStoryCountForReview,
@@ -58,6 +62,7 @@ import {
   resolveKitchenInstallScopeCounts,
   suggestKitchenDemoFromExistingInstall,
   patchKitchenMeasurementItemQuantities,
+  kitchenSelectedDemoSurfaces,
   type KitchenDemoCounts,
   type KitchenDemoOverrideKey,
   type KitchenExistingCounts,
@@ -172,6 +177,7 @@ import {
   readBathroomInstallFixtureCounts,
   resolveBathroomFixtureDemoFromIntent,
   resolveBathroomInstallCounterCount,
+  namedBathroomDemoKeeps,
   suggestBathroomFixtureDemoFromExistingInstall,
   type BathroomDemoFixtureCounts,
   type BathroomExistingFixtureCounts,
@@ -1608,10 +1614,14 @@ export function QmKitchenScopePanels({
           : notesNameApplianceInstall
       )
     : KITCHEN_INSTALL_STEPPER_ROWS;
-  const showIslandDemoRow = kitchenNoteNamesSurfaceDemo(
-    kitchenNoteText,
-    'island'
-  );
+  const selectedKitchenDemo = kitchenSelectedDemoSurfaces({
+    notes: kitchenNoteText,
+    measurements: measurements as Record<string, unknown>,
+    demo,
+  });
+  const showIslandDemoRow = condensed
+    ? selectedKitchenDemo.island
+    : kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'island');
   const condensedKitchenDemoRows = condensed
     ? KITCHEN_DEMO_STEPPER_ROWS.filter(row =>
         row.key === 'kitchenDemoIslandCount'
@@ -1620,19 +1630,19 @@ export function QmKitchenScopePanels({
       )
     : KITCHEN_DEMO_STEPPER_ROWS;
   const showCabinetDemoRow = condensed
-    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'cabinet')
+    ? selectedKitchenDemo.cabinet
     : condensedKitchenScope.cabinets;
   const showCounterDemoRow = condensed
-    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'counter')
+    ? selectedKitchenDemo.counter
     : condensedKitchenScope.counters;
   const showBacksplashDemoRow = condensed
-    ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'backsplash')
+    ? selectedKitchenDemo.backsplash
     : condensedKitchenScope.backsplash;
   const showFloorDemoRow =
     showKitchenFloorField &&
     hasExplicitKitchenFloorScope &&
     (condensed
-      ? kitchenNoteNamesSurfaceDemo(kitchenNoteText, 'floor')
+      ? selectedKitchenDemo.floor
       : condensedKitchenScope.flooring);
   const hasCondensedKitchenDemo =
     showCabinetDemoRow ||
@@ -1936,15 +1946,15 @@ export function QmFlooringScopePanels({
   const prepAreaReady = Object.values(measurements.floorPrepByProduct || {}).some(
     entry => Number(entry?.sqft || 0) > 0
   );
-  const [existingExpanded, setExistingExpanded] = useState(
-    () => existingNamedInNotes
-  );
-  const existingAutoOpenedRef = useRef(existingNamedInNotes);
+  const [existingExpanded, setExistingExpanded] = useState(true);
+  const existingAutoOpenedRef = useRef(true);
   const [newExpanded, setNewExpanded] = useState(true);
   const [prepExpanded, setPrepExpanded] = useState(
     () => prepNamedInNotes || prepAreaReady
   );
   const prepAutoOpenedRef = useRef(prepNamedInNotes || prepAreaReady);
+  const [showMoreExistingFlooring, setShowMoreExistingFlooring] =
+    useState(false);
   const [showMoreNewFlooring, setShowMoreNewFlooring] = useState(false);
   const [sqftDrafts, setSqftDrafts] = useState<Record<string, string>>({});
   const [sqftEditingKey, setSqftEditingKey] = useState<string | null>(null);
@@ -2718,7 +2728,12 @@ export function QmFlooringScopePanels({
                 Select what is in the space now. Multiple types are allowed.
               </Text>
               <View style={styles.qmOptionWrap}>
-                {existingFlooringOptions.map(option => {
+                {(selectedExistingTypes.length === 0 || showMoreExistingFlooring
+                  ? existingFlooringOptions
+                  : existingFlooringOptions.filter(option =>
+                      selectedExistingTypes.includes(option.id)
+                    )
+                ).map(option => {
                   const selected = selectedExistingTypes.includes(option.id);
                   return (
                     <React.Fragment key={option.id}>
@@ -2994,6 +3009,31 @@ export function QmFlooringScopePanels({
                     </React.Fragment>
                   );
                 })}
+                {selectedExistingTypes.length > 0 && !showMoreExistingFlooring ? (
+                  <TouchableOpacity
+                    onPress={() => setShowMoreExistingFlooring(true)}
+                    activeOpacity={0.75}
+                    accessibilityRole='button'
+                    accessibilityLabel='Show extra flooring styles'
+                    style={[
+                      styles.qmOption,
+                      {
+                        marginTop: 4,
+                        borderColor: darkMode ? '#52525b' : '#cbd5e1',
+                        backgroundColor: darkMode ? '#3a3a3c' : '#f1f5f9',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.qmOptionText,
+                        { color: darkMode ? '#e4e4e7' : Colors.text },
+                      ]}
+                    >
+                      Show extra flooring styles
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           ) : null}
@@ -3342,17 +3382,15 @@ export function QmFlooringScopePanels({
                     styles.qmOption,
                     {
                       marginTop: 4,
-                      borderColor: '#34d399',
-                      backgroundColor: darkMode
-                        ? 'rgba(52, 211, 153, 0.12)'
-                        : 'rgba(52, 211, 153, 0.10)',
+                      borderColor: darkMode ? '#52525b' : '#cbd5e1',
+                      backgroundColor: darkMode ? '#3a3a3c' : '#f1f5f9',
                     },
                   ]}
                 >
                   <Text
                     style={[
                       styles.qmOptionText,
-                      { color: '#34d399', fontWeight: '700' },
+                      { color: darkMode ? '#e4e4e7' : Colors.text },
                     ]}
                   >
                     + Add another flooring material
@@ -3820,9 +3858,24 @@ export const QmBathroomFixturesPanels = React.memo(
           };
         }
       );
-      const [demo, setDemo] = useState<BathroomDemoFixtureCounts>(() =>
-        readBathroomDemoFixtureCounts(measurements)
-      );
+      const [demo, setDemo] = useState<BathroomDemoFixtureCounts>(() => {
+        const saved = readBathroomDemoFixtureCounts(measurements);
+        const inferred = resolveBathroomFixtureDemoFromIntent({
+          notes,
+          existing: readBathroomExistingFixtureCounts(measurements),
+          install: inferBathroomFixtureInstallFromIntent({
+            notes,
+            checklistItems: [],
+          }),
+          checklistItems: [],
+        });
+        return {
+          bathroomDemoVanityCount:
+            saved.bathroomDemoVanityCount ?? inferred.bathroomDemoVanityCount,
+          bathroomDemoCounterCount:
+            saved.bathroomDemoCounterCount ?? inferred.bathroomDemoCounterCount,
+        };
+      });
       const [toiletFaucet, setToiletFaucet] = useState<BathroomToiletFaucetCounts>(
         () => inferBathroomToiletFaucetCounts(notes)
       );
@@ -4024,29 +4077,23 @@ export const QmBathroomFixturesPanels = React.memo(
         });
         const demoNotesChanged = fixtureDemoNotesSeededRef.current !== notesSignature;
         if (demoNotesChanged) fixtureDemoNotesSeededRef.current = notesSignature;
-        const nextDemo: BathroomDemoFixtureCounts = demoNotesChanged
-          ? {
-              bathroomDemoVanityCount:
-                savedDemo.bathroomDemoVanityCount ??
-                inferredDemo.bathroomDemoVanityCount,
-              bathroomDemoCounterCount:
-                savedDemo.bathroomDemoCounterCount ??
-                inferredDemo.bathroomDemoCounterCount,
-            }
-          : {
-              bathroomDemoVanityCount:
-                savedDemo.bathroomDemoVanityCount ??
-                demoRef.current.bathroomDemoVanityCount,
-              bathroomDemoCounterCount:
-                savedDemo.bathroomDemoCounterCount ??
-                demoRef.current.bathroomDemoCounterCount,
-            };
+        const nextDemo: BathroomDemoFixtureCounts = {
+          bathroomDemoVanityCount: demoOverridesRef.current.bathroomDemoVanityCount
+            ? (savedDemo.bathroomDemoVanityCount ??
+              demoRef.current.bathroomDemoVanityCount)
+            : (savedDemo.bathroomDemoVanityCount ??
+              inferredDemo.bathroomDemoVanityCount),
+          bathroomDemoCounterCount: demoOverridesRef.current.bathroomDemoCounterCount
+            ? (savedDemo.bathroomDemoCounterCount ??
+              demoRef.current.bathroomDemoCounterCount)
+            : (savedDemo.bathroomDemoCounterCount ??
+              inferredDemo.bathroomDemoCounterCount),
+        };
         if (
-          demoNotesChanged &&
-          ((savedDemo.bathroomDemoVanityCount == null &&
+          (savedDemo.bathroomDemoVanityCount == null &&
             nextDemo.bathroomDemoVanityCount != null) ||
-            (savedDemo.bathroomDemoCounterCount == null &&
-              nextDemo.bathroomDemoCounterCount != null))
+          (savedDemo.bathroomDemoCounterCount == null &&
+            nextDemo.bathroomDemoCounterCount != null)
         ) {
           setMeasurementsRef.current(prev =>
             withUnchangedMeasurementPatch(prev, {
@@ -4221,6 +4268,7 @@ export const QmBathroomFixturesPanels = React.memo(
               countertopSqft: countertopSqftRef.current,
               materialType: materialRef.current,
               overrides: demoOverridesRef.current,
+              ...namedBathroomDemoKeeps(notes),
             });
           }
           demoRef.current = mergedDemo;
@@ -4234,7 +4282,7 @@ export const QmBathroomFixturesPanels = React.memo(
           };
           scheduleParentFlush();
         },
-        [scheduleParentFlush]
+        [notes, scheduleParentFlush]
       );
 
       const adjustExisting = useCallback(
@@ -4389,6 +4437,7 @@ export const QmBathroomFixturesPanels = React.memo(
                     countertopSqft: cleaned,
                     materialType,
                     overrides: demoOverridesRef.current,
+                    ...namedBathroomDemoKeeps(notes),
                   });
                 setDemo(mergedDemo);
                 demoRef.current = mergedDemo;
@@ -4412,7 +4461,7 @@ export const QmBathroomFixturesPanels = React.memo(
             });
           });
         },
-        [existing, install, onBathroomFixturesQmChange, setMeasurements]
+        [existing, install, notes, onBathroomFixturesQmChange, setMeasurements]
       );
 
       const handleCountertopMaterialPress = useCallback(
@@ -4443,6 +4492,7 @@ export const QmBathroomFixturesPanels = React.memo(
                     countertopSqft: countertopSqftRef.current,
                     materialType: next,
                     overrides: demoOverridesRef.current,
+                    ...namedBathroomDemoKeeps(notes),
                   });
                 setDemo(mergedDemo);
                 demoRef.current = mergedDemo;
@@ -4466,6 +4516,7 @@ export const QmBathroomFixturesPanels = React.memo(
         [
           existing,
           install,
+          notes,
           onBathroomCountertopMaterialChange,
           onBathroomFixturesQmChange,
           selectedCountertopMaterial,
@@ -4597,9 +4648,11 @@ export const QmBathroomFixturesPanels = React.memo(
             }}
             stepperIncreaseDisabled={{
               bathroomDemoVanityCount:
-                existing.bathroomExistingVanityCount == null,
+                existing.bathroomExistingVanityCount == null &&
+                !notesNameDemoVanity,
               bathroomDemoCounterCount:
-                existing.bathroomExistingCounterCount == null,
+                existing.bathroomExistingCounterCount == null &&
+                !notesNameDemoCountertop,
             }}
             applying={applying}
             stepperMax={BATHROOM_QM_STEPPER_MAX}
@@ -7087,6 +7140,10 @@ export function QmRoofingScopePanels({
   const [installExpanded, setInstallExpanded] = useState(true);
   const [demoExpanded, setDemoExpanded] = useState(true);
   const [accessoryExpanded, setAccessoryExpanded] = useState(true);
+  const [tearOffRowVisible, setTearOffRowVisible] = useState(
+    () =>
+      (measurements.tradeScopeSelections?.[scopeKey] || []).includes('tear_off')
+  );
   const panelStyle = qmPanelShellStyle(darkMode);
 
   const toggle = (id: string, _canonicalId: string) => {
@@ -7137,14 +7194,52 @@ export function QmRoofingScopePanels({
     };
     return Boolean(patterns[id]?.test(roofingNoteText));
   };
+  useEffect(() => {
+    if (
+      selections.includes('tear_off') ||
+      noteBackedRoofingOption('tear_off')
+    ) {
+      setTearOffRowVisible(true);
+    }
+  }, [selections, roofingNoteText]);
   const visibleRoofingOptions = (options: typeof installOptions) =>
     condensed
-      ? options.filter(option => noteBackedRoofingOption(option.id))
+      ? options.filter(
+          option =>
+            noteBackedRoofingOption(option.id) ||
+            ((ROOFING_DEMO_OPTION_IDS as readonly string[]).includes(option.id) &&
+              (selections.includes(option.id) ||
+                selections.includes(option.canonicalId)))
+        )
       : options;
   const visibleInstallOptions = visibleRoofingOptions(installOptions);
   const visibleDemoOptions = visibleRoofingOptions(demoOptions);
   const visibleAccessoryOptions = visibleRoofingOptions(accessoryOptions);
   const visibleDrainageOptions = visibleRoofingOptions(drainageOptions);
+  const tearOffRows = ROOF_TEAR_OFF_CARDS.filter(row =>
+    readScopeFoundPieces(measurements.scopeFoundPieces).includes(row.piece)
+  ).map(row => ({
+    ...row,
+    typed: String(measurements.itemQuantities?.[row.id]?.quantity ?? ''),
+  }));
+  const setTearOffSquares = (itemId: string, value: string) => {
+    const quantity = value.replace(/,/g, '').trim();
+    setMeasurements(prev => {
+      const itemQuantities = {
+        ...(prev.itemQuantities || {}),
+      };
+      if (!quantity || !(Number(quantity) > 0)) {
+        delete itemQuantities[itemId];
+      } else {
+        itemQuantities[itemId] = {
+          quantity,
+          unit: 'squares',
+          quantitySource: 'user_entered',
+        };
+      }
+      return { ...prev, itemQuantities };
+    });
+  };
   const installSelected = installOptions.some(
     option =>
       selections.includes(option.id) || selections.includes(option.canonicalId)
@@ -7521,7 +7616,8 @@ export function QmRoofingScopePanels({
 
       {installExpanded &&
       !planOnlyRoof &&
-      (visibleDemoOptions.length > 0 ||
+      (tearOffRowVisible ||
+        visibleDemoOptions.length > 0 ||
         selections.some(id =>
           (ROOFING_DEMO_OPTION_IDS as readonly string[]).includes(id)
         )) ? (
@@ -7552,17 +7648,46 @@ export function QmRoofingScopePanels({
               </Text>
             </TouchableOpacity>
             {demoExpanded ? (
-              <QmTradeScopeOptionList
-                options={visibleDemoOptions}
-                selections={selections}
-                scopeKey={scopeKey}
-                onToggle={toggle}
-                measurements={measurements}
-                setMeasurements={setMeasurements}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
+              <View style={{ marginTop: 12 }}>
+                {tearOffRows.length ? (
+                  tearOffRows.map(row => (
+                    <QmSqftMeasurementRow
+                      key={row.id}
+                      label={row.label}
+                      helperText={
+                        row.piece === 'metal'
+                          ? 'Metal tear-off is priced per square, not sqft.'
+                          : 'Squares of this material coming off.'
+                      }
+                      value={row.typed}
+                      placeholder='Enter squares'
+                      unitLabel='squares'
+                      onChangeText={value => setTearOffSquares(row.id, value)}
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                    />
+                  ))
+                ) : (
+                  <QmCountStepper
+                    label='Tear-off'
+                    value={selections.includes('tear_off') ? 1 : null}
+                    rowKey='tear_off'
+                    onAdjustRow={(_key, delta) => {
+                      const on = selections.includes('tear_off');
+                      if (delta < 0 && on) toggle('tear_off', 'tear_off');
+                      if (delta > 0 && !on) {
+                        setTearOffRowVisible(true);
+                        toggle('tear_off', 'tear_off');
+                      }
+                    }}
+                    applying={applying}
+                    max={1}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                  />
+                )}
+              </View>
             ) : null}
           </View>
 

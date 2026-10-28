@@ -59,6 +59,27 @@ describe('electrical Phase 2H modification pricing', () => {
     expect(quote?.total).toBe(266);
   });
 
+  it('quotes one removed panel and one made-safe wiring run', () => {
+    expect(
+      quoteElectricalModification({
+        itemId: 'electrical_panel_removal',
+        quantity: 1,
+      })
+    ).toMatchObject({ material: 75, labor: 275, total: 350, specialty: true });
+    expect(
+      quoteElectricalModification({
+        itemId: 'electrical_abandoned_circuit',
+        quantity: 1,
+      })
+    ).toMatchObject({ material: 25, labor: 150, total: 175, specialty: true });
+    expect(
+      quoteElectricalModification({
+        itemId: 'electrical_fixture_removal',
+        quantity: 1,
+      })
+    ).toMatchObject({ material: 15, labor: 90, total: 105, specialty: false });
+  });
+
   it('marks abandoned circuits specialty / confirm', () => {
     const quote = quoteElectricalModification({
       itemId: 'electrical_abandoned_circuit',

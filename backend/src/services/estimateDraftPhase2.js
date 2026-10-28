@@ -285,11 +285,18 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
     }
   }
 
-  const preserved = (scopePackages || []).filter(
-    (p) =>
-      p.status === 'user_provided' ||
-      (p.status === 'confirmed' && p.priceIncludesLaborAndMaterials && p.price != null)
-  );
+  const notesStateADollarTotal =
+    /\$\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:dollars|bucks)\b/i.test(noteText);
+  const preserved =
+    noteText.trim() && !notesStateADollarTotal
+      ? []
+      : (scopePackages || []).filter(
+          (p) =>
+            p.status === 'user_provided' ||
+            (p.status === 'confirmed' &&
+              p.priceIncludesLaborAndMaterials &&
+              p.price != null)
+        );
   if (preserved.length === 1) {
     const p = preserved[0];
     lines.push(`Preserved your total for ${p.name}: ${formatMoney(p.price)} (not changed).`);

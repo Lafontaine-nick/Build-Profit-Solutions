@@ -144,6 +144,9 @@ function notesMentionDemoTilePan(n: string): boolean {
     ) ||
     /\b(remove|demo|demolition|tear[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?mud\s+pan\b/.test(
       n
+    ) ||
+    /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,80}\band\s+the\s+(?:existing\s+)?tile\s+(?:shower\s+)?pan\b/.test(
+      n
     )
   );
 }
@@ -515,6 +518,20 @@ export function bathroomRemodelShowsBathFloorBox(params: {
   if (params.hasEnteredSqft) return true;
   if (notesLeaveBathroomFloorOut(params.notes)) return false;
   if (params.namedBathFloor) return true;
+  const text = String(params.notes || '');
+  const namesThisFloor =
+    /\b(?:bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile|tile\s+(?:the\s+)?(?:bath(?:room)?\s+)?floor)\b/i.test(
+      text
+    );
+  if (namesThisFloor) return true;
+  // A named shower or fixture note is not a whole bathroom remodel.
+  // The floor box stays off until the note names that floor.
+  if (
+    !/\b(?:remodel|renovat(?:e|ion)|reno)\b/i.test(text) &&
+    /\b(?:prefab|shower|tub|vanity|toilet|mud\s+pan)\b/i.test(text)
+  ) {
+    return false;
+  }
   return notesNameBathroomRemodelJob(params.notes, params.templateKey);
 }
 
@@ -626,6 +643,9 @@ export function resolveDemoWetAreaFromIntent(
   if (input.keepingExisting) return empty;
 
   const n = String(input.notes || '').toLowerCase();
+  // A note that names the new work owns the demo. Like-for-like tear-out
+  // stays for a blank stepper, where the contractor has not written the note.
+  const likeForLikeDemo = !String(input.notes || '').trim();
   const ex = reconcileExistingWetAreaCounts(input.existing);
   const ins = input.install;
   const newWet = installingNewWetArea(ins);
@@ -666,7 +686,7 @@ export function resolveDemoWetAreaFromIntent(
     'demoTileWallCount',
     Boolean(
       notesMentionDemoTileWalls(n) ||
-        installingTileWalls ||
+        (likeForLikeDemo && installingTileWalls) ||
         (conversionDemo && hasExistingTileWalls)
     )
   );
@@ -690,11 +710,12 @@ export function resolveDemoWetAreaFromIntent(
     'demoTilePanCount',
     Boolean(
       !hasExistingTub &&
-        ((hasExistingTilePan &&
-          (floorDemoFromNotes ||
-            displaceExistingShowerFloor ||
-            installingTilePan)) ||
-          (installingTilePan && !otherFloorExisting))
+        (notesMentionDemoTilePan(n) ||
+          (hasExistingTilePan &&
+            (floorDemoFromNotes ||
+              displaceExistingShowerFloor ||
+              installingTilePan)) ||
+          (likeForLikeDemo && installingTilePan && !otherFloorExisting))
     )
   );
 
@@ -707,7 +728,9 @@ export function resolveDemoWetAreaFromIntent(
           (floorDemoFromNotes ||
             displaceExistingShowerFloor ||
             installingPrefabPan)) ||
-          (installingPrefabPan && !otherThanTilePanExisting))
+          (likeForLikeDemo &&
+            installingPrefabPan &&
+            !otherThanTilePanExisting))
     )
   );
 
@@ -722,7 +745,9 @@ export function resolveDemoWetAreaFromIntent(
             installingPrefabEnclosure ||
             installingTileWalls ||
             (notesMentionDemoTileWalls(n) && installingTileWalls))) ||
-          (installingPrefabEnclosure && !otherThanEnclosureExisting))
+          (likeForLikeDemo &&
+            installingPrefabEnclosure &&
+            !otherThanEnclosureExisting))
     )
   );
 

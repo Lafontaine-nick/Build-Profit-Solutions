@@ -109,6 +109,7 @@ import {
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
+import { isFlooringDemoStyleItem } from '@/utils/qmScopePanels/flooringRemodel';
 import {
   explicitCrossTradeScopeItems,
   notesDescribeDrywallAndFlooringJob,
@@ -6823,6 +6824,12 @@ export function syncInteriorPaintScopeItems(
                   ? 'Paint prep & masking'
                   : row.label,
         state: 'included' as const,
+        ...(row.id === 'prep'
+          ? {
+              noteBacked:
+                inferItemStateFromNotes('prep', params.notes) === 'included',
+            }
+          : {}),
       };
     }
     if (
@@ -6845,10 +6852,17 @@ export function syncInteriorPaintScopeItems(
       row.id === 'prep' &&
       row.state === 'included' &&
       targetIds.has('prep') &&
-      row.label !== 'Paint prep & masking'
+      (row.label !== 'Paint prep & masking' ||
+        (row.noteBacked &&
+          inferItemStateFromNotes('prep', params.notes) !== 'included'))
     ) {
       changed = true;
-      return { ...row, label: 'Paint prep & masking' };
+      return {
+        ...row,
+        label: 'Paint prep & masking',
+        noteBacked:
+          inferItemStateFromNotes('prep', params.notes) === 'included',
+      };
     }
     return row;
   });
@@ -7335,6 +7349,9 @@ export function checklistDisplayHelper(
   if (tk === 'painting' && item.id === 'ceiling_paint') {
     return 'Paint the ceiling area.';
   }
+  if (tk === 'roofing' && item.id === 'roofing_system') {
+    return 'One roof covering, priced per square.';
+  }
   if (tk === 'painting' && item.id === 'exterior_paint') {
     return 'Paint the exterior siding, stucco, soffit, and fascia. Door slabs are on Exterior door paint.';
   }
@@ -7575,6 +7592,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'floor_demo',
         'tub_demo',
         'shower_floor_demo',
+        'wall_demo',
         'shower_enclosure_demo',
         'glass_door_demo',
         'glass_door_reuse_remove',
@@ -7853,12 +7871,18 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   roofing: [
     {
-      title: 'Roofing System',
+      title: 'New roof',
       itemIds: ['roofing_system', 'shingles_roofing'],
     },
     {
       title: 'Existing Roof / Tear-Off',
-      itemIds: ['tear_off'],
+      itemIds: [
+        'tear_off',
+        'tear_off_shingles',
+        'tear_off_tile',
+        'tear_off_metal',
+        'tear_off_flat',
+      ],
     },
     {
       title: 'Underlayment & Waterproofing',
@@ -8457,6 +8481,9 @@ export function groupScopeChecklistItems(
     for (const id of context.retainFlooringItemIds || []) {
       if (id) allowed.add(id);
     }
+    for (const item of items) {
+      if (isFlooringDemoStyleItem(item.id)) allowed.add(item.id);
+    }
     const named: ScopeChecklistItem[] = [];
     const seen = new Set<string>();
     for (const item of items) {
@@ -8466,11 +8493,22 @@ export function groupScopeChecklistItems(
       seen.add(item.id);
       named.push(item);
     }
-    if (named.length === 1) {
-      return [{ title: String(named[0].label || 'Flooring'), items: named }];
-    }
     if (named.length) {
-      return [{ title: '', items: named }];
+      const demo = named.filter(
+        item => item.id === 'floor_demo' || isFlooringDemoStyleItem(item.id)
+      );
+      const install = named.filter(item => !demo.includes(item));
+      const groups: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
+      if (demo.length) groups.push({ title: 'Demo', items: demo });
+      if (install.length === 1) {
+        groups.push({
+          title: String(install[0].label || 'Flooring'),
+          items: install,
+        });
+      } else if (install.length) {
+        groups.push({ title: 'Flooring', items: install });
+      }
+      if (groups.length) return groups;
     }
   }
   const removedFlooring = dedicatedFlooringRemovedTypes(context.notes);

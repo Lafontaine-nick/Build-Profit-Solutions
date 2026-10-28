@@ -1031,7 +1031,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "choice",
         label: "Roofing system",
         helperText:
-          "Select exactly one primary roofing system. Unsupported systems remain PRICING_GAP.",
+          "One roof covering, priced per square.",
         options: ROOFING_SYSTEM_OPTIONS,
         category: "roof_system",
       },
@@ -1927,6 +1927,12 @@ const CHECKLIST_TEMPLATES = {
         "Camera prewire / low-voltage drop",
         "Life safety / low voltage",
         "Camera prewire / low-voltage drop only. Does not include cameras or equipment (Ring, Nest, PoE). Drop only — not a new homerun. Do not also count as CAT6 or security prewire.",
+      ],
+      [
+        "electrical_panel_removal",
+        "Remove panel",
+        "Rough / modifications",
+        "Remove the existing panel. Make-safe only. Not a new panel, meter, or service upgrade.",
       ],
       [
         "electrical_device_removal",

@@ -868,6 +868,65 @@ function confirmedPlanDevicePricing(params: {
   };
 }
 
+/**
+ * A note-backed bathroom card already shows its national-average price.
+ * Selected pricing, the initial estimate, and Review have to use that same
+ * price. A missing takeoff stays off the total.
+ */
+function noteBackedBathroomCardPrice(params: {
+  item: ScopeChecklistItem;
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+  pricingContext?: ScopePricingContext | null;
+  items: ScopeChecklistItem[];
+}): { total: number; material: number; labor: number } | null {
+  if (String(params.templateKey || '').toLowerCase() !== 'bathroom') return null;
+  if (!params.item.noteBacked) return null;
+  if (
+    hasAcceptedScopePricing(
+      params.item.id,
+      params.measurements.itemQuantities,
+      params.measurements.pricingAcceptance
+    )
+  ) {
+    return null;
+  }
+  if (
+    shouldSkipReasonablenessScopeTotal(
+      params.item.id,
+      params.templateKey,
+      params.measurements.pricingAcceptance
+    )
+  ) {
+    return null;
+  }
+  const resolved = resolveChecklistItemQuantity(params.item.id, params.measurements, {
+    choiceId: params.item.choiceId,
+    templateKey: params.templateKey,
+    notes: params.notes,
+  });
+  if (!resolved.pricingReady || !(Number(resolved.quantity) > 0)) return null;
+  const suggested = resolveScopeItemSuggestedPricing(
+    params.item.id,
+    params.measurements,
+    params.templateKey,
+    resolved,
+    params.pricingContext || { checklistItems: params.items },
+    params.item.choiceId,
+    params.notes
+  );
+  const fill = suggested.fill;
+  if (!fill || fill.isComparison || fill.benchmarkAction === 'comparison_only') return null;
+  const total = Number(fill.total);
+  if (!(Number.isFinite(total) && total > 0)) return null;
+  return {
+    total,
+    material: Number(fill.material) || 0,
+    labor: Number(fill.labor) || 0,
+  };
+}
+
 /** Per-scope Applied lines for audit — matches card totals and summary buckets. */
 export function listConfirmScopeAppliedPricingLines(params: {
   items: ScopeChecklistItem[];
@@ -945,6 +1004,26 @@ export function listConfirmScopeAppliedPricingLines(params: {
           allowance: 0,
         });
       }
+      const noted = device
+        ? null
+        : noteBackedBathroomCardPrice({
+            item,
+            measurements: params.measurements,
+            templateKey: params.templateKey,
+            notes: params.notes,
+            pricingContext: params.pricingContext,
+            items: params.items,
+          });
+      if (noted) {
+        lines.push({
+          itemId: item.id,
+          label: item.label || item.id,
+          total: noted.total,
+          material: noted.material,
+          labor: noted.labor,
+          allowance: 0,
+        });
+      }
       continue;
     }
     if (
@@ -954,6 +1033,24 @@ export function listConfirmScopeAppliedPricingLines(params: {
         params.measurements.pricingAcceptance
       )
     ) {
+      const noted = noteBackedBathroomCardPrice({
+        item,
+        measurements: params.measurements,
+        templateKey: params.templateKey,
+        notes: params.notes,
+        pricingContext: params.pricingContext,
+        items: params.items,
+      });
+      if (noted) {
+        lines.push({
+          itemId: item.id,
+          label: item.label || item.id,
+          total: noted.total,
+          material: noted.material,
+          labor: noted.labor,
+          allowance: 0,
+        });
+      }
       continue;
     }
     const noteRate = kitchenConfirmScopeNoteRate({
@@ -1009,7 +1106,7 @@ export function listConfirmScopeAppliedPricingLines(params: {
       allowance: split.allowance,
     });
   }
-  return lines;
+  return lines.map(line => ({ ...line, ...planningLineDollars(line) }));
 }
 
 function landscapingChoiceCountsInGroupTotal(item: {
@@ -1270,9 +1367,9 @@ export function wholeProjectGroupDisplayTotal(params: {
   );
   let total = 0;
   for (const item of params.items) {
-    total += displayedTotalForGroupItem(item, applied, params);
+    total += planningWholeDollars(displayedTotalForGroupItem(item, applied, params));
   }
-  return Math.round(total * 100) / 100;
+  return total;
 }
 
 /**
@@ -1322,6 +1419,47 @@ export function sumConfirmScopeAppliedPricingTotal(params: {
   return sumConfirmScopeAppliedPricingBreakdown(params).total;
 }
 
+/** Same whole dollars the cards print. Summing cents, then rounding once, drifts by $1. */
+function planningWholeDollars(amount: number | null | undefined): number {
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value);
+}
+
+function planningLineDollars(parts: {
+  material?: number;
+  labor?: number;
+  allowance?: number;
+  total?: number;
+}): { material: number; labor: number; allowance: number; total: number } {
+  const material = planningWholeDollars(parts.material);
+  const labor = planningWholeDollars(parts.labor);
+  const allowance = planningWholeDollars(parts.allowance);
+  const buckets = material + labor + allowance;
+  return {
+    material,
+    labor,
+    allowance,
+    total: buckets > 0 ? buckets : planningWholeDollars(parts.total),
+  };
+}
+
+function contributePlanningLine(
+  out: ConfirmScopeAppliedPricingBreakdown,
+  parts: {
+    material?: number;
+    labor?: number;
+    allowance?: number;
+    total?: number;
+  }
+) {
+  const line = planningLineDollars(parts);
+  out.material += line.material;
+  out.labor += line.labor;
+  out.allowance += line.allowance;
+  out.total += line.total;
+}
+
 /** Applied Confirm Scope dollars split into material / labor / allowances. */
 export function sumConfirmScopeAppliedPricingBreakdown(params: {
   items: ScopeChecklistItem[];
@@ -1348,9 +1486,7 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
       params.pricingContext
     );
     if (statedScope) {
-      out.material += statedScope.material;
-      out.labor += statedScope.labor;
-      out.total += statedScope.total;
+      contributePlanningLine(out, statedScope);
       continue;
     }
     if (
@@ -1371,10 +1507,7 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
         statedTrimListed = true;
         const allowance =
           statedTrim.material + statedTrim.labor > 0 ? 0 : statedTrim.total;
-        out.material += statedTrim.material;
-        out.labor += statedTrim.labor;
-        out.allowance += allowance;
-        out.total += statedTrim.total;
+        contributePlanningLine(out, { ...statedTrim, allowance });
       }
       const device = statedTrim
         ? null
@@ -1386,11 +1519,18 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
             pricingContext: params.pricingContext,
             items: params.items,
           });
-      if (device) {
-        out.material += device.material;
-        out.labor += device.labor;
-        out.total += device.total;
-      }
+      if (device) contributePlanningLine(out, device);
+      const noted = device
+        ? null
+        : noteBackedBathroomCardPrice({
+            item,
+            measurements: params.measurements,
+            templateKey: params.templateKey,
+            notes: params.notes,
+            pricingContext: params.pricingContext,
+            items: params.items,
+          });
+      if (noted) contributePlanningLine(out, noted);
       continue;
     }
     if (
@@ -1400,6 +1540,15 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
         params.measurements.pricingAcceptance
       )
     ) {
+      const noted = noteBackedBathroomCardPrice({
+        item,
+        measurements: params.measurements,
+        templateKey: params.templateKey,
+        notes: params.notes,
+        pricingContext: params.pricingContext,
+        items: params.items,
+      });
+      if (noted) contributePlanningLine(out, noted);
       continue;
     }
     const noteRate = kitchenConfirmScopeNoteRate({
@@ -1412,10 +1561,7 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
       const material = noteRate.material;
       const labor = noteRate.labor;
       const allowance = material + labor > 0 ? 0 : noteRate.total;
-      out.material += material;
-      out.labor += labor;
-      out.allowance += allowance;
-      out.total += noteRate.total;
+      contributePlanningLine(out, { material, labor, allowance, total: noteRate.total });
       continue;
     }
     if (shouldSkipReasonablenessScopeTotal(item.id, params.templateKey, params.measurements.pricingAcceptance)) {
@@ -1437,10 +1583,7 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
     ) {
       continue;
     }
-    out.material += split.material;
-    out.labor += split.labor;
-    out.allowance += split.allowance;
-    out.total += itemTotal;
+    contributePlanningLine(out, { ...split, total: itemTotal });
   }
   return {
     total: Math.round(out.total * 100) / 100,
@@ -1594,6 +1737,19 @@ export function sumStep3ReviewBudgetTotals(
     // A template row Step 2 left off the bid stays off the total, even if it has a stored price.
     if (!isUserProvidedScopePackage(pkg)) continue;
     if (ruleKey && seenExtraRuleKeys.has(ruleKey)) continue;
+    const notedItem = ruleKey ? items.find(item => item.id === ruleKey) : undefined;
+    if (
+      notedItem &&
+      noteBackedBathroomCardPrice({
+        item: notedItem,
+        measurements,
+        templateKey,
+        notes: draft.originalNotes,
+        items,
+      })
+    ) {
+      continue;
+    }
     const fullChecklist =
       draft.confirmedAssumptions?.length
         ? draft.confirmedAssumptions

@@ -272,6 +272,61 @@ describe('scopeItemNoteBadge', () => {
     ).toBe('mentioned');
   });
 
+  test('paint walls and ceilings do not badge masking as mentioned', () => {
+    const prep = {
+      id: 'prep',
+      label: 'Paint prep & masking',
+      state: 'included',
+      inputType: 'yes_no',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    const notes = 'Paint the walls, 400 sqft. Paint the ceilings.';
+    expect(
+      scopeItemNoteBadge(prep, {
+        templateKey: 'painting',
+        notes,
+        measurements: normalizeScopeMeasurements({} as never),
+      })
+    ).toBeNull();
+  });
+
+  test('a new shingle note does not badge a selected tear-off as mentioned', () => {
+    const shingles = {
+      id: 'tear_off_shingles',
+      label: 'Tear off shingles',
+      state: 'included',
+      inputType: 'yes_no',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(shingles, {
+        templateKey: 'roofing',
+        notes: 'New architectural shingles, 26 squares',
+        measurements: normalizeScopeMeasurements({ roofSquares: 26 } as never),
+      })
+    ).toBeNull();
+  });
+
+  test('a note that names prep still badges masking as mentioned', () => {
+    const prep = {
+      id: 'prep',
+      label: 'Paint prep & masking',
+      state: 'included',
+      inputType: 'yes_no',
+      noteBacked: true,
+    } as ScopeChecklistItem;
+    expect(
+      scopeItemNoteBadge(prep, {
+        templateKey: 'painting',
+        notes: 'Paint the walls. Include prep and masking.',
+        measurements: normalizeScopeMeasurements({
+          wallPaintSqft: 400,
+          paintScope: ['walls'],
+        } as never),
+      })
+    ).toBe('mentioned');
+  });
+
   test('a notes-only framing card can still say it was mentioned', () => {
     const item = {
       id: 'framing',

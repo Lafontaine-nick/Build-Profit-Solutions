@@ -4,6 +4,7 @@
  * A mixed note keeps trades that are not bathroom cards.
  */
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
+import { notesNameKitchenSurfaceInstall } from '@/utils/kitchenNoteScope';
 import { notesMentionDemoShowerDoor } from '@/utils/wetAreaExistingDemo';
 
 const BATHROOM_TEMPLATE_IDS = new Set([
@@ -300,10 +301,11 @@ export function bathroomScopeLines(
   }
   if (namedInNotes('vanity')) push('vanity', 'Vanity');
   if (
-    /\bquartz\s+top\b/i.test(affirmative) ||
-    /\b(?:new|install)\b[^.]{0,40}\b(?:vanity\s+top|countertops?)\b/i.test(
-      affirmative
-    )
+    !notesNameKitchenSurfaceInstall(affirmative) &&
+    (/\bquartz\s+top\b/i.test(affirmative) ||
+      /\b(?:new|install)\b[^.]{0,40}\b(?:vanity\s+top|countertops?)\b/i.test(
+        affirmative
+      ))
   ) {
     push('countertops', 'Vanity top');
   }
@@ -388,9 +390,18 @@ export function bathroomChecklistItemNamedInNotes(
       // A mud-pan tear-out is the pan line. This card is wall tile coming out.
       if (
         named(PREFAB, text) &&
-        !named(SHOWER_WALL_TILE, text)
+        !named(SHOWER_WALL_TILE, text) &&
+        !showerNoteNamesTileWalls(text)
       ) {
         return false;
+      }
+      if (
+        removalNamedNear(
+          text,
+          /\b(?:shower\s+walls?|wall\s+tile|tile\s+walls?|shower\s+wall\s+tile)\b/
+        )
+      ) {
+        return true;
       }
       return named(SHOWER_WALL_TILE, text);
     case 'floor_demo':
@@ -398,9 +409,11 @@ export function bathroomChecklistItemNamedInNotes(
     case 'tub_demo':
       return named(TUB_TEAR_OUT, text);
     case 'shower_floor_demo':
+      // A demo named on the walls is not a floor tear-out. The verb has to
+      // sit with the pan or the shower floor.
       return (
-        named(TILE_PAN, text) &&
-        /\b(?:remove|demo|demolition|tear[\s-]?out)\b/i.test(text)
+        removalNamedNear(text, TILE_PAN) ||
+        removalNamedNear(text, /\bshower\s+floor\b/)
       );
     case 'vanity_demo':
       return bathroomNoteClauseHas(
@@ -434,17 +447,13 @@ export function bathroomChecklistItemNamedInNotes(
       return (
         named(TILE_PAN, text) ||
         (notesPutTileBackGenerically(text) && notesTearOutShowerFloor(text)) ||
-        /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b|\b(?:tile|tiled)\b[^.]{0,40}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,30}\b(?:tile|tiled)\b/i.test(
-          text
-        )
+        noteNamesNewShowerFloorTile(text)
       );
     case 'shower_tile':
-      return named(SHOWER_WALL_TILE, text);
+      return named(SHOWER_WALL_TILE, text) || showerNoteNamesTileWalls(text);
     case 'shower_floor_tile':
       return (
-        /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b|\b(?:tile|tiled)\b[^.]{0,40}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,30}\b(?:tile|tiled)\b/i.test(
-          text
-        ) ||
+        noteNamesNewShowerFloorTile(text) ||
         (notesPutTileBackGenerically(text) && notesTearOutShowerFloor(text))
       );
     case 'shower_niche':
@@ -895,9 +904,613 @@ export function filterDedicatedBathroomConfirmItems<T extends { id?: string | nu
   });
 }
 
+export type ShowerRemovalPiece =
+  | 'tub'
+  | 'prefab_pan'
+  | 'tile_pan'
+  | 'wall_tile'
+  | 'prefab_enclosure'
+  | 'shower_door'
+  | 'toilet'
+  | 'vanity'
+  | 'bath_floor';
+
+export type ShowerRemovalChoice =
+  | ShowerRemovalPiece
+  | 'pan'
+  | 'walls'
+  | 'both'
+  | 'none'
+  | 'unsure';
+
+const SHOWER_REMOVAL_PIECES: ShowerRemovalPiece[] = [
+  'tub',
+  'prefab_pan',
+  'tile_pan',
+  'wall_tile',
+  'prefab_enclosure',
+  'shower_door',
+  'toilet',
+  'vanity',
+  'bath_floor',
+];
+
+const SHOWER_PIECE_LABELS: Record<ShowerRemovalPiece, string> = {
+  tub: 'Tub',
+  prefab_pan: 'Prefab pan',
+  tile_pan: 'Tile pan',
+  wall_tile: 'Wall tile',
+  prefab_enclosure: 'Prefab enclosure',
+  shower_door: 'Shower door',
+  toilet: 'Toilet',
+  vanity: 'Vanity',
+  bath_floor: 'Bath floor',
+};
+
+const REMOVAL_VERB =
+  /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off|coming out|replace(?:ment)?)\b/i;
+
+export function readShowerRemovalChoice(
+  value: unknown
+): ShowerRemovalChoice | null {
+  if (
+    value === 'pan' ||
+    value === 'walls' ||
+    value === 'both' ||
+    value === 'none' ||
+    value === 'unsure' ||
+    SHOWER_REMOVAL_PIECES.includes(value as ShowerRemovalPiece)
+  ) {
+    return value as ShowerRemovalChoice;
+  }
+  return null;
+}
+
+export function readShowerRemovalPieces(value: unknown): ShowerRemovalPiece[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((piece): piece is ShowerRemovalPiece =>
+    SHOWER_REMOVAL_PIECES.includes(piece as ShowerRemovalPiece)
+  );
+}
+
+export function piecesForShowerRemovalChoice(
+  choice: ShowerRemovalChoice | null
+): ShowerRemovalPiece[] {
+  if (choice === 'pan') return ['prefab_pan'];
+  if (choice === 'walls') return ['wall_tile'];
+  if (choice === 'both') return ['prefab_pan', 'wall_tile'];
+  if (choice && SHOWER_REMOVAL_PIECES.includes(choice as ShowerRemovalPiece)) {
+    return [choice as ShowerRemovalPiece];
+  }
+  return [];
+}
+
+function noteNamesShowerWallTile(text: string): boolean {
+  return /\b(?:tile\s+(?:the\s+)?shower\s+walls?|shower\s+wall\s+tile|shower\s+walls?\s+tile)\b/i.test(
+    text
+  );
+}
+
+/** "New tile walls" on a shower note is the shower wall, not a painted wall. */
+function showerNoteNamesTileWalls(text: string): boolean {
+  return /\bshower\b/i.test(text) && /\btile\s+walls?\b/i.test(text);
+}
+
+/** New shower floor tile. "New tile floor" counts only when the note is a shower. */
+function noteNamesNewShowerFloorTile(text: string): boolean {
+  if (
+    /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b|\b(?:tile|tiled)\b[^.]{0,40}\bshower\s+floor\b|\bshower\s+floor\b[^.]{0,30}\b(?:tile|tiled)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  return /\bshower\b/i.test(text) && /\bnew\s+tile\s+floor\b/i.test(text);
+}
+
+function removalNamedNear(text: string, subject: RegExp): boolean {
+  return new RegExp(
+    `${REMOVAL_VERB.source}[^.]{0,50}${subject.source}|${subject.source}[^.]{0,50}${REMOVAL_VERB.source}`,
+    'i'
+  ).test(text);
+}
+
+function noteNamesNewInstall(text: string, subject: RegExp): boolean {
+  return new RegExp(
+    `\\b(?:new|install)\\b[^.]{0,50}${subject.source}|${subject.source}[^.]{0,50}\\b(?:new|install)\\b|\\bnew\\s+${subject.source}`,
+    'i'
+  ).test(text);
+}
+
+/** "Shower door" is not a new shower. Strip it before the body check. */
+function textWithoutShowerDoorMentions(text: string): string {
+  return text.replace(/\bshower\s+doors?\b/gi, ' ');
+}
+
+/** New pan, walls, floor, tub, enclosure, or a shower that is not only a door. */
+function noteNamesNewShowerBody(text: string): boolean {
+  const body = textWithoutShowerDoorMentions(text);
+  const newPan =
+    /\bnew\s+prefab\s+(?:shower\s+)?(?:pan|base)\b/i.test(body) ||
+    noteNamesNewInstall(body, /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/);
+  // A wall tear-out in the same note does not cancel the new wall tile.
+  // The chip list drops only the piece the note already said comes out.
+  const newWalls =
+    noteNamesShowerWallTile(body) || showerNoteNamesTileWalls(body);
+  const newFloor = noteNamesNewShowerFloorTile(body);
+  const newShower =
+    /\b(?:install(?:ing)?|new)\b[^.]{0,40}\bshower\b|\bnew\s+shower\b/i.test(
+      body
+    );
+  return (
+    newPan ||
+    newWalls ||
+    newFloor ||
+    newShower ||
+    noteNamesNewInstall(body, /\b(?:tubs?|bathtubs?)\b/) ||
+    noteNamesNewInstall(body, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/) ||
+    noteNamesNewInstall(body, /\b(?:tile\s+(?:shower\s+)?pan|mud\s+pan)\b/)
+  );
+}
+
+function noteNamesNewShowerDoor(text: string): boolean {
+  return noteNamesNewInstall(text, /\bshower\s+doors?\b/);
+}
+
+/**
+ * One question when new work is named and the note never says that piece
+ * comes out. A new shower offers every existing shower piece, because the
+ * old shower is unknown. A new door by itself asks only about that door.
+ * A new toilet, vanity, or bathroom floor adds that chip too. No demo and
+ * not sure add nothing.
+ */
+export function showerRemovalPrompt(
+  notes: string | null | undefined
+): {
+  question: string;
+  options: Array<{ id: ShowerRemovalChoice; label: string }>;
+} | null {
+  const text = bathroomAffirmativeNotes(notes);
+  if (!text) return null;
+  const options: Array<{ id: ShowerRemovalChoice; label: string }> = [];
+  if (noteNamesNewShowerBody(text)) {
+    const showerPieces: ShowerRemovalPiece[] = [
+      'tub',
+      'prefab_pan',
+      'tile_pan',
+      'wall_tile',
+      'prefab_enclosure',
+      'shower_door',
+    ];
+    for (const piece of showerPieces) {
+      if (!pieceDemoAlreadyNamed(text, piece)) {
+        options.push({ id: piece, label: SHOWER_PIECE_LABELS[piece] });
+      }
+    }
+  } else if (
+    noteNamesNewShowerDoor(text) &&
+    !pieceDemoAlreadyNamed(text, 'shower_door')
+  ) {
+    options.push({
+      id: 'shower_door',
+      label: SHOWER_PIECE_LABELS.shower_door,
+    });
+  }
+  if (
+    noteNamesNewInstall(text, /\btoilets?\b/) &&
+    !removalNamedNear(text, /\btoilets?\b/)
+  ) {
+    options.push({ id: 'toilet', label: 'Toilet' });
+  }
+  if (
+    noteNamesNewInstall(text, /\bvanit(?:y|ies)\b/) &&
+    !removalNamedNear(text, /\bvanit(?:y|ies)\b/)
+  ) {
+    options.push({ id: 'vanity', label: 'Vanity' });
+  }
+  if (
+    noteNamesNewBathroomFloor(text) &&
+    !pieceDemoAlreadyNamed(text, 'bath_floor')
+  ) {
+    options.push({ id: 'bath_floor', label: SHOWER_PIECE_LABELS.bath_floor });
+  }
+  if (!options.length) return null;
+  const shower = options.some(option =>
+    ['tub', 'prefab_pan', 'tile_pan', 'wall_tile', 'prefab_enclosure', 'shower_door'].includes(
+      option.id
+    )
+  );
+  const fixture = options.some(option => option.id === 'toilet' || option.id === 'vanity');
+  const bathFloor = options.some(option => option.id === 'bath_floor');
+  const kinds = [shower, fixture, bathFloor].filter(Boolean).length;
+  options.push(
+    { id: 'none', label: 'No demo' },
+    { id: 'unsure', label: 'Not sure' }
+  );
+  return {
+    question:
+      kinds > 1
+        ? 'Is any existing material being removed?'
+        : shower
+          ? 'Is any existing shower material being removed?'
+          : fixture
+            ? 'Is the existing fixture being removed?'
+            : 'Is the existing bathroom floor being removed?',
+    options,
+  };
+}
+
+function noteNamesNewBathroomFloor(text: string): boolean {
+  return (
+    named(BATH_FLOOR_TILE, text) ||
+    noteNamesNewInstall(text, /\bbath(?:room)?\s+floor\b/)
+  );
+}
+
+function pieceDemoAlreadyNamed(text: string, piece: ShowerRemovalPiece): boolean {
+  switch (piece) {
+    case 'tub':
+      return removalNamedNear(text, /\b(?:tubs?|bathtubs?)\b/);
+    case 'prefab_pan':
+      return removalNamedNear(text, /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/);
+    case 'tile_pan':
+      return (
+        removalNamedNear(text, /\b(?:tile\s+(?:shower\s+)?pan|mud\s+pan)\b/) ||
+        removalNamedNear(text, /\bshower\s+floor\b/)
+      );
+    case 'wall_tile':
+      return removalNamedNear(
+        text,
+        /\b(?:shower\s+walls?|wall\s+tile|tile\s+walls?|shower\s+wall\s+tile)\b/
+      );
+    case 'prefab_enclosure':
+      return removalNamedNear(text, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/);
+    case 'shower_door':
+      return removalNamedNear(text, /\bshower\s+doors?\b/);
+    case 'toilet':
+      return removalNamedNear(text, /\btoilets?\b/);
+    case 'vanity':
+      return removalNamedNear(text, /\bvanit(?:y|ies)\b/);
+    case 'bath_floor':
+      return (
+        removalNamedNear(text, /\bbath(?:room)?\s+floor(?:\s+tile)?\b/) ||
+        named(BATH_FLOOR_DEMO, text)
+      );
+    default:
+      return false;
+  }
+}
+
+function statedShowerWallSqft(
+  notes: string | null | undefined,
+  wallSqft?: unknown
+): number | null {
+  const stated = Number(String(wallSqft ?? '').replace(/,/g, ''));
+  if (stated > 0) return stated;
+  const text = String(notes || '');
+  const match =
+    text.match(
+      /\b(?:tile\s+(?:the\s+)?shower\s+walls?|shower\s+wall\s+tile)[^.\n]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+    ) ||
+    text.match(
+      /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))[^.\n]{0,40}\b(?:shower\s+walls?|shower\s+wall\s+tile)/i
+    );
+  const parsed = Number(String(match?.[1] || '').replace(/,/g, ''));
+  return parsed > 0 ? parsed : null;
+}
+
+const SHOWER_REMOVAL_REVEAL: Record<
+  ShowerRemovalPiece,
+  { name: string; quantity: 'each' | 'wall' | 'blank' }
+> = {
+  tub: { name: 'Remove tub', quantity: 'each' },
+  prefab_pan: { name: 'Remove prefab pan', quantity: 'each' },
+  tile_pan: { name: 'Remove tile pan', quantity: 'blank' },
+  wall_tile: { name: 'Demo shower walls', quantity: 'wall' },
+  prefab_enclosure: { name: 'Remove prefab enclosure', quantity: 'each' },
+  shower_door: { name: 'Remove shower door', quantity: 'each' },
+  toilet: { name: 'Remove toilet', quantity: 'each' },
+  vanity: { name: 'Remove vanity', quantity: 'each' },
+  bath_floor: { name: 'Flooring demo / removal', quantity: 'blank' },
+};
+
+function selectedRemovalPieces(
+  choice: unknown,
+  pieces?: unknown
+): ShowerRemovalPiece[] {
+  const stored = readShowerRemovalPieces(pieces);
+  if (stored.length) return stored;
+  return piecesForShowerRemovalChoice(readShowerRemovalChoice(choice));
+}
+
+/** Checklist id for a Scope found removal row, so Initial estimate can price it. */
+export function showerRemovalItemIdForRevealName(name: string): string | null {
+  const piece = (Object.keys(SHOWER_REMOVAL_REVEAL) as ShowerRemovalPiece[]).find(
+    key => SHOWER_REMOVAL_REVEAL[key].name === name
+  );
+  return piece ? REMOVAL_LINES[piece].id : null;
+}
+
+/** Scope found list rows for the removal the contractor just confirmed. */
+export function showerRemovalRevealLines(
+  notes: string | null | undefined,
+  choice: unknown,
+  wallSqft?: unknown,
+  pieces?: unknown
+): Array<{ name: string; amount: number; quantity: string }> {
+  if (!showerRemovalPrompt(notes)) return [];
+  const selected = selectedRemovalPieces(choice, pieces);
+  const sqft = statedShowerWallSqft(notes, wallSqft);
+  return selected.map(piece => {
+    const row = SHOWER_REMOVAL_REVEAL[piece];
+    return {
+      name: row.name,
+      amount: 0,
+      quantity:
+        row.quantity === 'wall' && sqft
+          ? `${sqft.toLocaleString('en-US')} sqft`
+          : row.quantity === 'each'
+            ? '1'
+            : '',
+    };
+  });
+}
+
+export function showerRemovalWantsPan(
+  choice: ShowerRemovalChoice | null,
+  pieces?: ShowerRemovalPiece[] | null
+): boolean {
+  if (pieces?.some(piece => piece === 'prefab_pan' || piece === 'tile_pan')) {
+    return true;
+  }
+  return choice === 'pan' || choice === 'both';
+}
+
+export function showerRemovalWantsWalls(
+  choice: ShowerRemovalChoice | null,
+  pieces?: ShowerRemovalPiece[] | null
+): boolean {
+  if (pieces?.includes('wall_tile')) return true;
+  return choice === 'walls' || choice === 'both';
+}
+
+const REMOVAL_COUNT_KEYS: Partial<Record<ShowerRemovalPiece, string>> = {
+  tub: 'demoTubCount',
+  prefab_pan: 'demoPrefabPanCount',
+  tile_pan: 'demoTilePanCount',
+  wall_tile: 'demoTileWallCount',
+  prefab_enclosure: 'demoPrefabEnclosureCount',
+  shower_door: 'demoShowerDoorCount',
+  bath_floor: 'demoBathFloorTileCount',
+};
+
+/** Keeps a confirmed demo count when the note itself never named that demo. */
+export function forceAnsweredRemovalCounts(
+  pieces: ShowerRemovalPiece[] | null | undefined,
+  overrides: Record<string, boolean>,
+  stored: Record<string, number | null | undefined>
+): void {
+  for (const piece of pieces || []) {
+    const key = REMOVAL_COUNT_KEYS[piece];
+    if (!key) continue;
+    overrides[key] = true;
+    if (!(Number(stored[key]) > 0)) stored[key] = 1;
+  }
+}
+
+const REMOVAL_LINES: Record<
+  ShowerRemovalPiece,
+  { id: string; label: string; helperText: string }
+> = {
+  tub: {
+    id: 'tub_demo',
+    label: 'Remove tub',
+    helperText: 'The existing tub comes out. Count is 1.',
+  },
+  prefab_pan: {
+    id: 'shower_floor_demo',
+    label: 'Remove prefab pan',
+    helperText: 'The existing prefab shower pan comes out. Count is 1.',
+  },
+  tile_pan: {
+    id: 'shower_floor_demo',
+    label: 'Remove tile pan',
+    helperText: 'The existing tile shower pan comes out. The area stays blank until it is measured.',
+  },
+  wall_tile: {
+    id: 'wall_demo',
+    label: 'Demo shower walls',
+    helperText: 'The existing shower walls come out. Uses the wall area already stated.',
+  },
+  prefab_enclosure: {
+    id: 'shower_enclosure_demo',
+    label: 'Remove prefab enclosure',
+    helperText: 'The existing prefab enclosure comes out. Count is 1.',
+  },
+  shower_door: {
+    id: 'glass_door_demo',
+    label: 'Remove shower door',
+    helperText: 'The existing shower door comes out. Count is 1.',
+  },
+  toilet: {
+    id: 'toilet_demo',
+    label: 'Remove toilet',
+    helperText: 'The existing toilet comes out. Count is 1.',
+  },
+  vanity: {
+    id: 'vanity_demo',
+    label: 'Remove vanity',
+    helperText: 'The existing vanity comes out. Count is 1.',
+  },
+  bath_floor: {
+    id: 'floor_demo',
+    label: 'Flooring demo / removal',
+    helperText:
+      'The existing bathroom floor comes out. The area stays blank until the bathroom floor is measured.',
+  },
+};
+
+/** Counts stay at 1. Wall demo uses the wall area already stated. Tile pan area stays blank. */
+export function measurementsForShowerRemovalChoice<
+  T extends Record<string, unknown>,
+>(
+  measurements: T | null | undefined,
+  choice: ShowerRemovalChoice | ShowerRemovalPiece[],
+  notes?: string | null
+): T {
+  const pieces = Array.isArray(choice)
+    ? readShowerRemovalPieces(choice)
+    : piecesForShowerRemovalChoice(choice);
+  const declined = !Array.isArray(choice) && (choice === 'none' || choice === 'unsure');
+  const next: Record<string, unknown> = { ...(measurements || {}) };
+  next.showerRemovalPieces = pieces;
+  next.showerRemovalChoice = declined ? choice : null;
+  const overrides = {
+    ...((next.demoWetAreaManualOverrides as
+      | Record<string, boolean>
+      | null
+      | undefined) || {}),
+  };
+  const selected = new Set(pieces);
+  for (const [piece, key] of Object.entries(REMOVAL_COUNT_KEYS)) {
+    if (!key) continue;
+    if (selected.has(piece as ShowerRemovalPiece)) {
+      if (!(Number(next[key]) > 0)) next[key] = 1;
+      overrides[key] = true;
+    } else if (!pieceDemoAlreadyNamed(String(notes || ''), piece as ShowerRemovalPiece)) {
+      next[key] = null;
+      delete overrides[key];
+    }
+  }
+  next.demoWetAreaManualOverrides = overrides;
+  if (selected.has('wall_tile')) {
+    const stated = Number(
+      String(next.showerWallTileSqft ?? '').replace(/,/g, '')
+    );
+    const fromNotes = statedShowerWallSqft(notes, next.showerWallTileSqft);
+    const current = Number(String(next.wallDemoSqft ?? '').replace(/,/g, ''));
+    if (!(current > 0)) next.wallDemoSqft = fromNotes || (stated > 0 ? stated : null);
+  } else {
+    next.wallDemoSqft = null;
+  }
+  const quantities = {
+    ...((next.itemQuantities as Record<string, unknown> | null | undefined) ||
+      {}),
+  };
+  // Prefab pan removal is one unit. A tile pan is priced by area, which the
+  // note did not state, so it must not inherit the $350 each rate.
+  const acceptance = {
+    ...((next.pricingAcceptance as Record<string, unknown> | null | undefined) ||
+      {}),
+  };
+  delete quantities.shower_floor_demo__material;
+  delete quantities.shower_floor_demo__labor;
+  delete quantities.shower_floor_demo__allowance;
+  if (selected.has('prefab_pan') && !selected.has('tile_pan')) {
+    quantities.shower_floor_demo = {
+      quantity: 1,
+      unit: 'each',
+      quantitySource: 'user_entered',
+    };
+  } else {
+    delete quantities.shower_floor_demo;
+    delete acceptance.shower_floor_demo;
+    next.pricingAcceptance = acceptance;
+  }
+  const wallSqft = Number(String(next.wallDemoSqft ?? '').replace(/,/g, ''));
+  if (selected.has('wall_tile') && wallSqft > 0) {
+    quantities.wall_demo = {
+      quantity: wallSqft,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    };
+  } else {
+    delete quantities.wall_demo;
+  }
+  const bathSqft = Number(String(next.bathroomFloorSqft ?? '').replace(/,/g, ''));
+  if (selected.has('bath_floor') && bathSqft > 0) {
+    quantities.floor_demo = {
+      quantity: bathSqft,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    };
+  } else if (selected.has('bath_floor')) {
+    delete quantities.floor_demo;
+    delete quantities.floor_demo__material;
+    delete quantities.floor_demo__labor;
+    delete quantities.floor_demo__allowance;
+  }
+  next.itemQuantities = quantities;
+  return next as unknown as T;
+}
+
+const SHOWER_REMOVAL_LINE_IDS = new Set(
+  Object.values(REMOVAL_LINES).map(line => line.id)
+);
+
+/** Adds the removal lines the contractor just confirmed. Leaves the named install lines in place. */
+export function applyShowerRemovalChoice<T extends { id?: string | null }>(
+  items: T[],
+  notes: string | null | undefined,
+  choice: unknown,
+  pieces?: unknown
+): T[] {
+  if (!showerRemovalPrompt(notes)) return items;
+  const selected = selectedRemovalPieces(choice, pieces);
+  const wanted = selected.map(piece => REMOVAL_LINES[piece]);
+  const wantedIds = new Set(wanted.map(line => line.id));
+  // A chip answer is not a sentence in the note. Only a removal the note
+  // already named keeps the "mentioned in notes" badge.
+  const noteLineIds = new Set(bathroomScopeLines(notes).map(line => line.id));
+  const kept = items
+    .filter(item => {
+      const id = String(item.id || '');
+      if (!SHOWER_REMOVAL_LINE_IDS.has(id)) return true;
+      // A removal the note already named stays. The chip only adds pieces it asked about.
+      return wantedIds.has(id) || noteLineIds.has(id);
+    })
+    .map(item => {
+      const id = String(item.id || '');
+      if (!wantedIds.has(id) || noteLineIds.has(id)) return item;
+      if (!(item as { noteBacked?: boolean }).noteBacked) return item;
+      return { ...item, noteBacked: false };
+    });
+  for (const line of wanted) {
+    if (kept.some(item => item.id === line.id)) continue;
+    kept.push({
+      id: line.id,
+      label: line.label,
+      helperText: line.helperText,
+      inputType: 'yes_no',
+      state: 'included',
+      noteBacked: noteLineIds.has(line.id),
+      category: 'demo',
+    } as unknown as T);
+  }
+  return kept;
+}
+
+/**
+ * The new toilet is the Fixtures card. The removal has no price of its own,
+ * so it must not show up as a second card.
+ */
+export function dropToiletDemoBesideNewToilet<
+  T extends { id?: string | null; state?: string | null },
+>(items: T[]): T[] {
+  const hasNewToilet = items.some(
+    item => item.id === 'toilet' && item.state !== 'excluded'
+  );
+  if (!hasNewToilet) return items;
+  return items.filter(item => item.id !== 'toilet_demo');
+}
+
 /** Step 3 and the initial estimate use the same note lines Step 2 priced. */
 export function applyDedicatedBathroomConfirmScope<
-  T extends { id?: string | null; label?: string | null },
+  T extends {
+    id?: string | null;
+    label?: string | null;
+    contractorRemoved?: boolean | null;
+  },
 >(
   items: T[],
   params: {
@@ -912,11 +1525,34 @@ export function applyDedicatedBathroomConfirmScope<
   const kept = filterDedicatedBathroomConfirmItems(items, params);
   if (!shouldLimitBathroomChecklistToNotes(params)) return kept;
   const lines = bathroomScopeLines(params.notes);
-  return kept.map(item => {
+  const labeled = kept.map(item => {
     const line = bathroomScopeLineForId(String(item.id || ''), lines);
-    if (!line?.label || line.label === item.label) return item;
-    return { ...item, label: line.label };
+    if (!line) return item;
+    const label = line.label && line.label !== item.label ? line.label : item.label;
+    if (item.contractorRemoved) {
+      return label === item.label ? item : { ...item, label };
+    }
+    return {
+      ...item,
+      label,
+      state: 'included' as const,
+      noteBacked: true,
+    };
   });
+  const present = new Set(labeled.map(item => String(item.id || '')));
+  const missing = lines
+    .filter(line => line.id && !present.has(line.id))
+    .map(
+      line =>
+        ({
+          id: line.id,
+          label: line.label,
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        }) as unknown as T
+    );
+  return [...labeled, ...missing];
 }
 
 /**

@@ -316,6 +316,13 @@ export function applyNoteBackedBathroomConfirmScopePricing(
 
   const rows = listConfirmScopeUnpricedPricingRows({
     ...draft,
+    // Price the cards on screen. The saved checklist can still be missing a
+    // note-backed install, and Continue would then drop that price.
+    confirmedAssumptions: displayItems,
+    scopeChecklist: {
+      ...(draft.scopeChecklist || {}),
+      items: displayItems,
+    },
     scopeMeasurements: measurements as EstimateAiDraft['scopeMeasurements'],
   }).filter((row) => noteBackedIds.has(row.itemId));
   if (!rows.length) return measurements;

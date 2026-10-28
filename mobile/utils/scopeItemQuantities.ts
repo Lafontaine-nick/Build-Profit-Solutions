@@ -11,8 +11,16 @@ import {
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   notesWaterproofPanNotWalls,
+  readShowerRemovalPieces,
   showerTileWithFlooringAreas,
+  type ShowerRemovalPiece,
 } from '@/utils/bathroomNoteScope';
+import {
+  readScopeFoundChoice,
+  readScopeFoundClarificationId,
+  readScopeFoundPieces,
+  roofTearOffChoiceForItem,
+} from '@/utils/scopeFoundClarification';
 import {
   TILE_DEMO_LABOR_RATE,
   TILE_DEMO_MATERIAL_RATE,
@@ -22,6 +30,7 @@ import {
   kitchenNoteInstallsNewCabinets,
   kitchenNoteNamesSurfaceDemo,
 } from '@/utils/kitchenNoteScope';
+import { flooringDemoStyleFromItemId } from '@/utils/qmScopePanels/flooringRemodel';
 import {
   stripScopeInputForSingleTrade,
   type PlanTradeKey,
@@ -396,6 +405,7 @@ import type { QuickMeasurementSourceTag } from '@/utils/quickMeasurementProvenan
 import {
   collectRoofingInferenceNotes,
   filterRoofingScopeSelectionsForTearOffInstall,
+  floorDemoNotesHint,
   inferRoofingTradeScopeSelectionsFromNotes,
   parseRoofingDeckingAllowanceFromNotes,
   suppressRoofRepairMeasurementsWhenTearOffInstall,
@@ -884,6 +894,8 @@ export type NormalizedScopeMeasurements = {
   reframingRequested?: boolean | null;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
+  /** Scope found pieces. A tile pan here is priced on its own line, not on demo. */
+  showerRemovalPieces?: ShowerRemovalPiece[] | null;
   itemQuantities: Record<string, ScopeItemQuantityValue>;
 } & Partial<Record<ElectricalQuantityKey | PlumbingQuantityKey, number | null>>;
 
@@ -7114,7 +7126,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     measurementKey: 'roofSquares',
     requiresUserQuantity: false,
     quantityHelper:
-      'Select one primary roofing system; unsupported systems remain PRICING_GAP.',
+      'One roof covering, priced per square from the roof squares.',
     missingMessage: 'Select one roofing system.',
   },
   roof_pitch_complexity_access: {
@@ -8024,6 +8036,7 @@ export function normalizeScopeMeasurements(
     planImportMode: measurements?.planImportMode,
     planImportTradeKey: measurements?.planImportTradeKey,
     planImportFingerprint: measurements?.planImportFingerprint,
+    showerRemovalPieces: readShowerRemovalPieces(measurements?.showerRemovalPieces),
     itemQuantities,
   };
 }
@@ -11223,6 +11236,24 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  if (flooringDemoStyleFromItemId(itemId)) {
+    return {
+      defaultUnit: 'sqft',
+      allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+      requiresUserQuantity: true,
+      quantityHelper: 'Enter the removal area for this existing flooring.',
+      missingMessage: 'Enter removal sqft.',
+    };
+  }
+  if (roofTearOffChoiceForItem(itemId)) {
+    return {
+      defaultUnit: 'squares',
+      allowedUnits: ['squares', 'sqft', 'lump_sum'],
+      requiresUserQuantity: true,
+      quantityHelper: 'Enter the squares of this material coming off.',
+      missingMessage: 'Enter tear-off squares.',
+    };
+  }
   let resolvedId = itemId;
   if (itemId === 'hvac_systems') resolvedId = 'hvac';
   else if (itemId === 'registers') resolvedId = 'supply_registers';
@@ -13761,6 +13792,7 @@ function regionalAdjustedNationalAverage(
     itemId === 'roof_tie_in' ||
     itemId === 'shingles_roofing' ||
     itemId === 'tear_off' ||
+    Boolean(roofTearOffChoiceForItem(itemId)) ||
     itemId === 'decking_repair' ||
     itemId === 'roof_repairs'
       ? base
@@ -16602,6 +16634,56 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  const demoStyle = flooringDemoStyleFromItemId(itemId);
+  if (demoStyle) {
+    const quantity = Number(resolved.quantity);
+    if (!(quantity > 0) || String(resolved.unit || '').toLowerCase() !== 'sqft') {
+      return empty;
+    }
+    const split = flooringDemoSplitFor(demoStyle, originalNotes, measurementsInput);
+    const material = round2(quantity * split.material);
+    const labor = round2(quantity * split.labor);
+    const total = round2(material + labor);
+    const rateLabel = Number.isInteger(split.rate)
+      ? `$${split.rate}`
+      : `$${split.rate.toFixed(2)}`;
+    return {
+      fill: {
+        material,
+        labor,
+        total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: `Suggested budget split · National Average · ${flooringDemoLabelForPricing(demoStyle, originalNotes, measurementsInput)} removal`,
+        helper: `${quantity.toLocaleString()} sqft of existing ${flooringDemoLabelForPricing(demoStyle, originalNotes, measurementsInput).toLowerCase()} coming out.`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        displayUnitRateLabel: `${quantity.toLocaleString()} sqft × ${rateLabel}/sqft`,
+        benchmarkAction: 'price_ready',
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: itemId,
+        costBuckets: [
+          {
+            key: 'material',
+            label: 'Material',
+            amount: material,
+            rate: split.material,
+            source: 'national_average',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: labor,
+            rate: split.labor,
+            source: 'national_average',
+          },
+        ],
+      },
+      comparison: null,
+    };
+  }
   if (symbolReadsDisagreedForItem(itemId, measurementsInput)) return empty;
   const notesText = String(originalNotes || '');
   if (
@@ -21014,6 +21096,56 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
+  // `wall_demo` is the drywall-demolition id (kitchen "to the studs").
+  // Shower wall tile is a different tear-out and uses the $5.50 tile rate.
+  const showerWallRemoval =
+    itemId === 'wall_demo' &&
+    (String(templateKey || '').toLowerCase() === 'bathroom' ||
+      readShowerRemovalPieces(
+        (measurementsInput as { showerRemovalPieces?: unknown }).showerRemovalPieces
+      ).includes('wall_tile'));
+  if (showerWallRemoval) {
+    const resolvedSqft =
+      String(resolved.unit || '').toLowerCase() === 'sqft' &&
+      Number(resolved.quantity) > 0
+        ? Number(resolved.quantity)
+        : null;
+    const sqft =
+      resolvedSqft ||
+      parseScopeMeasurementInput(measurementsInput.wallDemoSqft) ||
+      parseScopeMeasurementInput(
+        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+      );
+    if (sqft && sqft > 0) {
+      const material = round2(sqft * TILE_DEMO_MATERIAL_RATE);
+      const labor = round2(sqft * TILE_DEMO_LABOR_RATE);
+      const perSqft = round2(TILE_DEMO_MATERIAL_RATE + TILE_DEMO_LABOR_RATE);
+      const perSqftLabel = Number.isInteger(perSqft)
+        ? `$${perSqft}`
+        : `$${perSqft.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            'Suggested budget split · National Average · shower tile demo',
+          helper: `${sqft.toLocaleString()} sqft of existing shower wall tile coming out.`,
+          mode: 'suggested_price',
+          basis: { quantity: sqft, unit: 'sqft' },
+          displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'tile_demo',
+        },
+        comparison: null,
+      };
+    }
+  }
+
   const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
   const preferredUnit =
     resolved.dualCount?.unit ||
@@ -21442,7 +21574,8 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
-  if (itemId === 'tear_off') {
+  if (itemId === 'tear_off' || roofTearOffChoiceForItem(itemId)) {
+    const tearOffChoice = roofTearOffChoiceForItem(itemId) || choiceId;
     const tearOffRates: Record<
       string,
       { material: number; labor: number; label: string }
@@ -21484,8 +21617,8 @@ export function resolveScopeItemSuggestedPricing(
           'membrane roof removal, loading, ordinary haul-off, and cleanup · review before bid',
       },
     };
-    if (!choiceId || choiceId === 'new_construction') return empty;
-    const selectedRate = tearOffRates[String(choiceId)];
+    if (!tearOffChoice || tearOffChoice === 'new_construction') return empty;
+    const selectedRate = tearOffRates[String(tearOffChoice)];
     if (!selectedRate) return empty;
     average = {
       ...(average || {}),
@@ -21602,7 +21735,7 @@ export function resolveScopeItemSuggestedPricing(
         material: selectedRate.material,
         labor: selectedRate.labor,
         unit: 'squares',
-        sourceLabel: `BPS national planning rate · ${selectedRate.label} · review before bid`,
+        sourceLabel: `BPS national planning rate · ${selectedRate.label}`,
       };
     }
   }
@@ -26166,6 +26299,37 @@ function resolveChecklistItemQuantityCore(
     }
   }
 
+  if (roofTearOffChoiceForItem(itemId)) {
+    const stored = parseStoredItemQuantity(measurements, itemId);
+    const typed =
+      stored &&
+      !['allowance', 'lump_sum'].includes(
+        String(stored.unit || '').toLowerCase()
+      )
+        ? Number(stored.quantity)
+        : 0;
+    if (typed > 0) {
+      return {
+        quantity: typed,
+        unit: 'squares',
+        quantitySource: stored?.quantitySource || 'user_entered',
+        sourceLabel: 'Tear-off squares',
+        pricingReady: true,
+        quantityHelper: 'Squares of this material coming off.',
+        showInput: false,
+      };
+    }
+    return {
+      quantity: 0,
+      unit: 'squares',
+      quantitySource: 'user_entered',
+      sourceLabel: 'Tear-off squares',
+      pricingReady: false,
+      quantityHelper: 'Enter the squares of this material coming off.',
+      showInput: true,
+    };
+  }
+
   if (
     itemId === 'roofing_system' &&
     String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
@@ -26764,7 +26928,16 @@ function resolveChecklistItemQuantityCore(
   }
 
   if (rule.aggregateMeasurementKeys?.length) {
-    const agg = sumMeasurementKeys(measurements, rule.aggregateMeasurementKeys);
+    const tilePanOnItsOwnLine =
+      itemId === 'demo' &&
+      String(ctx.templateKey || '').toLowerCase() === 'bathroom' &&
+      readShowerRemovalPieces(measurements.showerRemovalPieces).includes(
+        'tile_pan'
+      );
+    const aggregateKeys = tilePanOnItsOwnLine
+      ? rule.aggregateMeasurementKeys.filter(key => key !== 'showerFloorTileSqft')
+      : rule.aggregateMeasurementKeys;
+    const agg = sumMeasurementKeys(measurements, aggregateKeys);
     if (agg) {
       return {
         quantity: agg.quantity,
@@ -26964,6 +27137,37 @@ function resolveChecklistItemQuantityCore(
       quantityHelper: rule.quantityHelper,
       showInput: true,
     };
+  }
+
+  if (
+    itemId === 'countertops' &&
+    String(ctx.templateKey || '').toLowerCase() === 'bathroom'
+  ) {
+    const materialType = resolveBathroomVanityCountertopMaterialType({
+      storedType: (measurements as { bathroomVanityCountertopMaterialType?: unknown })
+        .bathroomVanityCountertopMaterialType,
+      notes: ctx.notes,
+    });
+    if (
+      materialType === 'cultured_marble_prefab' ||
+      materialType === 'prefab_quartz_stone'
+    ) {
+      const installCount = Number(
+        (measurements as { bathroomInstallCounterCount?: unknown })
+          .bathroomInstallCounterCount
+      );
+      const each =
+        Number.isFinite(installCount) && installCount > 0 ? installCount : 1;
+      return {
+        quantity: each,
+        unit: 'each',
+        quantitySource: 'inferred',
+        sourceLabel: 'Prefab vanity top',
+        pricingReady: true,
+        quantityHelper: 'Prefab tops are priced per top. Area is optional.',
+        showInput: true,
+      };
+    }
   }
 
   const fromNotes = resolvedQuantityFromNotes(itemId, measurements, ctx);
@@ -27265,6 +27469,32 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  const demoStyle = flooringDemoStyleFromItemId(itemId);
+  if (demoStyle) {
+    const entry = measurements.itemQuantities?.[`floor_demo__${demoStyle}`];
+    const quantity = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    if (quantity > 0) {
+      return {
+        quantity,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Entered removal area',
+        pricingReady: true,
+        quantityHelper: 'Removal area for this existing flooring.',
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit: 'sqft',
+      quantitySource: 'missing',
+      sourceLabel: sourceLabel('missing'),
+      pricingReady: false,
+      quantityHelper: 'Enter the removal area for this existing flooring.',
+      missingMessage: 'Enter removal sqft.',
+      showInput: true,
+    };
+  }
   if (
     itemId === 'interior_paint' &&
     notesDescribeDedicatedPaintingJob(ctx.notes)
@@ -27377,6 +27607,37 @@ export function resolveChecklistItemQuantity(
         showInput: true,
       };
     }
+  }
+  if (
+    itemId === 'floor_demo' &&
+    Number(
+      (measurements as { demoBathFloorTileCount?: unknown }).demoBathFloorTileCount
+    ) > 0 &&
+    !floorDemoNotesHint(String(ctx.notes || '').toLowerCase())
+  ) {
+    const sqft = Number(String(measurements.bathroomFloorSqft ?? '').replace(/,/g, ''));
+    if (sqft > 0) {
+      return {
+        quantity: sqft,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Bathroom floor sqft',
+        pricingReady: true,
+        quantityHelper: 'Uses the bathroom floor sqft.',
+        showInput: true,
+      };
+    }
+    return {
+      quantity: null,
+      unit: 'sqft',
+      quantitySource: 'missing',
+      sourceLabel: sourceLabel('missing'),
+      pricingReady: false,
+      quantityHelper:
+        'The existing bathroom floor comes out. Enter the bathroom floor sqft.',
+      missingMessage: 'Enter bathroom floor sqft.',
+      showInput: true,
+    };
   }
   if (itemId === 'floor_demo' && notesNameShowerTileWithFlooring(ctx.notes)) {
     if (!notesNameBathroomFloorRemoval(ctx.notes)) {
@@ -28034,9 +28295,16 @@ export function resolveChecklistItemQuantity(
     const prefabPanCount = Number(
       String(measurements.demoPrefabPanCount ?? '').replace(/,/g, '')
     );
+    const notesRemovePrefabPan =
+      /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off|coming out)\b[^.]{0,80}\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b/i.test(
+        notesText
+      ) ||
+      /\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b[^.]{0,40}\b(?:remove|demo|demolition|tear[\s-]?out|coming out)\b/i.test(
+        notesText
+      );
     const prefabPan =
       (Number.isFinite(prefabPanCount) && prefabPanCount > 0) ||
-      /\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b/i.test(notesText);
+      notesRemovePrefabPan;
     if (prefabPan) {
       const count =
         Number.isFinite(prefabPanCount) && prefabPanCount > 0
@@ -28639,6 +28907,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   // Painting Step 3 split rows — must map before generic paint / site-walls landscaping.
   { test: /^walls?$/i, key: 'interior_paint' },
   { test: /^ceilings?$/i, key: 'ceiling_paint' },
+  { test: /^ceiling\s+paint(?:ing)?$/i, key: 'ceiling_paint' },
   { test: /^(?:(?:paint|interior)\s+)?prep\s*(?:&|and)\s*masking$/i, key: 'prep' },
   { test: /^interior\s+masking$/i, key: 'prep' },
   {
@@ -30594,6 +30863,20 @@ export function scopeMeasurementsToPayload(
       Object.keys(sanitized.demoWetAreaManualOverrides).length
         ? sanitized.demoWetAreaManualOverrides
         : undefined,
+    showerRemovalChoice:
+      sanitized.showerRemovalChoice === 'pan' ||
+      sanitized.showerRemovalChoice === 'walls' ||
+      sanitized.showerRemovalChoice === 'both' ||
+      sanitized.showerRemovalChoice === 'none' ||
+      sanitized.showerRemovalChoice === 'unsure'
+        ? sanitized.showerRemovalChoice
+        : null,
+    showerRemovalPieces: readShowerRemovalPieces(sanitized.showerRemovalPieces),
+    scopeFoundClarificationId: readScopeFoundClarificationId(
+      sanitized.scopeFoundClarificationId
+    ),
+    scopeFoundChoice: readScopeFoundChoice(sanitized.scopeFoundChoice),
+    scopeFoundPieces: readScopeFoundPieces(sanitized.scopeFoundPieces),
     kitchenExistingCabinetCount:
       sanitized.kitchenExistingCabinetCount != null &&
       Number(sanitized.kitchenExistingCabinetCount) > 0
@@ -31032,6 +31315,7 @@ export function scopeMeasurementsInputFromPayload(
     baseboardLf: measurementFieldString(payload.baseboardLf),
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
+    wallDemoSqft: measurementFieldString(payload.wallDemoSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
     ceilingPaintSqft: measurementFieldString(payload.ceilingPaintSqft),
     paintAreaSqft: measurementFieldString(payload.paintAreaSqft),
@@ -31435,6 +31719,20 @@ export function scopeMeasurementsInputFromPayload(
         : null,
     reuseExistingShowerDoor: payload.reuseExistingShowerDoor ? true : null,
     demoWetAreaManualOverrides: payload.demoWetAreaManualOverrides,
+    showerRemovalChoice:
+      payload.showerRemovalChoice === 'pan' ||
+      payload.showerRemovalChoice === 'walls' ||
+      payload.showerRemovalChoice === 'both' ||
+      payload.showerRemovalChoice === 'none' ||
+      payload.showerRemovalChoice === 'unsure'
+        ? payload.showerRemovalChoice
+        : null,
+    showerRemovalPieces: readShowerRemovalPieces(payload.showerRemovalPieces),
+    scopeFoundClarificationId: readScopeFoundClarificationId(
+      payload.scopeFoundClarificationId
+    ),
+    scopeFoundChoice: readScopeFoundChoice(payload.scopeFoundChoice),
+    scopeFoundPieces: readScopeFoundPieces(payload.scopeFoundPieces),
     kitchenExistingCabinetCount:
       payload.kitchenExistingCabinetCount != null &&
       Number(payload.kitchenExistingCabinetCount) > 0
@@ -32144,6 +32442,39 @@ export type ScopeMeasurementsInputExtended = ReturnType<
 > & {
   /** Bathroom vanity run. Kitchen cabinets stay on cabinetLf. */
   bathroomVanityCabinetLf?: string | number | null;
+  /** Scope found answer: is any existing shower material being removed? */
+  showerRemovalChoice?: 'pan' | 'walls' | 'both' | 'none' | 'unsure' | null;
+  showerRemovalPieces?: Array<
+    | 'tub'
+    | 'prefab_pan'
+    | 'tile_pan'
+    | 'wall_tile'
+    | 'prefab_enclosure'
+    | 'shower_door'
+    | 'toilet'
+    | 'vanity'
+    | 'bath_floor'
+  > | null;
+  scopeFoundClarificationId?:
+    | 'flooring_demo'
+    | 'roof_tearoff'
+    | 'kitchen_demo'
+    | 'whole_home_demo'
+    | 'interior_paint_extent'
+    | 'existing_structure'
+    | null;
+  scopeFoundPieces?: string[] | null;
+  scopeFoundChoice?:
+    | 'yes'
+    | 'cabinets'
+    | 'flooring'
+    | 'all'
+    | 'walls'
+    | 'walls_ceilings'
+    | 'walls_ceilings_trim'
+    | 'none'
+    | 'unsure'
+    | null;
   /** Checklist ids the contractor removed. Counts stay; the line stays off the bid. */
   contractorRemovedScopeItemIds?: string[];
   /** Room-addition exterior finish. Empty string means the contractor cleared it. */

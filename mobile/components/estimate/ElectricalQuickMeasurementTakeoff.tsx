@@ -19,6 +19,7 @@ import {
   electricalQmQuantityInputValue,
   electricalQmShowsQuantity,
   electricalQmTapQuantity,
+  electricalQmUsesTypedQuantity,
   type ElectricalConfirmScopeAttributes,
   type ElectricalQmGroup,
   type ElectricalQmField,
@@ -97,7 +98,7 @@ function useElectricalAttributeLocal(
   onPatchRef.current = onPatch;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     job_condition: false,
-    service_amperage: true,
+    service_amperage: false,
     panel_location: false,
     packages: false,
     raceway: false,
@@ -1246,7 +1247,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     onPreviewRef.current = onPreview;
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
       job_condition: false,
-      service_amperage: true,
+      service_amperage: false,
       panel_location: false,
       packages: false,
       raceway: false,
@@ -1501,6 +1502,8 @@ function ElectricalQuickMeasurementTakeoffView({
     onChangeQuantityRef.current(field, value);
   }, []);
 
+  const planSheet =
+    String(measurements.planImportTradeKey || '') === 'electrical';
   const groups = useMemo(
     () =>
       buildElectricalQuickMeasurementGroups({
@@ -1573,6 +1576,7 @@ function ElectricalQuickMeasurementTakeoffView({
             existingServiceAmperage={existingServiceAmperage}
             onSelectExistingServiceAmperage={onSelectExistingServiceAmperage}
             showExistingService={showExistingService}
+            planSheet={planSheet}
             quantityEditingRef={quantityEditingRef}
             applying={Boolean(applying)}
             darkMode={darkMode}
@@ -1617,6 +1621,7 @@ function ElectricalQmGroupCardView({
   existingServiceAmperage,
   onSelectExistingServiceAmperage,
   showExistingService,
+  planSheet,
   quantityEditingRef,
   applying,
   darkMode,
@@ -1633,6 +1638,7 @@ function ElectricalQmGroupCardView({
   existingServiceAmperage: number | null;
   onSelectExistingServiceAmperage?: (value: number | null) => void;
   showExistingService: boolean;
+  planSheet: boolean;
   quantityEditingRef?: React.RefObject<boolean>;
   applying: boolean;
   darkMode: boolean;
@@ -1667,6 +1673,7 @@ function ElectricalQmGroupCardView({
             existingServiceAmperage={existingServiceAmperage}
             onSelectExistingServiceAmperage={onSelectExistingServiceAmperage}
             showExistingService={showExistingService}
+            planSheet={planSheet}
             applying={applying}
             darkMode={darkMode}
             Colors={Colors}
@@ -1693,6 +1700,7 @@ const ElectricalQmGroupCard = React.memo(
       previous.serviceAmperage !== next.serviceAmperage ||
       previous.existingServiceAmperage !== next.existingServiceAmperage ||
       previous.showExistingService !== next.showExistingService ||
+      previous.planSheet !== next.planSheet ||
       previous.onSelectServiceAmperage !== next.onSelectServiceAmperage ||
       previous.onSelectExistingServiceAmperage !==
         next.onSelectExistingServiceAmperage ||
@@ -1729,6 +1737,7 @@ const ElectricalQmScopeOption = React.memo(
     existingServiceAmperage = null,
     onSelectExistingServiceAmperage,
     showExistingService = false,
+    planSheet = false,
     applying,
     darkMode,
     Colors,
@@ -1744,6 +1753,7 @@ const ElectricalQmScopeOption = React.memo(
     existingServiceAmperage?: number | null;
     onSelectExistingServiceAmperage?: (value: number | null) => void;
     showExistingService?: boolean;
+    planSheet?: boolean;
     applying: boolean;
     darkMode: boolean;
     Colors: Colors;
@@ -1844,6 +1854,10 @@ const ElectricalQmScopeOption = React.memo(
     const hasMeasuredCount = Number.isFinite(planCount) && planCount > 0;
     const confirmedPlanCount =
       active && !field.conflicted && hasMeasuredCount;
+    const typedQuantity = electricalQmUsesTypedQuantity(
+      planSheet,
+      confirmedPlanCount || awaitingPlanConfirm
+    );
     const countLabel = hasMeasuredCount
       ? `${planCount.toLocaleString()} ${field.unit}`
       : 'Tap to confirm';
@@ -1853,12 +1867,16 @@ const ElectricalQmScopeOption = React.memo(
     const quantityRow = (
       <QmSqftMeasurementRow
         label={
-          field.key === 'bathExhaustFanCount' && !confirmedPlanCount
+          typedQuantity
+            ? field.label
+            : field.key === 'bathExhaustFanCount' && !confirmedPlanCount
             ? 'Exhaust fan'
             : `${field.label} quantity`
         }
         helperText={
-          field.key === 'bathExhaustFanCount' && !confirmedPlanCount
+          typedQuantity
+            ? undefined
+            : field.key === 'bathExhaustFanCount' && !confirmedPlanCount
             ? 'Not a ceiling fan. Ducting and roof termination are separate.'
             : awaitingPlanConfirm
             ? undefined
@@ -1899,7 +1917,10 @@ const ElectricalQmScopeOption = React.memo(
       </TouchableOpacity>
     );
 
-    if (field.key === 'bathExhaustFanCount' && !confirmedPlanCount) {
+    if (
+      typedQuantity ||
+      (field.key === 'bathExhaustFanCount' && !confirmedPlanCount)
+    ) {
       return <View style={styles.confirmBlock}>{quantityRow}</View>;
     }
 
@@ -2064,6 +2085,7 @@ const ElectricalQmScopeOption = React.memo(
     previous.field.conflicted === next.field.conflicted &&
     previous.field.confirmInput === next.field.confirmInput &&
     previous.field.provenanceLabel === next.field.provenanceLabel &&
+    previous.planSheet === next.planSheet &&
     previous.expanded === next.expanded &&
     previous.applying === next.applying &&
     previous.darkMode === next.darkMode &&

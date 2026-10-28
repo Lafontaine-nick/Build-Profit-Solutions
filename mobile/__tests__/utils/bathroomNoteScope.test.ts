@@ -4,13 +4,22 @@ import {
 } from '../../utils/estimateAiDraft';
 import {
   draftNeedsScopeConfirmation,
+  getInitialRevealChecklistScopePreview,
+  getInitialRevealConfirmItems,
   getInitialRevealPrimaryCtaLabel,
+  getInitialRevealStatusLabel,
   getInitialRevealTagline,
   getInitialRevealUnderstoodBullets,
+  priceShowerRemovalRevealRows,
   shouldShowInitialRevealWhatWeFound,
 } from '../../utils/estimateInitialRevealUi';
 import {
   applyNamedBathroomConfirmChoices,
+  applyShowerRemovalChoice,
+  dropToiletDemoBesideNewToilet,
+  measurementsForShowerRemovalChoice,
+  showerRemovalPrompt,
+  showerRemovalRevealLines,
   bathroomChecklistItemNamedInNotes,
   bathroomNoteTakeoff,
   bathroomScopeLines,
@@ -21,7 +30,10 @@ import {
   notesNameBathroomAssembly,
   shouldLimitBathroomChecklistToNotes,
 } from '../../utils/bathroomNoteScope';
-import { buildConfirmScopeDisplayItems } from '../../utils/scopePackagesForReview';
+import {
+  applyStep2NoteScopeFilters,
+  buildConfirmScopeDisplayItems,
+} from '../../utils/scopePackagesForReview';
 import {
   ensureBathroomVisiblePricingCards,
   hydrateScopeChecklistFromNotes,
@@ -33,6 +45,8 @@ import {
   checklistItemInScope,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
+  scopeMeasurementsInputFromPayload,
+  scopeMeasurementsPayloadForPersist,
 } from '../../utils/scopeItemQuantities';
 
 const TILE =
@@ -905,5 +919,271 @@ describe('bathroom floor tile and a toilet', () => {
         getInitialRevealTagline(priced)
       )
     ).toBe(false);
+  });
+});
+
+describe('shower removal question', () => {
+  const notes = 'New prefab shower pan. Tile the shower walls, 90 sqft.';
+
+  it('asks once and adds a pan and the walls only after the answer', () => {
+    const prompt = showerRemovalPrompt(notes);
+    expect(prompt?.question).toBe(
+      'Is any existing shower material being removed?'
+    );
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Wall tile',
+      'Prefab enclosure',
+      'Shower door',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(
+      showerRemovalRevealLines(notes, null, 90, ['prefab_pan', 'wall_tile'])
+    ).toEqual([
+      { name: 'Remove prefab pan', amount: 0, quantity: '1' },
+      { name: 'Demo shower walls', amount: 0, quantity: '90 sqft' },
+    ]);
+    expect(showerRemovalRevealLines(notes, 'none')).toEqual([]);
+    const removalRows = showerRemovalRevealLines(notes, null, 90, [
+      'tub',
+      'wall_tile',
+      'shower_door',
+    ]);
+    const pricedRemoval = priceShowerRemovalRevealRows(
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        scopeAssumptionsConfirmed: true,
+        scopeChecklist: { templateKey: 'bathroom' },
+        confirmedAssumptions: [
+          { id: 'shower_tile', label: 'Shower wall tile', inputType: 'yes_no', state: 'included' },
+          { id: 'prefab_shower_pan', label: 'Prefab shower pan', inputType: 'yes_no', state: 'included' },
+        ],
+        scopeMeasurements: {
+          showerRemovalPieces: ['tub', 'wall_tile', 'shower_door'],
+          wallDemoSqft: 90,
+          itemQuantities: {
+            tub_demo__material: { quantity: 50, unit: 'allowance' },
+            tub_demo__labor: { quantity: 300, unit: 'allowance' },
+            wall_demo__material: { quantity: 45, unit: 'allowance' },
+            wall_demo__labor: { quantity: 450, unit: 'allowance' },
+            glass_door_demo__material: { quantity: 25, unit: 'allowance' },
+            glass_door_demo__labor: { quantity: 100, unit: 'allowance' },
+          },
+          pricingAcceptance: {
+            tub_demo: { selectionStatus: 'accepted', totalAmount: 350, materialAmount: 50, laborAmount: 300 },
+            wall_demo: { selectionStatus: 'accepted', totalAmount: 495, materialAmount: 45, laborAmount: 450 },
+            glass_door_demo: { selectionStatus: 'accepted', totalAmount: 125, materialAmount: 25, laborAmount: 100 },
+          },
+        },
+      } as never,
+      removalRows
+    );
+    expect(pricedRemoval.map(row => ({ name: row.name, amount: row.amount }))).toEqual([
+      { name: 'Remove tub', amount: 350 },
+      { name: 'Demo shower walls', amount: 495 },
+      { name: 'Remove shower door', amount: 125 },
+    ]);
+    expect(showerRemovalPrompt('Demo the prefab shower pan.')).toBeNull();
+    expect(
+      showerRemovalPrompt('New prefab shower pan. Install a new toilet.')?.options.map(
+        option => option.label
+      )
+    ).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Wall tile',
+      'Prefab enclosure',
+      'Shower door',
+      'Toilet',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(
+      showerRemovalPrompt('Install a new vanity.')?.options.map(option => option.label)
+    ).toEqual(['Vanity', 'No demo', 'Not sure']);
+
+    const base = [
+      { id: 'prefab_shower_pan', state: 'included' },
+      { id: 'shower_tile', state: 'included' },
+    ];
+    expect(applyShowerRemovalChoice(base, notes, 'none').map(item => item.id)).toEqual([
+      'prefab_shower_pan',
+      'shower_tile',
+    ]);
+    const withRemoval = applyShowerRemovalChoice(base, notes, null, [
+      'tile_pan',
+      'wall_tile',
+      'shower_door',
+    ]);
+    expect(withRemoval.map(item => item.id)).toEqual([
+      'prefab_shower_pan',
+      'shower_tile',
+      'shower_floor_demo',
+      'wall_demo',
+      'glass_door_demo',
+    ]);
+    expect(
+      withRemoval
+        .filter(item => item.id !== 'prefab_shower_pan' && item.id !== 'shower_tile')
+        .every(item => item.noteBacked !== true)
+    ).toBe(true);
+    const answered = measurementsForShowerRemovalChoice(
+      { showerWallTileSqft: 90 },
+      ['prefab_pan', 'wall_tile'],
+      notes
+    );
+    expect(answered).toMatchObject({
+      showerRemovalPieces: ['prefab_pan', 'wall_tile'],
+      demoPrefabPanCount: 1,
+      wallDemoSqft: 90,
+      itemQuantities: {
+        shower_floor_demo: { quantity: 1, unit: 'each' },
+      },
+    });
+    const tilePan = measurementsForShowerRemovalChoice(
+      {
+        showerWallTileSqft: 90,
+        itemQuantities: {
+          shower_floor_demo: { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+          shower_floor_demo__material: { quantity: '50', unit: 'allowance' },
+          shower_floor_demo__labor: { quantity: '300', unit: 'allowance' },
+        },
+        pricingAcceptance: { shower_floor_demo: { totalAmount: 350 } },
+      },
+      ['tile_pan', 'wall_tile', 'shower_door'],
+      notes
+    );
+    expect(tilePan.demoTilePanCount).toBe(1);
+    expect(tilePan.demoPrefabPanCount).toBeNull();
+    expect(tilePan.itemQuantities?.shower_floor_demo).toBeUndefined();
+    expect(tilePan.showerFloorTileSqft).toBeUndefined();
+    const restored = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist(answered)
+    );
+    expect(restored.showerRemovalPieces).toEqual(['prefab_pan', 'wall_tile']);
+    expect(restored.demoPrefabPanCount).toBe(1);
+    expect(Number(restored.wallDemoSqft)).toBe(90);
+  });
+
+  it('keeps the new toilet card and drops the unpriced removal card', () => {
+    const notes = 'Install a new toilet.';
+    const items = [
+      {
+        id: 'toilet',
+        label: 'Toilet',
+        state: 'included' as const,
+        inputType: 'yes_no' as const,
+      },
+    ];
+    const withRemoval = applyShowerRemovalChoice(items, notes, null, ['toilet']);
+    expect(withRemoval.map(item => item.id)).toEqual(['toilet', 'toilet_demo']);
+    expect(dropToiletDemoBesideNewToilet(withRemoval).map(item => item.id)).toEqual([
+      'toilet',
+    ]);
+    const screen = applyStep2NoteScopeFilters(
+      items,
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        scopeChecklist: { templateKey: 'bathroom', items },
+      } as never,
+      { showerRemovalPieces: ['toilet'] },
+      'bathroom'
+    );
+    expect(screen.map(row => row.id)).toContain('toilet');
+    expect(screen.map(row => row.id)).not.toContain('toilet_demo');
+  });
+
+  it('asks only about the existing door and prices that door on scope found', () => {
+    const notes = 'Install a new shower door.';
+    const prompt = showerRemovalPrompt(notes);
+    expect(prompt?.question).toBe(
+      'Is any existing shower material being removed?'
+    );
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Shower door',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(showerRemovalPrompt('Replace the shower door.')).toBeNull();
+
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'bathroom',
+        projectTitle: 'Shower door',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        whatAiDid: ['Detected bathroom work.'],
+        scopeChecklist: null,
+        scopePackages: [{ name: 'Bathroom', price: null }],
+      } as never,
+      notes
+    );
+    expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'glass_door',
+    ]);
+    const attention = getInitialRevealConfirmItems(repaired).pricingScope;
+    expect(attention).toEqual([]);
+    expect(
+      getInitialRevealStatusLabel(repaired, attention.length).label
+    ).toBe('Mostly ready');
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).find(
+        row => row.name === 'Shower door'
+      )
+    ).toMatchObject({ amount: 1450 });
+  });
+
+  it('asks for the bathroom floor when the new floor is named and the demo is not', () => {
+    const notes =
+      'New shower wall tile. New tile bathroom floor. Demo shower wall tile.';
+    const prompt = showerRemovalPrompt(notes);
+    expect(prompt?.question).toBe('Is any existing material being removed?');
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Prefab enclosure',
+      'Shower door',
+      'Bath floor',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(
+      showerRemovalPrompt(
+        'New shower wall tile. New tile bathroom floor. Demo the bathroom floor.'
+      )?.options.map(option => option.label)
+    ).not.toContain('Bath floor');
+    const items = applyShowerRemovalChoice(
+      [
+        { id: 'shower_tile', state: 'included' },
+        { id: 'floor_tile', state: 'included' },
+      ],
+      notes,
+      null,
+      ['bath_floor']
+    );
+    expect(items.map(item => item.id)).toEqual([
+      'shower_tile',
+      'floor_tile',
+      'floor_demo',
+    ]);
+    const measured = measurementsForShowerRemovalChoice({}, ['bath_floor'], notes);
+    expect(measured.demoBathFloorTileCount).toBe(1);
+    expect(measured.itemQuantities?.floor_demo).toBeUndefined();
+    const withArea = measurementsForShowerRemovalChoice(
+      { bathroomFloorSqft: 40 },
+      ['bath_floor'],
+      notes
+    );
+    expect(withArea.itemQuantities?.floor_demo).toMatchObject({
+      quantity: 40,
+      unit: 'sqft',
+    });
   });
 });

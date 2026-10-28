@@ -1,4 +1,6 @@
+import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
+  applyDedicatedElectricalNoteCounts,
   dedicatedElectricalNamedCards,
   dedicatedElectricalRevealLines,
   filterDedicatedElectricalConfirmItems,
@@ -14,6 +16,7 @@ import {
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealHeroDisplay,
+  getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
@@ -143,6 +146,20 @@ describe('dedicated electrical device note', () => {
       )
     ).toEqual([]);
   });
+
+  it('reads kitchen GFCI outlets and a panel upgrade as electrical', () => {
+    const notes = '8 kitchen GFCI outlets and a 200 amp panel upgrade.';
+    expect(notesDescribeDedicatedElectricalDeviceJob(notes)).toBe(true);
+    expect(
+      getInitialRevealTagline({
+        originalNotes: notes,
+        projectTitle: 'Kitchen GFCI Outlets and 200 Amp Panel Upgrade',
+        projectType: 'kitchen',
+        whatAiDid: ['Detected kitchen remodel job.'],
+        scopeChecklist: { templateKey: 'kitchen', items: [] },
+      } as EstimateAiDraft)
+    ).toBe('Detected electrical.');
+  });
 });
 
 const RECEPTACLES_AND_TOILET =
@@ -231,5 +248,72 @@ describe('receptacles and a toilet', () => {
         .flat()
         .map(field => field.key)
     ).toEqual(['standardReceptacleCount']);
+  });
+
+  it('keeps the note count when a stored receptacle count is lower', () => {
+    const notes =
+      'Install 24 standard receptacles, 12 recessed lights, and 4 ceiling fans.';
+    const corrected = applyDedicatedElectricalNoteCounts(
+      {
+        standardReceptacleCount: 12,
+        recessedLightCount: 12,
+        ceilingFanCount: 4,
+        itemQuantities: {
+          electrical_standard_receptacle: {
+            quantity: 12,
+            unit: 'each',
+            quantitySource: 'notes',
+          },
+        },
+      },
+      notes
+    );
+    expect(corrected.standardReceptacleCount).toBe(24);
+    expect(corrected.recessedLightCount).toBe(12);
+    expect(corrected.ceilingFanCount).toBe(4);
+    expect(
+      corrected.itemQuantities?.electrical_standard_receptacle?.quantity
+    ).toBe(24);
+
+    const typed = applyDedicatedElectricalNoteCounts(
+      {
+        standardReceptacleCount: 12,
+        quickMeasurementUserOverrides: { standardReceptacleCount: true },
+        quickMeasurementSources: { standardReceptacleCount: 'user_entered' },
+      },
+      notes
+    );
+    expect(typed.standardReceptacleCount).toBe(12);
+
+    const planSheet = applyDedicatedElectricalNoteCounts(
+      {
+        planImportTradeKey: 'electrical',
+        standardReceptacleCount: 12,
+      },
+      notes
+    );
+    expect(planSheet.standardReceptacleCount).toBe(12);
+  });
+
+  it('counts a restated device once and still adds a different room', () => {
+    const restated = parseElectricalMeasurementsFromNotes(
+      '12 outlets, 6 recessed lights, 2 ceiling fans. 12 outlets. 6 recessed lights. 2 ceiling fans.'
+    );
+    expect(restated.standardReceptacleCount).toBe(12);
+    expect(restated.recessedLightCount).toBe(6);
+    expect(restated.ceilingFanCount).toBe(2);
+    expect(dedicatedElectricalRevealLines(
+      '12 outlets, 6 recessed lights, 2 ceiling fans. 12 outlets. 6 recessed lights. 2 ceiling fans.'
+    )).toEqual([
+      'Standard receptacles · 12 each',
+      'Recessed / canless / wafer light · 6 each',
+      'Ceiling fan · 2 each',
+    ]);
+
+    const separateRooms = parseElectricalMeasurementsFromNotes(
+      '12 outlets in the kitchen. 8 outlets in the garage. 6 recessed lights in the kitchen. 6 recessed lights in the bedrooms.'
+    );
+    expect(separateRooms.standardReceptacleCount).toBe(20);
+    expect(separateRooms.recessedLightCount).toBe(12);
   });
 });

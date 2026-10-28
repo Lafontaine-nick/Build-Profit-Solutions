@@ -11,12 +11,15 @@ import {
   notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
+  showerRemovalItemIdForRevealName,
   showerTileWithFlooringAreas,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
 import {
   filterDedicatedKitchenConfirmItems,
   measuredKitchenBathInteriorLines,
+  notesDescribeDedicatedKitchenRemodel,
+  notesNameKitchenSurfaceInstall,
   shouldLimitKitchenChecklistToNotes,
 } from '@/utils/kitchenNoteScope';
 import {
@@ -97,7 +100,11 @@ import {
   notesDescribeDedicatedFlooringJob,
 } from '@/utils/flooringNoteScope';
 import {
+  dedicatedPaintingCeilingSqft,
+  dedicatedPaintingNamesCeilings,
+  dedicatedPaintingNamesWalls,
   dedicatedPaintingRevealQuantity,
+  dedicatedPaintingWallSqft,
   notesDescribeDedicatedPaintingJob,
 } from '@/utils/paintingNoteScope';
 import {
@@ -161,9 +168,11 @@ import {
   lightingQuantityDuplicatesRecessedTakeoff,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
+  confirmScopeDisplayItemsFromDraft,
   getScopePackagesForReview,
   noteMentionsGeneralWallDemolition,
 } from '@/utils/scopePackagesForReview';
+import { listConfirmScopeAppliedPricingLines } from '@/utils/benchmarkReasonablenessContext';
 import {
   PLAN_SCOPE_CONFIRM_COUNT_SUFFIX,
   planScopeRecordSummaryLines,
@@ -201,6 +210,7 @@ import {
   parseRoofingDeckingAllowanceFromNotes,
   shouldLimitRoofingChecklistToNotes,
 } from '@/utils/scopeItemNoteHints';
+import { ROOF_TEAR_OFF_CARDS } from '@/utils/scopeFoundClarification';
 import {
   hvacPlanImportStatesNewBuildSystem,
   NEW_BUILD_HVAC_SYSTEM_ASSUMPTION_COPY,
@@ -403,6 +413,23 @@ const REVEAL_HIGH_PRIORITY =
 
 /** Plain-language labels for review / confidence copy (display only). */
 /** A draft summary must not mention paint the note never named. */
+/** A stated total is a dollar amount. Inches, counts, and sqft are not totals. */
+function notesStateADollarTotal(notes: string | null | undefined): boolean {
+  return /\$\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:dollars|bucks)\b/i.test(
+    String(notes || '')
+  );
+}
+
+function whatAiDidClaimsUnstatedTotals(
+  line: string,
+  notes: string | null | undefined
+): boolean {
+  if (!/preserved (?:your total|\d+ room totals)/i.test(line)) return false;
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  return !notesStateADollarTotal(text);
+}
+
 function whatAiDidNamesUnstatedPaint(
   line: string,
   notes: string | null | undefined
@@ -521,7 +548,10 @@ export function getInitialRevealConfirmItems(
     }
     return true;
   });
-  const filtered = { ...buckets, pricingScope };
+  const filtered = {
+    ...buckets,
+    pricingScope: dropPricedRoofingAttention(draft, pricingScope),
+  };
   const pricedSelection =
     initialRevealPricingVisible(draft) && draftHasSelectedScopePrices(draft);
   if (!namedScopeReaderOwnsPricing(notes) && !pricedSelection) {
@@ -872,6 +902,10 @@ function collectInitialRevealConfirmItems(
   if (vagueQuestion) {
     return splitInitialRevealConfirmItems([vagueQuestion]);
   }
+  const paintingMissing = dedicatedPaintingMissingAreas(draft);
+  if (paintingMissing.length > 0) {
+    return splitInitialRevealConfirmItems(paintingMissing);
+  }
   if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
     return splitInitialRevealConfirmItems(areaOnlyAdditionAttention(draft));
   }
@@ -971,17 +1005,18 @@ function collectInitialRevealConfirmItems(
     const unpricedScope = getInitialRevealScopeRows(draft).filter(row => {
       const name = String(row.name || '').trim().toLowerCase();
       if (!name) return false;
+      // Confirm Scope already has a national average for this line. A known
+      // door, toilet, or measured install is not a missing price.
+      if (bathroomSuggestedRevealAmount(draft, row.id) > 0) return false;
       const pkg = packages.find(
         item =>
           String(item.name || item.scope || '').trim().toLowerCase() === name
       );
       return !pkg || scopePackageNeedsManualPrice(pkg, draft);
     });
-    if (unpricedScope.length > 0) {
-      return splitInitialRevealConfirmItems(
-        unpricedScope.map(row => `Pricing for ${row.name}`)
-      );
-    }
+    return splitInitialRevealConfirmItems(
+      unpricedScope.map(row => `Pricing for ${row.name}`)
+    );
   }
   const kitchenNoteLimit = shouldLimitKitchenChecklistToNotes({
     notes: draft.originalNotes,
@@ -1395,6 +1430,14 @@ export function countInitialRevealAttentionItems(
   draft: EstimateAiDraft
 ): number {
   return getInitialRevealConfirmItems(draft).pricingScope.length;
+}
+
+/** An unanswered Scope found question is one check, same as a missing price. */
+export function initialRevealStatusAttentionCount(
+  pricingAttentionCount: number,
+  clarificationOpen: boolean
+): number {
+  return pricingAttentionCount + (clarificationOpen ? 1 : 0);
 }
 
 function electricalCardForPlanLine(line: string) {
@@ -1905,6 +1948,69 @@ function windowsDoorsPlanRevealRows(
   });
 }
 
+/**
+ * A dedicated paint note that names walls and ceilings in separate sentences
+ * lists each surface. A blank ceiling area stays blank so Scope found can
+ * mark it as the thing to check.
+ */
+function dedicatedPaintingScopeFoundRows(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number; quantity?: string | null }> | null {
+  const notes = draft.originalNotes;
+  if (!notesDescribeDedicatedPaintingJob(notes)) return null;
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) {
+    return null;
+  }
+  const wallsNamed = dedicatedPaintingNamesWalls(notes);
+  const ceilingsNamed = dedicatedPaintingNamesCeilings(notes);
+  if (!wallsNamed && !ceilingsNamed) return null;
+  // The number has to sit in that surface's own sentence. A stored ceiling
+  // area that only repeats the wall sqft is not a ceiling measurement.
+  const wallSqft = wallsNamed ? dedicatedPaintingWallSqft(notes) : null;
+  const ceilingSqft = ceilingsNamed ? dedicatedPaintingCeilingSqft(notes) : null;
+  const rows: Array<{ name: string; amount: number; quantity?: string | null }> =
+    [];
+  if (wallsNamed) {
+    rows.push({
+      name: 'Interior wall painting',
+      amount: 0,
+      ...(wallSqft
+        ? { quantity: `${wallSqft.toLocaleString('en-US')} sqft` }
+        : {}),
+    });
+  }
+  if (ceilingsNamed) {
+    rows.push({
+      name: 'Ceiling painting',
+      amount: 0,
+      ...(ceilingSqft
+        ? { quantity: `${ceilingSqft.toLocaleString('en-US')} sqft` }
+        : {}),
+    });
+  }
+  return rows.length ? rows : null;
+}
+
+function dedicatedPaintingMissingAreas(draft: EstimateAiDraft): string[] {
+  if (!draftNeedsScopeConfirmation(draft)) return [];
+  const notes = draft.originalNotes;
+  if (!notesDescribeDedicatedPaintingJob(notes)) return [];
+  const missing: string[] = [];
+  if (
+    dedicatedPaintingNamesWalls(notes) &&
+    dedicatedPaintingWallSqft(notes) == null
+  ) {
+    missing.push('Interior wall painting');
+  }
+  if (
+    dedicatedPaintingNamesCeilings(notes) &&
+    dedicatedPaintingCeilingSqft(notes) == null
+  ) {
+    missing.push('Ceiling painting');
+  }
+  return missing;
+}
+
 function paintingPlanExport(draft: EstimateAiDraft): boolean {
   const measurements = draft.scopeMeasurements as
     | {
@@ -2005,6 +2111,83 @@ function roofingRevealHasPlanningInputs(draft: EstimateAiDraft): boolean {
   if (!isRoofingRevealDraft(draft)) return false;
   const measurements = initialScopeMeasurementInputExtended(draft);
   return Number(measurements.roofSquares) > 0;
+}
+
+/** National average Confirm Scope will show for a roofing line. */
+function roofingSuggestedRevealAmount(
+  draft: EstimateAiDraft,
+  rowId: string
+): number {
+  if (!rowId || !isRoofingRevealDraft(draft)) return 0;
+  const notes = collectRoofingInferenceNotes(draft, draft.originalNotes);
+  const templateKey = draft.scopeChecklist?.templateKey ?? 'roofing';
+  const measurements = initialScopeMeasurementInputExtended(draft, notes);
+  const storedChoice = String(
+    (draft.scopeChecklist?.items || []).find(item => item.id === rowId)
+      ?.choiceId ||
+      (rowId === 'roofing_system' || rowId === 'shingles_roofing'
+        ? measurements.roofingSystemChoice
+        : '') ||
+      ''
+  );
+  const inferred =
+    rowId === 'roofing_system' || rowId === 'shingles_roofing'
+      ? inferRoofingSystemFromNotes(notes)
+      : null;
+  const choice =
+    storedChoice && !['unsure', 'not_in_scope'].includes(storedChoice)
+      ? storedChoice
+      : inferred;
+  if (
+    (rowId === 'roofing_system' || rowId === 'shingles_roofing') &&
+    (!choice || choice === 'custom_other')
+  ) {
+    return 0;
+  }
+  const resolved = resolveChecklistItemQuantity(rowId, measurements, {
+    templateKey,
+    notes,
+    choiceId: choice,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    rowId,
+    measurements,
+    templateKey,
+    resolved,
+    null,
+    choice,
+    notes
+  );
+  const total = Number(suggested.fill?.total);
+  return total > 0 ? Math.round(total * 100) / 100 : 0;
+}
+
+/**
+ * A roofing line with squares and a national rate is not a missing price.
+ * Scope found stays unpriced until Confirm scope.
+ */
+function dropPricedRoofingAttention(
+  draft: EstimateAiDraft,
+  items: string[]
+): string[] {
+  if (!isRoofingRevealDraft(draft) || roofingPlanScopeOwnsReveal(draft)) {
+    return items;
+  }
+  if (!roofingRevealHasPlanningInputs(draft)) return items;
+  const pricedNames = getInitialRevealScopeRows(draft)
+    .filter(row => roofingSuggestedRevealAmount(draft, row.id) > 0)
+    .map(row => row.name.trim().toLowerCase())
+    .filter(Boolean);
+  if (!pricedNames.length) return items;
+  return items.filter(item => {
+    const plain = item
+      .replace(/^price needed for /i, '')
+      .trim()
+      .toLowerCase();
+    return !pricedNames.some(
+      name => plain === name || plain.startsWith(`${name} `)
+    );
+  });
 }
 
 /** Drop pre-Confirm Scope pricing noise when national planning can price on Step 2. */
@@ -2727,6 +2910,8 @@ function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (roofingApplied.length) return roofingApplied.length;
   const paintingApplied = appliedPaintingConfirmScopePreview(draft);
   if (paintingApplied) return paintingApplied.length;
+  const paintingNotes = confirmedPaintingNotePreview(draft);
+  if (paintingNotes) return paintingNotes.length;
   const windowsDoorsPlan = windowsDoorsPlanRevealRows(draft);
   if (windowsDoorsPlan) return windowsDoorsPlan.length;
   if (electricalDeviceNoteOwnsReveal(draft)) {
@@ -4887,6 +5072,57 @@ function dedicatedBathroomRemodelNote(notes?: string | null): boolean {
   );
 }
 
+/** National-average dollars Confirm Scope will show for a bathroom line. */
+function bathroomSuggestedRevealAmount(
+  draft: EstimateAiDraft,
+  rowId: string
+): number {
+  if (!rowId) return 0;
+  const notes = String(draft.originalNotes || '');
+  const templateKey = draft.scopeChecklist?.templateKey ?? null;
+  const measurements = initialScopeMeasurementInputExtended(draft, notes);
+  const resolved = resolveChecklistItemQuantity(rowId, measurements, {
+    templateKey,
+    notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    rowId,
+    measurements,
+    templateKey,
+    resolved,
+    null,
+    null,
+    notes
+  );
+  const total = Number(suggested.fill?.total);
+  return total > 0 ? Math.round(total * 100) / 100 : 0;
+}
+
+/** Scope found shows a bathroom line's known price. Unmeasured lines stay blank. */
+function withBathroomSuggestedAmount(
+  draft: EstimateAiDraft,
+  rowId: string,
+  amount: number
+): number {
+  if (amount > 0 || !rowId) return amount;
+  if (
+    !shouldLimitBathroomChecklistToNotes({
+      notes: draft.originalNotes,
+      templateKey: draft.scopeChecklist?.templateKey,
+      projectType: draft.projectType,
+      scopeMode: draft.scopeMode || draft.classification?.scopeMode || null,
+      planBacked: Boolean(
+        draft.scopeMeasurements?.planImportMode ||
+          draft.scopeMeasurements?.planImportFingerprint
+      ),
+      wholeHome: notesDescribeMeasuredWholeHomeRemodel(draft.originalNotes),
+    })
+  ) {
+    return amount;
+  }
+  return bathroomSuggestedRevealAmount(draft, rowId);
+}
+
 function hideUnnamedBathroomPaintScopeRow(
   draft: EstimateAiDraft,
   row: { id?: string; name?: string | null }
@@ -5036,6 +5272,75 @@ function groundUpExteriorFinishRevealQuantity(
   return `${Math.round(estimate.value).toLocaleString()} sqft`;
 }
 
+const REVEAL_ROW_ITEM_IDS: Record<string, string> = {
+  'remove tub': 'tub_demo',
+  'remove prefab pan': 'shower_floor_demo',
+  'remove tile pan': 'shower_floor_demo',
+  'remove tile shower pan': 'shower_floor_demo',
+  'demo shower walls': 'wall_demo',
+  'remove prefab enclosure': 'shower_enclosure_demo',
+  'remove shower door': 'glass_door_demo',
+  'remove toilet': 'toilet_demo',
+  'remove vanity': 'vanity_demo',
+  'remove carpet': 'floor_demo',
+  'remove tile': 'floor_demo',
+  'remove hardwood': 'floor_demo',
+  'remove vinyl': 'floor_demo',
+  'remove laminate': 'floor_demo',
+  'flooring demo / removal': 'floor_demo',
+  'cabinet demo': 'cabinet_demo',
+  'countertop demo': 'countertop_demo',
+  'backsplash demo': 'backsplash_demo',
+  'existing roof / tear-off': 'tear_off',
+  'tear off shingles': 'tear_off_shingles',
+  'tear off roof tile': 'tear_off_tile',
+  'tear off metal roof': 'tear_off_metal',
+  'tear off flat roof': 'tear_off_flat',
+  'remove panel': 'electrical_panel_removal',
+  'remove fixtures': 'electrical_fixture_removal',
+  'remove wiring': 'electrical_abandoned_circuit',
+};
+
+/**
+ * Dollars already on the bid for a Scope found row. The same amount the
+ * initial estimate and Review total, so a listed line is not $0 beside a
+ * priced total.
+ */
+export function initialRevealAmountsByName(
+  draft: EstimateAiDraft
+): Map<string, { id: string; amount: number }> {
+  const amounts = new Map<string, { id: string; amount: number }>();
+  const put = (name: string, id: string, amount: number) => {
+    const key = name.trim().toLowerCase();
+    if (!key || !(amount > 0) || amounts.has(key)) return;
+    amounts.set(key, { id, amount });
+  };
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (items.length) {
+    for (const line of listConfirmScopeAppliedPricingLines({
+      items,
+      measurements: initialScopeMeasurementInputExtended(draft, draft.originalNotes),
+      templateKey: draft.scopeChecklist?.templateKey,
+      notes: draft.originalNotes,
+    })) {
+      put(line.label, line.itemId, line.total);
+      for (const [name, rowId] of Object.entries(REVEAL_ROW_ITEM_IDS)) {
+        if (rowId === line.itemId) put(name, line.itemId, line.total);
+      }
+    }
+  }
+  for (const pkg of getScopePackagesForReview(draft)) {
+    const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
+    const amount = scopePackagePricedAmount(pkg, draft);
+    if (!id || !(amount > 0)) continue;
+    put(String(pkg.name || pkg.scope || ''), id, amount);
+    for (const [name, rowId] of Object.entries(REVEAL_ROW_ITEM_IDS)) {
+      if (rowId === id) put(name, id, amount);
+    }
+  }
+  return amounts;
+}
+
 function revealRowAmount(
   draft: EstimateAiDraft,
   pkg: EstimateDraftScopePackage | undefined
@@ -5096,7 +5401,26 @@ function showRevealAmounts(draft: EstimateAiDraft): boolean {
   return initialRevealPricingVisible(draft);
 }
 
-/** Applied Step 2 dollars for this reveal row, including a collapsed duplicate id. */
+/**
+ * Removal rows are prepended to the Initial estimate list before the priced
+ * checklist preview. Fill them from the same applied dollars Review shows.
+ */
+export function priceShowerRemovalRevealRows<
+  T extends { name: string; amount: number },
+>(draft: EstimateAiDraft | null | undefined, rows: T[]): T[] {
+  if (!draft?.scopeAssumptionsConfirmed && !draft?.confirmedAssumptions?.length) {
+    return rows;
+  }
+  return rows.map(row => {
+    if (row.amount > 0) return row;
+    const itemId = showerRemovalItemIdForRevealName(row.name);
+    if (!itemId) return row;
+    const amount = appliedAliasRevealAmount(draft, itemId);
+    if (!(amount > 0)) return row;
+    return { ...row, amount: Math.round(amount * 100) / 100 };
+  });
+}
+
 function appliedAliasRevealAmount(
   draft: EstimateAiDraft,
   rowId: string
@@ -5151,25 +5475,35 @@ function appliedRoofingConfirmScopePreview(
       id => !ROOFING_APPLIED_REVEAL_LINES.some(line => line.id === id)
     ),
   ];
+  const itemQuantities =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object'
+      ? (measurements.itemQuantities as Record<string, { quantity?: unknown }>)
+      : {};
   return orderedIds.flatMap(id => {
     const amount = Number(acceptance[id]?.totalAmount || 0);
     if (!(amount > 0)) return [];
     const line = ROOFING_APPLIED_REVEAL_LINES.find(entry => entry.id === id);
-    const qty = line
-      ? Number(String(measurements[line.key] ?? '').replace(/,/g, ''))
-      : 0;
+    const tearOff = ROOF_TEAR_OFF_CARDS.find(entry => entry.id === id);
+    const qty = tearOff
+      ? Number(String(itemQuantities[tearOff.id]?.quantity ?? '').replace(/,/g, ''))
+      : line
+        ? Number(String(measurements[line.key] ?? '').replace(/,/g, ''))
+        : 0;
     const name =
       id === 'shingles_roofing'
         ? coveringName
-        : line?.label || items.find(item => item.id === id)?.label || id;
+        : tearOff?.label ||
+          line?.label ||
+          items.find(item => item.id === id)?.label ||
+          id;
+    const unit = tearOff ? 'squares' : line?.unit || 'each';
     return [
       {
         name: String(name).trim(),
         amount: Math.round(amount * 100) / 100,
         quantity:
-          qty > 0
-            ? `${qty.toLocaleString('en-US')} ${line?.unit || 'each'}`
-            : null,
+          qty > 0 ? `${qty.toLocaleString('en-US')} ${unit}` : null,
       },
     ];
   });
@@ -5237,6 +5571,8 @@ export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
   if (vagueScopeQuestion(draft.originalNotes)) return [];
+  const paintingScopeFound = dedicatedPaintingScopeFoundRows(draft);
+  if (paintingScopeFound) return paintingScopeFound;
   const pricedPlumbing = appliedPlumbingPriceRows(draft);
   if (pricedPlumbing.length) return pricedPlumbing;
   const pricedRoofing = appliedRoofingConfirmScopePreview(draft);
@@ -5573,7 +5909,11 @@ export function getInitialRevealChecklistScopePreview(
         const statedScope = statedWholeHomeRevealAmount(draft, id);
         const statedTrim =
           statedScope || applied > 0 ? null : statedTrimRevealAmount(draft, id);
-        const amount = statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0);
+        const amount = withBathroomSuggestedAmount(
+          draft,
+          id,
+          statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0)
+        );
         const trimQuantity = !quantity ? statedTrim?.quantity : null;
         return {
           name: row.name,
@@ -5600,9 +5940,14 @@ export function getInitialRevealChecklistScopePreview(
       })
       .map(pkg => {
         const quantity = formatScopeQuantity(pkg, draft);
+        const packageId = String(pkg.checklistItemId || pkg.costCode || '').trim();
         return {
           name: String(pkg.name || pkg.scope || 'Scope item').trim(),
-          amount: revealRowAmount(draft, pkg),
+          amount: withBathroomSuggestedAmount(
+            draft,
+            packageId,
+            revealRowAmount(draft, pkg)
+          ),
           ...(quantity ? { quantity } : {}),
         };
       })
@@ -5627,7 +5972,11 @@ export function getInitialRevealChecklistScopePreview(
     const statedScope = statedWholeHomeRevealAmount(draft, row.id);
     const statedTrim =
       statedScope || applied > 0 ? null : statedTrimRevealAmount(draft, row.id);
-    const amount = statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0);
+    const amount = withBathroomSuggestedAmount(
+      draft,
+      row.id,
+      statedScope?.total || (applied > 0 ? applied : statedTrim?.total || 0)
+    );
     const trimQuantity = !quantity ? statedTrim?.quantity : null;
     return {
       name: row.name,
@@ -6161,6 +6510,16 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   ) {
     return 'Detected drywall job.';
   }
+  const electricalNotes = String(draft.originalNotes || '');
+  if (
+    notesDescribeDedicatedElectricalDeviceJob(electricalNotes) &&
+    !notesDescribeDedicatedKitchenRemodel(electricalNotes) &&
+    !notesNameKitchenSurfaceInstall(electricalNotes) &&
+    !draft.scopeMeasurements?.planImportMode &&
+    !draft.scopeMeasurements?.planImportFingerprint
+  ) {
+    return 'Detected electrical.';
+  }
   const revealProjectType = String(draft.projectType || '').toLowerCase();
   const revealTemplateKey = String(
     draft.scopeChecklist?.templateKey || ''
@@ -6336,7 +6695,11 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
     }
   }
   const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6)
-    .filter(line => !whatAiDidNamesUnstatedPaint(line, draft.originalNotes))
+    .filter(
+      line =>
+        !whatAiDidNamesUnstatedPaint(line, draft.originalNotes) &&
+        !whatAiDidClaimsUnstatedTotals(line, draft.originalNotes)
+    )
     .map(line =>
       /detected flooring job/i.test(line) &&
       dedicatedBathroomRemodelNote(draft.originalNotes)
@@ -6597,14 +6960,14 @@ export function getInitialRevealUnderstoodBullets(
         return name;
       })
       .filter(Boolean);
-    if (fromPackages.length > 0) return fromPackages.slice(0, max);
+    if (fromPackages.length > 0) return fromPackages;
   }
 
   if (isRoofingRevealDraft(draft) && roofingRevealHasPlanningInputs(draft)) {
     const fromPackages = getScopePackagesForReview(draft)
       .map(pkg => String(pkg.name || pkg.scope || 'Scope item').trim())
       .filter(Boolean);
-    if (fromPackages.length > 0) return fromPackages.slice(0, max);
+    if (fromPackages.length > 0) return fromPackages;
   }
 
   const fromAi = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], max + 2)
@@ -6623,6 +6986,7 @@ export function getInitialRevealUnderstoodBullets(
         return false;
       }
       if (whatAiDidNamesUnstatedPaint(line, draft.originalNotes)) return false;
+      if (whatAiDidClaimsUnstatedTotals(line, draft.originalNotes)) return false;
       return true;
     });
   if (fromAi.length > 0) return fromAi.slice(0, max);

@@ -3121,8 +3121,23 @@ export function quickMeasurementRowsForTemplate(
               if (field.key === 'kitchenFloorSqft') {
                 return kitchenNoteIncludesFloorWork(kitchenNoteText);
               }
+              if (field.key === 'drywallSqft') {
+                return /\b(?:drywall|sheetrock|gypsum)\b/i.test(kitchenNoteText);
+              }
+              if (
+                field.key === 'exteriorWallInsulationSqft' ||
+                field.key === 'atticInsulationSqft'
+              ) {
+                return /\binsulat/i.test(kitchenNoteText);
+              }
               return true;
             })
+              .map(field =>
+                field.key === 'cabinetLf' &&
+                !/\b(?:vanity|bath(?:room)?)\b/i.test(kitchenNoteText)
+                  ? { ...field, label: 'Cabinets' }
+                  : field
+              )
           )
           .filter(row => row.length > 0)
       : remodelRows;

@@ -50,6 +50,7 @@ import type { NormalizedScopeMeasurements } from '@/utils/scopeItemQuantities';
 import {
   syncBathroomFixtureQmScopeItems,
   expandBathroomFixtureScopeDisplayItems,
+  bathroomFixtureQmEmbedApplies,
   shouldHideBathroomFixtureScopeCardInQmEmbed,
   bathroomFixtureScopeCardVisible,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
@@ -74,19 +75,26 @@ import {
 import {
   applyDedicatedBathroomConfirmScope,
   applyNamedBathroomConfirmChoices,
+  applyShowerRemovalChoice,
   bathroomAffirmativeNotes,
+  dropToiletDemoBesideNewToilet,
   notesWaterproofPanNotWalls,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
 import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
+import {
+  applyScopeFoundClarification,
+  splitRoofTearOffCards,
+} from '@/utils/scopeFoundClarification';
 import {
   filterDedicatedKitchenConfirmItems,
   measuredKitchenBathConfirmItems,
 } from '@/utils/kitchenNoteScope';
 import {
   filterDedicatedFlooringConfirmItems,
-  selectedFlooringProductItemIds,
+  retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
+import { splitFlooringDemoIntoStyleCards } from '@/utils/qmScopePanels/flooringRemodel';
 import { filterDedicatedElectricalConfirmItems } from '@/utils/electricalNoteScope';
 import { filterDedicatedWindowsDoorsConfirmItems } from '@/utils/windowsDoorsNoteScope';
 import { filterDedicatedInsulationConfirmItems } from '@/utils/insulationNoteScope';
@@ -697,9 +705,13 @@ export function applyStep2NoteScopeFilters(
   const kitchenBathItems = measuredKitchenBathConfirmItems(notes);
   if (kitchenBathItems) {
     const removedIds = measurements.contractorRemovedScopeItemIds;
-    return applyContractorRemovedScopeItems(
-      kitchenBathItems,
-      Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+    return applyScopeFoundClarification(
+      applyContractorRemovedScopeItems(
+        kitchenBathItems,
+        Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+      ),
+      notes,
+      measurements
     );
   }
   const noteScopeParams = {
@@ -747,7 +759,7 @@ export function applyStep2NoteScopeFilters(
                 roofingNoteParams
               ),
               notes,
-              selectedFlooringProductItemIds(measurements)
+              retainedFlooringConfirmItemIds(measurements)
             ),
             notes,
             { planBacked: noteScopeParams.planBacked }
@@ -816,7 +828,29 @@ export function applyStep2NoteScopeFilters(
       ...(item.inputType === 'multi_choice' ? { choiceIds: ['not_in_scope'] } : {}),
     }));
   }
-  return scoped;
+  const clarified = dropToiletDemoBesideNewToilet(
+    applyScopeFoundClarification(
+      applyShowerRemovalChoice(
+        scoped,
+        notes,
+        measurements.showerRemovalChoice,
+        measurements.showerRemovalPieces
+      ),
+      notes,
+      measurements
+    )
+  );
+  const existingTypes = Array.isArray(measurements.flooringExistingTypes)
+    ? measurements.flooringExistingTypes.map(type => String(type))
+    : [];
+  return splitRoofTearOffCards(
+    splitFlooringDemoIntoStyleCards(
+      clarified,
+      existingTypes,
+      Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+    ),
+    measurements
+  );
 }
 
 /** Checklist rows for Applied-pricing math after Continue — mirrors Step 2 displayItems. */
@@ -951,8 +985,16 @@ export function isScopeCardHiddenInQmEmbed(
   }
   const qmEmbeddedScopeIds = getQmEmbeddedScopeIds(qmCtx);
   if (!qmEmbeddedScopeIds.has(itemId)) return false;
-  if (shouldHideBathroomFixtureScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
-  if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
+  const bathroomFixtureEmbed = bathroomFixtureQmEmbedApplies(qmCtx.templateKey);
+  if (
+    bathroomFixtureEmbed &&
+    shouldHideBathroomFixtureScopeCardInQmEmbed(itemId, measurements, displayItems)
+  ) {
+    return true;
+  }
+  if (bathroomFixtureEmbed && BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) {
+    return false;
+  }
   if (
     shouldHideKitchenScopeCardInQmEmbed(
       itemId,
@@ -965,6 +1007,20 @@ export function isScopeCardHiddenInQmEmbed(
   }
   if (KITCHEN_QM_EMBEDDED_IDS.has(itemId)) return false;
   return true;
+}
+
+/**
+ * A named prefab pan, tub, or enclosure stays on the bid when that line is included.
+ * The wet-area picker is not required once the note already named the install.
+ */
+function derivedWetAreaRowStaysOnReview(
+  item: ScopeChecklistItem,
+  displayItems: ScopeChecklistItem[]
+): boolean {
+  if (item.derivedFrom !== 'wet_area_install') return true;
+  if (checklistItemInScope(item)) return true;
+  const parent = displayItems.find((row) => row.id === 'wet_area_install');
+  return Boolean(parent && checklistItemInScope(parent));
 }
 
 /** Step 3 review — selected scope only (Yes / chosen options), same rules as Applied pricing. */
@@ -1137,10 +1193,7 @@ export function flattenConfirmScopeVisibleRows(
       ) {
         return false;
       }
-      if (item.derivedFrom === 'wet_area_install') {
-        const parent = displayItems.find((row) => row.id === 'wet_area_install');
-        if (!parent || !checklistItemInScope(parent)) return false;
-      }
+      if (!derivedWetAreaRowStaysOnReview(item, displayItems)) return false;
     }
 
     if (shouldHideDuplicateRoofingShinglesRow(item.id, ctx.templateKey, displayItems)) {

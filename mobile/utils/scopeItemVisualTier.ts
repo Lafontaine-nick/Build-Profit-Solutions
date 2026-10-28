@@ -365,6 +365,28 @@ export function scopeItemNoteBadge(
   }
   if (!String(notes || '').trim() && !item.noteBacked) return null;
 
+  // Masking rides with wall and ceiling paint. A paint verb alone did not name it.
+  if (
+    item.id === 'prep' &&
+    inferItemStateFromNotes('prep', notes) !== 'included'
+  ) {
+    return null;
+  }
+
+  // A selected tear-off material is the contractor's answer. The new-roof note
+  // did not name that removal.
+  if (
+    (item.id === 'tear_off_shingles' ||
+      item.id === 'tear_off_tile' ||
+      item.id === 'tear_off_metal' ||
+      item.id === 'tear_off_flat') &&
+    !/\b(?:tear[\s-]?off|rip[\s-]?off|remove|removal|demo|demolition)\b/i.test(
+      String(notes || '')
+    )
+  ) {
+    return null;
+  }
+
   if (itemPricingFromNotes(item, ctx) && checklistItemInScope(item)) {
     if (String(ctx.templateKey || '').toLowerCase() === 'kitchen') return null;
     return 'prefilled';

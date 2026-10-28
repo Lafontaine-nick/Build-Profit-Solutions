@@ -58,7 +58,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   island:
     /\b(?:new|install|build|add|replace)\b[^.]{0,30}\bisland\b(?!\s+(?:countertops?|counters?)\b)|\bkitchen\s+island\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
-  prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
+  prep: /\b(?:primers?|masking|patch(?:ing|es)?|(?:surface\s+)?prep(?:ping|ped|aration)?)\b/,
   door_paint:
     /\b(?:paint|painting)\b[^.;]{0,40}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,40}\b(?:paint|painting)\b/,
   cabinet_paint:

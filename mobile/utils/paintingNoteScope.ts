@@ -94,6 +94,73 @@ export function dedicatedPaintingRevealQuantity(
   return Number.isFinite(value) && value > 0 ? `${value} sqft` : null;
 }
 
+function paintClauses(notes: string | null | undefined): string[] {
+  return String(notes || '')
+    .split(/[.\n]+/)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+}
+
+function clauseSqft(clause: string): number | null {
+  const match = clause.match(
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))/i
+  );
+  const value = Number(String(match?.[1] || '').replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+const PAINT_VERB_RE = /\b(?:re)?paint(?:ing)?\b/i;
+
+/** Walls named in their own sentence, apart from the ceiling. */
+export function dedicatedPaintingNamesWalls(
+  notes: string | null | undefined
+): boolean {
+  if (!notesDescribeDedicatedPaintingJob(notes)) return false;
+  return paintClauses(notes).some(
+    clause =>
+      PAINT_VERB_RE.test(clause) &&
+      /\bwalls?\b/i.test(clause) &&
+      !/\bceilings?\b/i.test(clause)
+  );
+}
+
+/** Ceilings named in their own sentence, apart from the walls. */
+export function dedicatedPaintingNamesCeilings(
+  notes: string | null | undefined
+): boolean {
+  if (!notesDescribeDedicatedPaintingJob(notes)) return false;
+  return paintClauses(notes).some(
+    clause =>
+      PAINT_VERB_RE.test(clause) &&
+      /\bceilings?\b/i.test(clause) &&
+      !/\bwalls?\b/i.test(clause)
+  );
+}
+
+export function dedicatedPaintingWallSqft(
+  notes: string | null | undefined
+): number | null {
+  for (const clause of paintClauses(notes)) {
+    if (!PAINT_VERB_RE.test(clause) || !/\bwalls?\b/i.test(clause)) continue;
+    if (/\bceilings?\b/i.test(clause)) continue;
+    const sqft = clauseSqft(clause);
+    if (sqft) return sqft;
+  }
+  return null;
+}
+
+export function dedicatedPaintingCeilingSqft(
+  notes: string | null | undefined
+): number | null {
+  for (const clause of paintClauses(notes)) {
+    if (!PAINT_VERB_RE.test(clause) || !/\bceilings?\b/i.test(clause)) continue;
+    if (/\bwalls?\b/i.test(clause)) continue;
+    const sqft = clauseSqft(clause);
+    if (sqft) return sqft;
+  }
+  return null;
+}
+
 export function dedicatedPaintingConfirmScopeItems(
   notes: string | null | undefined
 ): ExplicitScopeItem[] {

@@ -37,7 +37,10 @@ export function finalizeWetAreaInstallScopeFromMeasurements(
   if (!items.some(item => item.id === 'wet_area_install')) return items;
   if (wetAreaInstallSteppersActive(measurements)) return items;
   return items
-    .filter((i) => !WET_AREA_INSTALL_DERIVED_IDS.has(i.id))
+    .filter(
+      (i) =>
+        !WET_AREA_INSTALL_DERIVED_IDS.has(i.id) || Boolean(i.noteBacked)
+    )
     .map((row) =>
       row.id === 'wet_area_install'
         ? { ...row, choiceId: 'not_in_scope', state: 'excluded' as const }

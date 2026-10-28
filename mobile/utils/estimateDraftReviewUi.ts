@@ -23,13 +23,17 @@ import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
-import { isPlanElectricalDeviceCard } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  electricalDeviceReviewQuantityLabel,
+  isPlanElectricalDeviceCard,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
+import { flooringDemoStyleFromItemId } from '@/utils/qmScopePanels/flooringRemodel';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
 export type { BudgetSplitSource };
@@ -409,6 +413,59 @@ function reviewCountEachQuantity(
   return `${count.toLocaleString()} each`;
 }
 
+function positiveReviewSqft(value: unknown): number {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Painting review rows were keeping the wall sqft on masking and ceiling paint.
+ * Each line shows the area that line was priced on.
+ */
+function paintingReviewQuantity(
+  draft: EstimateAiDraft,
+  pkg: EstimateDraftScopePackage,
+  ruleKey: string
+): string | null {
+  const template = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+  if (template !== 'painting') return null;
+  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const wall = positiveReviewSqft(measurements.wallPaintSqft);
+  const ceiling = positiveReviewSqft(measurements.ceilingPaintSqft);
+  const combined =
+    positiveReviewSqft(measurements.combinedPaintableAreaSqft) ||
+    positiveReviewSqft(measurements.paintAreaSqft);
+  const separate =
+    measurements.paintPricingMethod === 'separate' ||
+    (measurements.paintPricingMethod !== 'combined' && wall > 0 && ceiling > 0);
+  const name = String(pkg.name || '');
+  const ceilingLine =
+    ruleKey === 'ceiling_paint' || /^ceiling\s+paint(?:ing)?$/i.test(name);
+  const prepLine =
+    ruleKey === 'prep' ||
+    /masking/i.test(name) ||
+    /\bprep\b/i.test(name);
+  const wallLine =
+    !ceilingLine &&
+    !prepLine &&
+    (ruleKey === 'interior_paint' ||
+      ruleKey === 'paint' ||
+      /interior\s+paint/i.test(name));
+  const area = ceilingLine
+    ? ceiling
+    : prepLine
+      ? separate
+        ? wall + ceiling
+        : combined || wall || ceiling
+      : wallLine
+        ? separate
+          ? wall
+          : combined || wall
+        : 0;
+  if (!(area > 0)) return null;
+  return `${area.toLocaleString()} sqft`;
+}
+
 export function formatScopeQuantity(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
@@ -420,6 +477,31 @@ export function formatScopeQuantity(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       ''
     : '';
+  const demoStyle = flooringDemoStyleFromItemId(previewRuleKey);
+  if (demoStyle && draft) {
+    const entered = Number(
+      String(
+        (
+          draft.scopeMeasurements?.itemQuantities as
+            | Record<string, { quantity?: unknown }>
+            | undefined
+        )?.[`floor_demo__${demoStyle}`]?.quantity ?? ''
+      ).replace(/,/g, '')
+    );
+    if (Number.isFinite(entered) && entered > 0) {
+      return `${entered.toLocaleString()} sqft`;
+    }
+  }
+  if (draft) {
+    const painted = paintingReviewQuantity(draft, pkg, previewRuleKey);
+    if (painted) return painted;
+    const electrical = electricalDeviceReviewQuantityLabel(
+      previewRuleKey,
+      pkg.name,
+      (draft.scopeMeasurements || {}) as Record<string, unknown>
+    );
+    if (electrical) return electrical;
+  }
   if (
     draft &&
     (previewRuleKey === 'shower_tile' ||

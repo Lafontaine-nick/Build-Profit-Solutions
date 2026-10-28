@@ -21,8 +21,10 @@ import { resolveKitchenCountertopTakeoffSqft } from '@/utils/qmScopePanels/kitch
 import {
   kitchenConfirmScopeSeedItems,
   notesDescribeDedicatedKitchenRemodel,
+  notesNameKitchenSurfaceInstall,
 } from '@/utils/kitchenNoteScope';
 import {
+  applyDedicatedElectricalNoteCounts,
   notesNameReceptaclesWithToilet,
   receptaclesWithToiletChecklistItems,
   receptaclesWithToiletRevealRows,
@@ -896,6 +898,43 @@ export type ScopeMeasurements = {
   demoPrefabEnclosureCount?: number | null;
   demoShowerDoorCount?: number | null;
   demoBathFloorTileCount?: number | null;
+  /** Scope found answer: is any existing shower material being removed? */
+  showerRemovalChoice?: 'pan' | 'walls' | 'both' | 'none' | 'unsure' | null;
+  /** Existing pieces the contractor said are coming out. Empty when they chose No demo or Not sure. */
+  showerRemovalPieces?: Array<
+    | 'tub'
+    | 'prefab_pan'
+    | 'tile_pan'
+    | 'wall_tile'
+    | 'prefab_enclosure'
+    | 'shower_door'
+    | 'toilet'
+    | 'vanity'
+    | 'bath_floor'
+  > | null;
+  /** Which Scope Found question this answer belongs to. */
+  scopeFoundClarificationId?:
+    | 'flooring_demo'
+    | 'roof_tearoff'
+    | 'kitchen_demo'
+    | 'whole_home_demo'
+    | 'interior_paint_extent'
+    | 'existing_structure'
+    | null;
+  /** Existing pieces selected on a multi-choice Scope Found question. */
+  scopeFoundPieces?: string[] | null;
+  /** Answer for the non-shower Scope Found question. Not sure adds nothing. */
+  scopeFoundChoice?:
+    | 'yes'
+    | 'cabinets'
+    | 'flooring'
+    | 'all'
+    | 'walls'
+    | 'walls_ceilings'
+    | 'walls_ceilings_trim'
+    | 'none'
+    | 'unsure'
+    | null;
   /** Keep existing glass door — no new door install scope. */
   reuseExistingShowerDoor?: boolean | null;
   /** Per-demo-row manual overrides when contractor adjusts auto demo counts. */
@@ -1535,7 +1574,9 @@ export function repairDraftRatePricingFromNotes(
         }
       : plumbingOwned.scopeChecklist,
   };
-  const dedicatedKitchenRemodel = notesDescribeDedicatedKitchenRemodel(text);
+  const dedicatedKitchenRemodel =
+    notesDescribeDedicatedKitchenRemodel(text) ||
+    notesNameKitchenSurfaceInstall(text);
 
   const parsed = parseScopeMeasurementsFromNotes(text, {
     templateKey: draft.scopeChecklist?.templateKey,
@@ -1626,7 +1667,7 @@ export function repairDraftRatePricingFromNotes(
   if (
     notesNameBathroomAssembly(text) &&
     !notesDescribeDedicatedFlooringJob(text) &&
-    !notesDescribeDedicatedKitchenRemodel(text) &&
+    !dedicatedKitchenRemodel &&
     !notesDescribeMeasuredWholeHomeRemodel(text) &&
     !notesNameShowerTileWithFlooring(text) &&
     !draft.scopeAssumptionsConfirmed
@@ -1968,6 +2009,11 @@ export function repairDraftRatePricingFromNotes(
     });
   }
 
+  mergedScopeMeasurements = applyDedicatedElectricalNoteCounts(
+    mergedScopeMeasurements as Record<string, unknown>,
+    text
+  ) as ScopeMeasurements;
+
   const repairedDraft = repairMisroutedConversionScopeChecklist(
     {
       ...draft,
@@ -2213,8 +2259,24 @@ export function repairDraftRatePricingFromNotes(
       incomingKey === 'kitchen' && incomingItems.length
         ? incomingItems
         : kitchenConfirmScopeSeedItems();
+    const kitchenMeasurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    const statedKitchenFloor = Number(
+      kitchenMeasurements.kitchenFloorSqft ||
+        kitchenMeasurements.flooringLvpSqft ||
+        kitchenMeasurements.flooringSqft ||
+        0
+    );
+    if (
+      !(Number(kitchenMeasurements.kitchenFloorSqft) > 0) &&
+      statedKitchenFloor > 0
+    ) {
+      kitchenMeasurements.kitchenFloorSqft = statedKitchenFloor;
+    }
     return {
       ...repairedDraft,
+      scopeMeasurements: kitchenMeasurements,
       projectType: 'kitchen',
       projectTitle: repairedDraft.projectTitle?.match(/kitchen/i)
         ? repairedDraft.projectTitle
@@ -7915,6 +7977,19 @@ function stripUnconfirmedAutoPackagePricing<
   };
 }
 
+function quantityBasisForAppliedPackage(
+  draft: EstimateAiDraft,
+  packageName: string,
+  ruleKey: string | null,
+  basis: { quantity: number; unit: string } | null
+): { quantity: number; unit: string } | null {
+  const roomPhysicalQty = physicalScopeQuantityFromRoom(draft, packageName);
+  if (!roomPhysicalQty) return basis;
+  const card = ELECTRICAL_CARDS.find(row => row.itemId === ruleKey);
+  if (card && basis && basis.quantity > roomPhysicalQty.quantity) return basis;
+  return roomPhysicalQty;
+}
+
 function physicalScopeQuantityFromRoom(
   draft: EstimateAiDraft,
   packageName: string
@@ -7981,10 +8056,14 @@ function applySelectedPricingToScopePackage(
   if (!selected) {
     return stripUnconfirmedAutoPackagePricing(pkg, draft, withIdentity, basis);
   }
-  const roomPhysicalQty = physicalScopeQuantityFromRoom(draft, pkg.name);
+  const displayBasis = quantityBasisForAppliedPackage(
+    draft,
+    pkg.name,
+    ruleKey,
+    basis
+  );
   if (shouldPreserveUserPackagePrice(pkg, selected)) {
     const preserved = Number(pkg.price) || selected.total;
-    const displayBasis = roomPhysicalQty ?? basis;
     return {
       ...withIdentity,
       price: preserved,
@@ -7999,7 +8078,6 @@ function applySelectedPricingToScopePackage(
         : pkg.scopeQuantities,
     };
   }
-  const displayBasis = roomPhysicalQty ?? basis;
   return {
     ...withIdentity,
     price: selected.total,

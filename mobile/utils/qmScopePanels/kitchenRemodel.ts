@@ -18,6 +18,78 @@ function parseMeasurementQty(value: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+function scopeFoundPieceSelected(
+  measurements: Record<string, unknown>,
+  pieceId: string
+): boolean {
+  const pieces = measurements.scopeFoundPieces;
+  if (!Array.isArray(pieces)) return false;
+  return pieces.map(piece => String(piece)).includes(pieceId);
+}
+
+function scopeFoundKeepsKitchenDemo(
+  measurements: Record<string, unknown>,
+  pieceId: string,
+  choices: string[]
+): boolean {
+  if (scopeFoundPieceSelected(measurements, pieceId)) return true;
+  const choice = String(measurements.scopeFoundChoice || '');
+  return choices.includes(choice);
+}
+
+/** Demo rows on the condensed kitchen measurement card. */
+export function kitchenSelectedDemoSurfaces(params: {
+  notes?: string | null;
+  measurements?: Record<string, unknown> | null;
+  demo?: Partial<KitchenDemoCounts> | null;
+}): {
+  cabinet: boolean;
+  counter: boolean;
+  backsplash: boolean;
+  floor: boolean;
+  island: boolean;
+} {
+  const notes = String(params.notes || '');
+  const measurements = params.measurements || {};
+  const demo = params.demo || {};
+  const on = (
+    surface: KitchenDemoSurface,
+    pieceId: string,
+    choices: string[],
+    count: number | null | undefined
+  ) =>
+    kitchenNoteNamesSurfaceDemo(notes, surface) ||
+    (count ?? 0) > 0 ||
+    scopeFoundKeepsKitchenDemo(measurements, pieceId, choices);
+  return {
+    cabinet: on(
+      'cabinet',
+      'cabinets',
+      ['yes', 'all', 'cabinets'],
+      demo.kitchenDemoCabinetCount
+    ),
+    counter: on(
+      'counter',
+      'countertops',
+      ['yes', 'all', 'cabinets'],
+      demo.kitchenDemoCounterCount
+    ),
+    backsplash: on(
+      'backsplash',
+      'backsplash',
+      ['yes', 'all', 'cabinets'],
+      demo.kitchenDemoBacksplashCount
+    ),
+    floor: on(
+      'floor',
+      'kitchen_floor',
+      ['yes', 'all', 'flooring'],
+      demo.kitchenDemoFloorCount
+    ),
+    island: on('island', 'island', ['yes', 'all'], demo.kitchenDemoIslandCount),
+  };
+}
+
 /** Combined perimeter + island countertop SF for kitchen pricing. */
 export function resolveKitchenCountertopTakeoffSqft(
   measurements: Record<string, unknown>
@@ -136,21 +208,35 @@ export function suggestKitchenDemoFromExistingInstall(params: {
   const notes = String(params.notes || '');
   const noteNamesDemo = (surface: KitchenDemoSurface) =>
     !notes.trim() || kitchenNoteNamesSurfaceDemo(notes, surface);
+  const chosenDemo = (pieceId: string, choices: string[]) =>
+    scopeFoundKeepsKitchenDemo(params.measurements, pieceId, choices);
   if (!overrides.kitchenDemoCabinetCount) {
     next.kitchenDemoCabinetCount =
-      noteNamesDemo('cabinet') && cabinetInScope ? 1 : null;
+      chosenDemo('cabinets', ['yes', 'all', 'cabinets']) ||
+      (noteNamesDemo('cabinet') && cabinetInScope)
+        ? 1
+        : null;
   }
   if (!overrides.kitchenDemoCounterCount) {
     next.kitchenDemoCounterCount =
-      noteNamesDemo('counter') && counterInScope ? 1 : null;
+      chosenDemo('countertops', ['yes', 'all', 'cabinets']) ||
+      (noteNamesDemo('counter') && counterInScope)
+        ? 1
+        : null;
   }
   if (!overrides.kitchenDemoBacksplashCount) {
     next.kitchenDemoBacksplashCount =
-      noteNamesDemo('backsplash') && backsplashSqft > 0 ? 1 : null;
+      chosenDemo('backsplash', ['yes', 'all', 'cabinets']) ||
+      (noteNamesDemo('backsplash') && backsplashSqft > 0)
+        ? 1
+        : null;
   }
   if (!overrides.kitchenDemoFloorCount) {
     next.kitchenDemoFloorCount =
-      noteNamesDemo('floor') && kitchenFloorSqft > 0 ? 1 : null;
+      chosenDemo('kitchen_floor', ['yes', 'all', 'flooring']) ||
+      (noteNamesDemo('floor') && kitchenFloorSqft > 0)
+        ? 1
+        : null;
   }
   if (!overrides.kitchenDemoApplianceCount) {
     next.kitchenDemoApplianceCount =
@@ -160,14 +246,11 @@ export function suggestKitchenDemoFromExistingInstall(params: {
         : null;
   }
   if (!overrides.kitchenDemoIslandCount) {
-    const notes = String(params.notes || '');
-    next.kitchenDemoIslandCount = notes.trim()
+    const namedIslandDemo = notes.trim()
       ? kitchenNoteNamesSurfaceDemo(notes, 'island')
-        ? 1
-        : null
-      : positiveCount(params.install.kitchenInstallIslandCount) != null
-        ? 1
-        : null;
+      : positiveCount(params.install.kitchenInstallIslandCount) != null;
+    next.kitchenDemoIslandCount =
+      chosenDemo('island', ['yes', 'all']) || namedIslandDemo ? 1 : null;
   }
   return next;
 }
@@ -803,8 +886,18 @@ export function syncKitchenQmScopeItems(
       }
       return row;
     };
-    const syncNamedDemo = (surface: KitchenDemoSurface, measured: boolean) => {
-      if (noteText.trim() && !kitchenNoteNamesSurfaceDemo(noteText, surface)) {
+    const syncNamedDemo = (
+      surface: KitchenDemoSurface,
+      pieceId: string,
+      choices: string[],
+      measured: boolean
+    ) => {
+      const chosen = scopeFoundKeepsKitchenDemo(m, pieceId, choices);
+      if (
+        noteText.trim() &&
+        !kitchenNoteNamesSurfaceDemo(noteText, surface) &&
+        !chosen
+      ) {
         if (row.noteBacked) return row;
         if (row.state !== 'excluded') {
           changed = true;
@@ -812,7 +905,7 @@ export function syncKitchenQmScopeItems(
         }
         return row;
       }
-      return syncIncluded(measured);
+      return syncIncluded(measured || chosen);
     };
     switch (row.id) {
       case 'cabinets':
@@ -830,6 +923,8 @@ export function syncKitchenQmScopeItems(
       case 'cabinet_demo':
         return syncNamedDemo(
           'cabinet',
+          'cabinets',
+          ['yes', 'all', 'cabinets'],
           positiveCount(demo.kitchenDemoCabinetCount) != null ||
             (!noteText.trim() && parseMeasurementQty(m.cabinetLf) > 0)
         );
@@ -841,12 +936,16 @@ export function syncKitchenQmScopeItems(
       case 'countertop_demo':
         return syncNamedDemo(
           'counter',
+          'countertops',
+          ['yes', 'all', 'cabinets'],
           positiveCount(demo.kitchenDemoCounterCount) != null ||
             (!noteText.trim() && parseMeasurementQty(m.countertopSqft) > 0)
         );
       case 'backsplash_demo':
         return syncNamedDemo(
           'backsplash',
+          'backsplash',
+          ['yes', 'all', 'cabinets'],
           positiveCount(demo.kitchenDemoBacksplashCount) != null ||
             (!noteText.trim() && parseMeasurementQty(m.backsplashSqft) > 0)
         );
@@ -858,6 +957,8 @@ export function syncKitchenQmScopeItems(
       case 'floor_demo':
         return syncNamedDemo(
           'floor',
+          'kitchen_floor',
+          ['yes', 'all', 'flooring'],
           positiveCount(demo.kitchenDemoFloorCount) != null
         );
       default:

@@ -139,6 +139,93 @@ export function receptaclesWithToiletChecklistItems(): Array<{
   ];
 }
 
+const NOTE_COUNT_OWNED_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'user_confirmed_suggestion',
+  'contractor_confirmed_from_plan_review',
+]);
+
+function noteCountUnit(unit: string): string {
+  if (unit === 'lf') return 'lf';
+  if (unit === 'amp') return 'amp';
+  return 'each';
+}
+
+/**
+ * A notes job prices the count written in the note.
+ * A plan sheet and a count the contractor already typed stay as they are.
+ */
+export function applyDedicatedElectricalNoteCounts<
+  T extends Record<string, unknown>,
+>(measurements: T, notes: string | null | undefined): T {
+  if (
+    measurements.planImportMode ||
+    measurements.planImportFingerprint ||
+    String(measurements.planImportTradeKey || '') === 'electrical'
+  ) {
+    return measurements;
+  }
+  const cards = dedicatedElectricalNamedCards(notes);
+  if (!cards.length) return measurements;
+  const overrides =
+    measurements.quickMeasurementUserOverrides &&
+    typeof measurements.quickMeasurementUserOverrides === 'object' &&
+    !Array.isArray(measurements.quickMeasurementUserOverrides)
+      ? (measurements.quickMeasurementUserOverrides as Record<string, boolean>)
+      : {};
+  const sources =
+    measurements.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object' &&
+    !Array.isArray(measurements.quickMeasurementSources)
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  const itemQuantities: Record<
+    string,
+    { quantity?: number; unit?: string; quantitySource?: string }
+  > = {
+    ...(measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<
+          string,
+          { quantity?: number; unit?: string; quantitySource?: string }
+        >)
+      : {}),
+  };
+  const next: Record<string, unknown> = { ...measurements };
+  let changed = false;
+  for (const card of cards) {
+    if (overrides[card.measurementKey] != null) continue;
+    if (NOTE_COUNT_OWNED_SOURCES.has(String(sources[card.measurementKey] || ''))) {
+      continue;
+    }
+    if (Number(measurements[card.measurementKey]) !== card.count) {
+      next[card.measurementKey] = card.count;
+      changed = true;
+    }
+    const entry = itemQuantities[card.itemId];
+    if (
+      entry &&
+      NOTE_COUNT_OWNED_SOURCES.has(String(entry.quantitySource || ''))
+    ) {
+      continue;
+    }
+    if (!entry || Number(entry.quantity) !== card.count) {
+      itemQuantities[card.itemId] = {
+        ...(entry || {}),
+        quantity: card.count,
+        unit: noteCountUnit(card.unit),
+        quantitySource: 'notes',
+      };
+      changed = true;
+    }
+  }
+  if (!changed) return measurements;
+  next.itemQuantities = itemQuantities;
+  return next as T;
+}
+
 /** Labor condition the note actually states. A blank card is not a question. */
 export function notesNameElectricalJobCondition(
   notes: string | null | undefined

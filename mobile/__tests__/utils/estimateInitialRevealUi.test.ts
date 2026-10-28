@@ -17,6 +17,7 @@ import {
   getInitialRevealPriorityItems,
   getInitialRevealScopeMetaLabel,
   getInitialRevealStatusLabel,
+  initialRevealStatusAttentionCount,
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
@@ -2982,6 +2983,56 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('lists wall paint at 400 sqft and flags a blank ceiling on Scope found', () => {
+    const draft = {
+      projectType: 'painting',
+      estimateTier: 'trade_scope',
+      originalNotes: 'Paint the walls, 400 sqft. Paint the ceilings.',
+      scopeChecklist: {
+        templateKey: 'painting',
+        items: [
+          {
+            id: 'interior_paint',
+            label: 'Interior painting',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: { wallPaintSqft: 400, ceilingPaintSqft: 400 },
+      requiresScopeConfirmation: true,
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Interior wall painting', amount: 0, quantity: '400 sqft' },
+      { name: 'Ceiling painting', amount: 0 },
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Ceiling painting',
+    ]);
+    expect(getInitialRevealStatusLabel(draft, 1).label).toBe(
+      'Mostly ready · 1 to check'
+    );
+    expect(getInitialRevealStatusLabel(draft, 1).tone).toBe('review');
+  });
+
+  it('turns the Scope found badge yellow while a question is still open', () => {
+    const draft = {
+      originalNotes: 'Install 12 outlets.',
+    } as EstimateAiDraft;
+    expect(
+      getInitialRevealStatusLabel(
+        draft,
+        initialRevealStatusAttentionCount(0, true)
+      )
+    ).toEqual({ label: 'Mostly ready · 1 to check', tone: 'review' });
+    expect(
+      getInitialRevealStatusLabel(
+        draft,
+        initialRevealStatusAttentionCount(0, false)
+      )
+    ).toEqual({ label: 'Mostly ready', tone: 'mostly' });
+  });
+
   it('keeps mixed painting Scope found rows specific to the notes', () => {
     const notes =
       'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
@@ -3633,6 +3684,115 @@ describe('estimateInitialRevealUi', () => {
       false
     );
     expect(buckets.pricingScope).toHaveLength(0);
+  });
+
+  it('does not flag a priced architectural roof as missing a price', () => {
+    const draft = {
+      projectTitle: 'Architectural Shingle Roofing',
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      whatAiDid: ['Detected roofing.'],
+      originalNotes: 'New architectural shingles, 26 squares',
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+        ],
+      },
+      scopePackages: [{ name: 'Roofing system', checklistItemId: 'roofing_system' }],
+      stillNeededReview: ['Pricing for Roofing system'],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([]);
+    expect(countInitialRevealAttentionItems(draft)).toBe(0);
+    const withoutChoice = {
+      ...draft,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          { id: 'roofing_system', label: 'Roofing system', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+    expect(getInitialRevealConfirmItems(withoutChoice).pricingScope).toEqual(
+      []
+    );
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual(['Roofing system · 26 squares']);
+  });
+
+  it('lists each selected tear-off once, with its own squares', () => {
+    const tearOffDraft = {
+      projectTitle: 'Roofing Estimate',
+      projectType: 'roofing',
+      scopeAssumptionsConfirmed: true,
+      originalNotes: 'New architectural shingles, 26 squares',
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          {
+            id: 'tear_off_shingles',
+            label: 'Tear off shingles',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+          {
+            id: 'tear_off_tile',
+            label: 'Tear off roof tile',
+            state: 'included',
+            inputType: 'yes_no',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        roofSquares: 26,
+        scopeFoundPieces: ['shingles', 'roof_tile'],
+        itemQuantities: {
+          tear_off_shingles: { quantity: 10, unit: 'squares' },
+          tear_off_tile: { quantity: 10, unit: 'squares' },
+        },
+        pricingAcceptance: {
+          roofing_system: { totalAmount: 14950 },
+          tear_off_shingles: { totalAmount: 1750 },
+          tear_off_tile: { totalAmount: 4000 },
+        },
+      },
+      scopePackages: [
+        { name: 'Roofing system', checklistItemId: 'roofing_system', price: 14950 },
+        { name: 'Tear off shingles', checklistItemId: 'tear_off_shingles', price: 1750 },
+        { name: 'Tear off roof tile', checklistItemId: 'tear_off_tile', price: 4000 },
+      ],
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(tearOffDraft).map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual([
+      'Roofing system',
+      'Tear off shingles · 10 squares',
+      'Tear off roof tile · 10 squares',
+    ]);
+    expect(getInitialRevealUnderstoodBullets(tearOffDraft, 2)).toEqual([
+      'Roofing system · $14,950',
+      'Tear off shingles · $1,750',
+      'Tear off roof tile · $4,000',
+    ]);
   });
 
   it('shows note exclusions in yellow review and keeps negated gutters off the roof', () => {
@@ -4835,6 +4995,27 @@ describe('estimateInitialRevealUi', () => {
       'Detected framing job.',
       'Preserved 3 room totals from your notes (unchanged).',
     ]);
+  });
+
+  it('drops a preserved-totals line when the note never states a dollar amount', () => {
+    const draft = {
+      projectTitle: 'Bathroom Vanity and Quartz Countertop Replacement',
+      projectType: 'bathroom',
+      originalNotes:
+        'Remove the vanity and the countertop. New vanity, 60 inches. New quartz top.',
+      scopeAssumptionsConfirmed: true,
+      whatAiDid: [
+        'Detected bathroom remodel job.',
+        'Preserved 4 room totals from your notes (unchanged).',
+      ],
+      scopeChecklist: { templateKey: 'bathroom', items: [] },
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealUnderstoodBullets(draft)).toEqual([
+      'Detected bathroom remodel job.',
+    ]);
+    expect(getInitialRevealTagline(draft)).toBe('Detected bathroom remodel job.');
   });
 
   it('lists insulation wall and attic areas and drops a leftover story count', () => {

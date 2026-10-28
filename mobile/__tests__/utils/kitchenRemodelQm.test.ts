@@ -1,3 +1,5 @@
+import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
+import { isScopeCardHiddenInQmEmbed } from '@/utils/scopePackagesForReview';
 import {
   inferExistingKitchenFromNotes,
   inferKitchenInstallFromIntent,
@@ -8,6 +10,7 @@ import {
   resolveKitchenDemoFromIntent,
   resolveKitchenInstallScopeCounts,
   shouldHideKitchenScopeCardInQmEmbed,
+  kitchenSelectedDemoSurfaces,
   suggestKitchenDemoFromExistingInstall,
   syncKitchenQmScopeItems,
 } from '@/utils/qmScopePanels/kitchenRemodel';
@@ -212,6 +215,121 @@ describe('kitchenRemodel QM', () => {
     expect(KITCHEN_QM_EMBEDDED_IDS.has('backsplash_demo')).toBe(true);
   });
 
+  it('puts selected kitchen demos on the Demo card and installs on the other cards', () => {
+    const notes =
+      'New cabinets 22 LF, quartz countertops 55 sqft, backsplash 30 sqft, new LVP 300 sqft.';
+    const measurements = {
+      cabinetLf: 22,
+      countertopSqft: 55,
+      backsplashSqft: 30,
+      kitchenFloorSqft: 300,
+      scopeFoundPieces: ['cabinets', 'countertops', 'backsplash'],
+    };
+    const items = [
+      item('cabinet_demo', 'included'),
+      item('countertop_demo', 'included'),
+      item('backsplash_demo', 'included'),
+      item('cabinets', 'included'),
+      item('countertops', 'included'),
+      item('backsplash', 'included'),
+      item('flooring', 'included'),
+    ];
+    const groups = groupScopeChecklistItems(items, 'kitchen', {
+      notes,
+      projectType: 'kitchen',
+    });
+    const shown = (title: string) =>
+      groups
+        .find(group => group.title === title)
+        ?.items.map(row => row.id)
+        .filter(
+          id =>
+            !isScopeCardHiddenInQmEmbed(id, [], measurements, {
+              templateKey: 'kitchen',
+            })
+        );
+    expect(shown('Demo')).toEqual([
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+    ]);
+    expect(shown('Cabinets & Counters')).toEqual(['cabinets', 'countertops']);
+    expect(shown('Tile & Flooring')).toEqual(['backsplash', 'flooring']);
+    expect(
+      isScopeCardHiddenInQmEmbed('countertop_demo', [], {}, {
+        templateKey: 'bathroom',
+      })
+    ).toBe(true);
+  });
+
+  it('shows selected kitchen demos on the condensed measurement card', () => {
+    const notes =
+      'New cabinets 22 LF, quartz countertops 55 sqft, backsplash 30 sqft, new LVP 300 sqft.';
+    const selected = kitchenSelectedDemoSurfaces({
+      notes,
+      measurements: {
+        scopeFoundPieces: ['cabinets', 'countertops', 'backsplash'],
+      },
+    });
+    expect(selected).toEqual({
+      cabinet: true,
+      counter: true,
+      backsplash: true,
+      floor: false,
+      island: false,
+    });
+    expect(
+      kitchenSelectedDemoSurfaces({
+        notes,
+        measurements: { scopeFoundPieces: ['kitchen_floor'] },
+      }).floor
+    ).toBe(true);
+    expect(
+      kitchenSelectedDemoSurfaces({
+        notes,
+        measurements: {},
+      })
+    ).toEqual({
+      cabinet: false,
+      counter: false,
+      backsplash: false,
+      floor: false,
+      island: false,
+    });
+  });
+
+  it('keeps chip-selected kitchen demos on an install-only note', () => {
+    const notes =
+      'New cabinets 22 LF, quartz countertops 55 sqft, backsplash 30 sqft, new LVP 300 sqft.';
+    const items = [
+      item('cabinet_demo', 'included'),
+      item('countertop_demo', 'included'),
+      item('backsplash_demo', 'included'),
+      item('floor_demo', 'included'),
+    ];
+    const next = syncKitchenQmScopeItems(
+      items,
+      {
+        cabinetLf: 22,
+        countertopSqft: 55,
+        backsplashSqft: 30,
+        kitchenFloorSqft: 300,
+        scopeFoundPieces: ['cabinets', 'countertops', 'backsplash', 'kitchen_floor'],
+        kitchenDemoCabinetCount: 1,
+        kitchenDemoCounterCount: 1,
+        kitchenDemoBacksplashCount: 1,
+        kitchenDemoFloorCount: 1,
+      },
+      notes
+    );
+    expect(next.map(row => row.state)).toEqual([
+      'included',
+      'included',
+      'included',
+      'included',
+    ]);
+  });
+
   it('does not turn an install-only cabinet and LVP note into cabinet removal', () => {
     const notes = 'Install 12 LF of base cabinets and 40 sqft of LVP.';
     const items = [
@@ -286,6 +404,40 @@ describe('kitchenRemodel QM', () => {
         kitchenDemoWallCount: null,
       },
       measurements: {},
+    });
+    expect(demo.kitchenDemoIslandCount).toBe(1);
+  });
+
+  it('selects island demo when the Island chip is on', () => {
+    const notes =
+      'New cabinets 22 LF, quartz countertops 55 sqft, backsplash 30 sqft, new LVP 300 sqft.';
+    const demo = suggestKitchenDemoFromExistingInstall({
+      existing: {
+        kitchenExistingCabinetCount: null,
+        kitchenExistingCounterCount: null,
+        kitchenExistingApplianceCount: null,
+        kitchenExistingBacksplashCount: null,
+        kitchenExistingFloorCount: null,
+      },
+      install: {
+        kitchenInstallCabinetCount: 1,
+        kitchenInstallCounterCount: 1,
+        kitchenInstallApplianceCount: null,
+        kitchenInstallBacksplashCount: 1,
+        kitchenInstallFlooringCount: 1,
+        kitchenInstallIslandCount: null,
+      },
+      demo: {
+        kitchenDemoCabinetCount: 1,
+        kitchenDemoCounterCount: 1,
+        kitchenDemoBacksplashCount: 1,
+        kitchenDemoIslandCount: null,
+        kitchenDemoApplianceCount: null,
+        kitchenDemoFloorCount: null,
+        kitchenDemoWallCount: null,
+      },
+      measurements: { scopeFoundPieces: ['island'] },
+      notes,
     });
     expect(demo.kitchenDemoIslandCount).toBe(1);
   });

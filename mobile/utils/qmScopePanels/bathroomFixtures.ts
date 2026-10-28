@@ -80,6 +80,10 @@ export function suggestBathroomFixtureDemoFromExistingInstall(params: {
   countertopSqft?: string | null;
   materialType?: BathroomVanityCountertopMaterialType | string | null;
   overrides?: Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>;
+  /** Note already says remove the vanity — keep that count without an existing stepper. */
+  keepNamedVanityDemo?: boolean;
+  /** Note already says remove the countertop — keep that count without an existing stepper. */
+  keepNamedCounterDemo?: boolean;
 }): BathroomDemoFixtureCounts {
   const next = { ...params.demo };
   const overrides = params.overrides || {};
@@ -90,17 +94,42 @@ export function suggestBathroomFixtureDemoFromExistingInstall(params: {
   });
 
   if (!positiveCount(params.existing.bathroomExistingVanityCount)) {
-    next.bathroomDemoVanityCount = null;
+    if (params.keepNamedVanityDemo && !overrides.bathroomDemoVanityCount) {
+      next.bathroomDemoVanityCount = positiveCount(next.bathroomDemoVanityCount) ?? 1;
+    } else if (!params.keepNamedVanityDemo) {
+      next.bathroomDemoVanityCount = null;
+    }
   } else if (!overrides.bathroomDemoVanityCount) {
     next.bathroomDemoVanityCount =
       positiveCount(params.install.bathroomInstallVanityCount) != null ? 1 : null;
   }
   if (!positiveCount(params.existing.bathroomExistingCounterCount)) {
-    next.bathroomDemoCounterCount = null;
+    if (params.keepNamedCounterDemo && !overrides.bathroomDemoCounterCount) {
+      next.bathroomDemoCounterCount = positiveCount(next.bathroomDemoCounterCount) ?? 1;
+    } else if (!params.keepNamedCounterDemo) {
+      next.bathroomDemoCounterCount = null;
+    }
   } else if (!overrides.bathroomDemoCounterCount) {
     next.bathroomDemoCounterCount = counterInScope ? 1 : null;
   }
   return next;
+}
+
+const NAMED_VANITY_DEMO_RE =
+  /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,70}\bvanit(?:y|ies)\b/i;
+const NAMED_COUNTER_DEMO_RE =
+  /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off)\b[^.]{0,90}\b(?:countertops?|counters?|vanity\s+top)\b/i;
+
+/** True when the note itself names the removal, so the stepper can start at 1. */
+export function namedBathroomDemoKeeps(notes?: string | null): {
+  keepNamedVanityDemo: boolean;
+  keepNamedCounterDemo: boolean;
+} {
+  const noteText = bathroomAffirmativeNotes(notes);
+  return {
+    keepNamedVanityDemo: bathroomNoteClauseHas(noteText, NAMED_VANITY_DEMO_RE),
+    keepNamedCounterDemo: bathroomNoteClauseHas(noteText, NAMED_COUNTER_DEMO_RE),
+  };
 }
 
 export type BathroomExistingFixtureCounts = {
@@ -150,6 +179,16 @@ export function bathroomFixtureScopeCardVisible(
   }
 
   return Boolean(row && checklistRowInScope(row));
+}
+
+/**
+ * Kitchen countertops share the bathroom fixture id. A kitchen bid prices
+ * that demo on the Demo card, so the bathroom embed rule does not apply.
+ */
+export function bathroomFixtureQmEmbedApplies(
+  templateKey: string | null | undefined
+): boolean {
+  return String(templateKey || '').toLowerCase() !== 'kitchen';
 }
 
 /** Hide from the scope list only while QM embed is active and the line is not in scope yet. */

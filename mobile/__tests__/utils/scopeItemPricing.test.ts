@@ -224,6 +224,15 @@ describe('resolveScopeItemSuggestedPricing', () => {
     );
     expect(oneLayer.fill?.total).toBe(5250);
     expect(twoLayer.fill?.total).toBe(7500);
+    const metalCard = resolveScopeItemSuggestedPricing(
+      'tear_off_metal',
+      input,
+      'roofing',
+      { quantity: 26, unit: 'squares', quantitySource: 'user_entered' },
+      undefined,
+      null
+    );
+    expect(metalCard.fill?.total).toBe(7150);
 
     const specializedTearOffRates = [
       ['three_plus_custom', 9750],

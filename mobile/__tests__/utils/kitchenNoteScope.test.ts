@@ -1,4 +1,7 @@
 import { repairDraftRatePricingFromNotes } from '../../utils/estimateAiDraft';
+import { notesNameBathroomAssembly } from '../../utils/bathroomNoteScope';
+import { measurementsForScopeFoundChoice } from '../../utils/scopeFoundClarification';
+import { applyStep2NoteScopeFilters } from '../../utils/scopePackagesForReview';
 import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -400,6 +403,145 @@ describe('kitchen measurement visibility from notes', () => {
       'Price needed for Can lights',
       'Price needed for Sink hookup',
     ]);
+  });
+
+  it('files cabinets, quartz, backsplash, and LVP as a kitchen and prices the selected demos from those quantities', () => {
+    const notes =
+      'New cabinets 22 LF, quartz countertops 55 sqft, backsplash 30 sqft, new LVP 300 sqft.';
+    expect(notesNameBathroomAssembly(notes)).toBe(false);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'bathroom',
+        projectTitle: 'Bathroom',
+        estimateTier: 'room_remodel',
+        originalNotes: notes,
+        whatAiDid: ['Detected bathroom work.'],
+        scopeChecklist: {
+          templateKey: 'bathroom',
+          items: [
+            {
+              id: 'countertops',
+              label: 'Vanity top',
+              state: 'included',
+              inputType: 'yes_no',
+            },
+          ],
+        },
+        scopeMeasurements: {},
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    expect(repaired.projectType).toBe('kitchen');
+    expect(repaired.scopeChecklist?.templateKey).toBe('kitchen');
+    expect(repaired.whatAiDid).toEqual(['Detected kitchen remodel.']);
+    expect(repaired.scopeMeasurements?.cabinetLf).toBe(22);
+    expect(repaired.scopeMeasurements?.countertopSqft).toBe(55);
+    expect(repaired.scopeMeasurements?.backsplashSqft).toBe(30);
+    expect(repaired.scopeMeasurements?.kitchenFloorSqft).toBe(300);
+    const filtered = filterDedicatedKitchenConfirmItems(
+      repaired.scopeChecklist?.items || [],
+      { notes, templateKey: 'kitchen', projectType: 'kitchen' }
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'flooring',
+    ]);
+    expect(filtered.find(item => item.id === 'flooring')?.label).toBe(
+      'LVP flooring'
+    );
+    expect(filtered.find(item => item.id === 'countertops')?.label).toBe(
+      'Countertops'
+    );
+    const chosen = measurementsForScopeFoundChoice(
+      repaired.scopeMeasurements as Record<string, unknown>,
+      'kitchen_demo',
+      ['cabinets', 'countertops', 'backsplash', 'kitchen_floor'],
+      notes
+    );
+    const items = applyStep2NoteScopeFilters(
+      repaired.scopeChecklist?.items || [],
+      { ...repaired, scopeMeasurements: chosen } as Parameters<
+        typeof applyStep2NoteScopeFilters
+      >[1],
+      chosen,
+      'kitchen'
+    );
+    expect(items.map(item => item.id)).toEqual(
+      expect.arrayContaining([
+        'cabinets',
+        'countertops',
+        'backsplash',
+        'flooring',
+        'cabinet_demo',
+        'countertop_demo',
+        'backsplash_demo',
+        'floor_demo',
+      ])
+    );
+    const price = (id: string) => {
+      const resolved = resolveChecklistItemQuantity(id, chosen, {
+        templateKey: 'kitchen',
+        notes,
+      });
+      const fill = resolveScopeItemSuggestedPricing(
+        id,
+        chosen,
+        'kitchen',
+        resolved,
+        null,
+        null,
+        notes
+      ).fill;
+      return {
+        quantity: resolved.quantity,
+        unit: resolved.unit,
+        material: fill?.material,
+        labor: fill?.labor,
+        total: fill?.total,
+      };
+    };
+    expect(price('cabinet_demo')).toMatchObject({
+      quantity: 22,
+      unit: 'lf',
+      total: 550,
+    });
+    expect(price('countertop_demo')).toMatchObject({
+      quantity: 55,
+      unit: 'sqft',
+      total: 302.5,
+    });
+    expect(price('backsplash_demo')).toMatchObject({
+      quantity: 30,
+      unit: 'sqft',
+      total: 225,
+    });
+    expect(price('floor_demo')).toMatchObject({
+      quantity: 300,
+      unit: 'sqft',
+      total: 1650,
+    });
+    expect(price('cabinets')).toMatchObject({
+      quantity: 22,
+      unit: 'lf',
+      total: 5845.18,
+    });
+    expect(price('countertops')).toMatchObject({
+      quantity: 55,
+      unit: 'sqft',
+      total: 3300,
+    });
+    expect(price('backsplash')).toMatchObject({
+      quantity: 30,
+      unit: 'sqft',
+      total: 750,
+    });
+    expect(price('flooring')).toMatchObject({
+      quantity: 300,
+      unit: 'sqft',
+      total: 2100,
+    });
   });
 
   it('treats floor tile and LVP as floor work and ignores a tile backsplash', () => {

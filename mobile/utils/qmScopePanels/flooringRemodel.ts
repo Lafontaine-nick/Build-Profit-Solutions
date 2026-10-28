@@ -33,6 +33,89 @@ export type FlooringDemoCounts = {
   flooringDemoScopeCount: number | null;
 };
 
+export const FLOORING_DEMO_STYLE_PREFIX = 'floor_demo_style_';
+
+const FLOORING_DEMO_STYLE_LABELS: Record<string, string> = {
+  carpet: 'Remove carpet',
+  tile: 'Remove tile',
+  solid_hardwood: 'Remove solid hardwood',
+  engineered_hardwood: 'Remove engineered hardwood',
+  laminate: 'Remove laminate',
+  lvp: 'Remove LVP',
+  sheet_vinyl_vct: 'Remove sheet vinyl / VCT',
+  unknown: 'Remove existing flooring',
+};
+
+export function flooringDemoStyleItemId(type: string): string {
+  return `${FLOORING_DEMO_STYLE_PREFIX}${type}`;
+}
+
+export function flooringDemoStyleFromItemId(
+  itemId: string | null | undefined
+): string | null {
+  const id = String(itemId || '');
+  if (!id.startsWith(FLOORING_DEMO_STYLE_PREFIX)) return null;
+  const type = id.slice(FLOORING_DEMO_STYLE_PREFIX.length);
+  return FLOORING_DEMO_STYLE_LABELS[type] ? type : null;
+}
+
+export function isFlooringDemoStyleItem(
+  itemId: string | null | undefined
+): boolean {
+  return flooringDemoStyleFromItemId(itemId) != null;
+}
+
+export function flooringDemoStyleLabel(type: string): string {
+  return FLOORING_DEMO_STYLE_LABELS[type] || 'Remove existing flooring';
+}
+
+/** One removal card per existing flooring style. The combined floor_demo row stays off. */
+export function splitFlooringDemoIntoStyleCards<
+  T extends { id?: string | null; state?: string | null },
+>(
+  items: T[],
+  types: readonly string[] | null | undefined,
+  removedIds?: readonly string[] | null
+): T[] {
+  const selected = (types || []).filter(
+    (type, index, all) =>
+      Boolean(FLOORING_DEMO_STYLE_LABELS[type]) && all.indexOf(type) === index
+  );
+  if (!selected.length) return items;
+  const removed = new Set((removedIds || []).map(id => String(id)));
+  const styleIds = new Set(selected.map(type => flooringDemoStyleItemId(type)));
+  const withoutCombined = items.filter(item => {
+    const id = String(item.id || '');
+    if (id === 'floor_demo') return false;
+    if (id.startsWith(FLOORING_DEMO_STYLE_PREFIX) && !styleIds.has(id)) return false;
+    return true;
+  });
+  const styleCards: T[] = [];
+  for (const type of selected) {
+    const id = flooringDemoStyleItemId(type);
+    if (removed.has(id)) continue;
+    const existing = items.find(item => item.id === id);
+    if (existing?.state === 'excluded') continue;
+    styleCards.push(
+      (existing as T) ||
+        ({
+          id,
+          label: flooringDemoStyleLabel(type),
+          helperText:
+            'Remove this existing flooring. Protection, haul-off, and disposal are included. Floor prep is separate.',
+          inputType: 'yes_no',
+          state: 'included',
+          category: 'demo',
+          noteBacked: false,
+        } as unknown as T)
+    );
+  }
+  const rest = withoutCombined.filter(
+    item => !styleIds.has(String(item.id || ''))
+  );
+  return [...styleCards, ...rest];
+}
+
 export const FLOORING_QM_EMBEDDED_IDS = new Set<string>();
 
 /** Install quantities are entered once on the New Flooring card. */
@@ -723,13 +806,15 @@ export function syncFlooringQmScopeItems(
     }
     if (
       row.id === 'floor_demo' &&
-      (positiveCount(demo.flooringDemoScopeCount) ||
-        (hasExistingFlooring &&
-          positiveCount(install.flooringInstallScopeCount)))
+      (positiveCount(demo.flooringDemoScopeCount) || hasExistingFlooring)
     ) {
       if (row.state !== 'included') {
         changed = true;
-        return { ...row, state: 'included' as const, noteBacked: true };
+        return {
+          ...row,
+          state: 'included' as const,
+          noteBacked: row.noteBacked === true,
+        };
       }
     }
     if (
@@ -745,6 +830,26 @@ export function syncFlooringQmScopeItems(
     }
     return row;
   });
+  if (
+    hasExistingFlooring &&
+    !flooringPlanOmitsRemoval(m) &&
+    !next.some(row => row.id === 'floor_demo')
+  ) {
+    changed = true;
+    next = [
+      {
+        id: 'floor_demo',
+        label: 'Flooring demo / removal',
+        helperText:
+          'Remove the existing flooring selected for this bid. Enter each removal area before pricing.',
+        inputType: 'yes_no' as const,
+        state: 'included' as const,
+        category: 'flooring',
+        noteBacked: false,
+      },
+      ...next,
+    ];
+  }
   const productCardDefinitions: Record<
     string,
     { id: string; label: string; helperText: string }
@@ -870,6 +975,14 @@ export function syncFlooringQmScopeItems(
     } else {
       next = [...next, ...accessoryRows];
     }
+  }
+  const existingTypes = existing.flooringExistingTypes || [];
+  if (existingTypes.length && !flooringPlanOmitsRemoval(m)) {
+    const removedIds = Array.isArray(m.contractorRemovedScopeItemIds)
+      ? m.contractorRemovedScopeItemIds.map(id => String(id))
+      : [];
+    const split = splitFlooringDemoIntoStyleCards(next, existingTypes, removedIds);
+    return split;
   }
   return changed ? next : items;
 }

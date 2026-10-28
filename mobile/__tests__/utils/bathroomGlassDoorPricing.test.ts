@@ -6,11 +6,12 @@ import {
 } from '@/utils/bathroomGlassDoorPricing';
 
 describe('bathroomGlassDoorPricing', () => {
-  test('resolveBathroomGlassDoorStyle defaults unsure for invalid values', () => {
+  test('resolveBathroomGlassDoorStyle defaults to a standard slider', () => {
     expect(resolveBathroomGlassDoorStyle('standard_slider')).toBe('standard_slider');
     expect(resolveBathroomGlassDoorStyle('premium_frameless')).toBe('premium_frameless');
-    expect(resolveBathroomGlassDoorStyle(null)).toBe('unsure');
-    expect(resolveBathroomGlassDoorStyle('custom')).toBe('unsure');
+    expect(resolveBathroomGlassDoorStyle('unsure')).toBe('unsure');
+    expect(resolveBathroomGlassDoorStyle(null)).toBe('standard_slider');
+    expect(resolveBathroomGlassDoorStyle('custom')).toBe('standard_slider');
   });
 
   test('resolveBathroomGlassDoorDoorCount prefers explicit quantity', () => {
@@ -50,6 +51,17 @@ describe('bathroomGlassDoorPricing', () => {
       labor: 950,
       total: 2500,
       perDoor: 2500,
+    });
+  });
+
+  test('a missing style prices as a standard slider', () => {
+    const pricing = resolveBathroomGlassDoorSuggestedPricing({ quantity: 1 });
+    expect(pricing?.fill).toMatchObject({
+      material: 835,
+      labor: 615,
+      total: 1450,
+      splitConfidence: 'medium',
+      pricingRecordId: 'bps_national:glass_door:bathroom:standard_slider:1ea',
     });
   });
 

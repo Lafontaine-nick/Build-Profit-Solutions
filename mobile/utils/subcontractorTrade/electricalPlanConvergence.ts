@@ -15,7 +15,15 @@ import {
   isAdditionConversionJob,
   isNewStructureAdditionJob,
 } from '@/utils/additionConversionPlanning';
-import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+
+// Required lazily. A top-level import loops through note scope back into this module.
+function notesDescribeMeasuredWholeHomeRemodel(
+  notes: string | null | undefined
+): boolean {
+  return require('@/utils/wholeHomeRemodelNote').notesDescribeMeasuredWholeHomeRemodel(
+    notes
+  );
+}
 
 function existingShellConversionUsesPackageElectrical(
   templateKey?: string | null,
@@ -149,6 +157,7 @@ export type ElectricalQuantityKey =
   | 'cameraPrewireCount'
   | 'deviceRemovalCount'
   | 'fixtureRemovalCount'
+  | 'panelRemovalCount'
   | 'relocateCount'
   | 'abandonedCircuitCount'
   | 'conduitLf'
@@ -565,6 +574,13 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'life_safety'
   ),
   C(
+    'electrical_panel_removal',
+    'panelRemovalCount',
+    'Remove panel',
+    'Remove the existing panel. Make-safe only. Not a new panel, meter, or service upgrade.',
+    'rough_modifications'
+  ),
+  C(
     'electrical_device_removal',
     'deviceRemovalCount',
     'Device removal',
@@ -828,6 +844,27 @@ const PROJECT_CONDITION_VALUES = new Set<ElectricalProjectCondition>([
 function positiveNumber(value: unknown): number | null {
   const n = Number(String(value ?? '').replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Review label for a device card. The counted fans, not a stored 1 each. */
+export function electricalDeviceReviewQuantityLabel(
+  itemId: string | null | undefined,
+  name: string | null | undefined,
+  measurements: Record<string, unknown> | null | undefined
+): string | null {
+  const cleaned = String(name || '')
+    .replace(/\s—\s*(labor|materials)$/i, '')
+    .trim()
+    .toLowerCase();
+  const card =
+    electricalCardForItemId(itemId) ||
+    ELECTRICAL_CARDS.find(row => row.label.trim().toLowerCase() === cleaned) ||
+    null;
+  if (!card || card.measurementKey === 'serviceAmperage') return null;
+  const count = positiveNumber(measurements?.[card.measurementKey]);
+  if (count == null) return null;
+  const unit = card.unit === 'lf' ? 'LF' : card.unit === 'amp' ? 'A' : 'each';
+  return `${count.toLocaleString()} ${unit}`;
 }
 
 function readBooleanFlag(value: unknown): boolean | null {
@@ -2170,8 +2207,26 @@ export function parseElectricalMeasurementsFromNotes(
   const searchClauses = clauses.length ? clauses : [text];
   const out: ElectricalParsedMeasurements = {};
 
-  const assign = (key: ElectricalQuantityKey, quantity: number | null) => {
+  const countedClauses = new Map<string, Set<string>>();
+  const assign = (
+    key: ElectricalQuantityKey,
+    quantity: number | null,
+    clause?: string
+  ) => {
     if (quantity == null || quantity <= 0) return;
+    // "12 outlets. 12 outlets." restates one count. A later clause with a
+    // different room or a different count still adds.
+    if (clause) {
+      const signature = clause
+        .toLowerCase()
+        .replace(/[.…,;:]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const prior = countedClauses.get(key) || new Set<string>();
+      if (prior.has(signature)) return;
+      prior.add(signature);
+      countedClauses.set(key, prior);
+    }
     out[key] = (out[key] || 0) + quantity;
   };
 
@@ -2258,7 +2313,7 @@ export function parseElectricalMeasurementsFromNotes(
       if (rule.key === 'waterHeaterHookupCount' && /\bgas\b/i.test(clause)) {
         continue;
       }
-      assign(rule.key, matchRuleCount(clause, rule));
+      assign(rule.key, matchRuleCount(clause, rule), clause);
     }
   }
 
@@ -2291,7 +2346,7 @@ export function parseElectricalMeasurementsFromNotes(
       ) {
         continue;
       }
-      assign(rule.key, matchRuleCount(clause, rule));
+      assign(rule.key, matchRuleCount(clause, rule), clause);
     }
   }
 
@@ -2380,7 +2435,8 @@ export function parseElectricalMeasurementsFromNotes(
             rule.key === 'gfciReceptacleCount' ||
             rule.key === 'singlePoleSwitchCount' ||
             rule.key === 'ceilingFanCount',
-        })
+        }),
+        clause
       );
     }
   }

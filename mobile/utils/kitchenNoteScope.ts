@@ -127,6 +127,34 @@ export function notesDescribeDedicatedKitchenRemodel(
   );
 }
 
+/**
+ * Cabinets plus counters or a backsplash, with no bathroom in the note.
+ * "New cabinets, quartz countertops" is a kitchen even when the note never
+ * says the word kitchen. A bathroom, whole-home, new build, or addition stays
+ * on its own path.
+ */
+export function notesNameKitchenSurfaceInstall(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!text.trim()) return false;
+  if (notesDescribeMeasuredWholeHomeRemodel(text)) return false;
+  if (
+    /\b(?:new\s+build|ground[\s-]?up|new\s+(?:home|house|construction))\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  if (/\b(?:addition|add[\s-]?on)\b/i.test(text)) return false;
+  if (/\b(?:bathroom|bath|vanity|toilet|shower|tub)\b/i.test(text)) return false;
+  if (notesDescribeDedicatedKitchenRemodel(text)) return true;
+  return (
+    kitchenNoteNamesCabinetWork(text) &&
+    (kitchenNoteNamesCounterWork(text) || kitchenNoteNamesBacksplash(text))
+  );
+}
+
 export function kitchenNoteNamesCabinetWork(
   notes: string | null | undefined
 ): boolean {

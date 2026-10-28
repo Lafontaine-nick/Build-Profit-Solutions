@@ -10,6 +10,7 @@ import { scopeExtractionClarificationQuestions } from '@/utils/estimateAiDraft';
 import {
   inferExistingFlooringFromNotes,
   shouldUseFlooringConfirmScopeLineCard,
+  splitFlooringDemoIntoStyleCards,
   syncFlooringQmScopeItems,
 } from '@/utils/qmScopePanels/flooringRemodel';
 import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
@@ -26,8 +27,10 @@ import {
   dedicatedFlooringRemovedTypes,
   filterDedicatedFlooringConfirmItems,
   flooringExistingCardStartsOpen,
+  flooringRemovalSelectedOnConfirm,
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
+  retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
 import {
   normalizeScopeMeasurements,
@@ -515,6 +518,109 @@ describe('dedicated flooring note', () => {
       'flooring_carpet',
       'tile_flooring',
     ]);
+  });
+
+  it('keeps a selected flooring demo on an install-only note', () => {
+    const notes = 'Install 1,200 sqft LVP';
+    const items = [
+      { id: 'flooring_lvp', state: 'included' as const },
+      { id: 'floor_demo', state: 'included' as const },
+      { id: 'floor_prep', state: 'included' as const },
+    ];
+    expect(
+      filterDedicatedFlooringConfirmItems(items, notes).map(item => item.id)
+    ).toEqual(['flooring_lvp']);
+    expect(
+      filterDedicatedFlooringConfirmItems(
+        items,
+        notes,
+        retainedFlooringConfirmItemIds({
+          flooringProductScope: ['lvp'],
+          flooringExistingTypes: ['carpet', 'tile'],
+          scopeFoundPieces: ['carpet', 'tile'],
+        })
+      ).map(item => item.id)
+    ).toEqual(['flooring_lvp', 'floor_demo']);
+    const grouped = groupScopeChecklistItems(
+      items.map(item => ({
+        ...item,
+        inputType: 'yes_no' as const,
+        label: item.id === 'floor_demo' ? 'Flooring demo / removal' : 'LVP',
+        helperText: '',
+        category: 'flooring',
+      })),
+      'flooring',
+      {
+        notes,
+        retainFlooringItemIds: retainedFlooringConfirmItemIds({
+          flooringProductScope: ['lvp'],
+          flooringExistingTypes: ['carpet', 'tile'],
+        }),
+      }
+    );
+    expect(grouped.map(group => group.title)).toEqual(['Demo', 'LVP']);
+    expect(grouped.flatMap(group => group.items).map(item => item.id)).toEqual([
+      'floor_demo',
+      'flooring_lvp',
+    ]);
+    const split = splitFlooringDemoIntoStyleCards(
+      items.map(item => ({
+        ...item,
+        inputType: 'yes_no' as const,
+        label: item.id,
+        helperText: '',
+        category: 'flooring',
+      })),
+      ['carpet', 'tile']
+    );
+    expect(split.map(item => item.id)).toEqual([
+      'floor_demo_style_carpet',
+      'floor_demo_style_tile',
+      'flooring_lvp',
+      'floor_prep',
+    ]);
+    const carpetQuantity = resolveChecklistItemQuantity(
+      'floor_demo_style_carpet',
+      normalizeScopeMeasurements({
+        itemQuantities: {
+          floor_demo__carpet: { quantity: 1200, unit: 'sqft' },
+          floor_demo__tile: { quantity: 2000, unit: 'sqft' },
+        },
+      }),
+      { templateKey: 'flooring', notes }
+    );
+    const tileQuantity = resolveChecklistItemQuantity(
+      'floor_demo_style_tile',
+      normalizeScopeMeasurements({
+        itemQuantities: {
+          floor_demo__carpet: { quantity: 1200, unit: 'sqft' },
+          floor_demo__tile: { quantity: 2000, unit: 'sqft' },
+        },
+      }),
+      { templateKey: 'flooring', notes }
+    );
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'floor_demo_style_carpet',
+        {},
+        'flooring',
+        carpetQuantity
+      ).fill
+    ).toMatchObject({ material: 420, labor: 1680, total: 2100 });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'floor_demo_style_tile',
+        {},
+        'flooring',
+        tileQuantity
+      ).fill
+    ).toMatchObject({ material: 1800, labor: 7200, total: 9000 });
+    expect(flooringRemovalSelectedOnConfirm({ scopeFoundChoice: 'none' })).toBe(
+      false
+    );
+    expect(flooringRemovalSelectedOnConfirm({ scopeFoundChoice: 'unsure' })).toBe(
+      false
+    );
   });
 
   it('stays off a mixed wall-framing and LVP note', () => {

@@ -13,6 +13,7 @@ import { ELECTRICAL_CONDITION_LABOR_MULTIPLIERS } from './electricalServicePanel
 export const ELECTRICAL_MODIFICATION_ITEM_IDS = [
   'electrical_device_removal',
   'electrical_fixture_removal',
+  'electrical_panel_removal',
   'electrical_relocate',
   'electrical_abandoned_circuit',
 ] as const;
@@ -34,11 +35,13 @@ type Split = { material: number; labor: number };
 const MODIFICATION_RATES: Record<ElectricalModificationItemId, Split> = {
   electrical_device_removal: { material: 15, labor: 70 },
   electrical_fixture_removal: { material: 15, labor: 90 },
+  electrical_panel_removal: { material: 75, labor: 275 },
   electrical_relocate: { material: 35, labor: 165 },
   electrical_abandoned_circuit: { material: 25, labor: 150 },
 };
 
 const SPECIALTY_MODIFICATIONS = new Set<ElectricalModificationItemId>([
+  'electrical_panel_removal',
   'electrical_abandoned_circuit',
 ]);
 

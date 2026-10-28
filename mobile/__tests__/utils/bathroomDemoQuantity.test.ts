@@ -21,6 +21,20 @@ describe('bathroom demo quantity split', () => {
     expect(resolved?.sourceLabel).toBe('Shower walls + shower floor');
   });
 
+  test('tile pan chip keeps the pan off the wall demo quantity', () => {
+    const resolved = resolveChecklistItemQuantity(
+      'demo',
+      normalizeScopeMeasurements({
+        showerWallTileSqft: '95',
+        showerFloorTileSqft: '25',
+        showerRemovalPieces: ['tile_pan'],
+        itemQuantities: {},
+      }),
+      { templateKey: 'bathroom' }
+    );
+    expect(resolved?.quantity).toBe(95);
+  });
+
   test('user-entered demo SF overrides install wall + pan aggregate', () => {
     const withUserSf = normalizeScopeMeasurements({
       bathroomFloorSqft: '45',

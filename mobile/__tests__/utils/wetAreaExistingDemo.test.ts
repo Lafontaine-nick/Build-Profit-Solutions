@@ -373,6 +373,31 @@ describe('wetAreaExistingDemo', () => {
     ).toBeNull();
   });
 
+  test('a new prefab pan and shower wall tile do not invent a removal or a floor', () => {
+    const notes = 'New prefab shower pan. Tile the shower walls, 90 sqft.';
+    const demo = resolveDemoWetAreaFromIntent({
+      notes,
+      existing: emptyWetAreaExistingCounts(),
+      install: {
+        bathCount: 1,
+        tilePanBathCount: null,
+        prefabBathCount: 1,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoPrefabPanCount).toBeNull();
+    expect(demo.demoTileWallCount).toBeNull();
+    expect(
+      bathroomRemodelShowsBathFloorBox({
+        notes,
+        templateKey: 'bathroom',
+      })
+    ).toBe(false);
+  });
+
   test('haul-off prefab pan and surround selects both removals and both installs', () => {
     const notes =
       'Remodel the bathroom. The existing shower is a prefab shower pan with a prefab surround, and both are coming out. Demo and haul off the prefab shower pan and the prefab surround, cap the drain, and leave the alcove ready. Install a new prefab shower pan, set it in mortar, and connect it to the existing drain. Install a new prefab shower surround on the walls.';

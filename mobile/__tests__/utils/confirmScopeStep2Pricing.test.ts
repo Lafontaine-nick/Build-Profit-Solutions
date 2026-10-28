@@ -840,6 +840,74 @@ describe('bathroom shower tile demo suggested pricing', () => {
     expect(doorDemo.fill?.total).toBe(125);
   });
 
+  it('leaves the tile pan on its own line when that chip is selected', () => {
+    const measurementsInput = {
+      showerWallTileSqft: '95',
+      showerFloorTileSqft: '25',
+      showerRemovalPieces: ['tile_pan'],
+      demoTilePanCount: 1,
+      itemQuantities: {},
+    };
+    const wallDemo = resolveScopeItemSuggestedPricing(
+      'demo',
+      measurementsInput,
+      'bathroom',
+      { quantity: 120, unit: 'sqft', quantitySource: 'inferred' },
+      {},
+      null,
+      'New shower wall tile. Demo shower wall tile.'
+    );
+    const panDemo = resolveScopeItemSuggestedPricing(
+      'shower_floor_demo',
+      measurementsInput,
+      'bathroom',
+      { quantity: 25, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      null
+    );
+
+    expect(wallDemo.fill?.total).toBe(522.5);
+    expect(String(wallDemo.fill?.helper || wallDemo.fill?.displayQuantityLine || '')).not.toMatch(
+      /mud pan/i
+    );
+    expect(panDemo.fill?.total).toBe(225);
+  });
+
+  it('prices shower wall removal at the tile rate and leaves drywall demolition alone', () => {
+    const showerWalls = resolveScopeItemSuggestedPricing(
+      'wall_demo',
+      {
+        wallDemoSqft: 90,
+        showerWallTileSqft: 90,
+        showerRemovalPieces: ['wall_tile'],
+        itemQuantities: {},
+      },
+      'bathroom',
+      { quantity: 90, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      'New prefab shower pan. Tile the shower walls, 90 sqft.'
+    );
+    expect(showerWalls.fill?.total).toBe(495);
+    expect(showerWalls.fill?.material).toBe(45);
+    expect(showerWalls.fill?.labor).toBe(450);
+    expect(showerWalls.fill?.displayUnitRateLabel).toBe('90 sqft × $5.50/sqft');
+
+    const studs = resolveScopeItemSuggestedPricing(
+      'wall_demo',
+      { wallDemoSqft: 90, itemQuantities: {} },
+      'kitchen',
+      { quantity: 90, unit: 'sqft', quantitySource: 'user_entered' },
+      {},
+      null,
+      'Demo the kitchen to the studs.'
+    );
+    expect(studs.fill?.total).toBe(135);
+    expect(studs.fill?.material).toBe(22.5);
+    expect(studs.fill?.labor).toBe(112.5);
+  });
+
   it('prices nonstructural wall demolition from the wall demo area', () => {
     const notes =
       'Demolish the existing nonstructural walls. Frame 1,600 sqft of walls with headers, blocking, and structural sheathing, including two rough openings.';

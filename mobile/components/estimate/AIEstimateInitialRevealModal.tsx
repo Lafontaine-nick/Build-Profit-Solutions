@@ -22,6 +22,22 @@ import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AnimatedNumberText from '@/components/motion/AnimatedNumberText';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { notesDescribeDedicatedKitchenRemodel } from '@/utils/kitchenNoteScope';
+import {
+  readShowerRemovalChoice,
+  readShowerRemovalPieces,
+  showerRemovalRevealLines,
+  type ShowerRemovalPiece,
+} from '@/utils/bathroomNoteScope';
+import {
+  readScopeFoundChoice,
+  readScopeFoundClarificationId,
+  readScopeFoundPieces,
+  resolveScopeFoundClarification,
+  ROOF_TEAR_OFF_CARDS,
+  scopeFoundRevealLines,
+  type ScopeFoundChoice,
+  type ScopeFoundClarificationId,
+} from '@/utils/scopeFoundClarification';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import {
   countInitialRevealAttentionItems,
@@ -29,14 +45,17 @@ import {
   getInitialRevealHeaderCopy,
   getInitialRevealAttentionTitle,
   getInitialRevealChecklistScopePreview,
+  initialRevealAmountsByName,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
   getInitialRevealPlanningDisclaimer,
   getInitialRevealPrimaryCtaLabel,
   getInitialRevealScopeMetaLabel,
+  priceShowerRemovalRevealRows,
   initialRevealListsPlanLines,
   getInitialRevealStatusLabel,
+  initialRevealStatusAttentionCount,
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
@@ -61,6 +80,13 @@ type Props = {
   onBack: () => void;
   onOpenDetailedReview: () => void;
   onConfirmScope?: () => void;
+  onShowerRemovalChoice?: (
+    choice: ShowerRemovalPiece[] | 'none' | 'unsure'
+  ) => void;
+  onScopeFoundChoice?: (
+    id: ScopeFoundClarificationId,
+    choice: ScopeFoundChoice | string[]
+  ) => void;
 };
 
 const STATUS_COLORS = {
@@ -82,6 +108,42 @@ const FLOW_ACCENT = '#2dcc9a';
 function fireHaptic(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS === 'web') return;
   void Haptics.impactAsync(style).catch(() => {});
+}
+
+/** Labels longer than this do not fit three chips across on one line. */
+const CHIP_LABEL_FITS_THREE = 11;
+
+function packChipRows<T>(options: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  let index = 0;
+  while (index < options.length) {
+    const remaining = options.length - index;
+    const count =
+      size === 3 && remaining === 4 ? 2 : Math.min(size, remaining);
+    rows.push(options.slice(index, index + count));
+    index += count;
+  }
+  return rows;
+}
+
+/** Full rows only. A long label switches the group to pairs so no chip sits alone. */
+function scopeFoundChipRows<T extends { label: string }>(options: T[]): T[][] {
+  if (!options.length) return [];
+  const longLabel = (option: T) => option.label.length > CHIP_LABEL_FITS_THREE;
+  if (!options.some(longLabel)) return packChipRows(options, 3);
+  if (options.length % 2 === 1) {
+    for (let index = 0; index <= options.length - 3; index += 1) {
+      const trio = options.slice(index, index + 3);
+      if (trio.every(option => !longLabel(option))) {
+        return [
+          ...packChipRows(options.slice(0, index), 2),
+          trio,
+          ...packChipRows(options.slice(index + 3), 2),
+        ].filter(row => row.length > 0);
+      }
+    }
+  }
+  return packChipRows(options, 2);
 }
 
 function ReliablePress({
@@ -139,6 +201,8 @@ function AIEstimateInitialRevealModal({
   onBack,
   onOpenDetailedReview,
   onConfirmScope,
+  onShowerRemovalChoice,
+  onScopeFoundChoice,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -230,6 +294,116 @@ function AIEstimateInitialRevealModal({
   );
   const dividerColor = estimateFlowDividerColor(darkMode);
   const flowCardBg = aiFlowCardBackground(darkMode, Colors.surface2);
+  const clarification =
+    draft && planRevealOmitsWhatWeFound(draft)
+      ? null
+      : resolveScopeFoundClarification(draft?.originalNotes);
+  const showerRemovalPieces = readShowerRemovalPieces(
+    draft?.scopeMeasurements?.showerRemovalPieces
+  );
+  const showerRemovalDeclined = readShowerRemovalChoice(
+    draft?.scopeMeasurements?.showerRemovalChoice
+  );
+  const showerRemovalSelected =
+    showerRemovalDeclined === 'none' || showerRemovalDeclined === 'unsure'
+      ? showerRemovalDeclined
+      : null;
+  const scopeFoundIdMatches =
+    clarification &&
+    clarification.id !== 'shower' &&
+    readScopeFoundClarificationId(draft?.scopeMeasurements?.scopeFoundClarificationId) ===
+      clarification.id;
+  const scopeFoundPieces = scopeFoundIdMatches
+    ? readScopeFoundPieces(draft?.scopeMeasurements?.scopeFoundPieces)
+    : [];
+  const scopeFoundSelected = scopeFoundIdMatches
+    ? readScopeFoundChoice(draft?.scopeMeasurements?.scopeFoundChoice)
+    : null;
+  const clarificationAnswered =
+    clarification?.id === 'shower'
+      ? showerRemovalPieces.length > 0 || Boolean(showerRemovalSelected)
+      : scopeFoundPieces.length > 0 || Boolean(scopeFoundSelected);
+  const clarificationOpen =
+    Boolean(clarification) &&
+    !clarificationAnswered &&
+    Boolean(viewModel?.needsScopeConfirmation);
+  const status =
+    draft && viewModel
+      ? getInitialRevealStatusLabel(
+          draft,
+          initialRevealStatusAttentionCount(
+            viewModel.attentionCount,
+            clarificationOpen
+          )
+        )
+      : null;
+  const scopeListRows = useMemo(() => {
+    const preview = viewModel?.scopePreview ?? [];
+    const added = [
+      ...priceShowerRemovalRevealRows(
+        draft,
+        showerRemovalRevealLines(
+          draft?.originalNotes,
+          showerRemovalSelected,
+          draft?.scopeMeasurements?.showerWallTileSqft,
+          showerRemovalPieces
+        )
+      ),
+      ...scopeFoundRevealLines(
+        draft?.originalNotes,
+        draft?.scopeMeasurements?.scopeFoundClarificationId,
+        draft?.scopeMeasurements?.scopeFoundChoice,
+        draft?.scopeMeasurements?.scopeFoundPieces,
+        draft?.scopeMeasurements
+      ),
+    ].filter(
+      row =>
+        !preview.some(
+          existing =>
+            existing.name.trim().toLowerCase() === row.name.trim().toLowerCase()
+        )
+    );
+    const addedNames = new Set(added.map(row => row.name.trim().toLowerCase()));
+    const previewRows = preview.filter(row => {
+      const name = row.name.trim().toLowerCase();
+      if (addedNames.has(name)) return false;
+      const card = ROOF_TEAR_OFF_CARDS.find(entry => entry.id === name);
+      return !card || !addedNames.has(card.label.trim().toLowerCase());
+    });
+    const amounts = draft ? initialRevealAmountsByName(draft) : new Map();
+    const claimed = new Set<string>();
+    for (const row of preview) {
+      if (!(row.amount > 0)) continue;
+      const hit = amounts.get(row.name.trim().toLowerCase());
+      if (hit) claimed.add(hit.id);
+    }
+    const fill = <T extends { name: string; amount: number }>(
+      row: T,
+      awaitingPrice: boolean
+    ) => {
+      if (row.amount > 0) return { ...row, awaitingPrice: false };
+      const hit = amounts.get(row.name.trim().toLowerCase());
+      if (!hit || claimed.has(hit.id) || !(hit.amount > 0)) {
+        return { ...row, awaitingPrice };
+      }
+      claimed.add(hit.id);
+      return { ...row, amount: hit.amount, awaitingPrice: false };
+    };
+    return [
+      ...added.map(row => fill(row, true)),
+      ...previewRows.map(row => fill(row, false)),
+    ];
+  }, [
+    viewModel,
+    draft,
+    draft?.originalNotes,
+    draft?.scopeMeasurements?.showerWallTileSqft,
+    draft?.scopeMeasurements?.scopeFoundClarificationId,
+    draft?.scopeMeasurements?.scopeFoundChoice,
+    draft?.scopeMeasurements?.scopeFoundPieces,
+    showerRemovalPieces,
+    showerRemovalSelected,
+  ]);
 
   useEffect(() => {
     if (visible) {
@@ -316,7 +490,7 @@ function AIEstimateInitialRevealModal({
 
   if (!visible) return null;
 
-  const statusStyle = viewModel ? STATUS_COLORS[viewModel.status.tone] : STATUS_COLORS.mostly;
+  const statusStyle = status ? STATUS_COLORS[status.tone] : STATUS_COLORS.mostly;
 
   const body = (
     <>
@@ -362,11 +536,16 @@ function AIEstimateInitialRevealModal({
                 <View style={styles.heroTopRow}>
                   <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
                     <Text style={[styles.statusBadgeText, { color: statusStyle.color }]}>
-                      {viewModel.status.label}
+                      {status?.label}
                     </Text>
                   </View>
                   <Text style={[styles.metaText, { color: Colors.sub }]}>
-                    {viewModel.scopeMetaLabel}
+                    {viewModel.needsScopeConfirmation ||
+                    scopeListRows.length !== (viewModel.scopePreview?.length || 0)
+                      ? getInitialRevealScopeMetaLabel(scopeListRows.length, {
+                          planLines: viewModel.planLines,
+                        })
+                      : viewModel.scopeMetaLabel}
                   </Text>
                 </View>
 
@@ -498,9 +677,9 @@ function AIEstimateInitialRevealModal({
                     </View>
                     {visiblePricingItems.map((item, index) => (
                       <View key={`${item}-${index}`} style={styles.checkRow}>
-                        <View style={[styles.checkDot, { borderColor: '#fbbf24' }]} />
+                        <View style={styles.pendingDot} />
                         <Text style={[styles.checkText, { color: Colors.text }]} numberOfLines={2}>
-                          {item}
+                          {item.replace(/^Price needed for /i, '')}
                         </Text>
                       </View>
                     ))}
@@ -530,7 +709,148 @@ function AIEstimateInitialRevealModal({
                   </View>
                 ) : null}
 
-                {viewModel.scopePreview.length > 0 ? (
+                {clarification && viewModel.needsScopeConfirmation ? (
+                  <View
+                    style={[
+                      styles.block,
+                      (viewModel.showWhatWeFound || visiblePricingItems.length > 0) &&
+                        styles.blockBorder,
+                      { borderTopColor: dividerColor },
+                    ]}
+                  >
+                    <View style={styles.blockTitleRow}>
+                      <Text
+                        style={[
+                          styles.blockTitle,
+                          { color: clarificationAnswered ? brandAccent : Colors.text },
+                        ]}
+                      >
+                        {clarificationAnswered ? 'Confirmed' : '1 thing to confirm'}
+                      </Text>
+                      {clarificationAnswered ? (
+                        <MaterialIcons name="check-circle" size={16} color={brandAccent} />
+                      ) : (
+                        <View style={[styles.countPill, { backgroundColor: 'rgba(251, 191, 36, 0.14)' }]}>
+                          <Text style={styles.countPillText}>1</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.checkRow}>
+                      {clarificationAnswered ? null : <View style={styles.pendingDot} />}
+                      <Text style={[styles.checkText, { color: Colors.text }]}>
+                        {clarification.question}
+                      </Text>
+                    </View>
+                    {scopeFoundChipRows(
+                      clarification.options.filter(
+                        option =>
+                          option.id !== 'none' &&
+                          option.id !== 'unsure' &&
+                          option.id !== 'walls'
+                      )
+                    )
+                      .concat(
+                        scopeFoundChipRows(
+                          clarification.options.filter(
+                            option =>
+                              option.id === 'none' ||
+                              option.id === 'unsure' ||
+                              option.id === 'walls'
+                          )
+                        )
+                      )
+                      .map((row, rowIndex) => (
+                      <View key={`removal-row-${rowIndex}`} style={styles.removalChipRow}>
+                        {row.map(option => {
+                          const exclusive =
+                            option.id === 'none' ||
+                            option.id === 'unsure' ||
+                            option.id === 'walls';
+                          const selected =
+                            clarification.id === 'shower'
+                              ? exclusive
+                                ? showerRemovalSelected === option.id
+                                : showerRemovalPieces.includes(option.id as ShowerRemovalPiece)
+                              : clarification.multi
+                                ? exclusive
+                                  ? scopeFoundSelected === option.id
+                                  : scopeFoundPieces.includes(option.id)
+                                : scopeFoundSelected === option.id;
+                          return (
+                            <GestureTouchableOpacity
+                              key={option.id}
+                              onPress={() => {
+                                if (clarification.id === 'shower') {
+                                  if (option.id === 'none' || option.id === 'unsure') {
+                                    onShowerRemovalChoice?.(option.id);
+                                    return;
+                                  }
+                                  const piece = option.id as ShowerRemovalPiece;
+                                  const next = showerRemovalPieces.includes(piece)
+                                    ? showerRemovalPieces.filter(item => item !== piece)
+                                    : [...showerRemovalPieces, piece];
+                                  onShowerRemovalChoice?.(next);
+                                  return;
+                                }
+                                if (clarification.multi) {
+                                  if (exclusive) {
+                                    const choice = readScopeFoundChoice(option.id);
+                                    if (choice) onScopeFoundChoice?.(clarification.id, choice);
+                                    return;
+                                  }
+                                  const next = scopeFoundPieces.includes(option.id)
+                                    ? scopeFoundPieces.filter(item => item !== option.id)
+                                    : [...scopeFoundPieces, option.id];
+                                  onScopeFoundChoice?.(clarification.id, next);
+                                  return;
+                                }
+                                const choice = readScopeFoundChoice(option.id);
+                                if (choice) onScopeFoundChoice?.(clarification.id, choice);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                              containerStyle={styles.removalChipCell}
+                              style={[
+                                styles.removalChip,
+                                {
+                                  borderColor: selected
+                                    ? brandAccent
+                                    : 'rgba(148, 163, 184, 0.16)',
+                                  backgroundColor: selected
+                                    ? 'rgba(45, 204, 154, 0.14)'
+                                    : exclusive
+                                      ? 'rgba(148, 163, 184, 0.11)'
+                                      : 'rgba(148, 163, 184, 0.16)',
+                                },
+                              ]}
+                            >
+                              {selected ? (
+                                <MaterialIcons name="check" size={15} color={brandAccent} />
+                              ) : null}
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.removalChipText,
+                                  {
+                                    color: selected
+                                      ? Colors.text
+                                      : exclusive
+                                        ? Colors.sub
+                                        : Colors.text,
+                                  },
+                                ]}
+                              >
+                                {option.label}
+                              </Text>
+                            </GestureTouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                {scopeListRows.length > 0 ? (
                   <View
                     style={[
                       styles.block,
@@ -547,8 +867,11 @@ function AIEstimateInitialRevealModal({
                       <Text style={[styles.blockTitle, { color: Colors.text }]}>
                         Scope · {(() => {
                           const scopeCount =
-                            viewModel.totals.scopeItemCount ||
-                            viewModel.scopePreview.length;
+                            viewModel.needsScopeConfirmation ||
+                            scopeListRows.length !== (viewModel.scopePreview?.length || 0)
+                              ? scopeListRows.length
+                              : viewModel.totals.scopeItemCount ||
+                                scopeListRows.length;
                           const noun = viewModel.planLines
                             ? scopeCount === 1
                               ? 'plan line'
@@ -566,7 +889,7 @@ function AIEstimateInitialRevealModal({
                       />
                     </ReliablePress>
                     {detailsExpanded
-                      ? viewModel.scopePreview.map(({ name, amount, quantity }, index) => (
+                      ? scopeListRows.map(({ name, amount, quantity, awaitingPrice }, index) => (
                         <View key={`${name}-${index}`} style={styles.scopeRow}>
                             <View style={styles.scopeNameWrap}>
                               <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
@@ -576,6 +899,7 @@ function AIEstimateInitialRevealModal({
                             </View>
                             {!viewModel.suppressRevealPricing &&
                             (amount > 0 ||
+                              awaitingPrice ||
                               !(
                                 viewModel.totals.heroTotal != null &&
                                 viewModel.totals.heroTotal > 0
@@ -850,7 +1174,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginTop: 10,
+    marginTop: 8,
   },
   scopeName: {
     flex: 1,
@@ -882,6 +1206,43 @@ const styles = StyleSheet.create({
   scopeAmount: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  pendingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#fbbf24',
+    marginTop: 7,
+  },
+  removalChipRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+    marginBottom: 6,
+  },
+  removalChipCell: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  removalChip: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  removalChipText: {
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
   },
   footer: {
     paddingHorizontal: 16,

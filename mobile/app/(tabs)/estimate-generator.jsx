@@ -55,6 +55,8 @@ import SaveAsTemplateModal from '../../components/estimate/SaveAsTemplateModal';
 import AIEstimateBuilderModal from '../../components/estimate/AIEstimateBuilderModal';
 import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraftReviewModal';
 import AIEstimateInitialRevealModal from '../../components/estimate/AIEstimateInitialRevealModal';
+import { measurementsForShowerRemovalChoice } from '../../utils/bathroomNoteScope';
+import { measurementsForScopeFoundChoice } from '../../utils/scopeFoundClarification';
 import AIEstimateTransitionCard from '../../components/estimate/AIEstimateTransitionCard';
 import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimatePricingProposalModal';
 import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
@@ -5759,6 +5761,33 @@ export default function EstimateGeneratorScreen() {
   const handleInitialRevealConfirmScope = useCallback(() => {
     transitionToAiScope();
   }, [transitionToAiScope]);
+
+  const handleShowerRemovalChoice = useCallback((choice) => {
+    setAiDraft(prev => {
+      if (!prev) return prev;
+      const scopeMeasurements = measurementsForShowerRemovalChoice(
+        prev.scopeMeasurements || {},
+        choice,
+        prev.originalNotes
+      );
+      latestScopeMeasurementsRef.current = scopeMeasurements;
+      return { ...prev, scopeMeasurements };
+    });
+  }, []);
+
+  const handleScopeFoundChoice = useCallback((id, choice) => {
+    setAiDraft(prev => {
+      if (!prev) return prev;
+      const scopeMeasurements = measurementsForScopeFoundChoice(
+        prev.scopeMeasurements || {},
+        id,
+        choice,
+        prev.originalNotes
+      );
+      latestScopeMeasurementsRef.current = scopeMeasurements;
+      return { ...prev, scopeMeasurements };
+    });
+  }, []);
 
   /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
   const pauseDraftReviewForPricingModal = useCallback(() => {
@@ -23854,6 +23883,8 @@ export default function EstimateGeneratorScreen() {
         onBack={handleInitialRevealBack}
         onOpenDetailedReview={openAiDraftReviewDetailed}
         onConfirmScope={handleInitialRevealConfirmScope}
+        onShowerRemovalChoice={handleShowerRemovalChoice}
+        onScopeFoundChoice={handleScopeFoundChoice}
       />
       ) : null}
 

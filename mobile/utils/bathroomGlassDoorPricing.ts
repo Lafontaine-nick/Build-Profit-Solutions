@@ -42,8 +42,14 @@ function round2(n: number): number {
 export function resolveBathroomGlassDoorStyle(
   value: string | null | undefined
 ): BathroomGlassDoorStyle {
-  if (value === 'standard_slider' || value === 'premium_frameless') return value;
-  return 'unsure';
+  if (
+    value === 'standard_slider' ||
+    value === 'premium_frameless' ||
+    value === 'unsure'
+  ) {
+    return value;
+  }
+  return 'standard_slider';
 }
 
 /**

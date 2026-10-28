@@ -250,6 +250,14 @@ export function electricalQmShowsQuantity(
   );
 }
 
+/** Notes jobs type the count. The green EA chip is the plan-sheet control. */
+export function electricalQmUsesTypedQuantity(
+  planSheet: boolean,
+  hasCount: boolean
+): boolean {
+  return !planSheet && hasCount;
+}
+
 const CONFIRMED_ELECTRICAL_COUNT_SOURCES = new Set([
   'user_entered',
   'manual_override',

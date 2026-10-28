@@ -69,6 +69,7 @@ const TRADE_SCOPE_ALLOWLISTS = {
     "electrical_tv_coax",
     "electrical_security_prewire",
     "electrical_camera_prewire",
+    "electrical_panel_removal",
     "electrical_device_removal",
     "electrical_fixture_removal",
     "electrical_relocate",

@@ -18,6 +18,7 @@ import {
   electricalQmQuantityInputValue,
   electricalQmShowsQuantity,
   electricalQmTapQuantity,
+  electricalQmUsesTypedQuantity,
   electricalServiceAmperageTap,
   electricalScopeGroupDefaultCollapsed,
   confirmScopeChipPainted,
@@ -31,6 +32,12 @@ import {
 } from '@/utils/electricalQuickMeasurementUi';
 
 describe('electricalQuickMeasurementUi', () => {
+  it('types a notes count and keeps the plan-sheet chip', () => {
+    expect(electricalQmUsesTypedQuantity(false, true)).toBe(true);
+    expect(electricalQmUsesTypedQuantity(true, true)).toBe(false);
+    expect(electricalQmUsesTypedQuantity(false, false)).toBe(false);
+  });
+
   const lot58 = {
     mainPanelCount: 1,
     standardReceptacleCount: 50,

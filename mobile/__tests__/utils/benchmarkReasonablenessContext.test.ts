@@ -20,6 +20,49 @@ import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummar
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 
 describe('benchmarkReasonablenessContext', () => {
+  it('sums each card in whole dollars so Selected pricing matches the cards', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'prep', label: 'Paint prep & masking', inputType: 'yes_no', state: 'included' },
+      { id: 'interior_paint', label: 'Interior paint — walls', inputType: 'yes_no', state: 'included' },
+      { id: 'ceiling_paint', label: 'Ceiling Paint', inputType: 'yes_no', state: 'included' },
+    ];
+    const split = (material: number, labor: number) => ({
+      material: {
+        quantity: String(material),
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+      labor: {
+        quantity: String(labor),
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    });
+    const prep = split(437, 1966.5);
+    const walls = split(348.4, 991.6);
+    const ceiling = split(1306.5, 4276.28);
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      templateKey: 'bathroom',
+      measurements: {
+        itemQuantities: {
+          prep__material: prep.material,
+          prep__labor: prep.labor,
+          interior_paint__material: walls.material,
+          interior_paint__labor: walls.labor,
+          ceiling_paint__material: ceiling.material,
+          ceiling_paint__labor: ceiling.labor,
+        },
+      } as never,
+    });
+    expect(breakdown).toEqual({
+      total: 9327,
+      material: 2092,
+      labor: 7235,
+      allowance: 0,
+    });
+  });
+
   it('adds wet-area tile and shower door dollars to Selected pricing', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'tile_flooring', label: 'Flooring', inputType: 'yes_no', state: 'included' },
@@ -540,6 +583,68 @@ describe('benchmarkReasonablenessContext', () => {
         notes,
       })
     ).toBe(336);
+  });
+
+  it('keeps a note-backed prefab pan in selected pricing before Apply', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'prefab_shower_pan',
+        label: 'Prefab shower pan',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'shower_tile',
+        label: 'Shower wall tile',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'shower_floor_demo',
+        label: 'Remove tile pan',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const measurements = {
+      prefabBathCount: 1,
+      showerWallTileSqft: 90,
+      demoTilePanCount: 1,
+      itemQuantities: {
+        shower_tile: { quantity: '90', unit: 'sqft', quantitySource: 'user_entered' },
+        shower_tile__material: { quantity: '720', unit: 'allowance', quantitySource: 'user_entered' },
+        shower_tile__labor: { quantity: '1620', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        shower_tile: {
+          selectionStatus: 'accepted',
+          totalAmount: 2340,
+          materialAmount: 720,
+          laborAmount: 1620,
+        },
+      },
+    } as never;
+    const lines = listConfirmScopeAppliedPricingLines({
+      items,
+      measurements,
+      templateKey: 'bathroom',
+      notes: 'New prefab shower pan. Tile the shower walls, 90 sqft.',
+    });
+    expect(lines.map(line => `${line.itemId}:${line.total}`)).toEqual([
+      'prefab_shower_pan:1000',
+      'shower_tile:2340',
+    ]);
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      measurements,
+      templateKey: 'bathroom',
+      notes: 'New prefab shower pan. Tile the shower walls, 90 sqft.',
+    });
+    expect(breakdown.total).toBe(1000 + 2340);
+    expect(breakdown.material).toBe(400 + 720);
+    expect(breakdown.labor).toBe(600 + 1620);
   });
 
   it('keeps applied prefab pan and enclosure dollars on the wet-area group header', () => {

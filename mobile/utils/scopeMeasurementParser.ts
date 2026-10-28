@@ -1534,7 +1534,15 @@ export function parseScopeMeasurementsFromNotes(
     let match: RegExpExecArray | null;
     while ((match = re.exec(text)) !== null) {
       const tail = match[2] || '';
-      if (!/\bcabinets?\b|\bcabs\b/i.test(tail)) continue;
+      const head = text.slice(Math.max(0, match.index - 40), match.index);
+      // "22 LF cabinets" names the run after the length. "New cabinets 22 LF"
+      // names it before the length.
+      if (
+        !/\bcabinets?\b|\bcabs\b/i.test(tail) &&
+        !/\bcabinets?\b|\bcabs\b/i.test(head)
+      ) {
+        continue;
+      }
       const qty = Number(match[1].replace(/,/g, ''));
       if (!Number.isFinite(qty) || qty <= 0) continue;
       const before = text.slice(Math.max(0, match.index - 80), match.index);

@@ -26,6 +26,7 @@ import {
   sumAppliedScopePricingFromDraft,
   sumStep3ReviewBudgetTotals,
 } from '@/utils/benchmarkReasonablenessContext';
+import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummaryUi';
 
 function bathroomChecklistFromGroups(): ScopeChecklistItem[] {
   return SCOPE_CHECKLIST_GROUPS.bathroom!.flatMap((group) =>
@@ -807,6 +808,139 @@ describe('scopePackagesForReview', () => {
     const packages = getScopePackagesForReview(draft);
     expect(packages.map((p) => p.checklistItemId)).toEqual(step3Ids);
     expect(confirmScopeReviewRowsFromDraft(draft).map((row) => row.id)).toEqual(step3Ids);
+  });
+
+  it('keeps a named prefab pan on Step 3 with its price beside the shower wall tile', () => {
+    const notes = 'New prefab shower pan. Tile the shower walls, 90 sqft.';
+    const acceptance = (total: number, material: number, labor: number) =>
+      buildAcceptanceFromSuggestedBlock({
+        total,
+        material,
+        labor,
+        lumpSumOnly: false,
+        rateSourceLabel: 'National Average',
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      });
+    const draft = {
+      originalNotes: notes,
+      projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: [
+        {
+          id: 'shower_tile',
+          label: 'Shower wall tile',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        },
+        {
+          id: 'prefab_shower_pan',
+          label: 'Prefab shower pan',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+          derivedFrom: 'wet_area_install',
+        },
+      ],
+      scopePackages: [
+        {
+          name: 'Shower Tile Installation',
+          scope: 'Shower wall tile',
+          checklistItemId: 'shower_tile',
+          price: 2340,
+          knownSubtotal: 2340,
+          materialPrice: 720,
+          laborPrice: 1620,
+          status: 'user_provided',
+          priceSource: 'user_provided',
+          priceIncludesLaborAndMaterials: true,
+        },
+      ],
+      scopeMeasurements: {
+        prefabBathCount: 1,
+        showerWallTileSqft: 90,
+        itemQuantities: {
+          shower_tile: { quantity: '90', unit: 'sqft', quantitySource: 'user_entered' },
+          shower_tile__material: { quantity: '720', unit: 'allowance', quantitySource: 'user_entered' },
+          shower_tile__labor: { quantity: '1620', unit: 'allowance', quantitySource: 'user_entered' },
+          prefab_shower_pan: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+          prefab_shower_pan__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
+          prefab_shower_pan__labor: { quantity: '600', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          shower_tile: acceptance(2340, 720, 1620),
+          prefab_shower_pan: acceptance(1000, 400, 600),
+        },
+      },
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const packages = getScopePackagesForReview(draft);
+    expect(packages.map(pkg => pkg.checklistItemId)).toEqual(
+      expect.arrayContaining(['shower_tile', 'prefab_shower_pan'])
+    );
+    expect(sumStep3ReviewBudgetTotals(draft)?.total).toBe(3340);
+  });
+
+  it('keeps the named prefab pan on review when the checklist only had the wet-area parent', () => {
+    const notes = 'New prefab shower pan. Tile the shower walls, 90 sqft.';
+    const acceptance = (total: number, material: number, labor: number) =>
+      buildAcceptanceFromSuggestedBlock({
+        total,
+        material,
+        labor,
+        lumpSumOnly: false,
+        rateSourceLabel: 'National Average',
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      });
+    const draft = {
+      originalNotes: notes,
+      projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: [
+        {
+          id: 'shower_tile',
+          label: 'Shower wall tile',
+          inputType: 'yes_no',
+          state: 'included',
+          noteBacked: true,
+        },
+        {
+          id: 'wet_area_install',
+          label: 'Wet area install',
+          inputType: 'choice',
+          state: 'included',
+          choiceId: 'prefab',
+        },
+      ],
+      scopePackages: [],
+      scopeMeasurements: {
+        prefabBathCount: 1,
+        showerWallTileSqft: 90,
+        itemQuantities: {
+          shower_tile: { quantity: '90', unit: 'sqft', quantitySource: 'user_entered' },
+          shower_tile__material: { quantity: '720', unit: 'allowance', quantitySource: 'user_entered' },
+          shower_tile__labor: { quantity: '1620', unit: 'allowance', quantitySource: 'user_entered' },
+          prefab_shower_pan: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+          prefab_shower_pan__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
+          prefab_shower_pan__labor: { quantity: '600', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          shower_tile: acceptance(2340, 720, 1620),
+          prefab_shower_pan: acceptance(1000, 400, 600),
+        },
+      },
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    expect(confirmScopeReviewRowsFromDraft(draft).map(row => row.id)).toEqual(
+      expect.arrayContaining(['shower_tile', 'prefab_shower_pan'])
+    );
+    expect(sumStep3ReviewBudgetTotals(draft)?.total).toBe(3340);
   });
 
   it('Step 3 leaves off a paint surface the Step 2 chips did not select', () => {

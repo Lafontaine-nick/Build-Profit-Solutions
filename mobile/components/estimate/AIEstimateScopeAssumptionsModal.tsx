@@ -327,6 +327,12 @@ import {
   bathroomMeasurementNotes,
   bathroomNoteTakeoff,
   bathroomScopeLines,
+  forceAnsweredRemovalCounts,
+  measurementsForShowerRemovalChoice,
+  readShowerRemovalChoice,
+  readShowerRemovalPieces,
+  showerRemovalWantsPan,
+  showerRemovalWantsWalls,
   notesKeepExistingWetArea,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
@@ -334,9 +340,15 @@ import {
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
 import {
+  measurementsForScopeFoundChoice,
+  readScopeFoundChoice,
+  readScopeFoundClarificationId,
+  readScopeFoundPieces,
+} from '@/utils/scopeFoundClarification';
+import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
-  selectedFlooringProductItemIds,
+  retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
 import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
 import { notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
@@ -345,6 +357,7 @@ import {
   notesDescribeDedicatedDeckJob,
 } from '@/utils/deckNoteScope';
 import {
+  applyDedicatedElectricalNoteCounts,
   dedicatedElectricalNamedCards,
   notesDescribeDedicatedElectricalDeviceJob,
   notesNameElectricalJobCondition,
@@ -557,6 +570,12 @@ import {
   notesDoorMentionIsPaintOrKeepOnly,
   noteMentionIsOnlyNegated,
 } from '@/utils/scopeItemNoteHints';
+import {
+  CUSTOM_ROOF_SYSTEM_ID,
+  isResidentialRoofSystem,
+  roofingSystemChipLabel,
+  roofingSystemChoicesForConfirm,
+} from '@/utils/roofingSystemChoiceUi';
 import { applyFinishScheduleToChecklistItems } from '@/utils/finishScheduleScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
@@ -673,6 +692,7 @@ import {
   isConcreteQmScopeItemActive,
   shouldUseConcreteConfirmScopeLineCard,
   syncQmPanelScopeItems,
+  bathroomFixtureQmEmbedApplies,
   shouldHideBathroomFixtureScopeCardInQmEmbed,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
   shouldHideKitchenScopeCardInQmEmbed,
@@ -9234,9 +9254,20 @@ function QuantitySection({
   };
 
   const pricingEntryMode =
-    pricingEntryModeOverride ??
-    inferPricingEntryMode(measurementsInput, sqftBasisKey, rule.splitTotalOnly);
-  const showPricingEntryToggle = !showAllowanceEditor && !rule.splitTotalOnly;
+    itemId === 'roofing_system' &&
+    choiceId === 'custom_other' &&
+    Number(measurementsInput.roofSquares) > 0
+      ? 'takeoff'
+      : (pricingEntryModeOverride ??
+        inferPricingEntryMode(
+          measurementsInput,
+          sqftBasisKey,
+          rule.splitTotalOnly
+        ));
+  const roofCustomPrice =
+    itemId === 'roofing_system' && choiceId === 'custom_other';
+  const showPricingEntryToggle =
+    !roofCustomPrice && !showAllowanceEditor && !rule.splitTotalOnly;
 
   const handlePricingEntryModeChange = (next: PricingEntryMode) => {
     setPricingEntryModeOverride(next);
@@ -9262,10 +9293,14 @@ function QuantitySection({
     >
       <PricingEditorPanel Colors={Colors} darkMode={darkMode}>
         <PricingEditorHeader
-          helper={pricingEditorHelperForMode(
-            showPricingEntryToggle ? pricingEntryMode : 'flat',
-            quantityHelperText
-          )}
+          helper={
+            itemId === 'roofing_system' && choiceId === 'custom_other'
+              ? 'Enter material and labor for this roof.'
+              : pricingEditorHelperForMode(
+                  showPricingEntryToggle ? pricingEntryMode : 'flat',
+                  quantityHelperText
+                )
+          }
           onDone={closePricingEditor}
           Colors={Colors}
           darkMode={darkMode}
@@ -10544,9 +10579,7 @@ function YesNoRow({
   }, [interiorPaintScopeApplied]);
 
   const showGlassDoorStylePrompt =
-    item.id === 'glass_door' &&
-    displayedState === 'included' &&
-    String(templateKey || '').toLowerCase() === 'bathroom';
+    item.id === 'glass_door' && displayedState === 'included';
   const glassDoorStyleApplied = Boolean(
     measurementsInput.pricingAcceptance?.glass_door
   );
@@ -12813,6 +12846,45 @@ function ChoiceRow({
     stored: measurementsInput.trimFinishFieldPaintIncluded,
   });
   const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+  const [showOtherRoofSystems, setShowOtherRoofSystems] = useState(false);
+  const roofSystemCard = item.id === 'roofing_system';
+  const roofSystemCollapsed =
+    roofSystemCard && inScope && !showOtherRoofSystems;
+  const roofChoiceIds = roofSystemCard
+    ? roofingSystemChoicesForConfirm({
+        notes: originalNotes,
+        selectedId: displayedChoiceId,
+      })
+    : [];
+  const visibleChoiceOptions = roofSystemCard
+    ? (roofSystemCollapsed
+        ? displayedChoiceId
+          ? [
+              {
+                id: displayedChoiceId,
+                label: roofingSystemChipLabel(displayedChoiceId, true),
+              },
+            ]
+          : []
+        : [...roofChoiceIds, CUSTOM_ROOF_SYSTEM_ID].map(id => ({
+            id,
+            label:
+              id === CUSTOM_ROOF_SYSTEM_ID
+                ? 'Something else'
+                : roofingSystemChipLabel(id, false),
+          }))
+      )
+    : item.options || [];
+  const selectRoofSystem = useCallback(
+    (choiceId: string) => {
+      setShowOtherRoofSystems(false);
+      if (displayedChoiceId === choiceId) return;
+      optimisticChoiceRef.current = choiceId;
+      setOptimisticChoiceId(choiceId);
+      requestAnimationFrame(() => onSelectRef.current(choiceId));
+    },
+    [displayedChoiceId]
+  );
 
   return (
     <View
@@ -12883,7 +12955,7 @@ function ChoiceRow({
         </Text>
       ) : (
         <View style={styles.choiceWrap}>
-          {(item.options || []).map(opt => {
+          {visibleChoiceOptions.map(opt => {
             const active = displayedChoiceId === opt.id;
             const isUnsure = opt.id === 'unsure';
             const isExcluded = opt.id === 'not_in_scope';
@@ -12891,7 +12963,13 @@ function ChoiceRow({
             const chipLabel =
               isTexture && opt.label.includes('—')
                 ? DRYWALL_TEXTURE_CHIP_LABEL[opt.id] || opt.label
-                : opt.label;
+                : roofSystemCard
+                  ? opt.label.replace(
+                      /\s*\((?:review before bid|PRICING_GAP)\)\s*/i,
+                      ''
+                    )
+                  : opt.label;
+            const roofSystemChipFull = roofSystemCollapsed;
             const chipInactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
             let borderColor = chipInactiveStyle.borderColor;
             let backgroundColor = chipInactiveStyle.backgroundColor;
@@ -12909,7 +12987,7 @@ function ChoiceRow({
                   ? QM_MEASUREMENT_SHELL_FILL_DARK
                   : 'rgba(0,0,0,0.04)';
                 textColor = darkMode ? '#F5F7FA' : Colors.text;
-              } else if (isTexture) {
+              } else if (isTexture || roofSystemCard) {
                 borderColor = '#2dcc9a';
                 backgroundColor = 'rgba(45,204,154,0.16)';
                 textColor = '#2dcc9a';
@@ -12926,7 +13004,8 @@ function ChoiceRow({
                 activeOpacity={0.88}
                 onPress={() => {
                   hapticTap();
-                  handleLocalChoice(opt.id);
+                  if (roofSystemCard) selectRoofSystem(opt.id);
+                  else handleLocalChoice(opt.id);
                 }}
                 style={[
                   styles.choiceChipWide,
@@ -12942,6 +13021,11 @@ function ChoiceRow({
                     : null,
                   isTexture
                     ? isUnsure
+                      ? styles.roofingChoiceChipFull
+                      : styles.roofingChoiceChipHalf
+                    : null,
+                  roofSystemCard
+                    ? roofSystemChipFull
                       ? styles.roofingChoiceChipFull
                       : styles.roofingChoiceChipHalf
                     : null,
@@ -12965,6 +13049,33 @@ function ChoiceRow({
               </TouchableOpacity>
             );
           })}
+          {roofSystemCard && inScope ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                hapticTap();
+                setShowOtherRoofSystems(open => !open);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                roofSystemCollapsed
+                  ? 'Change roofing system'
+                  : 'Show the selected roofing system'
+              }
+              style={styles.roofingSystemTextAction}
+            >
+              <Text
+                style={{
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 13,
+                  fontWeight: '600',
+                  textAlign: 'center',
+                }}
+              >
+                {roofSystemCollapsed ? 'Change roofing system' : 'Show less'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
       {showToiletRelocateFloorPrompt ? (
@@ -13028,7 +13139,9 @@ function ChoiceRow({
       ) : null}
       {item.id === 'texture' &&
       displayedChoiceId !== 'custom_specialty' &&
-      isDrywallCompletePackageScope({ templateKey }) ? null : (
+      isDrywallCompletePackageScope({ templateKey }) ? null : roofSystemCard &&
+        !roofSystemCollapsed &&
+        displayedChoiceId === CUSTOM_ROOF_SYSTEM_ID ? null : (
       <QuantitySection
         itemId={item.id}
         choiceId={item.choiceId}
@@ -17252,6 +17365,9 @@ function CollapsibleQuickMeasurements({
     measurements.planImportMode,
     notes,
   ]);
+  useEffect(() => {
+    setMeasurements(prev => applyDedicatedElectricalNoteCounts(prev, notes));
+  }, [measurements, notes, setMeasurements]);
 
   const fieldResults = useMemo(() => {
     const resolved = resolveQuickMeasurementFields({
@@ -18602,10 +18718,16 @@ function CollapsibleQuickMeasurements({
         } else {
           delete itemQuantities.glass_door;
         }
+        const demo = { ...latest.demo };
+        forceAnsweredRemovalCounts(
+          readShowerRemovalPieces(prev.showerRemovalPieces),
+          demoOverridesRef.current,
+          demo
+        );
         return {
           ...prev,
           ...latest.existing,
-          ...latest.demo,
+          ...demo,
           bathCount: stepper.bathCount,
           tilePanBathCount: stepper.tilePanBathCount,
           prefabBathCount: stepper.prefabBathCount,
@@ -18704,6 +18826,11 @@ function CollapsibleQuickMeasurements({
       if (demoOverride) {
         overrides[demoOverride.key] = true;
       }
+      forceAnsweredRemovalCounts(
+        readShowerRemovalPieces(measurements.showerRemovalPieces),
+        overrides,
+        {}
+      );
       // Use the optimistic row state as the override source. Reading only
       // from the parent measurements here replays stale note-inferred counts
       // and makes a tap on one stepper appear to toggle a sibling row.
@@ -18714,6 +18841,11 @@ function CollapsibleQuickMeasurements({
       if (demoOverride) {
         stored[demoOverride.key] = demoOverride.value;
       }
+      forceAnsweredRemovalCounts(
+        readShowerRemovalPieces(measurements.showerRemovalPieces),
+        overrides,
+        stored
+      );
       // Drop stale "demo off" overrides when install/notes inference turns that row back on.
       if (!demoOverride) {
         (Object.keys(auto) as WetAreaDemoOverrideKey[]).forEach(key => {
@@ -19331,7 +19463,11 @@ function CollapsibleQuickMeasurements({
   const renderDemoSqftField = (
     label: string,
     helperText: string,
-    field: 'showerWallTileSqft' | 'showerFloorTileSqft' | 'bathroomFloorSqft',
+    field:
+      | 'showerWallTileSqft'
+      | 'showerFloorTileSqft'
+      | 'bathroomFloorSqft'
+      | 'wallDemoSqft',
     options?: {
       syncExistingWall?: boolean;
       syncExistingFloor?: boolean;
@@ -19341,6 +19477,23 @@ function CollapsibleQuickMeasurements({
   ) => {
     const value = String(measurements[field] ?? '');
     const applySqftChange = (cleaned: string) => {
+      if (field === 'wallDemoSqft') {
+        setMeasurements(prev => {
+          const itemQuantities = { ...(prev.itemQuantities || {}) };
+          const qty = Number(String(cleaned).replace(/,/g, ''));
+          if (Number.isFinite(qty) && qty > 0) {
+            itemQuantities.wall_demo = {
+              quantity: qty,
+              unit: 'sqft',
+              quantitySource: 'user_entered',
+            };
+          } else {
+            delete itemQuantities.wall_demo;
+          }
+          return { ...prev, wallDemoSqft: cleaned, itemQuantities };
+        });
+        return;
+      }
       setMeasurements(prev => {
         const itemQuantities = { ...(prev.itemQuantities || {}) };
         const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
@@ -19720,31 +19873,59 @@ function CollapsibleQuickMeasurements({
   };
 
   const renderDemoTearOutPanel = () => {
+    const showerRemovalChoice = readShowerRemovalChoice(
+      measurements.showerRemovalChoice
+    );
+    const showerRemovalPieces = readShowerRemovalPieces(
+      measurements.showerRemovalPieces
+    );
+    const answeredRemoval = (piece: string) => showerRemovalPieces.includes(piece as never);
     if (fixtureOnlyBathroomRemoval) return null;
-    if (keepingExistingWetArea && !explicitWetAreaDemoInNotes) return null;
+    if (
+      keepingExistingWetArea &&
+      !explicitWetAreaDemoInNotes &&
+      !showerRemovalChoice &&
+      showerRemovalPieces.length === 0
+    ) {
+      return null;
+    }
     const takeoff = bathroomNoteTakeoff(notes);
+    const showAnsweredPanRemoval = showerRemovalWantsPan(
+      showerRemovalChoice,
+      showerRemovalPieces
+    );
+    const showAnsweredWallRemoval = showerRemovalWantsWalls(
+      showerRemovalChoice,
+      showerRemovalPieces
+    );
     const showDemoShowerWallTile =
+      showAnsweredWallRemoval ||
       takeoff.showerWallDemo ||
       showBathroomNote(
       /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,70}\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b|\b(?:shower\s+walls?(?:\s+tile)?|shower\s+wall\s+tile|wall\s+tile|shower\s+tile)\b[^.]{0,40}\b(?:remove|demo|demolition|tear[\s-]?out)\b/i
     );
-    const showRemoveTub = showBathroomNote(/\btub\b/i);
-    const showRemoveTilePan = showBathroomNote(
-      /\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i
-    );
+    const showRemoveTub = showBathroomNote(/\btub\b/i) || answeredRemoval('tub');
+    const tilePanPiece = answeredRemoval('tile_pan');
+    const showRemoveTilePan =
+      showBathroomNote(/\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i) ||
+      tilePanPiece;
     const showDemoPanSqft =
-      showRemoveTilePan &&
-      demoCounts.demoTilePanCount != null &&
-      demoCounts.demoTilePanCount > 0 &&
-      showBathroomNote(/\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i);
-    const showRemovePrefabPan = showBathroomNote(
-      /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/i
-    );
-    const showRemovePrefabEnclosure = showBathroomNote(
-      /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/i
-    );
+      tilePanPiece ||
+      (showRemoveTilePan &&
+        demoCounts.demoTilePanCount != null &&
+        demoCounts.demoTilePanCount > 0 &&
+        showBathroomNote(/\b(?:tile\s+shower\s+pan|tile\s+pan|mud\s+pan)\b/i));
+    const showRemovePrefabPan =
+      showBathroomNote(
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out|haul(?:ed)?[\s-]?off|coming out)\b[^.]{0,90}\bprefab\s+(?:shower\s+)?(?:pan|base)\b|\bprefab\s+(?:shower\s+)?(?:pan|base)\b[^.]{0,90}\b(?:remove|demo|demolition|tear[\s-]?out|coming out)\b/i
+      ) || answeredRemoval('prefab_pan');
+    const showRemovePrefabEnclosure =
+      showBathroomNote(/\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/i) ||
+      answeredRemoval('prefab_enclosure');
     const showRemoveShowerDoor =
-      !bathroomNotesCardFilter || notesMentionDemoShowerDoor(bathroomNoteText);
+      answeredRemoval('shower_door') ||
+      !bathroomNotesCardFilter ||
+      notesMentionDemoShowerDoor(bathroomNoteText);
     const showDemoBathFloor = takeoff.bathFloorDemo;
     const onlyBathFloorDemo =
       showDemoBathFloor &&
@@ -19763,7 +19944,8 @@ function CollapsibleQuickMeasurements({
       !showRemovePrefabPan &&
       !showRemovePrefabEnclosure &&
       !showRemoveShowerDoor &&
-      !showDemoBathFloor
+      !showDemoBathFloor &&
+      !showAnsweredPanRemoval
     ) {
       return null;
     }
@@ -19803,9 +19985,22 @@ function CollapsibleQuickMeasurements({
         </Text>
         {showDemoShowerWallTile
           ? renderDemoSqftField(
-              'Demo shower wall tile',
-              'Tear-out wall area for this job (also used for new shower wall tile takeoff).',
-              'showerWallTileSqft'
+              showAnsweredWallRemoval && !takeoff.showerWallDemo
+                ? 'Demo shower walls'
+                : 'Demo shower wall tile',
+              showAnsweredWallRemoval && !takeoff.showerWallDemo
+                ? 'Uses the wall area already stated.'
+                : 'Tear-out wall area for this job (also used for new shower wall tile takeoff).',
+              showAnsweredWallRemoval && !takeoff.showerWallDemo
+                ? 'wallDemoSqft'
+                : 'showerWallTileSqft'
+            )
+          : null}
+        {showAnsweredPanRemoval && !showRemoveTilePan && !showRemovePrefabPan
+          ? renderBathCountStepper(
+              'Remove shower pan',
+              demoCounts.demoTilePanCount,
+              d => adjustDemoCount('demoTilePanCount', d)
             )
           : null}
         {showRemoveTub
@@ -19813,7 +20008,7 @@ function CollapsibleQuickMeasurements({
               adjustDemoCount('demoTubCount', d)
             )
           : null}
-        {showRemoveTilePan
+        {showRemoveTilePan && !tilePanPiece
           ? renderBathCountStepper(
               'Remove tile shower pan',
               demoCounts.demoTilePanCount,
@@ -22351,7 +22546,14 @@ function CollapsibleQuickMeasurements({
     },
     [patchElectricalAttributes]
   );
-  const electricalQmMeasurements = measurements as Record<string, unknown>;
+  const electricalQmMeasurements = useMemo(
+    () =>
+      applyDedicatedElectricalNoteCounts(
+        measurements as Record<string, unknown>,
+        notes
+      ),
+    [measurements, notes]
+  );
   const patchElectricalQuantity = useCallback(
     (field: string, value: string) => {
       if (!value.startsWith('release:')) {
@@ -25639,7 +25841,7 @@ export default function AIEstimateScopeAssumptionsModal({
           !(specificFlooringProduct && item.id === 'flooring')
       ),
       scopeNotes,
-      selectedFlooringProductItemIds(measurements)
+      retainedFlooringConfirmItemIds(measurements)
     )
       .map((item, index) => ({
         item:
@@ -25673,6 +25875,8 @@ export default function AIEstimateScopeAssumptionsModal({
     plumbingItemIds,
     stuccoTradeFlow,
     measurements.flooringExistingTypes,
+    measurements.scopeFoundPieces,
+    measurements.scopeFoundChoice,
     measurements.itemQuantities,
     measurements.demoTilePanCount,
     measurements.tradeScopeSelections,
@@ -25763,6 +25967,12 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.contractorRemovedScopeItemIds,
       measurements.showerFloorTileSqft,
       measurements.exteriorWallInsulationSqft,
+      measurements.showerRemovalChoice,
+      measurements.scopeFoundClarificationId,
+      measurements.scopeFoundChoice,
+      measurements.scopeFoundPieces,
+      measurements.demoTilePanCount,
+      measurements.wallDemoSqft,
       notesFallback,
       planImport,
       scopeNotes,
@@ -26316,6 +26526,89 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [checklist?.templateKey, enrichedPricingContext, scopeNotes]
   );
+
+  const answeredShowerRemoval = readShowerRemovalChoice(
+    draft?.scopeMeasurements?.showerRemovalChoice
+  );
+  const answeredShowerPieces = readShowerRemovalPieces(
+    draft?.scopeMeasurements?.showerRemovalPieces
+  );
+  const answeredShowerPiecesKey = answeredShowerPieces.join(',');
+  useEffect(() => {
+    if (!answeredShowerRemoval && !answeredShowerPiecesKey) return;
+    setMeasurementsSynced(prev => {
+      const sameChoice =
+        readShowerRemovalChoice(prev.showerRemovalChoice) === answeredShowerRemoval;
+      const samePieces =
+        readShowerRemovalPieces(prev.showerRemovalPieces).join(',') ===
+        answeredShowerPiecesKey;
+      if (sameChoice && samePieces) return prev;
+      return measurementsForShowerRemovalChoice(
+        prev as unknown as Record<string, unknown>,
+        answeredShowerPiecesKey ? answeredShowerPieces : answeredShowerRemoval || 'none',
+        draft?.originalNotes
+      ) as ScopeMeasurementsInputExtended;
+    });
+  }, [
+    answeredShowerPieces,
+    answeredShowerPiecesKey,
+    answeredShowerRemoval,
+    draft?.originalNotes,
+    setMeasurementsSynced,
+  ]);
+
+  const answeredScopeFoundId = readScopeFoundClarificationId(
+    draft?.scopeMeasurements?.scopeFoundClarificationId
+  );
+  const answeredScopeFoundChoice = readScopeFoundChoice(
+    draft?.scopeMeasurements?.scopeFoundChoice
+  );
+  const answeredScopeFoundPieces = readScopeFoundPieces(
+    draft?.scopeMeasurements?.scopeFoundPieces
+  );
+  const answeredScopeFoundPiecesKey = answeredScopeFoundPieces.join(',');
+  useEffect(() => {
+    if (!answeredScopeFoundId || (!answeredScopeFoundChoice && !answeredScopeFoundPiecesKey)) {
+      return;
+    }
+    setMeasurementsSynced(prev => {
+      const samePieces =
+        readScopeFoundPieces(prev.scopeFoundPieces).join(',') === answeredScopeFoundPiecesKey;
+      const islandStillUnset =
+        answeredScopeFoundPieces.includes('island') &&
+        !(Number(prev.kitchenDemoIslandCount) > 0);
+      const electricalRemovalStillUnset =
+        (answeredScopeFoundPieces.includes('electrical_panel') &&
+          !(Number(prev.panelRemovalCount) > 0)) ||
+        (answeredScopeFoundPieces.includes('electrical_fixtures') &&
+          !(Number(prev.fixtureRemovalCount) > 0)) ||
+        (answeredScopeFoundPieces.includes('electrical_wiring') &&
+          !(Number(prev.abandonedCircuitCount) > 0));
+      if (
+        readScopeFoundClarificationId(prev.scopeFoundClarificationId) ===
+          answeredScopeFoundId &&
+        readScopeFoundChoice(prev.scopeFoundChoice) === answeredScopeFoundChoice &&
+        samePieces &&
+        !islandStillUnset &&
+        !electricalRemovalStillUnset
+      ) {
+        return prev;
+      }
+      return measurementsForScopeFoundChoice(
+        prev as unknown as Record<string, unknown>,
+        answeredScopeFoundId,
+        answeredScopeFoundPiecesKey ? answeredScopeFoundPieces : answeredScopeFoundChoice || 'none',
+        draft?.originalNotes
+      ) as ScopeMeasurementsInputExtended;
+    });
+  }, [
+    answeredScopeFoundChoice,
+    answeredScopeFoundId,
+    answeredScopeFoundPieces,
+    answeredScopeFoundPiecesKey,
+    draft?.originalNotes,
+    setMeasurementsSynced,
+  ]);
 
   const previewElectricalAttributes = useCallback(
     (
@@ -27949,7 +28242,15 @@ export default function AIEstimateScopeAssumptionsModal({
         ) {
           return false;
         }
-        if (item.id === 'countertop_demo' && !explicitCountertopRemoval) {
+        const selectedCounterDemo =
+          readScopeFoundPieces(nextMeasurements.scopeFoundPieces).includes(
+            'countertops'
+          ) || Number(nextMeasurements.kitchenDemoCounterCount) > 0;
+        if (
+          item.id === 'countertop_demo' &&
+          !explicitCountertopRemoval &&
+          !selectedCounterDemo
+        ) {
           return false;
         }
         return true;
@@ -29072,12 +29373,16 @@ export default function AIEstimateScopeAssumptionsModal({
       notes: scopeNotes,
       wholeProjectPlan: wholeProjectPlanChecklist,
       planImportTradeKey: concretePlanExport ? 'concrete' : null,
-      retainFlooringItemIds: selectedFlooringProductItemIds(measurements),
+      retainFlooringItemIds: retainedFlooringConfirmItemIds(measurements),
     }),
     [
       concretePlanExport,
       draft?.projectType,
       measurements.flooringProductScope,
+      measurements.flooringExistingTypes,
+      measurements.scopeFoundPieces,
+      measurements.scopeFoundChoice,
+      measurements.itemQuantities,
       scopeNotes,
       wholeProjectPlanChecklist,
     ]
@@ -29285,7 +29590,11 @@ export default function AIEstimateScopeAssumptionsModal({
             )
         );
       if (namedKitchenApplianceHookup) return true;
+      const bathroomFixtureEmbed = bathroomFixtureQmEmbedApplies(
+        checklist?.templateKey
+      );
       if (
+        bathroomFixtureEmbed &&
         shouldHideBathroomFixtureScopeCardInQmEmbed(
           itemId,
           measurements as Record<string, unknown>,
@@ -29294,7 +29603,12 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         return true;
       }
-      if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
+      if (
+        bathroomFixtureEmbed &&
+        BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)
+      ) {
+        return false;
+      }
       if (
         shouldHideKitchenScopeCardInQmEmbed(
           itemId,
@@ -30040,6 +30354,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringLvpSqft,
     measurements.kitchenInstallApplianceCount,
     measurements.kitchenInstallIslandCount,
+    measurements.scopeFoundPieces,
+    measurements.scopeFoundChoice,
     measurements.kitchenDemoCabinetCount,
     measurements.kitchenDemoCounterCount,
     measurements.kitchenDemoBacksplashCount,
@@ -33432,6 +33748,21 @@ export default function AIEstimateScopeAssumptionsModal({
             if (!nextChoiceId) {
               handleClearAcceptedPricing(item.id);
             }
+            if (item.id === 'roofing_system' && nextChoiceId) {
+              handleClearAcceptedPricing(item.id);
+              if (isResidentialRoofSystem(nextChoiceId)) {
+                setMeasurementsSynced(m => ({
+                  ...m,
+                  roofingSystemChoice: nextChoiceId,
+                }));
+              }
+              if (nextChoiceId === CUSTOM_ROOF_SYSTEM_ID) {
+                setPricingEditorRequest({
+                  itemId: item.id,
+                  token: Date.now(),
+                });
+              }
+            }
             if (item.id === 'toilet' && nextChoiceId !== 'relocating') {
               setMeasurementsSynced(m => ({
                 ...m,
@@ -35220,7 +35551,7 @@ export default function AIEstimateScopeAssumptionsModal({
                     }
                     cardHeader={Boolean(group.title) && groupPrice <= 0}
                     includesNote={
-                      group.title === 'Roofing System' &&
+                      group.title === 'New roof' &&
                       shinglePriceIncludesStandardEdge
                         ? roofMaterialPriceIncludes(
                             readRoofMaterialChoice(measurements)
@@ -36093,8 +36424,10 @@ const styles = StyleSheet.create({
     width: '48%',
     minWidth: '48%',
     maxWidth: '48%',
+    minHeight: 44,
     flexGrow: 0,
     flexShrink: 0,
+    justifyContent: 'center',
   },
   roofingChoiceChipFull: {
     width: '100%',
@@ -36102,6 +36435,12 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     flexGrow: 0,
     flexShrink: 0,
+  },
+  roofingSystemTextAction: {
+    width: '100%',
+    paddingTop: 2,
+    paddingBottom: 0,
+    alignItems: 'center',
   },
   stuccoChoiceChip: {
     width: '48%',

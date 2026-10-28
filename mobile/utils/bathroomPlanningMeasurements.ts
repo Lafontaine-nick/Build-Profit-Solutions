@@ -56,7 +56,10 @@ export function parseVanityCabinetLfFromNotes(
       /\b(\d{2,3})\s*(?:"|''|inch(?:es)?|in\.?)\s+\w+\s+vanity\b/i
     ) ||
     text.match(/\bvanity\s*(\d{2,3})\s*(?:"|''|inch(?:es)?|in\.?)\b/i) ||
-    text.match(/\b(\d{2,3})\s*[-\s]?inch\s+(?:double|single\s+)?vanity\b/i);
+    text.match(/\b(\d{2,3})\s*[-\s]?inch\s+(?:double|single\s+)?vanity\b/i) ||
+    text.match(
+      /\bvanity\b[^.]{0,30}?\b(\d{2,3})\s*(?:"|''|inch(?:es)?|in\.?)\b/i
+    );
   if (!match) return null;
   const inches = Number(match[1]);
   if (!(inches >= 24 && inches <= 96)) return null;

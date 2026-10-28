@@ -2,6 +2,48 @@ import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimat
 import { formatScopeQuantity } from '@/utils/estimateDraftReviewUi';
 
 describe('formatScopeQuantity', () => {
+  test('separate wall and ceiling paint keep their own areas', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'painting' },
+      scopeMeasurements: {
+        paintPricingMethod: 'separate',
+        wallPaintSqft: 400,
+        ceilingPaintSqft: 1200,
+      },
+    } as EstimateAiDraft;
+    const storedWall = [{ quantity: 400, unit: 'sqft' }];
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Paint prep & masking',
+          checklistItemId: 'prep',
+          scopeQuantities: storedWall,
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('1,600 sqft');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Interior paint',
+          checklistItemId: 'interior_paint',
+          scopeQuantities: storedWall,
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('400 sqft');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Ceiling Paint',
+          checklistItemId: 'interior_paint',
+          scopeQuantities: storedWall,
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('1,200 sqft');
+  });
+
   const draft = {
     scopeChecklist: { templateKey: 'kitchen' },
   } as EstimateAiDraft;
@@ -113,5 +155,68 @@ describe('formatScopeQuantity', () => {
         } as EstimateAiDraft
       )
     ).toBe('6,860 sqft');
+  });
+
+  test('a flooring style demo shows its own removal area', () => {
+    const draft = {
+      scopeMeasurements: {
+        itemQuantities: {
+          floor_demo: { quantity: 3200, unit: 'sqft' },
+          floor_demo__carpet: { quantity: 2000, unit: 'sqft' },
+          floor_demo__tile: { quantity: 1200, unit: 'sqft' },
+        },
+      },
+    } as EstimateAiDraft;
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Remove carpet',
+          checklistItemId: 'floor_demo_style_carpet',
+          scopeQuantities: [{ quantity: 3200, unit: 'sqft' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('2,000 sqft');
+  });
+
+  test('a ceiling fan review row keeps the counted fans', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'electrical' },
+      scopeMeasurements: {
+        standardReceptacleCount: 12,
+        recessedLightCount: 6,
+        ceilingFanCount: 2,
+      },
+    } as EstimateAiDraft;
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Ceiling fan',
+          checklistItemId: 'electrical_ceiling_fan',
+          scopeQuantities: [{ quantity: 1, unit: 'each' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('2 each');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Standard receptacles',
+          checklistItemId: 'electrical_standard_receptacle',
+          scopeQuantities: [{ quantity: 12, unit: 'each' }],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    ).toBe('12 each');
+    expect(
+      formatScopeQuantity(
+        {
+          name: 'Ceiling fan',
+          checklistItemId: 'electrical_ceiling_fan',
+          scopeQuantities: [{ quantity: 1, unit: 'each' }],
+        } as EstimateDraftScopePackage,
+        { scopeMeasurements: {} } as EstimateAiDraft
+      )
+    ).toBe('1 each');
   });
 });
