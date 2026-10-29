@@ -1035,6 +1035,25 @@ export type ScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+  /**
+   * Exact Step 2 Applied pricing snapshot carried into Initial Estimate and
+   * Step 3. This preserves note-backed cards that are not represented by the
+   * older generated package snapshot.
+   */
+  confirmedScopePricingSnapshot?: {
+    total: number;
+    material: number;
+    labor: number;
+    allowance: number;
+    lines: Array<{
+      itemId: string;
+      label: string;
+      total: number;
+      material: number;
+      labor: number;
+      allowance: number;
+    }>;
+  } | null;
   /** Checklist ids the contractor removed. Counts stay; the line stays off the bid. */
   contractorRemovedScopeItemIds?: string[];
   /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */

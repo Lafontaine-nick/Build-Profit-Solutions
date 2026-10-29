@@ -34273,10 +34273,14 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleConfirm = () => {
-    const confirmSource = displayItems.length
-      ? displayItems
-      : noteScopedChecklistItems.length
-        ? noteScopedChecklistItems
+    // Persist the same note-filtered card set used by Selected pricing. The
+    // unfiltered display list can omit note-backed detail cards (for example
+    // kitchen install/demo rows), which makes Step 2 correct but leaves
+    // Initial Estimate and Step 3 with the older, smaller scope snapshot.
+    const confirmSource = noteScopedChecklistItems.length
+      ? noteScopedChecklistItems
+      : displayItems.length
+        ? displayItems
         : items;
     if (applying || confirmTransitionRef.current || confirmSource.length === 0) {
       return;
@@ -34305,7 +34309,26 @@ export default function AIEstimateScopeAssumptionsModal({
       try {
         runConfirmScopeApplyWork(() => {
       commitElectricalAttributes();
-      const payload = scopeMeasurementsPayloadForCurrentState();
+      const payload = {
+        ...scopeMeasurementsPayloadForCurrentState(),
+        // Carry the exact Step 2 card math forward. The generated draft
+        // packages can lag note-backed kitchen/bath cards, so later screens
+        // must not reconstruct the total from that older package snapshot.
+        confirmedScopePricingSnapshot: {
+          total: step2AppliedPricingBreakdown.total,
+          material: step2AppliedPricingBreakdown.material,
+          labor: step2AppliedPricingBreakdown.labor,
+          allowance: step2AppliedPricingBreakdown.allowance,
+          lines: step2AppliedPricingLines.map(line => ({
+            itemId: line.itemId,
+            label: line.label,
+            total: line.total,
+            material: line.material,
+            labor: line.labor,
+            allowance: line.allowance,
+          })),
+        },
+      };
       if (__DEV__) {
         const q = payload.itemQuantities || {};
         console.log('[scope-pricing] confirm payload', {

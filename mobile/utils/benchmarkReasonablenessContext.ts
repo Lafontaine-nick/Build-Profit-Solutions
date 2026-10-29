@@ -1634,6 +1634,16 @@ export function sumAppliedScopePricingFromDraft(
   if (!draft) return null;
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
 
+  const snapshot = draft.scopeMeasurements?.confirmedScopePricingSnapshot;
+  if (snapshot && snapshot.lines?.length && snapshot.total > 0) {
+    return {
+      total: Math.round(snapshot.total * 100) / 100,
+      material: Math.round(snapshot.material * 100) / 100,
+      labor: Math.round(snapshot.labor * 100) / 100,
+      allowance: Math.round(snapshot.allowance * 100) / 100,
+    };
+  }
+
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return null;
 

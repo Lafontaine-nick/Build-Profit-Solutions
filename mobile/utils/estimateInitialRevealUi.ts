@@ -2963,6 +2963,14 @@ function stuccoNoteOwnsReveal(draft: EstimateAiDraft): boolean {
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
   if (vagueScopeQuestion(draft.originalNotes)) return 0;
+  const confirmedPricingSnapshot =
+    draft.scopeMeasurements?.confirmedScopePricingSnapshot;
+  if (
+    initialRevealPricingVisible(draft) &&
+    confirmedPricingSnapshot?.lines?.length
+  ) {
+    return confirmedPricingSnapshot.lines.length;
+  }
   const roofingApplied = appliedRoofingConfirmScopePreview(draft);
   if (roofingApplied.length) return roofingApplied.length;
   const paintingApplied = appliedPaintingConfirmScopePreview(draft);
@@ -5426,6 +5434,13 @@ export function confirmedAppliedRevealLines(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> | null {
   if (!initialRevealPricingVisible(draft)) return null;
+  const snapshot = draft.scopeMeasurements?.confirmedScopePricingSnapshot;
+  if (snapshot?.lines?.length) {
+    return snapshot.lines.map(line => ({
+      name: line.label,
+      amount: line.total,
+    }));
+  }
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return null;
   const templateKey = draft.scopeChecklist?.templateKey;

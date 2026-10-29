@@ -22,6 +22,7 @@ import {
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
   getScopeTotalCoverageLine,
+  confirmedAppliedRevealLines,
   planRevealOmitsWhatWeFound,
   initialRevealPricingVisible,
   plainLanguageReviewItem,
@@ -2034,6 +2035,57 @@ describe('estimateInitialRevealUi', () => {
     );
     expect(display.amountText).toBe('—');
     expect(display.hint).toContain('Confirm scope');
+  });
+
+  it('uses the exact Confirm Scope pricing snapshot on later screens', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      originalNotes:
+        'Remodel the kitchen and bathroom with new flooring, cabinets, countertops, and tile.',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'flooring', label: 'Flooring', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        confirmedScopePricingSnapshot: {
+          total: 2300,
+          material: 1400,
+          labor: 900,
+          allowance: 0,
+          lines: [
+            {
+              itemId: 'cabinets',
+              label: 'Cabinets',
+              total: 1800,
+              material: 1200,
+              labor: 600,
+              allowance: 0,
+            },
+            {
+              itemId: 'countertops',
+              label: 'Countertops',
+              total: 500,
+              material: 200,
+              labor: 300,
+              allowance: 0,
+            },
+          ],
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    expect(confirmedAppliedRevealLines(draft)).toEqual([
+      { name: 'Cabinets', amount: 1800 },
+      { name: 'Countertops', amount: 500 },
+    ]);
+    expect(getInitialRevealTotals(draft, 15)).toMatchObject({
+      heroTotal: 2645,
+      material: 1400,
+      labor: 900,
+      scopeItemCount: 2,
+    });
   });
 
   it('shows markup subline under hero hint when markup is applied', () => {

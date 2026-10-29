@@ -6348,9 +6348,16 @@ export default function EstimateGeneratorScreen() {
           scopeProgressItems: undefined,
           scopeAssumptionsConfirmed: true,
           requiresScopeConfirmation: false,
-          confirmedAssumptions: enriched.confirmedAssumptions?.length
-            ? enriched.confirmedAssumptions
-            : confirmedItems,
+          // Keep the exact card snapshot used by Confirm Scope. The backend
+          // can return the older generated checklist, which makes Initial
+          // Estimate / Step 3 fall back to stale package prices after Back.
+          confirmedAssumptions: confirmedItems,
+          scopeChecklist: enriched.scopeChecklist
+            ? {
+                ...enriched.scopeChecklist,
+                items: confirmedItems.map((item) => ({ ...item })),
+              }
+            : enriched.scopeChecklist,
         };
         if (__DEV__) {
           const q = enriched.scopeMeasurements?.itemQuantities || {};
