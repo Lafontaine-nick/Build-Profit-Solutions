@@ -15851,17 +15851,18 @@ function CollapsibleQuickMeasurements({
       !mixedScopeMode &&
       isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
   const compactMixedScope = mixedScopeMode && !singleTradeImport;
+  const flooringIsNamedInNotes = /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+    String(notes || '')
+  );
   const mixedScopeFlooringSelected =
-    compactMixedScope &&
-    (includedScopeKeys.includes('flooring') ||
+    includedScopeKeys.includes('flooring') ||
       includedScopeKeys.includes('floor_demo') ||
+      includedScopeKeys.includes('existing_floor_removal') ||
       includedScopeKeys.includes('floor_tile') ||
       readScopeFoundPieces(measurements.scopeFoundPieces).some(piece =>
         ['flooring', 'floor_demo', 'floor_tile'].includes(piece)
       ) ||
-      /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
-        String(notes || '')
-      ));
+      flooringIsNamedInNotes;
   const planBackedMeasurements = Boolean(
     String(measurements.planImportMode || '').trim() ||
     measurements.planImportFingerprint
@@ -21538,12 +21539,14 @@ function CollapsibleQuickMeasurements({
         kitchenNoteNamesSurfaceDemo(String(notes || ''), 'cabinet')) ||
       (kitchenQmJob &&
         result.key === 'flooringSqft' &&
-        !notesDescribeMeasuredWholeHomeRemodel(notes)) ||
+        !notesDescribeMeasuredWholeHomeRemodel(notes) &&
+        !mixedScopeFlooringSelected) ||
       (compactMixedScope &&
         kitchenInstallQmJob &&
         (result.key === 'floorDemoSqft' ||
           (result.key === 'flooringSqft' &&
-            !notesDescribeMeasuredWholeHomeRemodel(notes)))) ||
+            !notesDescribeMeasuredWholeHomeRemodel(notes))) &&
+        !mixedScopeFlooringSelected) ||
       (compactMixedScope &&
         result.key === 'framingOpeningCount' &&
         /\b(?:windows?|exterior\s+doors?|doors?)\b/i.test(
@@ -21555,13 +21558,16 @@ function CollapsibleQuickMeasurements({
       (flooringQmJob &&
         !compactMixedScope &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
+        !mixedScopeFlooringSelected &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
       (flooringQmJob &&
         !compactMixedScope &&
-        result.key === 'floorPrepSqft') ||
+        result.key === 'floorPrepSqft' &&
+        !mixedScopeFlooringSelected) ||
       (flooringQmJob &&
         !compactMixedScope &&
         result.key === 'flooringSqft' &&
+        !mixedScopeFlooringSelected &&
         !notesNameWallAreaFramingWithFlooring(String(notes || ''))) ||
       (flooringPlanOmitsExistingWork && result.key === 'floorAreaSqft') ||
       (flooringPlanOmitsExistingWork &&
@@ -21603,7 +21609,8 @@ function CollapsibleQuickMeasurements({
         result.key === 'kitchenFloorSqft') ||
       (explicitBathroomScopeInNotes &&
         !explicitKitchenWordInNotes &&
-        result.key === 'flooringSqft') ||
+        result.key === 'flooringSqft' &&
+        !mixedScopeFlooringSelected) ||
       (compactBathroomPlumbingFlow && result.key === 'cabinetLf') ||
       (explicitBathroomScopeInNotes &&
         !explicitKitchenWordInNotes &&
@@ -26243,6 +26250,7 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey: scopePricingTemplateKey,
         notes: scopeNotes,
         pricingContext: enrichedPricingContext,
+        appliedOnly: true,
       }),
     [
       appliedPricingItems,
@@ -26261,6 +26269,7 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey: scopePricingTemplateKey,
         notes: scopeNotes,
         pricingContext: enrichedPricingContext,
+        appliedOnly: true,
       }),
     [
       appliedPricingItems,
@@ -26419,6 +26428,7 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
   const hydratedVisibleSessionRef = useRef(false);
+  const hydratedDraftScopeRestoreKeyRef = useRef<string | null>(null);
   const [scopeHydrated, setScopeHydrated] = useState(false);
   const [scopeDisplayReady, setScopeDisplayReady] = useState(false);
   const livePlanImportHandoffKeyRef = useRef('');
@@ -27181,8 +27191,14 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       return;
     }
-    if (hydratedVisibleSessionRef.current) return;
+    if (
+      hydratedVisibleSessionRef.current &&
+      hydratedDraftScopeRestoreKeyRef.current === draftScopeRestoreKey
+    ) {
+      return;
+    }
     hydratedVisibleSessionRef.current = true;
+    hydratedDraftScopeRestoreKeyRef.current = draftScopeRestoreKey;
     selectedPricingRef.current = {};
     const draftForScope =
       draft && scopeNotes.trim()
@@ -28836,6 +28852,7 @@ export default function AIEstimateScopeAssumptionsModal({
     setElectricalPreviewMeasurements(null);
     livePlanImportHandoffKeyRef.current = '';
     hydratedVisibleSessionRef.current = false;
+    hydratedDraftScopeRestoreKeyRef.current = null;
     setScopeHydrated(false);
     baseItemsRef.current = [];
     setNotesTradeMode('whole_project');
@@ -34915,7 +34932,8 @@ export default function AIEstimateScopeAssumptionsModal({
               repairedScopeDraft,
               mixedScopeReviewMode ? 'room_remodel' : checklist?.templateKey,
               mixedScopeTradesFromDraft(repairedScopeDraft),
-              scopeNotes
+              scopeNotes,
+              scopeAssemblyContext.activeScopeKeys
             )}
             mixedScopeMode={
               dedicatedElectricalChecklist ? false : mixedScopeReviewMode

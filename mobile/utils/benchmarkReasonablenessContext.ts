@@ -934,12 +934,20 @@ export function listConfirmScopeAppliedPricingLines(params: {
   templateKey?: string | null;
   notes?: string | null;
   pricingContext?: ScopePricingContext | null;
+  /** When true, exclude visible suggestions until the contractor taps Apply. */
+  appliedOnly?: boolean;
 }): ConfirmScopeAppliedPricingLine[] {
   const lines: ConfirmScopeAppliedPricingLine[] = [];
   const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
   let statedTrimListed = false;
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
+    const hasAppliedPricing = hasAcceptedScopePricing(
+      item.id,
+      params.measurements.itemQuantities,
+      params.measurements.pricingAcceptance
+    );
+    if (params.appliedOnly && !hasAppliedPricing) continue;
     const statedScope = measuredWholeHomeStatedScopeFill(
       item.id,
       params.measurements,
@@ -1485,6 +1493,8 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
   templateKey?: string | null;
   notes?: string | null;
   pricingContext?: ScopePricingContext | null;
+  /** When true, exclude visible suggestions until the contractor taps Apply. */
+  appliedOnly?: boolean;
 }): ConfirmScopeAppliedPricingBreakdown {
   const out: ConfirmScopeAppliedPricingBreakdown = {
     total: 0,
@@ -1496,6 +1506,12 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
   let statedTrimListed = false;
   for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
+    const hasAppliedPricing = hasAcceptedScopePricing(
+      item.id,
+      params.measurements.itemQuantities,
+      params.measurements.pricingAcceptance
+    );
+    if (params.appliedOnly && !hasAppliedPricing) continue;
     const statedScope = measuredWholeHomeStatedScopeFill(
       item.id,
       params.measurements,

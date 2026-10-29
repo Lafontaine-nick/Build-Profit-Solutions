@@ -4038,6 +4038,8 @@ export const QmBathroomFixturesPanels = React.memo(
       const [toiletFaucet, setToiletFaucet] = useState<BathroomToiletFaucetCounts>(
         () => inferBathroomToiletFaucetCounts(notes)
       );
+      const toiletFaucetRef = useRef(toiletFaucet);
+      toiletFaucetRef.current = toiletFaucet;
       const genRef = useRef(0);
       const appliedRef = useRef(0);
       const fixtureInstallNotesSeededRef = useRef('');
@@ -4941,19 +4943,24 @@ export const QmBathroomFixturesPanels = React.memo(
               ]}
               counts={toiletFaucet as Record<string, number | null>}
               onAdjust={(key, delta) => {
-                setToiletFaucet(prev => {
-                  const current = Number(prev[key as keyof BathroomToiletFaucetCounts] ?? 0);
-                  const nextValue = Math.max(0, Math.min(BATHROOM_QM_STEPPER_MAX, current + delta));
-                  const next = {
-                    ...prev,
-                    [key]: nextValue > 0 ? nextValue : null,
-                  };
-                  setMeasurements(measurementsPrev => ({
-                    ...measurementsPrev,
-                    ...next,
-                  }));
-                  return next;
-                });
+                const previous = toiletFaucetRef.current;
+                const current = Number(
+                  previous[key as keyof BathroomToiletFaucetCounts] ?? 0
+                );
+                const nextValue = Math.max(
+                  0,
+                  Math.min(BATHROOM_QM_STEPPER_MAX, current + delta)
+                );
+                const next = {
+                  ...previous,
+                  [key]: nextValue > 0 ? nextValue : null,
+                };
+                toiletFaucetRef.current = next;
+                setToiletFaucet(next);
+                setMeasurements(measurementsPrev => ({
+                  ...measurementsPrev,
+                  ...next,
+                }));
               }}
               applying={applying}
               stepperMax={BATHROOM_QM_STEPPER_MAX}

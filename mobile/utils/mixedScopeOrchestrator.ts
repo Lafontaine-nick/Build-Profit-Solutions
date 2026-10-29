@@ -92,6 +92,65 @@ export function normalizeMixedScopeTradeKey(
   return TRADE_ALIASES[String(trade || '').trim().toLowerCase()] || null;
 }
 
+const MIXED_SCOPE_NOTE_TRADE_PATTERNS: ReadonlyArray<
+  readonly [MixedScopeTradeKey, RegExp]
+> = [
+  ['bathroom', /\b(?:bath(?:room)?s?|showers?|tubs?|vanit(?:y|ies)|toilets?)\b/i],
+  ['kitchen', /\bkitchen\b|\b(?:cabinets?|countertops?|backsplashes?|islands?)\b/i],
+  ['flooring', /\b(?:floor(?:ing)?|lvp|carpet|laminate|vinyl\s+plank)\b/i],
+  ['painting', /\b(?:paint(?:ing)?|repaint)\b/i],
+  ['windows_doors', /\b(?:windows?|doors?)\b/i],
+  ['drywall', /\b(?:drywall|sheetrock|gypsum)\b/i],
+  ['insulation', /\binsulat(?:e|ion|ed)\b/i],
+  ['roofing', /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i],
+  ['hvac', /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i],
+  ['stucco', /\bstucco\b/i],
+  ['plumbing', /\b(?:plumbing|toilets?|faucets?|drains?|water\s+lines?)\b/i],
+  ['electrical', /\b(?:electrical|wiring|outlets?|receptacles?|panels?|circuits?)\b/i],
+  ['concrete', /\b(?:concrete|flatwork|patio|slab|footings?|foundation)\b/i],
+  ['landscaping', /\b(?:landscap(?:e|ing)|sod|turf|mulch|pavers?|irrigation)\b/i],
+  ['framing', /\b(?:frame|framing|framed|headers?|blocking|sheathing)\b/i],
+];
+
+const MIXED_SCOPE_KEY_TRADE_PATTERNS: ReadonlyArray<
+  readonly [MixedScopeTradeKey, RegExp]
+> = [
+  ['bathroom', /\bbath(?:room)?|wet_area|shower|tub|vanity|toilet/i],
+  ['kitchen', /\bkitchen|cabinet|countertop|backsplash|island/i],
+  ['flooring', /\bfloor(?:ing)?|lvp|tile_floor/i],
+  ['painting', /\bpaint(?:ing)?|repaint/i],
+  ['drywall', /\bdrywall|sheetrock|gypsum/i],
+  ['insulation', /\binsulat/i],
+  ['roofing', /\broof|shingle/i],
+  ['hvac', /\bhvac|ductwork|thermostat|register|grille/i],
+  ['stucco', /\bstucco/i],
+  ['plumbing', /\bplumbing|fixture|drain|toilet|faucet/i],
+  ['electrical', /\belectrical|receptacle|outlet|panel|circuit/i],
+  ['concrete', /\bconcrete|flatwork|patio|slab|foundation/i],
+  ['landscaping', /\blandscap|sod|turf|mulch|paver/i],
+  ['framing', /\bframe|framing|sheath|header|opening/i],
+];
+
+export function mixedScopeTradesFromNotes(
+  notes: string | null | undefined
+): MixedScopeTradeKey[] {
+  const text = String(notes || '');
+  if (!text.trim() || !notesDescribeMixedProjectScope(text)) return [];
+  return MIXED_SCOPE_NOTE_TRADE_PATTERNS.filter(([, pattern]) =>
+    pattern.test(text)
+  ).map(([trade]) => trade);
+}
+
+function mixedScopeTradesFromScopeKeys(
+  scopeKeys?: string[]
+): MixedScopeTradeKey[] {
+  const text = (scopeKeys || []).join(' ');
+  if (!text.trim()) return [];
+  return MIXED_SCOPE_KEY_TRADE_PATTERNS.filter(([, pattern]) =>
+    pattern.test(text)
+  ).map(([trade]) => trade);
+}
+
 export function mixedScopeTradesFromDraft(
   draft?: EstimateAiDraft | null
 ): MixedScopeTradeKey[] {
@@ -105,7 +164,10 @@ export function mixedScopeTradesFromDraft(
         : draft?.detectedTrades || [];
   const trades = Array.from(
     new Set(
-      detectedTrades
+      [
+        ...detectedTrades,
+        ...mixedScopeTradesFromNotes(draft?.originalNotes),
+      ]
         .map(normalizeMixedScopeTradeKey)
         .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
     )
@@ -120,19 +182,17 @@ export function mixedScopeTradesFromDraft(
 }
 
 /**
- * Trade set for Quick Measurement panel activation.
- *
- * `detectedTrades` is intentionally broad and remains authoritative for
- * mixed-scope checklist convergence. QM panels need a narrower boundary:
- * activate only trades represented by canonical checklist items. If the
- * canonical contract is unavailable, preserve the existing detected-trade
- * fallback so older drafts do not lose measurement access.
+ * Trade set for Quick Measurement panel activation. Mixed-scope notes and
+ * active scope selections supplement canonical checklist items so a partial
+ * checklist cannot hide a named trade. Dedicated jobs keep their existing
+ * canonical/fallback behavior.
  */
 export function mixedScopeQmTradesFromDraft(
   draft?: EstimateAiDraft | null,
   templateKey?: string | null,
   fallbackTrades?: string[],
-  notes?: string | null
+  notes?: string | null,
+  activeScopeKeys?: string[]
 ): MixedScopeTradeKey[] {
   const canonicalItems = draft?.scopeChecklist?.canonicalMixedScope?.items;
   const canonicalTrades = Array.from(
@@ -146,16 +206,31 @@ export function mixedScopeQmTradesFromDraft(
   );
   if (canonicalItems?.length) {
     const notesText = String(notes || draft?.originalNotes || '');
+    const noteIsMixedScope = notesDescribeMixedProjectScope(notesText);
     const explicitHvac = /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
       notesText
     );
-    return (
-      notesText.trim() &&
+    const excludedTrades = new Set(
+      canonicalItems
+        .filter(item => item.excluded || item.checklistState === 'excluded')
+        .flatMap(item => [item.trade, item.catalog?.trade])
+        .map(normalizeMixedScopeTradeKey)
+        .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
+    );
+    const inferredTrades = noteIsMixedScope
+      ? [
+          ...mixedScopeTradesFromNotes(notesText),
+          ...mixedScopeTradesFromScopeKeys(activeScopeKeys),
+        ].filter(trade => !excludedTrades.has(trade))
+      : [];
+    const mergedTrades = Array.from(
+      new Set([...canonicalTrades, ...inferredTrades])
+    );
+    return notesText.trim() &&
       !explicitHvac &&
-      !notesDescribeMixedProjectScope(notesText)
-    )
-      ? canonicalTrades.filter(trade => trade !== 'hvac')
-      : canonicalTrades;
+      !noteIsMixedScope
+      ? mergedTrades.filter(trade => trade !== 'hvac')
+      : mergedTrades;
   }
 
   const templateTrade = normalizeMixedScopeTradeKey(templateKey);
@@ -198,7 +273,7 @@ export function isCanonicalMixedScope(
       ? input.detectedTrades
       : mixedScopeTradesFromDraft(input.draft);
   const normalizedTrades = new Set(
-    detectedTrades
+    [...detectedTrades, ...mixedScopeTradesFromNotes(input.draft?.originalNotes)]
       .map(normalizeMixedScopeTradeKey)
       .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
   );

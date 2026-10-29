@@ -2,6 +2,7 @@ import {
   isCanonicalMixedScope,
   mixedScopeQmTradesFromDraft,
   mixedScopeTradesFromDraft,
+  mixedScopeTradesFromNotes,
   orchestrateMixedScopeItems,
 } from '@/utils/mixedScopeOrchestrator';
 
@@ -104,6 +105,70 @@ describe('mixedScopeOrchestrator', () => {
     } as never;
 
     expect(mixedScopeQmTradesFromDraft(draft)).toEqual(['bathroom']);
+  });
+
+  test('adds every explicitly named trade to mixed-scope QM routing', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+    const draft = {
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['flooring', 'painting'],
+      },
+      scopeChecklist: {
+        canonicalMixedScope: {
+          schemaVersion: 1,
+          authority: 'checklist',
+          mode: 'mixed',
+          templateKey: 'room_remodel',
+          detectedTrades: ['flooring', 'painting'],
+          items: [
+            {
+              scopeId: 'flooring',
+              trade: 'flooring',
+              checklistState: 'included',
+            },
+            {
+              scopeId: 'interior_doors',
+              trade: 'windows_doors',
+              checklistState: 'included',
+            },
+          ],
+          unresolved: [],
+        },
+      },
+    } as never;
+
+    expect(mixedScopeTradesFromNotes(notes)).toEqual([
+      'bathroom',
+      'kitchen',
+      'flooring',
+      'painting',
+      'windows_doors',
+    ]);
+    expect(
+      isCanonicalMixedScope({
+        scopeMode: 'unknown',
+        detectedTrades: ['flooring'],
+        draft: { originalNotes: notes } as never,
+      })
+    ).toBe(true);
+    expect(
+      mixedScopeQmTradesFromDraft(
+        draft,
+        'room_remodel',
+        undefined,
+        notes,
+        ['kitchen', 'bathroom', 'flooring', 'paint', 'baseboard_install']
+      )
+    ).toEqual([
+      'flooring',
+      'windows_doors',
+      'bathroom',
+      'kitchen',
+      'painting',
+    ]);
   });
 
   test('promotes quantity-backed framing rows without changing unrelated rows', () => {

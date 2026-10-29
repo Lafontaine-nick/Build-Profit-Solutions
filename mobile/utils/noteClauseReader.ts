@@ -523,6 +523,10 @@ export function notesDescribeMixedProjectScope(
   const hasIndependentRepairWork = /\b(?:replace|replacement|reroof|re[\s-]?roof|patch|repair|service\s+calls?|diagnos(?:e|is|ing))\b/i.test(
     text
   );
+  const hasWholeHomeRemodelContext =
+    /\b(?:whole|entire|full)\s+(?:house|home)\s+(?:remodel(?:ing)?|renovat(?:e|ion|ing)?)\b/i.test(
+      text
+    );
   const tradeSignals = [
     /\b(?:floor(?:ing)?|lvp|carpet|laminate|vinyl\s+plank)\b/i,
     /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i,
@@ -537,6 +541,9 @@ export function notesDescribeMixedProjectScope(
 
   if (hasProjectContext) {
     return hasIndependentRepairWork && tradeSignals >= 2;
+  }
+  if (hasWholeHomeRemodelContext) {
+    return tradeSignals >= 2;
   }
   return hasServiceVisit && tradeSignals >= 3;
 }

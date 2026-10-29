@@ -63,6 +63,70 @@ describe('benchmarkReasonablenessContext', () => {
     });
   });
 
+  it('can restrict the Step 2 total to pricing explicitly applied by the contractor', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'prep', label: 'Paint prep & masking', inputType: 'yes_no', state: 'included' },
+      { id: 'interior_paint', label: 'Interior paint', inputType: 'yes_no', state: 'included' },
+    ];
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      templateKey: 'painting',
+      appliedOnly: true,
+      measurements: {
+        itemQuantities: {
+          prep__material: { quantity: '100', unit: 'allowance', quantitySource: 'user_entered' },
+          prep__labor: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__material: {
+            quantity: '500',
+            unit: 'allowance',
+            quantitySource: 'suggested_prefill',
+          },
+          interior_paint__labor: {
+            quantity: '700',
+            unit: 'allowance',
+            quantitySource: 'suggested_prefill',
+          },
+        },
+        pricingAcceptance: {
+          prep: { selectionStatus: 'accepted', totalAmount: 300 },
+        },
+      },
+    } as never);
+
+    expect(breakdown).toEqual({
+      total: 300,
+      material: 100,
+      labor: 200,
+      allowance: 0,
+    });
+    expect(
+      listConfirmScopeAppliedPricingLines({
+        items,
+        templateKey: 'painting',
+        appliedOnly: true,
+        measurements: {
+          itemQuantities: {
+            prep__material: { quantity: '100', unit: 'allowance', quantitySource: 'user_entered' },
+            prep__labor: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+            interior_paint__material: {
+              quantity: '500',
+              unit: 'allowance',
+              quantitySource: 'suggested_prefill',
+            },
+            interior_paint__labor: {
+              quantity: '700',
+              unit: 'allowance',
+              quantitySource: 'suggested_prefill',
+            },
+          },
+          pricingAcceptance: {
+            prep: { selectionStatus: 'accepted', totalAmount: 300 },
+          },
+        },
+      } as never).map(line => line.itemId)
+    ).toEqual(['prep']);
+  });
+
   it('adds wet-area tile and shower door dollars to Selected pricing', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'tile_flooring', label: 'Flooring', inputType: 'yes_no', state: 'included' },

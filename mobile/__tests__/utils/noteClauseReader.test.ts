@@ -73,6 +73,20 @@ function draftFor(notes: string) {
 }
 
 describe('note clause reader', () => {
+  it('treats a whole-house remodel with named trades as mixed scope', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
+
+    expect(notesDescribeMixedProjectScope(notes)).toBe(true);
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'bathroom',
+        projectType: 'bathroom',
+        notes,
+      })
+    ).toBe('room_remodel');
+  });
+
   it('keeps a service call note with build and repair work in mixed scope', () => {
     const notes =
       'Replace carpet with 900 sqft LVP. Reroof 26 squares of architectural shingles. Paint walls, 2,000 sqft. Replace the stucco, 1,800 sqft. HVAC service call to diagnose the furnace. Patch and texture 300 sqft of drywall. No new hang. Build a 2,600 sqft single-family home. 500 sqft bedroom addition with a tie-in roof.';

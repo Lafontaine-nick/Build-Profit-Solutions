@@ -5830,13 +5830,10 @@ export default function EstimateGeneratorScreen() {
         setAiClarifyQuestions(null);
         setAiClarifyQuestionItems(null);
         setAiClarifyAppliedSummary(null);
-        // Continue to review is Step 3. Scope found is the screen before
-        // Confirm scope; opening it again leaves the green button looking dead.
-        if (skipPricing) {
-          transitionToAiReview();
-        } else {
-          openAiDraftReviewAfterScope(syncedDraft);
-        }
+        // Initial estimate is the handoff between Confirm Scope and Step 3.
+        // Even whole-project flows that skip the extra pricing proposal must
+        // still show that summary before opening the detailed review.
+        openAiDraftReviewAfterScope(syncedDraft);
         return;
       }
 
@@ -6647,16 +6644,16 @@ export default function EstimateGeneratorScreen() {
   /** Step 2 in the 3-step AI flow — Confirm scope (complex) or Initial estimate (simple). */
   const returnToAiFlowStep2 = useCallback(() => {
     if (aiDraft && isComplexEstimateTier(aiDraft)) {
-      // Show the cards already on screen. Rebuilding the draft here inserted
-      // unrelated scope, such as a vanity panel on an electrical bid.
-      showConfirmScopeFromReview();
+      // Sync any Step 3 package edits back before restoring Confirm Scope so
+      // its selected pricing totals and cards match the review just left.
+      reopenConfirmScopeFromReview();
       return;
     }
     setShowAiInitialRevealModal(true);
     setShowAiDraftReviewModal(false);
     setShowAiScopeAssumptionsModal(false);
     setShowAiBuilderModal(false);
-  }, [aiDraft, showConfirmScopeFromReview]);
+  }, [aiDraft, reopenConfirmScopeFromReview]);
 
   const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
     aiDraftReviewResumeRef.current = false;
