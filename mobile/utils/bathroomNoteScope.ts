@@ -409,12 +409,9 @@ export function bathroomChecklistItemNamedInNotes(
     case 'tub_demo':
       return named(TUB_TEAR_OUT, text);
     case 'shower_floor_demo':
-      // A demo named on the walls is not a floor tear-out. The verb has to
-      // sit with the pan or the shower floor.
-      return (
-        removalNamedNear(text, TILE_PAN) ||
-        removalNamedNear(text, /\bshower\s+floor\b/)
-      );
+      // This priced line is for a pan/liner removal. Removing shower floor
+      // tile belongs to the tile demo line unless the pan itself is named.
+      return removalNamedNear(text, TILE_PAN);
     case 'vanity_demo':
       return bathroomNoteClauseHas(
         text,
@@ -896,9 +893,21 @@ export function filterDedicatedBathroomConfirmItems<T extends { id?: string | nu
   if (!shouldLimitBathroomChecklistToNotes(params)) return items;
   const lines = bathroomScopeLines(params.notes);
   const mixed = String(params.scopeMode || '').toLowerCase() === 'mixed';
+  const explicitlySelectedWetAreaIds = new Set([
+    'prefab_shower_pan',
+    'prefab_shower_enclosure',
+    'tub_install',
+    'shower_pan',
+  ]);
   return items.filter(item => {
     const id = String(item.id || '');
     if (id.startsWith('custom_')) return true;
+    if (
+      explicitlySelectedWetAreaIds.has(id) &&
+      (item as T & { state?: string }).state === 'included'
+    ) {
+      return true;
+    }
     if (mixed && !BATHROOM_TEMPLATE_IDS.has(id)) return true;
     return Boolean(bathroomScopeLineForId(id, lines));
   });

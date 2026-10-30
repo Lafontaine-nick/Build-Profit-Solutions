@@ -3141,10 +3141,16 @@ export function quickMeasurementRowsForTemplate(
       : framingRows;
   const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
     if (field.key === 'windowCount') {
-      return /\bwindows?\b/i.test(framingNoteText);
+      return (
+        isGarageConversionJob(projectType, framingNoteText) ||
+        /\bwindows?\b/i.test(framingNoteText)
+      );
     }
     if (field.key === 'exteriorDoorCount') {
-      return /\b(?:exterior|outside)\s+doors?\b/i.test(framingNoteText);
+      return (
+        isGarageConversionJob(projectType, framingNoteText) ||
+        /\b(?:exterior|outside)\s+doors?\b/i.test(framingNoteText)
+      );
     }
     return true;
   };
@@ -3251,6 +3257,10 @@ export function quickMeasurementRowsForTemplate(
       /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
         remodelNoteText
       ));
+  const hasFlooringDemo =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b|\breplace\b[^.;\n]{0,50}\b(?:existing\s+)?(?:carpet|flooring|floor\s+tile|lvp|laminate|vinyl)\b/i.test(
+      remodelNoteText
+    );
   const hasDrywall =
     /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
       remodelNoteText
@@ -3258,7 +3268,9 @@ export function quickMeasurementRowsForTemplate(
   const hasBaseboard =
     /\bbaseboards?\b|\bbase\s*board\b|\b(?:interior|inside)\s+trim\b/i.test(
       remodelNoteText
-    );
+    ) ||
+    (/\btrim\b/i.test(remodelNoteText) &&
+      !/\b(?:exterior|outside)\s+trim\b/i.test(remodelNoteText));
   const optionalKeys = new Set<QuickMeasurementFieldKey>([
     'floorAreaSqft',
     'flooringSqft',
@@ -3292,14 +3304,28 @@ export function quickMeasurementRowsForTemplate(
         if (!optionalKeys.has(field.key)) return true;
         if (
           field.key === 'floorAreaSqft' ||
-          field.key === 'flooringSqft' ||
-          field.key === 'floorDemoSqft'
+          field.key === 'flooringSqft'
         )
           return hasFlooring;
+        if (field.key === 'floorDemoSqft') return hasFlooringDemo;
         if (field.key === 'drywallSqft') return hasDrywall;
         if (field.key === 'baseboardLf') return hasBaseboard;
         return hasPaint;
       })
+    )
+    .map(row =>
+      row.map(field =>
+        field.key === 'floorDemoSqft' && hasFlooringDemo
+          ? {
+              ...field,
+              label: 'Flooring removal',
+              helperText:
+                'Area where existing flooring will be removed before installation.',
+            }
+          : field.key === 'wallPaintSqft' && hasFlooringDemo
+            ? { ...field, label: 'Paint' }
+          : field
+      )
     )
     .filter(row => row.length > 0);
 }
@@ -4472,6 +4498,7 @@ export function quickMeasurementRowsForInput(
         notes
       );
     const showWall =
+      !notes.trim() ||
       planBacked ||
       Boolean(noteKeySet?.has('exteriorWallInsulationSqft')) ||
       hasEntered('exteriorWallInsulationSqft') ||
@@ -4874,6 +4901,10 @@ export function quickMeasurementRowsForInput(
     );
   const combinedWallsAndCeilingsPaint =
     paintWallsMentioned && paintCeilingsMentioned && !separatePaintSurfaceAreas;
+  const flooringRemovalMentionedForPaint =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+      scopeNotes
+    );
   const normalizeGenericPaintRows = (rows: QuickMeasurementRow[]) =>
     resolvedKey === 'painting'
       ? rows
@@ -4921,7 +4952,9 @@ export function quickMeasurementRowsForInput(
                   label: combinedWallsAndCeilingsPaint
                     ? 'Walls & ceilings paint'
                     : paintWallsMentioned
-                      ? 'Walls paint'
+                      ? flooringRemovalMentionedForPaint
+                        ? 'Paint'
+                        : 'Walls paint'
                       : paintMentionedWithoutSurface
                         ? 'Paint'
                         : field.label,

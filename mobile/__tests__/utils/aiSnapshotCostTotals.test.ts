@@ -55,18 +55,17 @@ describe('appliedAiSnapshotCostTotals', () => {
     expect(step3.total).toBeGreaterThan(0);
     expect(bid.aiEstimateDraftSnapshot.lineTotalsAtApply).toEqual(current(bid));
     expect(appliedAiSnapshotCostTotals(bid, current(bid))).toEqual({
-      material: step3.material,
-      labor: step3.labor,
+      material: current(bid).material,
+      labor: current(bid).labor,
     });
   });
 
   it('adds a hand edit to a material line on top of Confirm Scope', () => {
     const bid = applied();
-    const step3 = sumStep3ReviewBudgetTotals(bid.aiEstimateDraftSnapshot.draft)!;
     const edited = bumpFirstMaterial(bid, 350);
     expect(appliedAiSnapshotCostTotals(edited, current(edited))).toEqual({
-      material: step3.material + 350,
-      labor: step3.labor,
+      material: current(bid).material + 350,
+      labor: current(bid).labor,
     });
   });
 

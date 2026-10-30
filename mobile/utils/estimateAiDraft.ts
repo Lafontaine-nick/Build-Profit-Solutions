@@ -77,7 +77,10 @@ import {
   drywallBesideFlooringAreas,
 } from '@/utils/drywallNoteScope';
 import { isContingencyScopePackage, isSoftCostScopePackage } from '@/utils/softCostScope';
-import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
+import {
+  buildAcceptanceFromCustomScopePricing,
+  hasAcceptedScopePricing,
+} from '@/utils/acceptedPricingSummaryUi';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -9101,6 +9104,81 @@ function resolvePackageCostCode(
   return ruleKey || undefined;
 }
 
+function applyConfirmedScopeSnapshotToPackages(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
+  const snapshot = draft.scopeMeasurements?.confirmedScopePricingSnapshot;
+  if (!snapshot?.lines?.length) return draft;
+
+  const byId = new Map(snapshot.lines.map(line => [line.itemId, line]));
+  const packages = resolveDraftPackagesForApply(draft, true);
+  const matched = new Set<string>();
+  const withSnapshotPricing = packages.map(pkg => {
+    const key =
+      packageRuleKeyForApply(pkg) ||
+      `custom:${String(pkg.name || pkg.scope || 'scope')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')}`;
+    const line = byId.get(key);
+    if (!line) return pkg;
+    matched.add(key);
+    return {
+      ...pkg,
+      checklistItemId: pkg.checklistItemId || line.itemId,
+      costCode: pkg.costCode || line.itemId,
+      price: line.total,
+      knownSubtotal: line.total,
+      calculatedSubtotal: line.total,
+      finalApprovedTotal: line.total,
+      materialPrice: line.material > 0 ? line.material : null,
+      laborPrice: line.labor > 0 ? line.labor : null,
+      priceSource: 'user_provided',
+      status: 'user_provided',
+      priceProvidedByUser: true,
+      applyEligible: true,
+      priceIncludesLaborAndMaterials: line.material <= 0 || line.labor <= 0,
+    } as EstimateDraftScopePackage;
+  });
+
+  for (const line of snapshot.lines) {
+    if (matched.has(line.itemId)) continue;
+    withSnapshotPricing.push({
+      name: line.label,
+      scope: line.label,
+      checklistItemId: line.itemId.startsWith('custom:')
+        ? null
+        : line.itemId,
+      costCode: line.itemId,
+      price: line.total,
+      knownSubtotal: line.total,
+      calculatedSubtotal: line.total,
+      finalApprovedTotal: line.total,
+      materialPrice: line.material > 0 ? line.material : null,
+      laborPrice: line.labor > 0 ? line.labor : null,
+      pricingType:
+        line.material > 0 || line.labor > 0 ? 'split' : 'lump_sum',
+      includesLabor: line.labor > 0,
+      includesMaterials: line.material > 0,
+      priceSource: 'user_provided',
+      status: 'user_provided',
+      priceProvidedByUser: true,
+      applyEligible: true,
+      priceIncludesLaborAndMaterials: line.material <= 0 || line.labor <= 0,
+      missingInfo: [],
+      missingPriceItems: [],
+      pricingItems: [],
+    } as EstimateDraftScopePackage);
+  }
+
+  return {
+    ...draft,
+    scopePackages: withSnapshotPricing,
+    rooms: [],
+  };
+}
+
 function allowanceLineItemsFromDraft(
   draft: EstimateAiDraft,
   applyConfirmedOnly: boolean
@@ -9600,6 +9678,9 @@ export function applyDraftToEstimate(
   draft: EstimateAiDraft,
   options: ApplyDraftOptions = {}
 ): ApplyDraftResult {
+  if (options.applyConfirmedOnly) {
+    draft = applyConfirmedScopeSnapshotToPackages(draft);
+  }
   draft = syncSelectedScopePricing(draft);
   if (options.scopeOnly) {
     return applyScopeDraftOnly(bid, draft);
@@ -9799,12 +9880,28 @@ export function draftHasApprovedSuggestions(
 export function syncConfirmScopeMeasurementsFromPackages(
   draft: EstimateAiDraft
 ): EstimateAiDraft {
-  if (!draft.scopePackages?.length) return draft;
-
   const itemQuantities = { ...(draft.scopeMeasurements?.itemQuantities || {}) };
+  const pricingAcceptance = {
+    ...(draft.scopeMeasurements?.pricingAcceptance || {}),
+  };
+  const existingSnapshot = draft.scopeMeasurements?.confirmedScopePricingSnapshot;
+  const snapshotLines = existingSnapshot?.lines
+    ? existingSnapshot.lines.map(line => ({ ...line }))
+    : null;
+  const snapshotLineById = new Map(
+    snapshotLines?.map(line => [line.itemId, line]) || []
+  );
+  const customSnapshotKey = (pkg: EstimateDraftScopePackage) => {
+    const label = String(pkg.name || pkg.scope || 'custom scope')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
+    return `custom:${label || 'scope'}`;
+  };
   let changed = false;
 
-  for (const pkg of draft.scopePackages) {
+  for (const pkg of getScopePackagesRaw(draft)) {
     if (pkg.status === 'missing_price') continue;
     if (
       !pkg.priceProvidedByUser &&
@@ -9816,7 +9913,7 @@ export function syncConfirmScopeMeasurementsFromPackages(
     }
     const ruleKey =
       pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
-    if (!ruleKey) continue;
+    const snapshotKey = ruleKey || customSnapshotKey(pkg);
     const total = Number(
       pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
     );
@@ -9824,34 +9921,90 @@ export function syncConfirmScopeMeasurementsFromPackages(
 
     const mat = Number(pkg.materialPrice ?? 0);
     const lab = Number(pkg.laborPrice ?? 0);
-    if (mat > 0 || lab > 0) {
-      itemQuantities[`${ruleKey}__material`] = {
-        quantity: String(Math.round(mat * 100) / 100),
-        unit: 'allowance',
-        quantitySource: 'user_entered',
+    const material = Math.min(Math.max(mat, 0), total);
+    const labor = Math.min(Math.max(lab, 0), Math.max(0, total - material));
+    const allowance = Math.max(0, total - material - labor);
+    if (ruleKey) {
+      if (material > 0 || labor > 0) {
+        itemQuantities[`${ruleKey}__material`] = {
+          quantity: String(Math.round(material * 100) / 100),
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+        itemQuantities[`${ruleKey}__labor`] = {
+          quantity: String(Math.round(labor * 100) / 100),
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      } else {
+        itemQuantities[`${ruleKey}__allowance`] = {
+          quantity: String(Math.round(total * 100) / 100),
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      }
+      pricingAcceptance[ruleKey] = {
+        ...buildAcceptanceFromCustomScopePricing({
+          material,
+          labor,
+          total,
+          lumpSumOnly: material === 0 && labor === 0,
+        }),
+        selectionStatus: 'accepted',
+        allowanceAmount: allowance > 0 ? allowance : undefined,
       };
-      itemQuantities[`${ruleKey}__labor`] = {
-        quantity: String(Math.round(lab * 100) / 100),
-        unit: 'allowance',
-        quantitySource: 'user_entered',
-      };
-    } else {
-      itemQuantities[`${ruleKey}__allowance`] = {
-        quantity: String(Math.round(total * 100) / 100),
-        unit: 'allowance',
-        quantitySource: 'user_entered',
-      };
+    }
+
+    if (snapshotLines) {
+      const existingLine = snapshotLineById.get(snapshotKey);
+      if (existingLine) {
+        existingLine.total = total;
+        existingLine.material = material;
+        existingLine.labor = labor;
+        existingLine.allowance = allowance;
+      } else {
+        const nextLine = {
+          itemId: snapshotKey,
+          label: pkg.name || pkg.scope || snapshotKey,
+          total,
+          material,
+          labor,
+          allowance,
+        };
+        snapshotLines.push(nextLine);
+        snapshotLineById.set(snapshotKey, nextLine);
+      }
     }
     changed = true;
   }
 
   if (!changed) return draft;
+  const nextMeasurements = {
+    ...(draft.scopeMeasurements || {}),
+    itemQuantities,
+    pricingAcceptance,
+  };
+  if (snapshotLines && snapshotLines.length) {
+    const snapshotTotals = snapshotLines.reduce(
+      (totals, line) => ({
+        total: totals.total + line.total,
+        material: totals.material + line.material,
+        labor: totals.labor + line.labor,
+        allowance: totals.allowance + line.allowance,
+      }),
+      { total: 0, material: 0, labor: 0, allowance: 0 }
+    );
+    nextMeasurements.confirmedScopePricingSnapshot = {
+      total: Math.round(snapshotTotals.total * 100) / 100,
+      material: Math.round(snapshotTotals.material * 100) / 100,
+      labor: Math.round(snapshotTotals.labor * 100) / 100,
+      allowance: Math.round(snapshotTotals.allowance * 100) / 100,
+      lines: snapshotLines,
+    };
+  }
   return {
     ...draft,
-    scopeMeasurements: {
-      ...(draft.scopeMeasurements || {}),
-      itemQuantities,
-    },
+    scopeMeasurements: nextMeasurements,
   };
 }
 

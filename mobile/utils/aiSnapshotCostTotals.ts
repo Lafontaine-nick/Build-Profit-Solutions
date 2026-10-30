@@ -86,11 +86,15 @@ export function appliedAiSnapshotCostTotals(
   if (!totals || !(totals.total > 0)) return null;
   const atApply = lineTotalsAtApply(snapshot);
   if (!atApply) return { material: totals.material, labor: totals.labor };
+  // The applied bid line totals are the exact downstream snapshot. Using the
+  // rounded planning-card totals here makes a later hand edit appear to
+  // change by a few cents even when the applied lines did not change.
+  const baseTotals = atApply;
   const adjusted = (base: number, current: number, applied: number) =>
     Math.max(Math.round((base + current - applied) * 100) / 100, 0);
   return {
-    material: adjusted(totals.material, currentLineTotals.material, atApply.material),
-    labor: adjusted(totals.labor, currentLineTotals.labor, atApply.labor),
+    material: adjusted(baseTotals.material, currentLineTotals.material, atApply.material),
+    labor: adjusted(baseTotals.labor, currentLineTotals.labor, atApply.labor),
   };
 }
 

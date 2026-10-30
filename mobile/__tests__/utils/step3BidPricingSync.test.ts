@@ -927,7 +927,7 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     } as unknown as EstimateAiDraft;
 
     const step3Applied = sumAppliedScopePricingFromDraft(draft);
-    expect(step3Applied?.total).toBeCloseTo(4042.5, 2);
+    expect(step3Applied?.total).toBe(4043);
 
     const { bid } = applyDraftToEstimate({}, draft, {
       applyConfirmedOnly: true,
@@ -946,8 +946,9 @@ describe('Step 3 pricing syncs into final bid line items', () => {
       (s, l) => s + (Number(l.amount ?? l.total) || 0),
       0
     );
-
-    expect(materialTotal + laborTotal + allowanceTotal).toBeCloseTo(step3Applied!.total, 2);
+    expect(Math.round(materialTotal + laborTotal + allowanceTotal)).toBe(
+      step3Applied!.total
+    );
     // Stale AI confirmed+applyEligible rows ($2,500 + $3,500 + $4,500) must not inflate the bid.
     expect(materialTotal + laborTotal + allowanceTotal).toBeLessThan(9000);
     expect(materialTotal + laborTotal + allowanceTotal).toBeCloseTo(4042.5, 2);
@@ -1115,7 +1116,7 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     } as unknown as EstimateAiDraft;
 
     const step3 = sumStep3ReviewBudgetTotals(draft);
-    expect(step3?.total).toBeCloseTo(9082.5, 2);
+    expect(step3?.total).toBe(9083);
 
     const { bid } = applyDraftToEstimate({}, draft, {
       applyConfirmedOnly: true,
@@ -1136,7 +1137,7 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     );
     const bidSubtotal = materialTotal + laborTotal + allowanceTotal;
 
-    expect(bidSubtotal).toBeCloseTo(step3!.total, 2);
+    expect(Math.round(bidSubtotal)).toBe(step3!.total);
     // Without the fix, toilet+vanity+plumbing (~$10.5k) inflate Bid Summary past Step 3.
     expect(bidSubtotal).toBeLessThan(10000);
   });

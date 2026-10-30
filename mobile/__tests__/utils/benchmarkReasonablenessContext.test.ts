@@ -961,9 +961,9 @@ describe('benchmarkReasonablenessContext', () => {
           trim_paint: { quantity: 1400, unit: 'allowance', quantitySource: 'user_entered' },
         },
         pricingAcceptance: {
-          prep: { status: 'accepted', totalAmount: 1485 },
-          interior_paint: { status: 'accepted', totalAmount: 6700 },
-          trim_paint: { status: 'accepted', totalAmount: 1400 },
+          prep: { selectionStatus: 'manual_adjusted', totalAmount: 1485 },
+          interior_paint: { selectionStatus: 'manual_adjusted', totalAmount: 6700 },
+          trim_paint: { selectionStatus: 'manual_adjusted', totalAmount: 1400 },
         },
       },
     } as never;

@@ -502,7 +502,9 @@ export function resolveBenchmarkLivingSf(params: {
     if (living >= 200) return living;
   }
 
-  return unique[0] ?? null;
+  // Every candidate can be a roof-square-like value. Do not fall back to the
+  // rejected candidate or a 26-square roof can become "26 living SF".
+  return null;
 }
 
 export type AppliedBuildCostArea = {
@@ -1658,6 +1660,7 @@ export function sumAppliedScopePricingFromDraft(
     measurements,
     templateKey,
     notes: draft.originalNotes,
+    appliedOnly: true,
   });
 }
 
@@ -1726,7 +1729,7 @@ export function sumStep3ReviewBudgetTotals(
   draft: EstimateAiDraft | null | undefined
 ): ConfirmScopeAppliedPricingBreakdown | null {
   const applied = sumAppliedScopePricingFromDraft(draft);
-  if (!draft || !applied || !(applied.total > 0)) return applied;
+  if (!draft || !applied) return applied;
 
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return applied;

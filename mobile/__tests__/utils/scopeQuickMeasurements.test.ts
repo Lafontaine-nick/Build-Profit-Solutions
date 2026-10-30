@@ -423,7 +423,7 @@ describe('scopeQuickMeasurements', () => {
     expect(fields.find(field => field.key === 'ceilingPaintSqft')?.label).toBe(
       'Ceilings'
     );
-    expect(fields.some(field => field.key === 'paintAreaSqft')).toBe(true);
+    expect(fields.some(field => field.key === 'paintAreaSqft')).toBe(false);
   });
 
   it('keeps paint visible for confirmation when notes provide no paint area', () => {
@@ -528,7 +528,7 @@ describe('scopeQuickMeasurements', () => {
 
     expect(fields.map(field => field.key)).toContain('patchRepairSqft');
     expect(fields.find(field => field.key === 'patchRepairSqft')?.label).toBe(
-      'Drywall patch & texture'
+      'Drywall patch / repair'
     );
   });
 
@@ -1367,7 +1367,8 @@ describe('scopeQuickMeasurements', () => {
       resolveQuickMeasurementDisplayValue(
         'drywallSqft',
         { drywallSqft: '1205' },
-        { drywallSqft: '1000' }
+        { drywallSqft: '1000' },
+        { drywallSqft: true }
       )
     ).toBe('1205');
     expect(
@@ -1580,6 +1581,7 @@ describe('scopeQuickMeasurements', () => {
       'waterLineLf',
       'sewerLineLf',
       'gasLineLf',
+      'waterHeaterCount',
     ]);
     expect(rows.flat().find(field => field.key === 'waterLineLf')?.label).toBe(
       'Underground water service / under-slab piping'

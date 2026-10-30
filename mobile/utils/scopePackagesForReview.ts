@@ -704,8 +704,12 @@ export function applyStep2NoteScopeFilters(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   const notes = String(draft.originalNotes || '');
+  const wholeHomeRemodelMentioned =
+    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
+      notes
+    );
   const kitchenBathItems = measuredKitchenBathConfirmItems(notes);
-  if (kitchenBathItems) {
+  if (kitchenBathItems && !wholeHomeRemodelMentioned) {
     const removedIds = measurements.contractorRemovedScopeItemIds;
     return applyScopeFoundClarification(
       applyContractorRemovedScopeItems(
@@ -716,10 +720,6 @@ export function applyStep2NoteScopeFilters(
       measurements
     );
   }
-  const wholeHomeRemodelMentioned =
-    /\b(?:whole|entire|full)[\s-]+(?:house|home)\b|\b(?:house|home)\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?(?:whole\s+|entire\s+)?(?:house|home)\b/i.test(
-      notes
-    );
   const noteScopeParams = {
     notes,
     templateKey: draft.scopeChecklist?.templateKey || templateKey,
@@ -850,6 +850,87 @@ export function applyStep2NoteScopeFilters(
         if (item.id === 'bathroom_updates') return !bathroomHasDetails;
         return true;
       });
+    }
+  }
+  if (draft.scopeAssumptionsConfirmed) {
+    // Once Confirm Scope has been accepted, explicitly included detail rows
+    // are user authority. Note filters may remove an unmentioned detail from
+    // the fresh note interpretation, but they must not erase a confirmed
+    // kitchen/bath line or a named wet-area component.
+    const confirmedDetailIds = new Set([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'kitchen_floor',
+      'island',
+      'appliances',
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'floor_demo',
+      'island_demo',
+      'appliance_removal',
+      'vanity',
+      'vanity_demo',
+      'toilet',
+      'shower_tile',
+      'shower_floor_tile',
+      'floor_tile',
+      'fixture_demo',
+      'prefab_shower_pan',
+      'prefab_shower_enclosure',
+      'tub_install',
+      'shower_pan',
+    ]);
+    const kitchenContext =
+      String(noteScopeParams.templateKey || '').toLowerCase() === 'kitchen' ||
+      /\bkitchen\b/i.test(notes);
+    const bathroomContext =
+      String(noteScopeParams.templateKey || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)s?\b/i.test(notes);
+    const kitchenDetailIds = new Set([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'kitchen_floor',
+      'island',
+      'appliances',
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'island_demo',
+      'appliance_removal',
+    ]);
+    const bathroomDetailIds = new Set([
+      'vanity',
+      'vanity_demo',
+      'toilet',
+      'shower_tile',
+      'shower_floor_tile',
+      'floor_tile',
+      'fixture_demo',
+      'prefab_shower_pan',
+      'prefab_shower_enclosure',
+      'tub_install',
+      'shower_pan',
+    ]);
+    const presentIds = new Set(filtered.map(item => String(item.id || '')));
+    for (const item of items) {
+      const id = String(item.id || '');
+      if (
+        !confirmedDetailIds.has(id) ||
+        !(
+          (kitchenContext && kitchenDetailIds.has(id)) ||
+          (bathroomContext && bathroomDetailIds.has(id)) ||
+          id === 'floor_demo'
+        ) ||
+        item.state !== 'included' ||
+        presentIds.has(id)
+      ) {
+        continue;
+      }
+      filtered.push(item);
+      presentIds.add(id);
     }
   }
   if (paintingPlanAssumesNewConstruction(measurements, notes)) {
@@ -988,12 +1069,49 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
         measurements
       )
     : base;
-  const displayItems = buildConfirmScopeDisplayItems(
+  let displayItems = buildConfirmScopeDisplayItems(
     displayBase,
     measurements,
     templateKey,
     draft.originalNotes
   );
+  if (draft.scopeAssumptionsConfirmed) {
+    // Re-hydrate explicitly included detail rows after note filtering. These
+    // rows represent the user's current Confirm Scope choices, not a fresh AI
+    // inference, so a back-navigation/rebuild must not erase them.
+    const confirmedDetailIds = new Set([
+      'cabinets',
+      'countertops',
+      'backsplash',
+      'kitchen_floor',
+      'island',
+      'appliances',
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'floor_demo',
+      'island_demo',
+      'appliance_removal',
+      'vanity',
+      'vanity_demo',
+      'toilet',
+      'shower_tile',
+      'shower_floor_tile',
+      'floor_tile',
+      'fixture_demo',
+      ...WET_AREA_DERIVED_ITEM_IDS,
+    ]);
+    const existingIds = new Set(displayItems.map(item => String(item.id || '')));
+    displayItems = [
+      ...displayItems,
+      ...base.filter(
+        item =>
+          confirmedDetailIds.has(String(item.id || '')) &&
+          item.state === 'included' &&
+          !existingIds.has(String(item.id || ''))
+      ),
+    ];
+  }
   const checklistTemplate = String(
     draft.scopeChecklist?.templateKey || ''
   ).toLowerCase();
@@ -1058,7 +1176,7 @@ export function isScopeCardHiddenInQmEmbed(
   // card beside it.
   if (
     String(qmCtx.templateKey || '').toLowerCase() === 'roofing' &&
-    itemId === 'roofing'
+    (itemId === 'roofing' || itemId === 'roofing_system')
   ) {
     return true;
   }
@@ -1298,15 +1416,25 @@ export function flattenConfirmScopeVisibleRows(
           displayItems.some(item =>
             ['countertops', 'countertop_demo'].includes(item.id)
           ));
+      const kitchenHasDetailRows = displayItems.some(
+        item =>
+          KITCHEN_PANEL_SCOPE_IDS.has(item.id) &&
+          !['flooring', 'floor_demo'].includes(item.id)
+      );
+      const bathroomHasDetailRows = displayItems.some(item =>
+        BATHROOM_PANEL_SCOPE_IDS.has(item.id)
+      );
       // The kitchen and bathroom panels own these lines on Confirm Scope.
       // The parent "updates" rows have no price of their own.
       if (
         (item.id === 'kitchen_updates' &&
-          notesNameKitchenRemodelPanel(reviewNotes) &&
-          kitchenPanelOwnsScope) ||
+          ((notesNameKitchenRemodelPanel(reviewNotes) &&
+            kitchenPanelOwnsScope) ||
+            kitchenHasDetailRows)) ||
         (item.id === 'bathroom_updates' &&
-          notesNameBathroomRemodelPanel(reviewNotes) &&
-          bathroomPanelOwnsScope)
+          ((notesNameBathroomRemodelPanel(reviewNotes) &&
+            bathroomPanelOwnsScope) ||
+            bathroomHasDetailRows))
       ) {
         return false;
       }
@@ -1620,7 +1748,10 @@ export function reconcileScopePackagesForReview(
   const result: EstimateDraftScopePackage[] = [];
 
   for (const item of orderedItems) {
-    if (item.derivedFrom === 'wet_area_install') {
+    if (
+      item.derivedFrom === 'wet_area_install' &&
+      !checklistItemInScope(item)
+    ) {
       const parent = items.find((row) => row.id === 'wet_area_install');
       if (!parent || !checklistItemInScope(parent)) continue;
     }

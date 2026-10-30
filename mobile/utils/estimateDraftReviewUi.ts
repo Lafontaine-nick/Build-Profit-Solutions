@@ -809,7 +809,7 @@ export function compactPackageStatusLabel(
 function pricingAcceptanceSourceLabel(
   acceptance: ScopePricingAcceptanceMetadata
 ): string {
-  if (acceptance.selectionStatus === 'accepted') return 'Selected';
+  if (acceptance.selectionStatus === 'accepted') return 'Applied';
   if (acceptance.selectionStatus === 'manual_adjusted') return 'User adjusted';
   if (acceptance.selectionStatus === 'user_entered') return 'User entered';
   const label = String(acceptance.pricingSourceLabel || '').trim();
