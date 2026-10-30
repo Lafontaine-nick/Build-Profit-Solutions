@@ -245,7 +245,7 @@ function kitchenFlooringScopeExcluded(text) {
     ) ||
     /\bfloor(?:ing)?\s+by\s+others\b/i.test(text) ||
     /\bno\s+kitchen\s+floor\b/i.test(text) ||
-    /\bkitchen\s+floor\s+(?:by\s+others|excluded|not\s+included|n[\/.]?a)\b/i.test(
+    /\bkitchen\s+floor\s+(?:by\s+others|excluded|not\s+included|n[/.]?a)\b/i.test(
       text,
     )
   );
@@ -410,7 +410,9 @@ function clauseMatches(clause, patterns) {
 
 function splitMeasurementClauses(text) {
   return splitNoteClauses(text)
-    .flatMap((clause) => clause.split(/,\s+(?=[a-z])/i))
+    .flatMap((clause) =>
+      clause.split(/(?<!\d),\s+(?=[a-z]|\d+(?:\s|$))/i),
+    )
     .map((clause) => clause.trim())
     .filter(Boolean);
 }
@@ -1244,6 +1246,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // an earlier unrelated sqft value (for example drywall repair area).
   if (
     flooringSqft &&
+    !out.kitchenFloorSqft &&
     /\bkitchen\b/i.test(text) &&
     /\blvp\b/i.test(text)
   ) {
@@ -1573,13 +1576,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         /\bwindows?\b/i,
         /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
       ].filter(pattern => pattern.test(text)).length >= 2;
-    const explicitFlooringQuantity = clauses.some((clause) => {
-      return /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:of\s+)?(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b[^.;,\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(
-        clause,
-      );
-    });
-    if (mixedInteriorFlooringNote && !explicitFlooringQuantity) return null;
     if (additionFloorArea) return additionFloorArea;
+    if (mixedInteriorFlooringNote) return null;
     const { notesDescribeMeasuredWholeHomeRemodel, statedWholeHomeSizeSqft } = require("./scopeChecklistLibrary");
     if (notesDescribeMeasuredWholeHomeRemodel(text)) {
       const houseSize = statedWholeHomeSizeSqft(text);

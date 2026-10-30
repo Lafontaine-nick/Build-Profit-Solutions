@@ -3220,12 +3220,16 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
     /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
       notes,
     );
+  const notesWithoutExcludedKitchenRemodel = notes.replace(
+    /\b(?:no|do\s+not|without|not)\s+(?:a\s+)?kitchen\s+(?:remodel|renovation)\b/gi,
+    "",
+  );
   const explicitRepaintWithoutConstruction =
     /\b(?:repaint|repainting|whole[-\s]?house\s+(?:interior\s+and\s+exterior\s+)?repaint)\b/i.test(
       notes,
     ) &&
     !/\b(?:install|replace|new|build|remodel|renovat(?:e|ion)|add(?:ition)?)\b/i.test(
-      notes,
+      notesWithoutExcludedKitchenRemodel,
     );
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
@@ -3260,7 +3264,12 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   // An explicitly selected kitchen project should use the kitchen checklist.
   // Kitchen notes often contain several work types (demo, plumbing,
   // electrical, appliances), but that does not make them a whole-home remodel.
-  if (projectType === "kitchen") {
+  if (
+    projectType === "kitchen" &&
+    !/\b(?:no|do\s+not|without|not)\s+(?:a\s+)?kitchen\s+(?:remodel|renovation)\b/i.test(
+      notes,
+    )
+  ) {
     return "kitchen";
   }
   // A whole-home remodel can mention a kitchen as one work area. Route

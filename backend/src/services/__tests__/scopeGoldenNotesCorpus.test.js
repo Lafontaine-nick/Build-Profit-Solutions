@@ -188,7 +188,7 @@ const goldenNotes = [
     expectedProjectType: 'painting',
     expectedTrades: ['painting'],
     expectedScopeItems: [scopeItem({ itemType: 'paint', tradeCategory: 'painting', scopeQuantity: 800, scopeUnit: 'sqft', materialState: 'included_elsewhere', laborState: 'included_elsewhere', expectedStatus: 'priced' })],
-    expectedMeasurements: { wallPaintSqft: 800 },
+    expectedMeasurements: { paintAreaSqft: 800, combinedPaintableAreaSqft: 800 },
     expectedPricingComponents: { paint: { quantity: 2400, unit: 'allowance' } },
     expectedConfidence: { overallConfidence: 'high', requiresAiFallback: false, requiresClarification: false },
   }),
@@ -231,7 +231,7 @@ const goldenNotes = [
     expectedProjectType: 'hvac',
     expectedTrades: ['hvac'],
     expectedScopeItems: [scopeItem({ itemType: 'hvac_equipment', tradeCategory: 'hvac', scopeQuantity: 3, scopeUnit: 'ton', materialState: 'included_elsewhere', laborState: 'included_elsewhere', subcontractorState: 'provided', expectedStatus: 'subcontractor_quote' })],
-    expectedConfidence: { overallConfidence: 'medium', ambiguityFlags: ['measurements_not_mapped', 'subcontractor_quote'], requiresAiFallback: true, requiresClarification: true },
+    expectedConfidence: { overallConfidence: 'medium', ambiguityFlags: ['subcontractor_quote'], requiresAiFallback: true, requiresClarification: true },
     expectedClarificationQuestions: ['Does the subcontractor quote include material, labor, equipment, cleanup, and disposal?'],
   }),
   fixture({
@@ -263,7 +263,7 @@ const goldenNotes = [
     expectedProjectType: 'painting',
     expectedTrades: ['painting'],
     expectedScopeItems: [scopeItem({ itemType: 'paint', tradeCategory: 'painting', scopeQuantity: 250, scopeUnit: 'sqft', expectedStatus: 'needs_clarification' })],
-    expectedConfidence: { overallConfidence: 'medium', ambiguityFlags: ['ambiguous_sqft', 'approximate_or_uncertain_language'], requiresClarification: true },
+    expectedConfidence: { overallConfidence: 'low', ambiguityFlags: ['ambiguous_sqft', 'approximate_or_uncertain_language'], requiresAiFallback: true, requiresClarification: true },
     expectedClarificationQuestions: ['Does the sqft refer to floor area or paintable wall and ceiling area?'],
   }),
   fixture({

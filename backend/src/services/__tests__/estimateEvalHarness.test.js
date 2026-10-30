@@ -65,7 +65,7 @@ const EVAL_FIXTURES = [
     id: 'single_scope_lump_sum_paint',
     notes: 'Paint walls and ceiling 800 sqft lump sum $2,400.',
     ctx: { templateKey: 'painting', projectType: 'painting' },
-    expectedMeasurements: { wallPaintSqft: 800 },
+    expectedMeasurements: { paintAreaSqft: 800, combinedPaintableAreaSqft: 800 },
     expectedPricingComponents: { paint: { quantity: 2400, unit: 'allowance' } },
     expectedConfidence: 'high',
   },
@@ -94,7 +94,7 @@ const EVAL_FIXTURES = [
     ctx: { templateKey: 'painting', projectType: 'painting' },
     expectedMeasurements: {},
     expectedPricingComponents: {},
-    expectedConfidence: 'medium',
+    expectedConfidence: 'low',
     expectClarification: true,
   },
   {

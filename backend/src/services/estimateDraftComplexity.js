@@ -550,9 +550,14 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
 
   const notes = originalNotes || draft.originalNotes || "";
   let templateKey = checklistTemplateKey(draft, estimateTier, notes);
+  const kitchenRemodelExplicitlyExcluded =
+    /\b(?:no|without|not)\s+(?:a\s+)?kitchen\s+(?:remodel|renovation)\b/i.test(
+      notes,
+    );
   const explicitKitchenRemodel =
-    /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
-    /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes);
+    !kitchenRemodelExplicitlyExcluded &&
+    (/\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
+      /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes));
   if (explicitKitchenRemodel) {
     templateKey = "kitchen";
   }
@@ -836,6 +841,23 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   items.push(
     ...catalogAdditiveChecklistItems(items, resolvedScopeFacts, templateKey),
   );
+  for (const scopeFact of resolvedScopeFacts) {
+    if (
+      !scopeFact.scopeId ||
+      scopeFact.excluded ||
+      !String(scopeFact.certainty || "").startsWith("explicit")
+    ) {
+      continue;
+    }
+    const canonicalId = canonicalScopeId(scopeFact.scopeId);
+    const existingItem = items.find(
+      (item) => canonicalScopeId(item.id) === canonicalId,
+    );
+    if (existingItem && existingItem.state !== "excluded") {
+      existingItem.state = "included";
+      existingItem.noteBacked = true;
+    }
+  }
 
   const specificLandscapeIds = new Set([
     "sod_turf",
@@ -1460,7 +1482,13 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
           "downspouts",
           "decking_repair",
         ].includes(items[i].id);
-      if (items[i].state !== "included" && !keepUnpricedCrossTradeFinding) {
+      const keepExplicitUnpricedFinding =
+        items[i].catalogBacked && items[i].noteBacked;
+      if (
+        items[i].state !== "included" &&
+        !keepUnpricedCrossTradeFinding &&
+        !keepExplicitUnpricedFinding
+      ) {
         items.splice(i, 1);
       }
     }
@@ -1608,6 +1636,11 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     measurements: parsedMeasurements,
   });
   items = intentApplied.items;
+  if (items.some((item) => item.id === "paint" && item.state === "included")) {
+    items = items.filter(
+      (item) => item.id !== "interior_paint" && item.id !== "ceiling_paint",
+    );
+  }
 
   const inScopeCount = items.filter((i) => i.state === "included").length;
   const unsureCount = items.filter((i) => i.state === "unsure").length;

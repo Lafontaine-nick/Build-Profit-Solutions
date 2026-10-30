@@ -661,14 +661,14 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.wallPaintSqft).toBeUndefined();
     expect(parsed.ceilingPaintSqft).toBeUndefined();
     expect(checklist.items.map((item) => item.id)).toEqual([
-      'demo',
       'plumbing',
       'drywall',
       'flooring',
       'paint',
-      'baseboard_install',
+      'floor_demo',
       'cabinets',
       'countertops',
+      'baseboard_install',
       'vanity',
     ]);
   });
@@ -1336,6 +1336,8 @@ describe('trade-specific scope checklists', () => {
       'exterior_doors',
       'sliding_doors',
       'garage_doors',
+      'interior_doors',
+      'trim_finish',
       'openings',
     ]);
   });

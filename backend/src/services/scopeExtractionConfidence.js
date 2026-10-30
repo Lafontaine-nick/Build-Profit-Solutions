@@ -395,6 +395,11 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
   if (flags.includes('competing_sqft_values') || flags.includes('shorthand_multi_trade_note')) {
     overallConfidence = 'low';
   }
+  // A lump sum with no stated meaning can change the bid by the full amount,
+  // so it is a critical ambiguity even when the note names a trade.
+  if (flags.includes('lump_sum_meaning_unknown')) {
+    overallConfidence = 'low';
+  }
   const vagueJobQuestion = clarificationQuestions.some((question) =>
     [
       'whole_home_trades',
@@ -411,7 +416,8 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
     !flags.includes('competing_sqft_values') &&
     !flags.includes('shorthand_multi_trade_note') &&
     !flags.includes('long_conversational_note') &&
-    !flags.includes('measurements_not_mapped')
+    !flags.includes('measurements_not_mapped') &&
+    !flags.includes('lump_sum_meaning_unknown')
   ) {
     overallConfidence = 'medium';
   }
@@ -421,7 +427,9 @@ function evaluateScopeExtractionConfidence(notes, parsed = {}, ctx = {}) {
     flags.includes('scope_unclear') ||
     flags.includes('measurements_not_mapped') ||
     flags.includes('competing_sqft_values') ||
-    flags.includes('long_conversational_note');
+    flags.includes('long_conversational_note') ||
+    flags.includes('lump_sum_meaning_unknown') ||
+    flags.includes('subcontractor_quote');
 
   return {
     overallConfidence,

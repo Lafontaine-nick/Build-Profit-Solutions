@@ -191,7 +191,7 @@ function noteExplicitlyExcludes(notes, object) {
   };
   const objectPattern = aliases[object] || String(object || "").replace(/_/g, "\\s+");
   return new RegExp(
-    `\\b(?:no|without|exclude(?:d|s|ing)?|not\\s+included)\\b[^.;\\n]{0,60}\\b(?:${objectPattern})\\b`,
+    `\\b(?:no|do\\s+not|without|exclude(?:d|s|ing)?|not\\s+included)\\b[^.;\\n]{0,60}\\b(?:${objectPattern})\\b`,
     "i",
   ).test(String(notes || ""));
 }
@@ -471,7 +471,8 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     /\b(?:install|replace|add|new)\b[^.;\n]{0,50}\b(?:baseboards?|molding|moulding|trim)\b/i,
   );
   addIntentFact(
-    parsed.baseboardPaintIntent,
+    parsed.baseboardPaintIntent ||
+      (parsed.baseboardInstallIntent && paintScope.has("trim")),
     "paint",
     "baseboard",
     "trim_paint",
