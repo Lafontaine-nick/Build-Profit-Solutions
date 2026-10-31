@@ -554,7 +554,15 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     /\b(?:no|without|not)\s+(?:a\s+)?kitchen\s+(?:remodel|renovation)\b/i.test(
       notes,
     );
+  const phaseBasedEstimate =
+    ["addition", "ground_up"].includes(
+      String(estimateTier || "").toLowerCase(),
+    ) ||
+    ["adu", "home_addition", "room_addition", "garage_conversion"].includes(
+      String(draft.projectType || "").toLowerCase(),
+    );
   const explicitKitchenRemodel =
+    !phaseBasedEstimate &&
     !kitchenRemodelExplicitlyExcluded &&
     (/\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
       /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes));
@@ -632,7 +640,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     projectType: draft.projectType,
     parsedMeasurements,
   });
-  const resolvedScopeFacts = resolveScopeFactsToCatalog(scopeFactResult.facts, {
+  let resolvedScopeFacts = resolveScopeFactsToCatalog(scopeFactResult.facts, {
     templateKey,
   });
   if (templateKey === "room_remodel") {
@@ -696,6 +704,21 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       parsedMeasurements.itemQuantities = noteQuantities;
     }
   }
+  resolvedScopeFacts = resolvedScopeFacts.map((scopeFact) => {
+    if (scopeFact.quantity != null) return scopeFact;
+    const quantityEntry =
+      parsedMeasurements.itemQuantities?.[scopeFact.scopeId] ||
+      parsedMeasurements.itemQuantities?.[scopeFact.quantityKey];
+    const quantity = Number(quantityEntry?.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) return scopeFact;
+    return {
+      ...scopeFact,
+      quantity,
+      unit: quantityEntry.unit || scopeFact.unit,
+      certainty: "explicit",
+      status: "matched",
+    };
+  });
 
   let items = template.items.map((item) => {
     const inputType = item.inputType || "yes_no";
@@ -854,7 +877,9 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       (item) => canonicalScopeId(item.id) === canonicalId,
     );
     if (existingItem && existingItem.state !== "excluded") {
-      existingItem.state = "included";
+      if (scopeFact.quantity != null || scopeFact.action === "remove") {
+        existingItem.state = "included";
+      }
       existingItem.noteBacked = true;
     }
   }
@@ -948,7 +973,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   // "Trim & doors". Do not imply door work when the notes only mention
   // baseboards; door installation/painting must be explicitly noted.
   if (
-    templateKey === "room_remodel" &&
+    ["room_remodel", "bathroom"].includes(templateKey) &&
     /\bbaseboards?\b/i.test(notes) &&
     items.some((item) => item.id === "baseboard_install")
   ) {
@@ -1307,6 +1332,18 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       continue;
     }
     const previous = items[previousIndex];
+    // Addition/conversion templates use `interior_trim` as the phase owner
+    // for baseboards, doors, and finish carpentry. `trim_paint` is a
+    // catalog alias used by note parsing, but replacing the phase with that
+    // alias drops the conversion phase from Confirm Scope and review.
+    if (
+      templateKey === "addition" &&
+      previous?.id === "interior_trim" &&
+      item.id === "trim_paint"
+    ) {
+      items[i] = null;
+      continue;
+    }
     if (previous && previous.id !== canonicalId && item.id === canonicalId) {
       items[previousIndex] = null;
       canonicalItemIndexes.set(canonicalId, i);

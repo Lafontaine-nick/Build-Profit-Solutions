@@ -1207,6 +1207,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const q = firstQty(clause, SQFT_RE);
       if (q) return q;
     }
+    const repairMatch = text.match(
+      /\b(?:patch|repair|repairing)\b[^.;\n]{0,80}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i,
+    );
+    if (repairMatch) {
+      const quantity = Number(repairMatch[1].replace(/,/g, ""));
+      if (Number.isFinite(quantity) && quantity > 0) return quantity;
+    }
     return null;
   })();
   if (drywallSqft) out.drywallSqft = drywallSqft;

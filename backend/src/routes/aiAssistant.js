@@ -17,6 +17,7 @@ const {
 } = require('../services/estimateDraftClarifyAgent');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { applyScopeAssumptions, buildScopeChecklist } = require('../services/estimateDraftComplexity');
+const { runEstimateShadowLive } = require('../services/estimateShadowLive');
 const { enrichDraftPhase2, buildRoughEstimateRange } = require('../services/estimateDraftPhase2');
 const {
   analyzeSitePhotosForScope,
@@ -17386,6 +17387,15 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
             projectDescription: '',
           }
         : enriched;
+    void runEstimateShadowLive({
+      notes,
+      context: {
+        templateKey: checklist?.templateKey || null,
+        projectType: responseDraft.projectType || null,
+        estimateTier: responseDraft.estimateTier || null,
+      },
+      checklist,
+    });
     return res.json({
       // Keep the draft and the separately returned checklist on the same
       // canonical note-backed scope. Confirm Scope and Scope Found must not

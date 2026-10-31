@@ -64,6 +64,23 @@ const APPLIED_SCOPE_IDS = [
   'cleanup',
 ] as const;
 
+const BATHROOM_CONFIRMED_SNAPSHOT = {
+  total: 9743,
+  material: 3884,
+  labor: 4859,
+  allowance: 1000,
+  lines: [
+    { itemId: 'demo', label: 'Bathroom Demo', total: 523, material: 209, labor: 314, allowance: 0 },
+    { itemId: 'floor_demo', label: 'Tile Removal', total: 660, material: 330, labor: 330, allowance: 0 },
+    { itemId: 'shower_tile', label: 'Shower Tile Installation', total: 2080, material: 960, labor: 1120, allowance: 0 },
+    { itemId: 'floor_tile', label: 'Tile Installation', total: 2520, material: 960, labor: 1560, allowance: 0 },
+    { itemId: 'waterproofing', label: 'Shower Waterproofing & Backer Board', total: 960, material: 400, labor: 560, allowance: 0 },
+    { itemId: 'glass_door', label: 'Glass Shower Door Install', total: 1650, material: 950, labor: 700, allowance: 0 },
+    { itemId: 'interior_paint', label: 'Interior Painting', total: 350, material: 75, labor: 275, allowance: 0 },
+    { itemId: 'cleanup', label: 'Cleanup, Haul-off & Disposal', total: 1000, material: 0, labor: 0, allowance: 1000 },
+  ],
+};
+
 function acceptanceBlock(total: number, material: number, labor: number) {
   return buildAcceptanceFromSuggestedBlock({
     total,
@@ -145,7 +162,14 @@ function bathroomDraftWithAppliedPricing(): EstimateAiDraft {
 
   const payload = scopeMeasurementsPayloadForPersist(input, { templateKey: 'bathroom' });
   const merged = mergeScopeProgressIntoDraft(draft0, bathroomChecklistItems(), payload);
-  return syncSelectedScopePricing(merged);
+  const synced = syncSelectedScopePricing(merged);
+  return {
+    ...synced,
+    scopeMeasurements: {
+      ...synced.scopeMeasurements,
+      confirmedScopePricingSnapshot: BATHROOM_CONFIRMED_SNAPSHOT,
+    },
+  };
 }
 
 describe('bathroom Step 2 → Step 3 package label mapping', () => {
@@ -310,7 +334,7 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     const draft = bathroomDraftWithAppliedPricing();
     const applied = sumAppliedScopePricingFromDraft(draft);
     const rowSum = getScopePackages(draft).reduce(
-      (sum, pkg) => sum + scopePackagePricedAmount(pkg, draft),
+      (sum, pkg) => sum + Math.round(scopePackagePricedAmount(pkg, draft)),
       0
     );
     expect(rowSum).toBeCloseTo(applied!.total, 2);

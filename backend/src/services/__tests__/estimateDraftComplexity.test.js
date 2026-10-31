@@ -346,7 +346,7 @@ describe("estimateDraftComplexity", () => {
       "Gutters",
       "Downspouts",
       "Roof decking repair",
-      "Window replacement",
+      "Window install",
       "Roofing replacement",
     ]);
     expect(checklist.items.map((item) => item.label)).not.toContain(
@@ -542,7 +542,8 @@ describe("estimateDraftComplexity", () => {
     );
 
     expect(checklist.templateKey).toBe("room_remodel");
-    expect(stateById.demo).toBe("included");
+    expect(stateById.demo).toBeUndefined();
+    expect(stateById.floor_demo).toBe("included");
     expect(stateById.flooring).toBe("included");
     expect(stateById.drywall).toBe("included");
     expect(stateById.plumbing).toBe("included");
@@ -556,8 +557,6 @@ describe("estimateDraftComplexity", () => {
     );
     expect(checklist.suggestedMeasurements).toEqual(
       expect.objectContaining({
-        paintAreaSqft: 1400,
-        combinedPaintableAreaSqft: 4480,
         flooringSqft: 900,
         flooringLvpSqft: 900,
         cabinetLf: 42,
@@ -565,6 +564,10 @@ describe("estimateDraftComplexity", () => {
         baseboardLf: 180,
       }),
     );
+    expect(checklist.suggestedMeasurements.paintAreaSqft).toBeUndefined();
+    expect(
+      checklist.suggestedMeasurements.combinedPaintableAreaSqft,
+    ).toBeUndefined();
     expect(checklist.suggestedMeasurements.itemQuantities).toEqual(
       expect.objectContaining({
         cabinets: expect.objectContaining({ quantity: 42, unit: "lf" }),
@@ -709,10 +712,12 @@ describe("estimateDraftComplexity", () => {
         "exhaust_fan",
         "paint_repair",
         "plumbing_trim",
-        "baseboard_install",
         "cleanup",
       ]),
     );
+    expect(
+      checklist.items.find((item) => item.id === "baseboard_install")?.state,
+    ).toBe("unsure");
     expect(included.has("trim")).toBe(false);
     expect(included.has("electrical_bath_exhaust_fan")).toBe(false);
     expect(
@@ -1587,7 +1592,7 @@ describe("estimateDraftComplexity", () => {
         "drywall",
         "flooring",
         "paint",
-        "trim",
+        "baseboard_install",
         "cleanup",
       ]),
     );
@@ -1609,10 +1614,11 @@ describe("estimateDraftComplexity", () => {
     const packageNames = (next.rooms || []).map((room) => room.name);
     expect(packageNames).toEqual(
       expect.arrayContaining([
-        "Drywall hang / finish",
-        "Flooring install",
-        "Interior painting",
-        "Trim & doors",
+        "Drywall patch / repair",
+        "LVP flooring install",
+        "Interior wall and ceiling painting",
+        "Baseboard installation",
+        "Interior door installation",
         "Cleanup, haul-off & disposal",
       ]),
     );

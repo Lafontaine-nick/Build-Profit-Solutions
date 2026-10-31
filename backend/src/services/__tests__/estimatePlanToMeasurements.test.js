@@ -2543,6 +2543,9 @@ describe("estimatePlanToMeasurements", () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
+        fieldEvidence: {
+          storyCount: { evidence: [{ sourceText: "two-story home" }] },
+        },
         elevationFaces: [{ id: "front", windowDoorOpeningsSqft: 550 }],
       },
     );
@@ -2562,6 +2565,9 @@ describe("estimatePlanToMeasurements", () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
+        fieldEvidence: {
+          storyCount: { evidence: [{ sourceText: "two-story home" }] },
+        },
         elevationFaces: [{ id: "front", windowDoorOpeningsSqft: 550 }],
       },
     );
@@ -2602,6 +2608,9 @@ describe("estimatePlanToMeasurements", () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
+        fieldEvidence: {
+          storyCount: { evidence: [{ sourceText: "two-story home" }] },
+        },
       },
     );
     expect(result.measurements.openingDeductionSqft).toBe(526.3);
@@ -2627,6 +2636,9 @@ describe("estimatePlanToMeasurements", () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
+        fieldEvidence: {
+          storyCount: { evidence: [{ sourceText: "two-story home" }] },
+        },
       },
     );
     expect(result.measurements.openingDeductionSqft).toBe(526.3);

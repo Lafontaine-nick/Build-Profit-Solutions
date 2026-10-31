@@ -3234,9 +3234,22 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
   }
+  // A new-build note can still be a dedicated electrical estimate. Route
+  // electrical-only work before the broad ground-up template.
+  if (notesImplyDedicatedElectricalScope(notes)) {
+    return "electrical";
+  }
   // "Stucco exterior" on a new house is the wall finish. The bid stays the house.
   if (notesDescribeGroundUpHome(notes)) return "ground_up";
   if (notesDescribeMeasuredWholeHomeRemodel(notes)) return "room_remodel";
+  if (
+    estimateTier === "addition" ||
+    ["adu", "home_addition", "room_addition", "garage_conversion"].includes(
+      projectType,
+    )
+  ) {
+    return "addition";
+  }
   // Stucco notes often mention that painting beyond the stucco finish is
   // excluded. Keep that exclusion from routing the job to the paint checklist.
   if (dedicatedStuccoIntent) {

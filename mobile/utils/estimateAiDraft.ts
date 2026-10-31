@@ -9172,10 +9172,62 @@ function applyConfirmedScopeSnapshotToPackages(
     } as EstimateDraftScopePackage);
   }
 
+  const itemQuantities = {
+    ...(draft.scopeMeasurements?.itemQuantities || {}),
+  };
+  for (const line of snapshot.lines) {
+    if (line.material > 0 || line.labor > 0) {
+      itemQuantities[`${line.itemId}__material`] = {
+        quantity: String(line.material),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+      itemQuantities[`${line.itemId}__labor`] = {
+        quantity: String(line.labor),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+      delete itemQuantities[`${line.itemId}__allowance`];
+    } else if (line.allowance > 0) {
+      itemQuantities[`${line.itemId}__allowance`] = {
+        quantity: String(line.allowance),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+      delete itemQuantities[`${line.itemId}__material`];
+      delete itemQuantities[`${line.itemId}__labor`];
+    }
+  }
+
   return {
     ...draft,
     scopePackages: withSnapshotPricing,
     rooms: [],
+    scopeMeasurements: {
+      ...(draft.scopeMeasurements || {}),
+      itemQuantities,
+      pricingAcceptance: snapshot.lines.reduce<
+        Record<string, ScopePricingAcceptanceMetadata>
+      >((acceptance, line) => {
+        const existing = draft.scopeMeasurements?.pricingAcceptance?.[line.itemId];
+        acceptance[line.itemId] = {
+          ...existing,
+          selectionStatus: existing?.selectionStatus || 'manual_adjusted',
+          pricingSourceLabel: existing?.pricingSourceLabel || 'Confirmed Scope',
+          pricingSourceKind: existing?.pricingSourceKind || 'user_entered',
+          pricingTypeLabel:
+            existing?.pricingTypeLabel ||
+            (line.material > 0 && line.labor > 0
+              ? 'Material + labor'
+              : 'Lump sum'),
+          totalAmount: line.total,
+          materialAmount: line.material > 0 ? line.material : undefined,
+          laborAmount: line.labor > 0 ? line.labor : undefined,
+          allowanceAmount: line.allowance > 0 ? line.allowance : undefined,
+        };
+        return acceptance;
+      }, {}),
+    },
   };
 }
 
@@ -9680,8 +9732,10 @@ export function applyDraftToEstimate(
 ): ApplyDraftResult {
   if (options.applyConfirmedOnly) {
     draft = applyConfirmedScopeSnapshotToPackages(draft);
+    draft = syncSelectedScopePricing(draft);
+  } else {
+    draft = syncSelectedScopePricing(draft);
   }
-  draft = syncSelectedScopePricing(draft);
   if (options.scopeOnly) {
     return applyScopeDraftOnly(bid, draft);
   }
@@ -10011,60 +10065,61 @@ export function syncConfirmScopeMeasurementsFromPackages(
 export function getScopePackagesRaw(
   draft: EstimateAiDraft
 ): EstimateDraftScopePackage[] {
-  if (draft.scopePackages?.length) {
-    return draft.scopePackages.map(pkg =>
+  const packages = draft.scopePackages?.length
+    ? draft.scopePackages.map(pkg =>
       applySelectedPricingToScopePackage(pkg, draft)
-    );
-  }
-  return (draft.rooms || []).map(room =>
-    applySelectedPricingToScopePackage(
-      {
-        name: room.name,
-        scope: room.scope,
-        scopeQuantities: room.scopeQuantities,
-        price: room.price,
-        laborPrice: room.laborPrice,
-        materialPrice: room.materialPrice,
-        pricingType: room.price != null ? 'lump_sum' : 'unknown',
-        includesLabor: room.priceIncludesLaborAndMaterials
-          ? true
-          : room.laborPrice != null
-            ? true
-            : null,
-        includesMaterials:
-          room.materialPrice != null
-            ? true
-            : room.priceIncludesLaborAndMaterials
-              ? true
-              : null,
-        priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
-        status: (room.packageStatus ||
-          (room.price != null
-            ? room.splitIsSuggested
-              ? 'ai_suggested'
-              : room.pricedFromSqftAllowances
-                ? 'calculated'
-                : room.priceIncludesLaborAndMaterials
-                  ? 'user_provided'
-                  : 'confirmed'
-            : room.knownSubtotal
-              ? 'partial_pricing'
-              : 'missing_price')) as DraftItemStatus,
-        knownSubtotal: room.knownSubtotal ?? null,
-        formula: null,
-        missingInfo: [],
-        missingPriceItems: room.missingPriceItems || [],
-        pricingItems: room.pricingItems || [],
-        priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
-        splitIsSuggested: Boolean(room.splitIsSuggested),
-        priceProvidedByUser: Boolean(room.priceProvidedByUser),
-        applyEligible:
-          room.applyEligible ??
-          (room.price != null || (room.knownSubtotal || 0) > 0),
-      },
-      draft
     )
-  );
+    : (draft.rooms || []).map(room =>
+        applySelectedPricingToScopePackage(
+          {
+            name: room.name,
+            scope: room.scope,
+            scopeQuantities: room.scopeQuantities,
+            price: room.price,
+            laborPrice: room.laborPrice,
+            materialPrice: room.materialPrice,
+            pricingType: room.price != null ? 'lump_sum' : 'unknown',
+            includesLabor: room.priceIncludesLaborAndMaterials
+              ? true
+              : room.laborPrice != null
+                ? true
+                : null,
+            includesMaterials:
+              room.materialPrice != null
+                ? true
+                : room.priceIncludesLaborAndMaterials
+                  ? true
+                  : null,
+            priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
+            status: (room.packageStatus ||
+              (room.price != null
+                ? room.splitIsSuggested
+                  ? 'ai_suggested'
+                  : room.pricedFromSqftAllowances
+                    ? 'calculated'
+                    : room.priceIncludesLaborAndMaterials
+                      ? 'user_provided'
+                      : 'confirmed'
+                : room.knownSubtotal
+                  ? 'partial_pricing'
+                  : 'missing_price')) as DraftItemStatus,
+            knownSubtotal: room.knownSubtotal ?? null,
+            formula: null,
+            missingInfo: [],
+            missingPriceItems: room.missingPriceItems || [],
+            pricingItems: room.pricingItems || [],
+            priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
+            splitIsSuggested: Boolean(room.splitIsSuggested),
+            priceProvidedByUser: Boolean(room.priceProvidedByUser),
+            applyEligible:
+              room.applyEligible ??
+              (room.price != null || (room.knownSubtotal || 0) > 0),
+          },
+          draft
+        )
+      );
+
+  return packages;
 }
 
 export function getScopePackages(
