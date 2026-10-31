@@ -12,6 +12,7 @@ const {
   getAiModels,
 } = require("../config/aiConfig");
 const { getScopeCatalog, canonicalScopeId } = require("./scopeCatalog");
+const { canonicalScopeExcludedIds } = require("./canonicalScope");
 const { requestOpenAiShadowProposal } = require("./estimateShadowOpenAi");
 
 const LIVE_ENABLED_ENV = "AI_ESTIMATE_SHADOW_LIVE_ENABLED";
@@ -29,6 +30,26 @@ function catalogForShadow() {
     // context-specific units that are normalized by BPS downstream.
     units: [],
   }));
+}
+
+function currentCandidateFromCanonical(canonicalScope, checklist) {
+  if (Array.isArray(canonicalScope?.items) && canonicalScope.items.length) {
+    const excluded = canonicalScopeExcludedIds(canonicalScope);
+    return {
+      scopeItems: canonicalScope.items
+        .filter((item) => item?.id && item.status !== "excluded")
+        .map((item) => ({
+          id: canonicalScopeId(item.catalogMatch || item.id),
+          quantity: item.quantity ?? null,
+          unit: item.unit || null,
+        })),
+      exclusions: [...excluded].map((id) => canonicalScopeId(id)),
+      clarifications: canonicalScope.items
+        .filter((item) => item.status === "unknown")
+        .map((item) => ({ id: canonicalScopeId(item.id) })),
+    };
+  }
+  return currentCandidateFromChecklist(checklist);
 }
 
 function currentCandidateFromChecklist(checklist) {
@@ -77,6 +98,7 @@ async function runEstimateShadowLive({
   notes,
   context = {},
   checklist,
+  canonicalScope,
   env = process.env,
   openai,
   model = getAiModels().assistant.estimate,
@@ -104,7 +126,7 @@ async function runEstimateShadowLive({
       catalog: catalogForShadow(),
       env: { ...env, AI_ESTIMATE_SHADOW_ENABLED: "true" },
     });
-    const current = currentCandidateFromChecklist(checklist);
+    const current = currentCandidateFromCanonical(canonicalScope, checklist);
     const drift = buildShadowDrift(current, response.proposal);
     const telemetry = {
       event: "estimate_shadow_live",
@@ -133,6 +155,7 @@ module.exports = {
   LIVE_ENABLED_ENV,
   liveShadowEnabled,
   catalogForShadow,
+  currentCandidateFromCanonical,
   currentCandidateFromChecklist,
   buildShadowDrift,
   runEstimateShadowLive,

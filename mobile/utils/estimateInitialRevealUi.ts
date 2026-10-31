@@ -104,6 +104,7 @@ import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
 } from '@/utils/flooringNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
   dedicatedPaintingCeilingSqft,
   dedicatedPaintingNamesCeilings,
@@ -1327,6 +1328,10 @@ function collectInitialRevealConfirmItems(
   // is not a missing price. Scope found stays unpriced.
   if (
     draftNeedsScopeConfirmation(draft) &&
+    !(
+      notesDescribeMixedProjectScope(draft.originalNotes) &&
+      notesNameDedicatedHvacServiceVisit(draft.originalNotes)
+    ) &&
     separateJobRevealRows(draft.originalNotes).length > 0
   ) {
     const suggestedMeasurements = initialScopeMeasurementInputExtended(
@@ -3367,10 +3372,111 @@ function measuredKitchenBathInteriorRevealRows(
   }));
 }
 
+function mixedHvacServiceRevealRows(
+  draft: EstimateAiDraft
+): InitialRevealScopeRow[] | null {
+  const notes = String(draft.originalNotes || '');
+  if (
+    !notesDescribeMixedProjectScope(notes) ||
+    !notesNameDedicatedHvacServiceVisit(notes)
+  ) {
+    return null;
+  }
+  const measurements = initialScopeMeasurementInputExtended(draft, notes) as Record<
+    string,
+    unknown
+  >;
+  const rows = separateJobRevealRows(notes).map(row => ({
+    id: row.id,
+    name: row.name,
+    quantityOverride: row.quantity || null,
+  }));
+  const ids = new Set(rows.map(row => row.id));
+  const add = (
+    id: string,
+    name: string,
+    quantityOverride?: string | null
+  ) => {
+    if (ids.has(id)) return;
+    rows.push({ id, name, quantityOverride: quantityOverride || null });
+    ids.add(id);
+  };
+  const sqft = (value: unknown) => {
+    const quantity = positiveRevealNumber(value);
+    return quantity ? `${quantity} sqft` : null;
+  };
+  if (/\b(?:lvp|luxury\s+vinyl|vinyl\s+plank)\b/i.test(notes)) {
+    add(
+      'flooring_lvp',
+      'LVP',
+      sqft(measurements.flooringLvpSqft || measurements.flooringSqft)
+    );
+  }
+  if (
+    !notesOwnerHandlesFlooringDemo(notes) &&
+    /\b(?:replace|remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,40}\b(?:carpet|flooring|lvp)\b|\b(?:carpet|flooring|lvp)\b[^.;\n]{0,40}\b(?:replace|remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+      notes
+    )
+  ) {
+    add('floor_demo', 'Existing flooring removal', sqft(measurements.floorDemoSqft));
+  }
+  if (
+    /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i.test(notes) &&
+    /\b(?:replace|replacement|install|new|reroof|re[\s-]?roof)\b/i.test(notes)
+  ) {
+    const squares = positiveRevealNumber(measurements.roofSquares);
+    add(
+      'roofing',
+      'Roofing replacement',
+      squares ? `${squares} squares` : null
+    );
+  }
+  if (/\bstucco\b/i.test(notes)) {
+    add(
+      'stucco',
+      'Stucco / exterior wall finish',
+      sqft(measurements.stuccoNetWallSqft || measurements.stuccoGrossWallSqft)
+    );
+  }
+  if (/\b(?:paint|painting|repaint)\b/i.test(notes)) {
+    add(
+      'interior_paint',
+      'Interior wall painting',
+      sqft(measurements.wallPaintSqft || measurements.paintAreaSqft)
+    );
+  }
+  if (
+    /\b(?:hvac|furnace)\b/i.test(notes) &&
+    /\bservice\s+calls?\b|\bdiagnos(?:e|is|ing)\b/i.test(notes)
+  ) {
+    add('service_call', 'HVAC service call', '1 each');
+  }
+  if (
+    /\b(?:patch|repair)\b[^.;\n]{0,35}\b(?:drywall|sheetrock)\b/i.test(notes)
+  ) {
+    const quantity = sqft(
+      measurements.patchRepairSqft || draft.scopeMeasurements?.patchRepairSqft
+    );
+    const drywallRow = rows.find(
+      row => row.id === 'drywall' || row.id === 'patch_repair'
+    );
+    if (drywallRow) {
+      drywallRow.name = 'Drywall repair';
+      drywallRow.quantityOverride =
+        quantity || drywallRow.quantityOverride || null;
+    } else {
+      add('patch_repair', 'Drywall repair', quantity);
+    }
+  }
+  return rows;
+}
+
 function getInitialRevealScopeRows(
   draft: EstimateAiDraft
 ): InitialRevealScopeRow[] {
   const notes = String(draft.originalNotes || '');
+  const mixedHvacRows = mixedHvacServiceRevealRows(draft);
+  if (mixedHvacRows) return mixedHvacRows;
   const kitchenBathRows = measuredKitchenBathInteriorRevealRows(notes);
   if (kitchenBathRows) return kitchenBathRows;
   const stuccoWindowsRows = stuccoWithWindowsRevealRows(notes);
@@ -3397,7 +3503,11 @@ function getInitialRevealScopeRows(
       ...(row.quantity ? { quantityOverride: row.quantity } : {}),
     }));
   }
-  const separateJobRows = separateJobRevealRows(notes);
+  const separateJobRows =
+    notesDescribeMixedProjectScope(notes) &&
+    notesNameDedicatedHvacServiceVisit(notes)
+    ? []
+    : separateJobRevealRows(notes);
   if (separateJobRows.length > 0) {
     return separateJobRows.map(row => ({
       id: row.id,
@@ -5847,7 +5957,11 @@ export function getInitialRevealChecklistScopePreview(
       ...(row.quantityOverride ? { quantity: row.quantityOverride } : {}),
     }));
   }
-  const separateJobPreview = separateJobRevealRows(draft.originalNotes);
+  const separateJobPreview =
+    notesDescribeMixedProjectScope(draft.originalNotes) &&
+    notesNameDedicatedHvacServiceVisit(draft.originalNotes)
+    ? []
+    : separateJobRevealRows(draft.originalNotes);
   if (separateJobPreview.length > 0) {
     return separateJobPreview.map(row => ({
       name: row.name,
@@ -6806,7 +6920,10 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
       : `${covering}.`;
   }
   if (
-    !notesDescribeMixedProjectScope(draft.originalNotes) &&
+    !(
+      notesDescribeMixedProjectScope(draft.originalNotes) &&
+      notesNameDedicatedHvacServiceVisit(draft.originalNotes)
+    ) &&
     (notesNameDedicatedHvacServiceVisit(draft.originalNotes) ||
       notesNameDedicatedHvacEquipmentJob(draft.originalNotes))
   ) {

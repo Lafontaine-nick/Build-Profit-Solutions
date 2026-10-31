@@ -73,14 +73,48 @@ function validateShadowProposal(proposal, catalog) {
   const rejectedItems = [];
   const scopeItems = [];
   const seenScope = new Set();
+  const exclusions = [];
+  const seenExclusions = new Set();
 
-  for (const raw of Array.isArray(proposal?.scopeItems)
-    ? proposal.scopeItems
-    : []) {
-    const id = normalizeId(raw?.id || raw?.itemId || raw?.scopeId);
+  const rawItems = [
+    ...(Array.isArray(proposal?.items) ? proposal.items : []),
+    ...(Array.isArray(proposal?.scopeItems) ? proposal.scopeItems : []),
+  ];
+  const unmatchedItems = [];
+  for (const raw of rawItems) {
+    const status = String(raw?.status || '').toLowerCase();
+    const responsibility = String(raw?.responsibility || '').toLowerCase();
+    const id = normalizeId(
+      raw?.catalogMatch || raw?.id || raw?.itemId || raw?.scopeId
+    );
+    if (status === 'excluded' || responsibility === 'owner' || responsibility === 'others') {
+      if (id && approved.has(id) && !seenExclusions.has(id)) {
+        exclusions.push(id);
+        seenExclusions.add(id);
+      } else if (id && !approved.has(id)) {
+        unmatchedItems.push({
+          type: 'exclusion',
+          id,
+          reason: 'uncataloged_exclusion',
+          action: raw?.action || null,
+          object: raw?.object || null,
+        });
+      }
+      continue;
+    }
     const entry = approved.get(id);
     if (!entry) {
-      if (id) rejectedItems.push({ type: 'scope', id, reason: 'not_in_catalog' });
+      if (raw?.action && raw?.object) {
+        unmatchedItems.push({
+          type: 'scope',
+          id: id || null,
+          reason: 'uncataloged_work',
+          action: raw.action,
+          object: raw.object,
+        });
+      } else if (id) {
+        rejectedItems.push({ type: 'scope', id, reason: 'not_in_catalog' });
+      }
       continue;
     }
     if (seenScope.has(id)) {
@@ -98,12 +132,14 @@ function validateShadowProposal(proposal, catalog) {
       quantity,
       unit: unit || null,
       evidence: String(raw?.evidence || '').trim() || null,
+      status: status === 'unknown' ? 'unknown' : 'included',
+      responsibility: ['contractor', 'owner', 'others'].includes(responsibility)
+        ? responsibility
+        : 'contractor',
     });
     seenScope.add(id);
   }
 
-  const exclusions = [];
-  const seenExclusions = new Set();
   for (const raw of Array.isArray(proposal?.exclusions)
     ? proposal.exclusions
     : []) {
@@ -155,6 +191,7 @@ function validateShadowProposal(proposal, catalog) {
       ? String(proposal.confidence).toLowerCase()
       : null,
     rejectedItems,
+    unmatchedItems,
   };
 }
 
@@ -191,11 +228,14 @@ function buildShadowPrompt({ notes, context = {}, catalog = [] }) {
     '',
     'JSON shape:',
     '{',
+    '  "items": [{"id": "...", "action": "install|remove|repair|paint|prep|scope", "object": "...", "status": "included|excluded|unknown", "responsibility": "contractor|owner|others|unknown", "quantity": number|null, "unit": "..."|null, "catalogMatch": "catalog_id"|null, "evidence": "exact note phrase"}],',
     '  "scopeItems": [{"id": "...", "quantity": number|null, "unit": "..."|null, "evidence": "exact note phrase"}],',
     '  "exclusions": ["catalog_id"],',
     '  "clarifications": [{"id": "catalog_id", "question": "...", "options": ["..."]}],',
     '  "confidence": "low"|"medium"|"high"',
     '}',
+    'Prefer items[]. Explicit owner/homeowner/by-others responsibility must set status excluded.',
+    'Uncataloged construction work may use catalogMatch null. Do not invent a catalog id.',
     '',
     `Context: ${JSON.stringify(context)}`,
     `Approved catalog:\n${catalogText}`,

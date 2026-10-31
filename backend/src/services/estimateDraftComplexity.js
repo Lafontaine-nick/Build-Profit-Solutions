@@ -39,6 +39,7 @@ const {
   extractScopeFactsFromNotes,
   resolveScopeFactsToCatalog,
 } = require("./scopeFactExtractor");
+const { buildCanonicalScope } = require("./canonicalScope");
 
 const VALID_ESTIMATE_TIERS = new Set([
   "simple_unit",
@@ -2712,10 +2713,17 @@ function enrichDraftComplexity(draft, originalNotes) {
       ? null
       : buildScopeChecklist(draft, estimateTier, originalNotes);
   const parsedMeasurements = scopeChecklist?.suggestedMeasurements;
+  const canonicalScope = buildCanonicalScope({
+    notes: originalNotes,
+    checklistItems: scopeChecklist?.items || [],
+    scopeFacts: scopeChecklist?.scopeFacts || [],
+    existing: draft?.canonicalScope,
+  });
 
   return {
     estimateTier,
     scopeChecklist,
+    canonicalScope,
     ...(parsedMeasurements
       ? {
           scopeMeasurements: {

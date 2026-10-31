@@ -4,6 +4,8 @@ import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
 import {
   quickMeasurementRowsForInput,
 } from '@/utils/scopeQuickMeasurements';
+import { hydrateScopeChecklistFromNotes } from '@/utils/estimateScopeChecklistUi';
+import { getInitialRevealChecklistScopePreview } from '@/utils/estimateInitialRevealUi';
 import {
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
@@ -83,6 +85,53 @@ describe('canonical contractor note matrix', () => {
             'hvacServiceCallCount',
           ])
         );
+        const hydratedScope = hydrateScopeChecklistFromNotes(
+          repaired.scopeChecklist?.items || [],
+          'room_remodel',
+          cases[1].notes,
+          repaired.scopeMeasurements as never,
+          'other'
+        );
+        expect(hydratedScope.map(item => item.id)).toEqual(
+          expect.arrayContaining([
+            'flooring_lvp',
+            'roofing',
+            'interior_paint',
+            'stucco',
+            'service_call',
+            'patch_repair',
+          ])
+        );
+        expect(hydratedScope.map(item => item.id)).not.toContain(
+          'drywall_hang'
+        );
+        expect(
+          getInitialRevealChecklistScopePreview(repaired)
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ name: 'LVP', quantity: '900 sqft' }),
+            expect.objectContaining({
+              name: 'Roofing replacement',
+              quantity: '26 squares',
+            }),
+            expect.objectContaining({
+              name: 'Interior wall painting',
+              quantity: '2000 sqft',
+            }),
+            expect.objectContaining({
+              name: 'Stucco / exterior wall finish',
+              quantity: '1800 sqft',
+            }),
+            expect.objectContaining({
+              name: 'HVAC service call',
+              quantity: '1 each',
+            }),
+            expect.objectContaining({
+              name: 'Drywall repair',
+              quantity: '300 sqft',
+            }),
+          ])
+        );
         expect(readNoteWork(cases[1].notes).lines.length).toBeGreaterThan(0);
       },
     },
@@ -91,8 +140,41 @@ describe('canonical contractor note matrix', () => {
       notes: 'Patch and texture 300 sqft of drywall. No new hang.',
       assert: () => {
         const read = readNoteWork(cases[2].notes);
-        expect(read.lines.map(line => line.id)).toContain('drywall');
+        expect(read.lines.map(line => line.id)).toContain('patch_repair');
         expect(read.lines.map(line => line.id)).not.toContain('drywall_hang');
+      },
+    },
+    {
+      name: 'owner flooring demo exclusion',
+      notes:
+        'Remove 1,200 sqft of carpet and install 1,200 sqft of LVP. Homeowner is removing the carpet.',
+      assert: () => {
+        const repaired = repairDraftRatePricingFromNotes(
+          {
+            originalNotes: cases[3].notes,
+            projectType: 'other',
+            estimateTier: 'room_remodel',
+            scopeChecklist: { templateKey: 'flooring', items: [] },
+            scopeMeasurements: {},
+            scopePackages: [],
+          } as never,
+          cases[3].notes
+        );
+        expect(
+          repaired.scopeChecklist?.items?.map(item => item.id)
+        ).toEqual(['flooring_lvp']);
+        expect(repaired.scopeMeasurements?.floorDemoSqft).toBeUndefined();
+        expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(1200);
+        expect(
+          getInitialRevealChecklistScopePreview(repaired).map(row => row.name)
+        ).toEqual(['LVP']);
+        expect(
+          quickMeasurementRowsForInput('flooring', 'flooring', {}, [], {
+            scopeNotes: cases[3].notes,
+          })
+            .flat()
+            .map(field => field.key)
+        ).toEqual(['flooringLvpSqft']);
       },
     },
     {
@@ -101,14 +183,14 @@ describe('canonical contractor note matrix', () => {
       assert: () => {
         const repaired = repairDraftRatePricingFromNotes(
           {
-            originalNotes: cases[3].notes,
+            originalNotes: cases[4].notes,
             projectType: 'other',
             estimateTier: 'room_remodel',
             scopeChecklist: { templateKey: 'room_remodel', items: [] },
             scopeMeasurements: {},
             scopePackages: [],
           } as never,
-          cases[3].notes
+          cases[4].notes
         );
         expect(repaired.scopeMeasurements).toMatchObject({
           flooringSqft: 900,

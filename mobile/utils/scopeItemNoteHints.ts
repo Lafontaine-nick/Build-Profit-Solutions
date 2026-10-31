@@ -7,6 +7,9 @@ import {
   notesImplyExteriorFlatwork,
   notesImplyStructuralFoundation,
 } from '@/utils/foundationPlanningMeasurements';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
+
+export { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 
 /** Client mirror of backend scopeChecklistLibrary note inference (keep in sync). */
 
@@ -320,6 +323,7 @@ const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
  * means shower wall tile, not flooring. Mirrors backend scopeChecklistLibrary.
  */
 export function floorDemoNotesHint(n: string): boolean {
+  if (notesOwnerHandlesFlooringDemo(n)) return false;
   if (/\bfloor\s+demo\b/.test(n)) return true;
   const verbs = '(?:demo|demolition|remove|removal|tear[\\s-]?out)';
   const floorish = '(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|kitchen\\s+floor|floor\\s+tile|tile\\s+floor)';

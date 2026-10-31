@@ -5,8 +5,10 @@ import type {
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import { applyCanonicalScopeToChecklistItems } from '@/utils/canonicalScope';
 import {
   noteUsesSeparateJobReader,
+  notesDescribeMixedProjectScope,
   readNoteWork,
 } from '@/utils/noteClauseReader';
 import {
@@ -109,6 +111,7 @@ import {
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import { isFlooringDemoStyleItem } from '@/utils/qmScopePanels/flooringRemodel';
 import {
   explicitCrossTradeScopeItems,
@@ -5394,6 +5397,27 @@ export function hydrateScopeChecklistFromNotes(
   templateKey?: string | null,
   notes?: string | null,
   measurements?: NormalizedScopeMeasurements,
+  projectType?: string | null,
+  canonicalScope?: import('@/utils/canonicalScope').CanonicalScope | null
+): ScopeChecklistItem[] {
+  return applyCanonicalScopeToChecklistItems(
+    hydrateScopeChecklistFromNotesUnfrozen(
+      items,
+      templateKey,
+      notes,
+      measurements,
+      projectType
+    ),
+    notes,
+    canonicalScope
+  );
+}
+
+function hydrateScopeChecklistFromNotesUnfrozen(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  notes?: string | null,
+  measurements?: NormalizedScopeMeasurements,
   projectType?: string | null
 ): ScopeChecklistItem[] {
   const scopedItems = items.filter(
@@ -5505,7 +5529,10 @@ export function hydrateScopeChecklistFromNotes(
     wholeHomeMixedRemodelNote ||
     crossTradeRemodelNote
   ) {
-    if (noteUsesSeparateJobReader(notes)) {
+    if (
+      noteUsesSeparateJobReader(notes) &&
+      !notesDescribeMixedProjectScope(notes)
+    ) {
       const readerLines = readNoteWork(notes).lines;
       const byId = new Map(noteBackedFinal.map(item => [item.id, item]));
       return readerLines.map(entry => {
@@ -5671,8 +5698,16 @@ export function hydrateScopeChecklistFromNotes(
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'stucco')
           return has(/\bstucco\b|\b(?:foam|control)\s+(?:trim|joints?)\b/i);
-        if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
-        if (id === 'flooring')
+        if (id === 'drywall' || id === 'patch_repair')
+          return hasDrywallRepair;
+        if (
+          id === 'flooring' ||
+          id === 'flooring_lvp' ||
+          id === 'flooring_laminate' ||
+          id === 'flooring_engineered_hardwood' ||
+          id === 'flooring_solid_hardwood' ||
+          id === 'flooring_carpet'
+        )
           return has(/\b(?:lvp|flooring|floor\s+install|install.*floor)\b/i);
         if (['paint', 'interior_paint', 'ceiling_paint'].includes(id))
           return has(
@@ -5711,6 +5746,11 @@ export function hydrateScopeChecklistFromNotes(
           return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
         if (id === 'hvac')
           return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+        if (id === 'service_call')
+          return (
+            has(/\b(?:hvac|furnace)\b/i) &&
+            has(/\bservice\s+calls?\b|\bdiagnos(?:e|is|ing)\b/i)
+          );
         if (id === 'ductwork')
           return has(/\bduct(?:work|s)?\b/i);
         if (id === 'thermostat')
@@ -8546,6 +8586,12 @@ export function groupScopeChecklistItems(
     }
     for (const item of items) {
       if (isFlooringDemoStyleItem(item.id)) allowed.add(item.id);
+    }
+    if (notesOwnerHandlesFlooringDemo(context.notes)) {
+      allowed.delete('floor_demo');
+      for (const id of [...allowed]) {
+        if (String(id).startsWith('floor_demo_style_')) allowed.delete(id);
+      }
     }
     const named: ScopeChecklistItem[] = [];
     const seen = new Set<string>();

@@ -5,6 +5,7 @@ import {
   proposalScopeLists,
 } from '@/utils/proposalExportScope';
 import { applyStructuredScopeIntentToItems } from '@/utils/scopeIntent';
+import { applyCanonicalScopeToChecklistItems } from '@/utils/canonicalScope';
 import {
   ensureBathroomChecklistItems,
   ensureBathroomVisiblePricingCards,
@@ -765,7 +766,11 @@ export function applyStep2NoteScopeFilters(
                 roofingNoteParams
               ),
               notes,
-              retainedFlooringConfirmItemIds(measurements)
+              retainedFlooringConfirmItemIds({
+                ...measurements,
+                scopeNotes: notes,
+                originalNotes: notes,
+              })
             ),
             notes,
             { planBacked: noteScopeParams.planBacked }
@@ -1000,17 +1005,21 @@ export function applyStep2NoteScopeFilters(
   const existingTypes = Array.isArray(measurements.flooringExistingTypes)
     ? measurements.flooringExistingTypes.map(type => String(type))
     : [];
-  return applyDeckInstallMaterialLabel(
-    splitRoofTearOffCards(
-      splitFlooringDemoIntoStyleCards(
-        clarified,
-        existingTypes,
-        Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+  return applyCanonicalScopeToChecklistItems(
+    applyDeckInstallMaterialLabel(
+      splitRoofTearOffCards(
+        splitFlooringDemoIntoStyleCards(
+          clarified,
+          existingTypes,
+          Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+        ),
+        measurements
       ),
+      notes,
       measurements
     ),
     notes,
-    measurements
+    draft.canonicalScope
   );
 }
 

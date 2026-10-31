@@ -98,6 +98,14 @@ describe('scope found clarification', () => {
     ).toEqual(['floor_demo']);
   });
 
+  it('does not ask about demo when the homeowner is removing the carpet', () => {
+    const note =
+      'Remove 1,200 sqft of carpet and install 1,200 sqft of LVP. Homeowner is removing the carpet.';
+    expect(flooringReplaceIncludesRemoval(note)).toBe(false);
+    expect(resolveScopeFoundClarification(note)).toBe(null);
+    expect(applyScopeFoundClarification([], note, {})).toEqual([]);
+  });
+
   it('asks about tear-off for new shingles and skips a reroof and a new build', () => {
     expect(
       resolveScopeFoundClarification('New architectural shingles, 26 squares')?.options.map(

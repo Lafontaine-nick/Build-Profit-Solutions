@@ -7,6 +7,7 @@ import {
   inferExistingFlooringFromNotes,
   type FlooringExistingCounts,
 } from '@/utils/qmScopePanels/flooringRemodel';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import { notesNameWallAreaFramingWithFlooring } from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 type ExplicitScopeItem = {
@@ -127,6 +128,7 @@ function flooringClauseIsNegated(clause: string): boolean {
 export function notesRequestFlooringDemo(
   notes: string | null | undefined
 ): boolean {
+  if (notesOwnerHandlesFlooringDemo(notes)) return false;
   return flooringClauses(notes).some(
     clause => !flooringClauseIsNegated(clause) && FLOORING_DEMO_RE.test(clause)
   );
@@ -136,6 +138,7 @@ export function notesRequestFlooringDemo(
 export function flooringExistingCardStartsOpen(
   notes: string | null | undefined
 ): boolean {
+  if (notesOwnerHandlesFlooringDemo(notes)) return false;
   if (notesRequestFlooringDemo(notes)) return true;
   const inferred = inferExistingFlooringFromNotes(notes);
   return (inferred.flooringExistingTypes?.length ?? 0) > 0;
@@ -235,6 +238,7 @@ export function dedicatedFlooringProductRoles(notes: string | null | undefined):
   const verbs = [...text.matchAll(FLOORING_ROLE_VERB_RE)].filter(
     match => match.index != null && !flooringVerbIsNegated(text, match.index)
   );
+  const ownerHandlesDemo = notesOwnerHandlesFlooringDemo(text);
   const removedIds = new Set<string>();
   const installedIds = new Set<string>();
   verbs.forEach((verb, index) => {
@@ -243,6 +247,7 @@ export function dedicatedFlooringProductRoles(notes: string | null | undefined):
     const sentenceBreak = text.slice(start).search(/[.!?](?:\s|$)/);
     const end =
       sentenceBreak >= 0 ? Math.min(start + sentenceBreak, nextVerb) : nextVerb;
+    if (flooringVerbRemoves(verb[0]) && ownerHandlesDemo) return;
     const bucket = flooringVerbRemoves(verb[0]) ? removedIds : installedIds;
     for (const product of productsInSpan(text.slice(start, end))) {
       bucket.add(product.id);
@@ -324,6 +329,7 @@ export function dedicatedFlooringNoteText(
 function removedFloorProducts(
   text: string
 ): NonNullable<FlooringExistingCounts['flooringExistingTypes']> | null {
+  if (notesOwnerHandlesFlooringDemo(text)) return null;
   if (!notesRequestFlooringDemo(text) && !lineHasRemovalVerb(text)) return null;
   const roles = dedicatedFlooringProductRoles(text);
   const installed = new Set(roles.installed.map(product => product.product));
@@ -343,6 +349,7 @@ export function dedicatedFlooringRemovedTypes(
   notes: string | null | undefined
 ): NonNullable<FlooringExistingCounts['flooringExistingTypes']> | null {
   const full = String(notes || '');
+  if (notesOwnerHandlesFlooringDemo(full)) return null;
   return (
     removedFloorProducts(dedicatedFlooringNoteText(full)) ||
     removedFloorProducts(full)
@@ -418,11 +425,25 @@ export function retainedFlooringConfirmItemIds(
     scopeFoundPieces?: unknown;
     scopeFoundChoice?: unknown;
     itemQuantities?: unknown;
+    scopeNotes?: unknown;
+    originalNotes?: unknown;
   } | null | undefined
 ): string[] {
   const ids = selectedFlooringProductItemIds(measurements);
-  if (flooringRemovalSelectedOnConfirm(measurements) && !ids.includes('floor_demo')) {
+  const ownerHandles = notesOwnerHandlesFlooringDemo(
+    String(measurements?.scopeNotes || measurements?.originalNotes || '')
+  );
+  if (
+    !ownerHandles &&
+    flooringRemovalSelectedOnConfirm(measurements) &&
+    !ids.includes('floor_demo')
+  ) {
     ids.push('floor_demo');
+  }
+  if (ownerHandles) {
+    return ids.filter(
+      id => id !== 'floor_demo' && !id.startsWith('floor_demo_style_')
+    );
   }
   const types = Array.isArray(measurements?.flooringExistingTypes)
     ? measurements.flooringExistingTypes
@@ -450,6 +471,18 @@ export function filterDedicatedFlooringConfirmItems<
   for (const id of keepIds || []) {
     if (id) allowed.add(id);
   }
+  // A stale draft can still carry the old floor_demo item or existing-floor
+  // style cards. Later owner-handling language is authoritative and must
+  // remove those cards from Confirm Scope as well.
+  if (
+    notesOwnerHandlesFlooringDemo(notes) ||
+    notesOwnerHandlesFlooringDemo(text)
+  ) {
+    allowed.delete('floor_demo');
+    for (const id of [...allowed]) {
+      if (id.startsWith('floor_demo_style_')) allowed.delete(id);
+    }
+  }
   return items.filter(item => {
     const id = String(item.id || '');
     return id.startsWith('custom_') || allowed.has(id);
@@ -470,6 +503,7 @@ const FLOORING_PRODUCT_AREA_KEYS: Record<string, string> = {
 export function scrubDedicatedFlooringMeasurements<
   T extends Record<string, unknown>,
 >(notes: string | null | undefined, measurements: T): T {
+  const original = String(notes || '');
   const text = dedicatedFlooringNoteText(notes);
   if (!notesDescribeDedicatedFlooringJob(text)) return measurements;
   const roles = dedicatedFlooringProductRoles(text);
@@ -509,6 +543,16 @@ export function scrubDedicatedFlooringMeasurements<
   ]) {
     if (id === 'flooring' ? installIds.size > 0 : !installIds.has(id)) {
       delete quantities[id];
+    }
+  }
+  if (notesOwnerHandlesFlooringDemo(original)) {
+    delete next.floorDemoSqft;
+    delete next.flooringDemoScopeCount;
+    delete next.flooringExistingCount;
+    next.flooringExistingTypes = null;
+    delete quantities.floor_demo;
+    for (const key of Object.keys(quantities)) {
+      if (key.startsWith('floor_demo__')) delete quantities[key];
     }
   }
   if (removedProducts.length) {

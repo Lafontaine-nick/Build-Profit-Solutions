@@ -352,8 +352,11 @@ import {
 import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
+  notesRequestFlooringDemo,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
+import { applyCanonicalScopeToChecklistItems } from '@/utils/canonicalScope';
 import {
   noteUsesSeparateJobReader,
   notesDescribeMixedProjectScope,
@@ -16417,11 +16420,30 @@ function CollapsibleQuickMeasurements({
         scopeNotes: notes,
       }
     );
-    if (mixedScopeFlooringSelected) {
+    if (
+      mixedScopeFlooringSelected &&
+      !notesDescribeDedicatedFlooringJob(notes)
+    ) {
       const flooringField = quickMeasurementFieldDef('flooringSqft');
       const floorDemoField = quickMeasurementFieldDef('floorDemoSqft');
       const flooringRows: QuickMeasurementRow[] = [];
-      if (!baseRows.some(row => row.some(field => field.key === 'flooringSqft'))) {
+      const hasProductInstallArea = baseRows.some(row =>
+        row.some(field =>
+          [
+            'flooringLvpSqft',
+            'flooringLaminateSqft',
+            'flooringEngineeredHardwoodSqft',
+            'flooringSolidHardwoodSqft',
+            'flooringTileSqft',
+            'flooringCarpetSqft',
+            'flooringSheetVinylSqft',
+          ].includes(field.key)
+        )
+      );
+      if (
+        !hasProductInstallArea &&
+        !baseRows.some(row => row.some(field => field.key === 'flooringSqft'))
+      ) {
         if (flooringField) {
           flooringRows.push([
             {
@@ -16432,7 +16454,10 @@ function CollapsibleQuickMeasurements({
           ]);
         }
       }
-      if (!baseRows.some(row => row.some(field => field.key === 'floorDemoSqft'))) {
+      if (
+        !notesOwnerHandlesFlooringDemo(notes) &&
+        !baseRows.some(row => row.some(field => field.key === 'floorDemoSqft'))
+      ) {
         if (floorDemoField) {
           flooringRows.push([
             {
@@ -16483,7 +16508,30 @@ function CollapsibleQuickMeasurements({
     if (notesDescribeAreaOnlyAddition(notes)) {
       return baseRows;
     }
+    if (notesOwnerHandlesFlooringDemo(notes)) {
+      baseRows = baseRows
+        .map(row => row.filter(field => field.key !== 'floorDemoSqft'))
+        .filter(row => row.length > 0);
+    }
     if (notesDescribeDedicatedFlooringJob(notes)) {
+      const hasProductInstallArea = baseRows.some(row =>
+        row.some(field =>
+          [
+            'flooringLvpSqft',
+            'flooringLaminateSqft',
+            'flooringEngineeredHardwoodSqft',
+            'flooringSolidHardwoodSqft',
+            'flooringTileSqft',
+            'flooringCarpetSqft',
+            'flooringSheetVinylSqft',
+          ].includes(field.key)
+        )
+      );
+      if (hasProductInstallArea) {
+        baseRows = baseRows
+          .map(row => row.filter(field => field.key !== 'flooringSqft'))
+          .filter(row => row.length > 0);
+      }
       return baseRows;
     }
     if (
@@ -16494,6 +16542,7 @@ function CollapsibleQuickMeasurements({
     }
     if (
       noteUsesSeparateJobReader(notes) &&
+      !notesDescribeMixedProjectScope(notes) &&
       !notesNameAtticInsulationWithDrywallHang(notes)
     ) {
       return baseRows;
@@ -16654,11 +16703,7 @@ function CollapsibleQuickMeasurements({
     ) {
       ensureScopeField('flooringSqft');
     }
-    if (
-      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,45}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,45}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
-        notesTextForScopeFields
-      )
-    ) {
+    if (notesRequestFlooringDemo(notesTextForScopeFields)) {
       ensureScopeField('floorDemoSqft', {
         label: 'Flooring removal',
         helperText:
@@ -21562,7 +21607,9 @@ function CollapsibleQuickMeasurements({
         !compactMixedScope &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !mixedScopeFlooringSelected &&
-        !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
+        !(result.key === 'floorDemoSqft' &&
+          (!flooringHasExistingType ||
+            notesOwnerHandlesFlooringDemo(String(notes || ''))))) ||
       (flooringQmJob &&
         !compactMixedScope &&
         result.key === 'floorPrepSqft' &&
@@ -23746,7 +23793,9 @@ function CollapsibleQuickMeasurements({
                   setMeasurements={setMeasurements}
                   notes={notes}
                   showExistingPanel={
-                    !hasSitePhotos && !flooringPlanOmitsExistingWork
+                    !hasSitePhotos &&
+                    !flooringPlanOmitsExistingWork &&
+                    !notesOwnerHandlesFlooringDemo(notes)
                   }
                   applying={applying}
                   onFlooringQmChange={onFlooringQmChange}
@@ -23897,7 +23946,8 @@ function CollapsibleQuickMeasurements({
               !notesNameAtticInsulationWithDrywallHang(notes) &&
               !notesNameShowerTileWithFlooring(notes) &&
               !notesNameWallAreaFramingWithFlooring(String(notes || '')) &&
-              !noteUsesSeparateJobReader(notes) &&
+              (!noteUsesSeparateJobReader(notes) ||
+                notesDescribeMixedProjectScope(notes)) &&
               (displayGroups.fromPlan.some(shouldRenderGeneralResult) ||
                 displayGroups.suggestions.some(shouldRenderGeneralResult) ||
                 displayGroups.needsConfirmation.some(
@@ -25356,6 +25406,7 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   const stuccoTradeFlow =
     !wholeProjectFlow &&
+    !mixedScopeReviewMode &&
     !notesDescribeGroundUpHome(scopeNotes) &&
     (items.some(
       item => item.id === 'stucco' || item.id.startsWith('stucco_')
@@ -25364,7 +25415,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const isWholeHomeMixedRemodelNote =
     notesDescribeMeasuredWholeHomeRemodel(scopeNotes);
 
-  const displayItems = useMemo(() => {
+  const displayItemsBuilt = useMemo(() => {
     const receptacleToiletNote =
       String(scopeNotes || '').trim() ||
       String(draft?.originalNotes || '').trim();
@@ -25404,7 +25455,9 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeNotes.trim() ||
       String(notesFallback || '').trim() ||
       String(draft?.originalNotes || '').trim();
-    const readerChecklist = readerConfirmScopeItems(items, currentUserNote);
+    const readerChecklist = notesDescribeMixedProjectScope(currentUserNote)
+      ? null
+      : readerConfirmScopeItems(items, currentUserNote);
     if (readerChecklist) return readerChecklist;
     const noteMeasurementCards = [
       {
@@ -25967,7 +26020,10 @@ export default function AIEstimateScopeAssumptionsModal({
       });
       return withDrywallLayout(electricalItems);
     }
-    if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
+    if (
+      String(checklist?.templateKey || '').toLowerCase() !== 'flooring' &&
+      !notesDescribeDedicatedFlooringJob(currentUserNote)
+    )
       return finishWholeHomeList(
         withDrywallLayout(withExplicitTradeExclusionBoundary)
       );
@@ -26015,7 +26071,10 @@ export default function AIEstimateScopeAssumptionsModal({
           !(specificFlooringProduct && item.id === 'flooring')
       ),
       scopeNotes,
-      retainedFlooringConfirmItemIds(measurements)
+      retainedFlooringConfirmItemIds({
+        ...measurements,
+        scopeNotes,
+      })
     )
       .map((item, index) => ({
         item:
@@ -26088,6 +26147,16 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.bathroomDemoVanityCount,
     measurements.bathroomDemoCounterCount,
   ]);
+
+  const displayItems = useMemo(
+    () =>
+      applyCanonicalScopeToChecklistItems(
+        displayItemsBuilt,
+        scopeNotes,
+        draft?.canonicalScope
+      ),
+    [displayItemsBuilt, draft?.canonicalScope, scopeNotes]
+  );
 
   const noteScopedChecklistItems = useMemo(() => {
     const notes =
@@ -28095,7 +28164,8 @@ export default function AIEstimateScopeAssumptionsModal({
       effectiveTemplateKey,
       scopeNotes,
       norm,
-      draftForScope?.projectType
+      draftForScope?.projectType,
+      draftForScope?.canonicalScope
     );
     const bathroomNotesFlow =
       String(checklist.templateKey || '').toLowerCase() === 'bathroom' ||
@@ -29567,7 +29637,10 @@ export default function AIEstimateScopeAssumptionsModal({
       notes: scopeNotes,
       wholeProjectPlan: wholeProjectPlanChecklist,
       planImportTradeKey: concretePlanExport ? 'concrete' : null,
-      retainFlooringItemIds: retainedFlooringConfirmItemIds(measurements),
+      retainFlooringItemIds: retainedFlooringConfirmItemIds({
+        ...measurements,
+        scopeNotes,
+      }),
     }),
     [
       concretePlanExport,
@@ -34941,13 +35014,13 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
             }
             templateKey={
-              dedicatedElectricalChecklist
-                ? 'electrical'
-                : notesUseDedicatedDrywallScope(scopeNotes) ||
-                    notesDescribeSheetrockFinishJob(scopeNotes)
-                  ? 'drywall'
-                  : mixedScopeReviewMode
-                    ? 'room_remodel'
+              mixedScopeReviewMode
+                ? 'room_remodel'
+                : dedicatedElectricalChecklist
+                  ? 'electrical'
+                  : notesUseDedicatedDrywallScope(scopeNotes) ||
+                      notesDescribeSheetrockFinishJob(scopeNotes)
+                    ? 'drywall'
                     : checklist?.templateKey
             }
             projectType={repairedScopeDraft?.projectType}
@@ -35278,21 +35351,26 @@ export default function AIEstimateScopeAssumptionsModal({
             showExistingWetAreaPanel={!hasSitePhotos && !notesPlumbingFlow}
             hasSitePhotos={hasSitePhotos}
         singleTradeImport={
-          (singleTradePlanImport && singleTradeKey === 'painting') ||
-          String(checklist?.templateKey || '').toLowerCase() === 'painting' ||
-          ((singleTradePlanImport || stuccoTradeFlow) &&
-            !notesContainStructuralMixedScope &&
-            !notesNameStuccoWithWindows(scopeNotes))
+          !mixedScopeReviewMode &&
+          ((singleTradePlanImport && singleTradeKey === 'painting') ||
+            String(checklist?.templateKey || '').toLowerCase() === 'painting' ||
+            ((singleTradePlanImport || stuccoTradeFlow) &&
+              !notesContainStructuralMixedScope &&
+              !notesNameStuccoWithWindows(scopeNotes)))
         }
             tradeKey={
-              notesPlumbingFlow
-                ? 'plumbing'
-                : singleTradePlanImport
-                  ? singleTradeKey
-                  : String(checklist?.templateKey || '').toLowerCase() ===
-                      'painting'
-                    ? 'painting'
-                    : 'stucco'
+              mixedScopeReviewMode
+                ? null
+                : notesPlumbingFlow
+                  ? 'plumbing'
+                  : singleTradePlanImport
+                    ? singleTradeKey
+                    : String(checklist?.templateKey || '').toLowerCase() ===
+                        'painting'
+                      ? 'painting'
+                      : stuccoTradeFlow
+                        ? 'stucco'
+                        : null
             }
             notesTradeFlow={notesPlumbingFlow}
             notesScopeSelectorVisible={notesScopeSelectorVisible}

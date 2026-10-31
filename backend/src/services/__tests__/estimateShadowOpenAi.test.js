@@ -53,7 +53,14 @@ describe('estimate OpenAI shadow adapter', () => {
     );
 
     expect(proposal.scopeItems).toEqual([
-      { id: 'flooring_install', quantity: 900, unit: 'sqft', evidence: null },
+      {
+        id: 'flooring_install',
+        quantity: 900,
+        unit: 'sqft',
+        evidence: null,
+        status: 'included',
+        responsibility: 'contractor',
+      },
     ]);
     expect(proposal.exclusions).toEqual(['carpet_demo']);
     expect(proposal.confidence).toBe('high');
@@ -131,6 +138,8 @@ describe('estimate OpenAI shadow adapter', () => {
         quantity: 900,
         unit: 'sqft',
         evidence: '900 sqft LVP',
+        status: 'included',
+        responsibility: 'contractor',
       },
     ]);
     expect(result.proposal.rejectedItems).toEqual([
@@ -164,6 +173,50 @@ describe('estimate OpenAI shadow adapter', () => {
         type: 'exclusion',
         id: 'hvac',
         reason: 'service_call_does_not_imply_hvac_exclusion',
+      },
+    ]);
+  });
+
+  test('maps owner-handled canonical items to exclusions without inventing catalog ids', () => {
+    const proposal = validateShadowProposal(
+      {
+        items: [
+          {
+            id: 'flooring_install',
+            action: 'install',
+            object: 'lvp',
+            status: 'included',
+            responsibility: 'contractor',
+            quantity: 1200,
+            unit: 'sqft',
+          },
+          {
+            id: 'carpet_demo',
+            action: 'remove',
+            object: 'carpet',
+            status: 'excluded',
+            responsibility: 'owner',
+          },
+          {
+            action: 'install',
+            object: 'acoustic wood slat wall',
+            status: 'included',
+            catalogMatch: null,
+          },
+        ],
+      },
+      catalog
+    );
+
+    expect(proposal.scopeItems.map(item => item.id)).toEqual(['flooring_install']);
+    expect(proposal.exclusions).toEqual(['carpet_demo']);
+    expect(proposal.unmatchedItems).toEqual([
+      {
+        type: 'scope',
+        id: null,
+        reason: 'uncataloged_work',
+        action: 'install',
+        object: 'acoustic wood slat wall',
       },
     ]);
   });

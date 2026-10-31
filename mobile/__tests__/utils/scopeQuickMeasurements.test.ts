@@ -61,6 +61,45 @@ describe('scopeQuickMeasurements', () => {
     );
     expect(keys).not.toContain('framedAreaSqft');
     expect(keys).not.toContain('wallFramingSqft');
+
+    const stuccoTemplateKeys = quickMeasurementRowsForInput(
+      'stucco',
+      'other',
+      {
+        flooringSqft: '900',
+        floorDemoSqft: '900',
+        roofSquares: '26',
+        wallPaintSqft: '2000',
+        drywallSqft: '300',
+        hvacServiceCallCount: '1',
+        stuccoGrossWallSqft: '1800',
+        stuccoNetWallSqft: '1800',
+      },
+      [
+        'flooringSqft',
+        'floorDemoSqft',
+        'roofSquares',
+        'wallPaintSqft',
+        'drywallSqft',
+        'hvacServiceCallCount',
+        'stuccoGrossWallSqft',
+      ],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(stuccoTemplateKeys).toEqual(
+      expect.arrayContaining([
+        'flooringSqft',
+        'floorDemoSqft',
+        'roofSquares',
+        'wallPaintSqft',
+        'drywallSqft',
+        'hvacServiceCallCount',
+        'stuccoGrossWallSqft',
+      ])
+    );
   });
 
   it('asks for cabinet run length unless the note already has cabinet area', () => {

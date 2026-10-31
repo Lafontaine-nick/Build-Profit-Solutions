@@ -1,5 +1,6 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import type {
   QmPanelDefinition,
   QmPanelHydrateContext,
@@ -495,6 +496,13 @@ function notesMentionExistingFloor(n: string): boolean {
 export function flooringPlanOmitsRemoval(
   m: Record<string, unknown>
 ): boolean {
+  if (
+    notesOwnerHandlesFlooringDemo(
+      String(m.scopeNotes || m.originalNotes || m.notes || '')
+    )
+  ) {
+    return true;
+  }
   const planFlooring =
     (m.planImportMode === 'selected_trade' &&
       m.planImportTradeKey === 'flooring') ||
@@ -511,6 +519,7 @@ export function flooringPlanOmitsRemoval(
 export function inferExistingFlooringFromNotes(
   notes: string | null | undefined
 ): FlooringExistingCounts {
+  if (notesOwnerHandlesFlooringDemo(notes)) return emptyFlooringExisting();
   const n = String(notes || '').toLowerCase();
   const types: NonNullable<FlooringExistingCounts['flooringExistingTypes']> =
     [];
@@ -585,6 +594,9 @@ export function resolveFlooringDemoFromIntent(params: {
   install: FlooringInstallCounts;
   checklistItems?: ScopeChecklistItem[];
 }): FlooringDemoCounts {
+  if (notesOwnerHandlesFlooringDemo(params.notes)) {
+    return { flooringDemoScopeCount: null };
+  }
   const n = String(params.notes || '').toLowerCase();
   const ex = params.existing;
   const ins = params.install;
@@ -618,6 +630,13 @@ export function syncFlooringQmScopeItems(
   items: ScopeChecklistItem[],
   m: Record<string, unknown>
 ): ScopeChecklistItem[] {
+  if (notesOwnerHandlesFlooringDemo(String(m.scopeNotes || m.notes || ''))) {
+    return items.filter(
+      row =>
+        row.id !== 'floor_demo' &&
+        !String(row.id || '').startsWith(FLOORING_DEMO_STYLE_PREFIX)
+    );
+  }
   const install = readFlooringInstall(m);
   const demo = readFlooringDemo(m);
   const existing = readFlooringExisting(m);
@@ -1041,11 +1060,15 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
     positiveCount(saved.flooringInstallScopeCount) ||
     positiveCount(saved.flooringDemoScopeCount);
 
-  let existing = flooringPlanOmitsRemoval(saved)
+  const omitRemoval =
+    flooringPlanOmitsRemoval({ ...saved, scopeNotes: ctx.notes }) ||
+    notesOwnerHandlesFlooringDemo(ctx.notes);
+
+  let existing = omitRemoval
     ? emptyFlooringExisting()
     : readFlooringExisting(saved);
   const inferredExisting = inferExistingFlooringFromNotes(ctx.notes);
-  if (!flooringPlanOmitsRemoval(saved)) {
+  if (!omitRemoval) {
     existing = {
       flooringExistingCount:
         positiveCount(saved.flooringExistingCount) ||
@@ -1065,14 +1088,16 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
         checklistItems: ctx.checklistItems,
       });
 
-  const demo = positiveCount(saved.flooringDemoScopeCount)
-    ? readFlooringDemo(saved)
-    : resolveFlooringDemoFromIntent({
-        notes: ctx.notes,
-        existing,
-        install,
-        checklistItems: ctx.checklistItems,
-      });
+  const demo = omitRemoval
+    ? { flooringDemoScopeCount: null }
+    : positiveCount(saved.flooringDemoScopeCount)
+      ? readFlooringDemo(saved)
+      : resolveFlooringDemoFromIntent({
+          notes: ctx.notes,
+          existing,
+          install,
+          checklistItems: ctx.checklistItems,
+        });
 
   const statedAreaMatch = String(ctx.notes || '').match(
     /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:feet|foot))\b/i
@@ -1103,6 +1128,12 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
     ...existing,
     ...install,
     ...demo,
+    ...(omitRemoval
+      ? {
+          floorDemoSqft: null,
+          flooringDemoScopeCount: null,
+        }
+      : {}),
     flooringProductScope: (() => {
       const merged = readFlooringProductScope({
         ...saved,

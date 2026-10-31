@@ -1,3 +1,4 @@
+import { finalizeCanonicalScope, type CanonicalScope } from '@/utils/canonicalScope';
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
 import { applyStructuredScopeIntentToMeasurements } from '@/utils/scopeIntent';
 import {
@@ -1363,6 +1364,7 @@ export type EstimateAiDraft = {
   } | null;
   /** simple_unit skips scope checklist; complex tiers require confirmation before pricing. */
   estimateTier?: EstimateTier;
+  canonicalScope?: CanonicalScope | null;
   scopeChecklist?: ScopeChecklist | null;
   scopeAssumptionsConfirmed?: boolean;
   requiresScopeConfirmation?: boolean;
@@ -1576,6 +1578,16 @@ function applyPlumbingNoteQuantityAuthority(
 }
 
 export function repairDraftRatePricingFromNotes(
+  incoming: EstimateAiDraft,
+  notes: string
+): EstimateAiDraft {
+  return finalizeCanonicalScope(
+    repairDraftRatePricingFromNotesUnfrozen(incoming, notes),
+    notes
+  );
+}
+
+function repairDraftRatePricingFromNotesUnfrozen(
   incoming: EstimateAiDraft,
   notes: string
 ): EstimateAiDraft {

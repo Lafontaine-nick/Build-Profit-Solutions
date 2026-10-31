@@ -10,6 +10,7 @@ import {
   infersRoofingUnderlaymentUpgradeFromNotes,
   noteExclusionNotices,
   notesExcludeElectricalServiceUpgrade,
+  notesOwnerHandlesFlooringDemo,
   notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
@@ -745,6 +746,22 @@ describe('scopeItemNoteHints roofing inference', () => {
       'Utility work is not in this bid',
       'Final trim is not in this bid',
     ]);
+  });
+});
+
+describe('owner-handled flooring demo', () => {
+  test('later homeowner-removal language drops flooring demo', () => {
+    const notes =
+      'Remove 1,200 sqft of carpet and install 1,200 sqft of LVP. Homeowner is removing the carpet.';
+    expect(notesOwnerHandlesFlooringDemo(notes)).toBe(true);
+    expect(inferItemStateFromNotes('floor_demo', notes)).not.toBe('included');
+  });
+
+  test('contractor carpet removal still counts as demo', () => {
+    const notes =
+      'Install 1,150 sqft LVP in the main level. Remove the existing carpet and haul it off.';
+    expect(notesOwnerHandlesFlooringDemo(notes)).toBe(false);
+    expect(inferItemStateFromNotes('floor_demo', notes)).toBe('included');
   });
 });
 

@@ -30,8 +30,11 @@ import {
   flooringRemovalSelectedOnConfirm,
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
+  notesRequestFlooringDemo,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
+import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
@@ -915,6 +918,131 @@ describe('dedicated flooring note', () => {
     expect(dedicatedFlooringProducts('Laminate').map(product => product.id)).toEqual([
       'flooring_laminate',
     ]);
+  });
+
+  it('drops carpet demo when the homeowner is removing the carpet', () => {
+    const note =
+      'Remove 1,200 sqft of carpet and install 1,200 sqft of LVP. Homeowner is removing the carpet.';
+    expect(notesDescribeDedicatedFlooringJob(note)).toBe(true);
+    expect(notesOwnerHandlesFlooringDemo(note)).toBe(true);
+    expect(notesRequestFlooringDemo(note)).toBe(false);
+    expect(flooringExistingCardStartsOpen(note)).toBe(false);
+    expect(dedicatedFlooringRemovedTypes(note)).toBeNull();
+    expect(inferExistingFlooringFromNotes(note)).toEqual({
+      flooringExistingCount: null,
+      flooringExistingTypes: null,
+    });
+    expect(
+      flooringQmPanel.hydrateMeasurements({
+        notes: note,
+        measurements: {
+          flooringExistingTypes: ['carpet'],
+          flooringExistingCount: 1,
+          flooringDemoScopeCount: 1,
+          floorDemoSqft: 1200,
+        },
+        checklistItems: [],
+        templateKey: 'flooring',
+      })
+    ).toMatchObject({
+      flooringExistingTypes: null,
+      flooringExistingCount: null,
+      flooringDemoScopeCount: null,
+      floorDemoSqft: null,
+    });
+    expect(
+      syncFlooringQmScopeItems(
+        [
+          { id: 'floor_demo', state: 'included' },
+          { id: 'flooring_lvp', state: 'included' },
+        ],
+        {
+          flooringExistingTypes: ['carpet'],
+          flooringExistingCount: 1,
+          flooringDemoScopeCount: 1,
+          scopeNotes: note,
+        }
+      ).map(item => item.id)
+    ).toEqual(['flooring_lvp']);
+    expect(inferItemStateFromNotes('floor_demo', note)).not.toBe('included');
+    expect(dedicatedFlooringProducts(note).map(product => product.id)).toEqual([
+      'flooring_lvp',
+    ]);
+    expect(dedicatedFlooringMeasurementSeed(note)).toMatchObject({
+      flooringLvpSqft: 1200,
+    });
+    expect(dedicatedFlooringMeasurementSeed(note).floorDemoSqft).toBeUndefined();
+    expect(parseScopeMeasurementsFromNotes(note).floorDemoSqft).toBeUndefined();
+    expect(
+      filterDedicatedFlooringConfirmItems(
+        [
+          { id: 'floor_demo', state: 'included' },
+          { id: 'floor_demo_style_carpet', state: 'included' },
+          { id: 'flooring_lvp', state: 'included' },
+        ],
+        note,
+        ['floor_demo', 'floor_demo_style_carpet']
+      ).map(item => item.id)
+    ).toEqual(['flooring_lvp']);
+
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.floorDemoSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(1200);
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(
+        row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`
+      )
+    ).toEqual(['LVP · 1200 sqft']);
+    expect(
+      quickMeasurementRowsForInput('flooring', 'flooring', {}, [], {
+        scopeNotes: note,
+      }).flat().map(field => field.key)
+    ).toEqual(['flooringLvpSqft']);
+    expect(
+      groupScopeChecklistItems(
+        [
+          {
+            id: 'floor_demo',
+            state: 'included',
+            label: 'Flooring demo / removal',
+          },
+          { id: 'flooring', state: 'included', label: 'Flooring installation' },
+          { id: 'flooring_lvp', state: 'included', label: 'LVP' },
+        ],
+        'flooring',
+        { notes: note }
+      )
+        .flatMap(group => group.items)
+        .map(item => item.id)
+    ).toEqual(['flooring_lvp']);
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const quantity = resolveChecklistItemQuantity('flooring_lvp', measurements, {
+      templateKey: 'flooring',
+      notes: note,
+    });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'flooring_lvp',
+        repaired.scopeMeasurements || {},
+        'flooring',
+        quantity,
+        null,
+        null,
+        note
+      ).fill?.total
+    ).toBe(8400);
   });
 
   it('stays off kitchen and drywall notes', () => {

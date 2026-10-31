@@ -3006,6 +3006,34 @@ function notesOwnerHandlesScopeCategory(notes, category) {
   return false;
 }
 
+function notesOwnerHandlesFlooringDemo(notes) {
+  const text = String(notes || "").trim();
+  if (!text) return false;
+  const owner = "(?:home\\s*owners?|homeowners?|owners?|customers?|clients?)";
+  const noun =
+    "(?:existing\\s+)?(?:carpet|floor(?:ing)?|lvp|laminate|vinyl|hardwood|tile)";
+  const verb =
+    "(?:remov(?:e|ing|al)|pull(?:ing)?(?:\\s+up)?|tear(?:ing)?[\\s-]?out|demo(?:ing|lition)?)";
+  return (
+    new RegExp(
+      `\\b${owner}\\b[^.!?\\n]{0,80}\\b${verb}\\b[^.!?\\n]{0,60}\\b${noun}\\b`,
+      "i",
+    ).test(text) ||
+    new RegExp(
+      `\\b${noun}\\b[^.!?\\n]{0,60}\\b${verb}\\b[^.!?\\n]{0,50}\\b(?:by\\s+(?:the\\s+)?${owner}|by\\s+others)\\b`,
+      "i",
+    ).test(text) ||
+    new RegExp(
+      `\\b${owner}[\\s-]+(?:provided|handled|supplied)\\s+(?:floor(?:ing)?\\s+)?(?:demo|removal)\\b`,
+      "i",
+    ).test(text) ||
+    new RegExp(
+      `\\b${noun}\\s+(?:already\\s+)?(?:removed|will\\s+be\\s+removed)\\s+by\\s+(?:the\\s+)?${owner}\\b`,
+      "i",
+    ).test(text)
+  );
+}
+
 const OWNER_HANDLED_SCOPE_ITEM_CATEGORIES = {
   sitework: "sitework",
   excavation: "sitework",
@@ -3464,6 +3492,7 @@ function checklistTemplateKey(draft, estimateTier, originalNotes) {
  * means shower wall tile, not flooring.
  */
 function floorDemoNotesHint(n) {
+  if (notesOwnerHandlesFlooringDemo(n)) return false;
   if (/\bfloor\s+demo\b/.test(n)) return true;
   const verbs = "(?:demo|demolition|remove|removal|tear[\\s-]?out)";
   const floorish =

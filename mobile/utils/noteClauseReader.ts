@@ -6,6 +6,7 @@
  * never been taught.
  */
 import { notesNameBathroomAssembly } from '@/utils/bathroomNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 
 export type NoteClauseLine = {
   id: string;
@@ -25,13 +26,18 @@ export type NoteClauseRead = {
 const SQFT =
   '(?:sq\\.?\\s*ft|sqft|sf|square\\s+(?:foot|feet))';
 const OWNED_AREA = new RegExp(
-  `(\\d[\\d,]*(?:\\.\\d+)?)\\s*${SQFT}\\s+of\\s+(?:the\\s+)?([a-z][^.,;\\n]*)`,
+  `(\\d[\\d,]*(?:\\.\\d+)?)\\s*${SQFT}\\s+(?:of\\s+)?(?:the\\s+)?([a-z][^.,;\\n]*)`,
   'i'
 );
 const OWNED_LF = new RegExp(
-  '(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:linear\\s+feet|lin\\.?\\s*ft|lf)\\s+of\\s+(?:the\\s+)?([a-z][^.,;\\n]*)',
+  '(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:linear\\s+feet|lin\\.?\\s*ft|lf)\\s+(?:of\\s+)?(?:the\\s+)?([a-z][^.,;\\n]*)',
   'i'
 );
+const TRAILING_AREA = new RegExp(
+  `^([a-z][^\\n]{1,80}?)[,:]?\\s+(\\d[\\d,]*(?:\\.\\d+)?)\\s*${SQFT}\\.?$`,
+  'i'
+);
+const ROOF_SQUARES = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/i;
 const PATIO_AREA = new RegExp(
   `(\\d[\\d,]*(?:\\.\\d+)?)\\s*${SQFT}\\s+(?:of\\s+)?(?:a\\s+)?(?:concrete\\s+)?patios?\\b`,
   'i'
@@ -108,6 +114,23 @@ function clauseIsNegated(clause: string): boolean {
   );
 }
 
+function clauseIsExclusion(clause: string): boolean {
+  const text = clause.trim();
+  if (!text) return false;
+  if (clauseIsNegated(text)) return true;
+  return (
+    /\bby\s+others\b/i.test(text) ||
+    /\bby\s+(?:the\s+)?(?:owner|homeowner|customer|client)s?\b/i.test(text) ||
+    /\bnot\s+included\b/i.test(text) ||
+    /\bnot\s+in\s+(?:this\s+)?(?:bid|scope)\b/i.test(text) ||
+    /\bexclud(?:e|ed|es|ing)\b/i.test(text) ||
+    /\b(?:owner|homeowner|customer|client)s?\s+is\s+handling\b/i.test(text) ||
+    /\b(?:owner|homeowner|customer|client)[-\s]+(?:provided|supplied|providing|handled)\b/i.test(
+      text
+    )
+  );
+}
+
 function line(
   id: string,
   label: string,
@@ -136,6 +159,20 @@ function lineForNoun(
 ): NoteClauseLine | null {
   const name = noun.toLowerCase();
   if (/\b(?:drywall|sheetrock|gypsum)\b/.test(name)) {
+    if (
+      /\b(?:patch|texture|repair)\b/i.test(clause) &&
+      !/\bhang\b/i.test(clause)
+    ) {
+      return line(
+        'patch_repair',
+        'Drywall patch / repair',
+        'Patch the drywall area named in the notes.',
+        'drywall',
+        quantity,
+        'sqft',
+        ['patchRepairSqft']
+      );
+    }
     return line(
       'drywall',
       'Drywall hang / finish',
@@ -179,7 +216,7 @@ function lineForNoun(
       ['atticInsulationSqft']
     );
   }
-  if (/\bexterior\s+walls?\b/.test(name) && /\bstucco\b/i.test(clause)) {
+  if (/\bstucco\b/.test(name)) {
     return line(
       'stucco',
       'Stucco / exterior wall finish',
@@ -199,6 +236,17 @@ function lineForNoun(
       quantity,
       'sqft',
       ['showerWallTileSqft']
+    );
+  }
+  if (/\b(?:quartz|countertops?|counters?)\b/.test(name)) {
+    return line(
+      'countertops',
+      'Countertops',
+      'Countertops named in the notes.',
+      'countertops',
+      quantity,
+      unit === 'each' ? 'sqft' : unit,
+      ['countertopSqft']
     );
   }
   if (/\bcabinets?\b/.test(name)) {
@@ -234,7 +282,10 @@ function lineForNoun(
       ['concreteSqft']
     );
   }
-  if (/\bwalls?\b/.test(name) && /\bfram(?:e|ing)\b/i.test(clause)) {
+  if (
+    /\bfram(?:e|ing)\b/i.test(clause) &&
+    (/\bwalls?\b/.test(name) || /\bfram(?:e|ing)\b/.test(name))
+  ) {
     return line(
       'wall_framing',
       'Wall framing',
@@ -243,6 +294,17 @@ function lineForNoun(
       quantity,
       'sqft',
       ['wallFramingSqft']
+    );
+  }
+  if (/\b(?:roof(?:ing)?|shingles?|reroof)\b/.test(name)) {
+    return line(
+      'roofing',
+      'Roofing',
+      'Roofing named in the notes.',
+      'roofing',
+      quantity,
+      'sqft',
+      ['roofSquares']
     );
   }
   if (/\bwalls?\b/.test(name) && /\bpaint/i.test(clause)) {
@@ -335,20 +397,92 @@ function inheritedWallLine(
 
 function excludedIdsFor(clause: string): string[] {
   const ids: string[] = [];
-  if (/\bfram(?:e|ing)\b/i.test(clause)) ids.push('framing', 'wall_framing');
-  if (/\b(?:lvp|luxury\s+vinyl|flooring|laminate|carpet)\b/i.test(clause)) {
-    ids.push('flooring', 'flooring_lvp');
+  const add = (...next: string[]) => {
+    for (const id of next) {
+      if (!ids.includes(id)) ids.push(id);
+    }
+  };
+  if (/\bpermits?\b/i.test(clause)) add('permits');
+  if (/\bappliances?\b/i.test(clause)) add('appliances', 'appliance_removal');
+  if (/\belectrical\s+service\s+upgrades?\b/i.test(clause)) {
+    add('electrical_service_upgrade');
   }
-  if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(clause)) ids.push('drywall');
-  if (/\bpaint/i.test(clause)) ids.push('interior_paint');
+  if (/\belectrical\b/i.test(clause)) add('electrical');
+  if (/\bplumb(?:ing)?\b/i.test(clause)) add('plumbing');
+  if (/\bhvac\b|\bfurnace\b/i.test(clause)) add('hvac');
+  if (/\bwindows?\b/i.test(clause)) add('windows', 'window_install');
+  if (/\bgutters?\b/i.test(clause)) add('gutters');
+  if (/\bsiding\b/i.test(clause)) add('siding');
+  if (/\blandscap/i.test(clause)) add('landscaping');
+  if (/\bexcavat/i.test(clause)) add('excavation');
+  if (/\bgrading\b/i.test(clause)) add('grading');
+  if (/\bsitework\b|\bsite\s*work\b/i.test(clause)) add('sitework');
+  if (/\butilities?\b/i.test(clause)) add('utility_taps', 'utility_trenching');
+  if (/\bfram(?:e|ing)\b/i.test(clause)) add('framing', 'wall_framing');
+  if (/\b(?:lvp|luxury\s+vinyl|flooring|laminate|carpet)\b/i.test(clause)) {
+    if (
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(clause)
+    ) {
+      add('floor_demo');
+    } else {
+      add('flooring', 'flooring_lvp');
+    }
+  }
+  if (/\bno\s+(?:new\s+)?hang\b/i.test(clause)) add('drywall_hang');
+  else if (/\b(?:drywall|sheetrock|gypsum)\b/i.test(clause)) add('drywall');
+  if (/\bpaint/i.test(clause)) add('interior_paint');
+  if (/\broof(?:ing)?\b/i.test(clause)) add('roofing');
+  if (/\bstucco\b/i.test(clause)) add('stucco');
+  if (/\bcabinets?\b/i.test(clause)) add('cabinets');
+  if (/\bcountertops?\b|\bcounters?\b/i.test(clause)) add('countertops');
+  if (/\btoilets?\b/i.test(clause)) add('toilet');
+  if (/\b(?:cleanup|haul[\s-]?off|disposal)\b/i.test(clause)) add('cleanup');
+  if (/\bfixtures?\b/i.test(clause)) add('plumbing');
   return ids;
 }
 
 function ownedLine(clause: string): NoteClauseLine | null {
+  if (
+    /\b(?:service\s+calls?|diagnos(?:e|is|ing))\b/i.test(clause) &&
+    /\b(?:hvac|furnace)\b/i.test(clause)
+  ) {
+    return line(
+      'service_call',
+      'HVAC service call',
+      'Service call named in the notes.',
+      'hvac',
+      1,
+      'each',
+      ['hvacServiceCallCount']
+    );
+  }
+  const squares = clause.match(ROOF_SQUARES);
+  if (
+    squares &&
+    /\b(?:reroof|re[\s-]?roof|roof(?:ing)?|shingles?)\b/i.test(clause)
+  ) {
+    const quantity = amount(squares[1]);
+    if (quantity) {
+      return line(
+        'roofing',
+        'Roofing',
+        'Roof squares named in the notes.',
+        'roofing',
+        quantity,
+        'sqft',
+        ['roofSquares']
+      );
+    }
+  }
   const area = clause.match(OWNED_AREA);
   if (area) {
     const quantity = amount(area[1]);
     if (quantity) return lineForNoun(area[2] || '', clause, quantity, 'sqft');
+  }
+  const trailing = clause.match(TRAILING_AREA);
+  if (trailing) {
+    const quantity = amount(trailing[2]);
+    if (quantity) return lineForNoun(trailing[1] || '', clause, quantity, 'sqft');
   }
   const length = clause.match(OWNED_LF);
   if (length) {
@@ -392,6 +526,22 @@ export function readNoteWork(notes: string | null | undefined): NoteClauseRead {
   const excluded = new Set<string>();
   const seen = new Set<string>();
   for (const clause of splitClauses(String(notes || ''))) {
+    if (notesOwnerHandlesFlooringDemo(clause)) {
+      excluded.add('floor_demo');
+      staged.push({ clause, line: null });
+      continue;
+    }
+    const exclusionParts = clause.split(',').map(part => part.trim()).filter(Boolean);
+    const exclusionHits = exclusionParts.filter(part => clauseIsExclusion(part));
+    if (exclusionHits.length) {
+      for (const part of exclusionHits) {
+        excludedIdsFor(part).forEach(id => excluded.add(id));
+      }
+      if (exclusionHits.length === exclusionParts.length) {
+        staged.push({ clause, line: null });
+        continue;
+      }
+    }
     if (clauseIsNegated(clause)) {
       excludedIdsFor(clause).forEach(id => excluded.add(id));
       staged.push({ clause, line: null });
@@ -500,6 +650,7 @@ export function noteUsesSeparateJobReader(
   notes: string | null | undefined
 ): boolean {
   if (noteKeepsItsOwnChecklist(notes)) return false;
+  if (notesDescribeMixedProjectScope(notes)) return false;
   return readNoteWork(notes).lines.length >= 2;
 }
 
@@ -569,8 +720,12 @@ const HERO_TRADE_NAME: Record<string, string> = {
   pour_flatwork: 'Concrete',
   sod_turf: 'Sod',
   stucco: 'Stucco',
+  roofing: 'Roofing',
+  service_call: 'HVAC service call',
+  patch_repair: 'Drywall patch / repair',
   windows: 'Windows',
   cabinets: 'Cabinets',
+  countertops: 'Countertops',
   shower_tile: 'Shower tile',
   electrical_standard_receptacle: 'Receptacles',
   toilet: 'Toilet',

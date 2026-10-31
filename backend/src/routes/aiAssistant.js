@@ -17395,6 +17395,7 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
         estimateTier: responseDraft.estimateTier || null,
       },
       checklist,
+      canonicalScope: responseDraft.canonicalScope,
     });
     return res.json({
       // Keep the draft and the separately returned checklist on the same

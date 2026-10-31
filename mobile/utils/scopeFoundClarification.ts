@@ -4,6 +4,7 @@ import {
   notesDescribeDedicatedFlooringJob,
   notesRequestFlooringDemo,
 } from '@/utils/flooringNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
   kitchenNoteIncludesFloorWork,
   kitchenNoteNamesBacksplash,
@@ -401,13 +402,18 @@ export function flooringReplaceIncludesRemoval(
 ): boolean {
   const text = noteText(notes);
   if (!notesDescribeDedicatedFlooringJob(text)) return false;
+  if (notesOwnerHandlesFlooringDemo(text)) return false;
   if (notesRequestFlooringDemo(text)) return false;
   return /\breplace(?:ment)?\b/i.test(text);
 }
 
 function flooringDemoPrompt(text: string): ScopeFoundClarification | null {
   if (!notesDescribeDedicatedFlooringJob(text)) return null;
-  if (notesRequestFlooringDemo(text) || flooringReplaceIncludesRemoval(text)) {
+  if (
+    notesOwnerHandlesFlooringDemo(text) ||
+    notesRequestFlooringDemo(text) ||
+    flooringReplaceIncludesRemoval(text)
+  ) {
     return null;
   }
   if (!/\b(?:install|new)\b/i.test(text) && statedArea(text) == null) return null;

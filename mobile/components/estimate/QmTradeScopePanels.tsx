@@ -103,6 +103,7 @@ import {
   flooringExistingCardStartsOpen,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
   CONCRETE_BUILDING_SLAB_OPTIONS,
   CONCRETE_FLATWORK_OPTIONS,
@@ -2226,6 +2227,19 @@ export function QmFlooringScopePanels({
 
   useEffect(() => {
     if (seededFlooringNoteRef.current === flooringNotes) return;
+    if (notesOwnerHandlesFlooringDemo(notes || flooringNotes)) {
+      seededFlooringNoteRef.current = flooringNotes;
+      setExisting({ flooringExistingCount: null, flooringExistingTypes: null });
+      setDemo({ flooringDemoScopeCount: null });
+      setMeasurements(prev => ({
+        ...prev,
+        flooringExistingCount: null,
+        flooringExistingTypes: null,
+        flooringDemoScopeCount: null,
+        floorDemoSqft: null,
+      }));
+      return;
+    }
     if (
       !noteRemovedTypes?.length &&
       !notesDescribeDedicatedFlooringJob(flooringNotes)

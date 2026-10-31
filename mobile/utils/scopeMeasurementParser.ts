@@ -20,6 +20,7 @@ import {
   notesNameDoorPaintSurface,
   notesReplaceInteriorDoorsBesidePaint,
 } from '@/utils/scopeItemNoteHints';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
@@ -2474,7 +2475,9 @@ export function parseScopeMeasurementsFromNotes(
     }
     return null;
   })();
-  if (floorDemoSqft) out.floorDemoSqft = floorDemoSqft;
+  if (floorDemoSqft && !notesOwnerHandlesFlooringDemo(text)) {
+    out.floorDemoSqft = floorDemoSqft;
+  }
   const floorPrepSqft = pickSqftFromClauses([
     /\b(?:floor|subfloor)\s+prep\b/,
     /\b(?:prep|preparation|leveling|patching|repair|mitigation)\b[^.;]{0,45}\bfloor\b/,

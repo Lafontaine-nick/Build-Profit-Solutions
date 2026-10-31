@@ -4,6 +4,11 @@
  */
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
+  filterQmRowsByCanonicalScope,
+  resolveCanonicalScopeForNotes,
+  type CanonicalScope,
+} from '@/utils/canonicalScope';
+import {
   bathroomNoteTakeoff,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
@@ -58,6 +63,7 @@ import {
   notesNameAffirmativeDeckOrPatio,
   notesOwnerHandlesScopeCategory,
 } from '@/utils/scopeItemNoteHints';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
   notesDescribeMeasuredWholeHomeRemodel,
   notesNameOwnerSuppliedAppliances,
@@ -3258,6 +3264,7 @@ export function quickMeasurementRowsForTemplate(
         remodelNoteText
       ));
   const hasFlooringDemo =
+    !notesOwnerHandlesFlooringDemo(remodelNoteText) &&
     /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:existing\s+)?(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b|\breplace\b[^.;\n]{0,50}\b(?:existing\s+)?(?:carpet|flooring|floor\s+tile|lvp|laminate|vinyl)\b/i.test(
       remodelNoteText
     );
@@ -3802,8 +3809,44 @@ export function quickMeasurementRowsForInput(
     plumbingWorkflowMode?: PlumbingWorkflowMode | null;
     crossScopeMode?: boolean;
     scopeNotes?: string | null;
+    canonicalScope?: CanonicalScope | null;
   }
 ): QuickMeasurementRow[] {
+  return filterQmRowsByCanonicalScope(
+    computeQuickMeasurementRowsForInput(
+      templateKey,
+      projectType,
+      measurements,
+      noteBackedKeys,
+      options
+    ),
+    options?.canonicalScope ||
+      resolveCanonicalScopeForNotes(options?.scopeNotes, options?.canonicalScope)
+  );
+}
+
+function computeQuickMeasurementRowsForInput(
+  templateKey: string | null | undefined,
+  projectType: string | null | undefined,
+  measurements: Partial<
+    Record<QuickMeasurementFieldKey, string | number | null | undefined>
+  >,
+  noteBackedKeys?: Iterable<QuickMeasurementFieldKey>,
+  options?: {
+    plumbingPlanImport?: boolean;
+    windowsDoorsPlanImport?: boolean;
+    garageDoorsPlanImport?: boolean;
+    windowsDoorsNotesFlow?: boolean;
+    plumbingNotesFlow?: boolean;
+    plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+    crossScopeMode?: boolean;
+    scopeNotes?: string | null;
+    canonicalScope?: CanonicalScope | null;
+  }
+): QuickMeasurementRow[] {
+  const mixedNoteScope = notesDescribeMixedProjectScope(options?.scopeNotes);
+  const crossScopeMode = Boolean(options?.crossScopeMode || mixedNoteScope);
+  options = { ...options, crossScopeMode };
   if (notesNameStuccoWithWindows(options?.scopeNotes)) {
     return stuccoWithWindowsRows();
   }
@@ -3858,7 +3901,7 @@ export function quickMeasurementRowsForInput(
       ],
     ];
   }
-  if (notesDescribeNoteRatedDrywallJob(options?.scopeNotes)) {
+  if (!mixedNoteScope && notesDescribeNoteRatedDrywallJob(options?.scopeNotes)) {
     return [
       [
         {
@@ -3870,8 +3913,9 @@ export function quickMeasurementRowsForInput(
     ];
   }
   if (
-    notesUseDedicatedDrywallScope(options?.scopeNotes) ||
-    notesDescribeSheetrockFinishJob(options?.scopeNotes)
+    !mixedNoteScope &&
+    (notesUseDedicatedDrywallScope(options?.scopeNotes) ||
+      notesDescribeSheetrockFinishJob(options?.scopeNotes))
   ) {
     return dedicatedDrywallMeasurementRows(
       String(options?.scopeNotes || ''),
@@ -3987,6 +4031,7 @@ export function quickMeasurementRowsForInput(
   }
   if (
     noteUsesSeparateJobReader(String(options?.scopeNotes || '')) &&
+    !notesDescribeMixedProjectScope(String(options?.scopeNotes || '')) &&
     !notesNameAtticInsulationWithDrywallHang(String(options?.scopeNotes || ''))
   ) {
     const fields = readNoteWork(String(options?.scopeNotes || '')).lines.flatMap(
@@ -4040,7 +4085,7 @@ export function quickMeasurementRowsForInput(
   // Stucco has a dedicated takeoff panel. Do not append generic note-backed
   // fields from an older mixed-scope draft (for example exterior paint or
   // baseboard) into the dedicated card.
-  if (resolvedKey === 'stucco') return baseRows;
+  if (resolvedKey === 'stucco' && !options?.crossScopeMode) return baseRows;
   const scopeNotes = String(options?.scopeNotes || '');
   const explicitBathroomPlumbingReroute =
     /\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
@@ -4173,9 +4218,7 @@ export function quickMeasurementRowsForInput(
   }
   const flooringRemovalMentioned =
     (resolvedKey === 'room_remodel' || resolvedKey === 'flooring') &&
-    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
-      scopeNotes
-    );
+    notesRequestFlooringDemo(scopeNotes);
   if (
     flooringRemovalMentioned &&
     !baseRows.some(row => row.some(field => field.key === 'floorDemoSqft')) &&
@@ -5036,6 +5079,7 @@ export function quickMeasurementRowsForInput(
         );
       }
       if (field.key === 'floorDemoSqft') {
+        if (notesOwnerHandlesFlooringDemo(noteText)) return false;
         return /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
           noteText
         );
@@ -5103,7 +5147,7 @@ export function quickMeasurementRowsForInput(
       }
       return false;
     };
-    return [
+    const mixedRows = [
       ...normalizedRows
         .map(row => row.filter(noteMentions))
         .filter(row => row.length > 0),
@@ -5113,6 +5157,28 @@ export function quickMeasurementRowsForInput(
           .map(field => applyContextLabels([field])[0] || field)
       ),
     ];
+    const presentKeys = new Set(mixedRows.flat().map(field => field.key));
+    const missingMixedFields = (
+      [
+        'flooringSqft',
+        'floorDemoSqft',
+        'roofSquares',
+        'wallPaintSqft',
+        'drywallSqft',
+        'hvacServiceCallCount',
+        'stuccoGrossWallSqft',
+        'stuccoNetWallSqft',
+      ] as QuickMeasurementFieldKey[]
+    )
+      .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
+      .filter(
+        (field): field is QuickMeasurementFieldDef =>
+          Boolean(field) && !presentKeys.has(field.key) && noteMentions(field)
+      )
+      .map(field => applyContextLabels([field])[0] || field);
+    return missingMixedFields.length
+      ? [...mixedRows, ...chunkRows(missingMixedFields)]
+      : mixedRows;
   }
   const groundUpNamesDeck =
     resolvedKey === 'ground_up' &&
