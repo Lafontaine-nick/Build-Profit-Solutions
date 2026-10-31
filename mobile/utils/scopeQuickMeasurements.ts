@@ -4098,7 +4098,37 @@ export function quickMeasurementRowsForInput(
   }
   if (resolvedKey === 'room_remodel') {
     if (
+      (noteKeySet?.has('roofSquares') ||
+        hasQuickMeasurementValue(measurements.roofSquares) ||
+        /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i.test(
+          scopeNotes
+        )) &&
+      !baseRows.some(row => row.some(field => field.key === 'roofSquares')) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.roofSquares
+    ) {
+      noteBackedFieldsToAppend.push({
+        ...QUICK_MEASUREMENT_FIELD_DEFS.roofSquares,
+        label: 'Roofing replacement',
+        helperText: 'Roof area from the notes.',
+      });
+    }
+    if (
       noteKeySet?.has('hvacServiceCallCount') &&
+      !baseRows.some(row =>
+        row.some(field => field.key === 'hvacServiceCallCount')
+      ) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.hvacServiceCallCount
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.hvacServiceCallCount
+      );
+    }
+    if (
+      !noteKeySet?.has('hvacServiceCallCount') &&
+      hasQuickMeasurementValue(measurements.hvacServiceCallCount) &&
+      /\b(?:hvac|furnace|service\s+call|diagnos(?:e|is|ing))\b/i.test(
+        scopeNotes
+      ) &&
       !baseRows.some(row =>
         row.some(field => field.key === 'hvacServiceCallCount')
       ) &&

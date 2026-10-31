@@ -264,9 +264,16 @@ export function isCanonicalMixedScope(
       input.draft?.classification?.scopeMode ||
       ''
   ).toLowerCase();
-  // An explicit dedicated classification stays on that job's template.
-  // Extra package trades must not pull it into the mixed layout.
-  if (scopeMode === 'dedicated') return false;
+  // An explicit dedicated classification stays on that job's template unless
+  // the note itself clearly describes several independent trades. This keeps
+  // package-generated companion trades from changing a dedicated job while
+  // still allowing an under-classified mixed note to open every trade panel.
+  if (
+    scopeMode === 'dedicated' &&
+    !notesDescribeMixedProjectScope(input.draft?.originalNotes)
+  ) {
+    return false;
+  }
   if (scopeMode === 'mixed') return true;
   const detectedTrades =
     input.detectedTrades?.length
@@ -285,12 +292,18 @@ export function isMixedScopeLayout(draft?: {
   scopeMode?: string | null;
   classification?: { scopeMode?: string | null; detectedTrades?: string[] } | null;
   detectedTrades?: string[];
-} | null): boolean {
+  originalNotes?: string | null;
+} | null, notes?: string | null): boolean {
+  const draftWithNotes =
+    notes?.trim() && !draft?.originalNotes
+      ? { ...draft, originalNotes: notes }
+      : draft;
   return isCanonicalMixedScope({
-    draft: draft as EstimateAiDraft | null,
-    scopeMode: draft?.scopeMode,
+    draft: draftWithNotes as EstimateAiDraft | null,
+    scopeMode: draftWithNotes?.scopeMode,
     detectedTrades:
-      draft?.classification?.detectedTrades || draft?.detectedTrades,
+      draftWithNotes?.classification?.detectedTrades ||
+      draftWithNotes?.detectedTrades,
   });
 }
 

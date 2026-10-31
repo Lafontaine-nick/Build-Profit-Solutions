@@ -1,5 +1,6 @@
 import {
   isCanonicalMixedScope,
+  isMixedScopeLayout,
   mixedScopeQmTradesFromDraft,
   mixedScopeTradesFromDraft,
   mixedScopeTradesFromNotes,
@@ -169,6 +170,41 @@ describe('mixedScopeOrchestrator', () => {
       'kitchen',
       'painting',
     ]);
+  });
+
+  test('promotes an under-classified mixed contractor note over a dedicated template', () => {
+    const notes =
+      'Replace carpet with 900 sqft LVP. Reroof 26 squares of architectural shingles. Paint walls, 2,000 sqft. Replace the stucco, 1,800 sqft. HVAC service call to diagnose the furnace. Patch and texture 300 sqft of drywall. No new hang.';
+
+    const draft = {
+      originalNotes: notes,
+      scopeMode: 'dedicated',
+      classification: {
+        scopeMode: 'dedicated',
+        detectedTrades: ['stucco'],
+      },
+    } as never;
+
+    expect(
+      isCanonicalMixedScope({
+        scopeMode: 'dedicated',
+        detectedTrades: ['stucco'],
+        draft,
+      })
+    ).toBe(true);
+    expect(isMixedScopeLayout(draft)).toBe(true);
+    expect(
+      isMixedScopeLayout(
+        {
+          scopeMode: 'dedicated',
+          classification: {
+            scopeMode: 'dedicated',
+            detectedTrades: ['stucco'],
+          },
+        },
+        notes
+      )
+    ).toBe(true);
   });
 
   test('promotes quantity-backed framing rows without changing unrelated rows', () => {

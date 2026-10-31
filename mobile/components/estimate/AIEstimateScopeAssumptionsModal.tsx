@@ -354,7 +354,10 @@ import {
   notesDescribeDedicatedFlooringJob,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
-import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
+import {
+  noteUsesSeparateJobReader,
+  notesDescribeMixedProjectScope,
+} from '@/utils/noteClauseReader';
 import { notesPriceNationalDrywallHang } from '@/utils/noteScopeLines';
 import {
   deckInstallMaterialCopy,
@@ -24538,8 +24541,10 @@ export default function AIEstimateScopeAssumptionsModal({
   // original note text name.
   const originalNotes = scopeNotes;
   const mixedScopeReviewMode = useMemo(
-    () => isMixedScopeLayout(repairedScopeDraft),
-    [repairedScopeDraft]
+    () =>
+      notesDescribeMixedProjectScope(scopeNotes) ||
+      isMixedScopeLayout(repairedScopeDraft, scopeNotes),
+    [repairedScopeDraft, scopeNotes]
   );
   const dedicatedElectricalChecklist = useMemo(() => {
     if (notesNameReceptaclesWithToilet(scopeNotes)) return false;

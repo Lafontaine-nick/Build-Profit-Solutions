@@ -78,6 +78,9 @@ describe('canonical contractor note matrix', () => {
             'floorDemoSqft',
             'drywallSqft',
             'wallPaintSqft',
+            'roofSquares',
+            'stuccoGrossWallSqft',
+            'hvacServiceCallCount',
           ])
         );
         expect(readNoteWork(cases[1].notes).lines.length).toBeGreaterThan(0);
