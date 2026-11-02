@@ -28297,6 +28297,11 @@ export default function AIEstimateScopeAssumptionsModal({
       normalized,
       planImport?.scopeDetections
     ).items;
+    normalized = applyCanonicalScopeToChecklistItems(
+      normalized,
+      scopeNotes,
+      draftForScope?.canonicalScope
+    );
     baseItemsRef.current = normalized;
     wholeProjectItemsRef.current = normalized;
     if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
@@ -29111,19 +29116,26 @@ export default function AIEstimateScopeAssumptionsModal({
     if (template !== 'stucco' && !stuccoTradeFlow) return;
     setItems(prev => {
       const next = applyMeasuredStuccoScopeInferences(prev, normMeasurements);
+      const canonicalNext = applyCanonicalScopeToChecklistItems(
+        next,
+        scopeNotes,
+        draft?.canonicalScope
+      );
       const changed =
-        next.length !== prev.length ||
-        next.some(
+        canonicalNext.length !== prev.length ||
+        canonicalNext.some(
           (item, index) =>
             item.state !== prev[index]?.state ||
             item.choiceId !== prev[index]?.choiceId
         );
-      return changed ? next : prev;
+      return changed ? canonicalNext : prev;
     });
   }, [
     checklist?.templateKey,
     draft?.projectType,
+    draft?.canonicalScope,
     stuccoTradeFlow,
+    scopeNotes,
     normMeasurements,
     measurements.stuccoSoffitSqft,
     measurements.stuccoParapetSqft,
@@ -30731,27 +30743,31 @@ export default function AIEstimateScopeAssumptionsModal({
   // Paint SF in Quick measurements → auto-select Interior painting (Yes).
   useEffect(() => {
     setItems(prev =>
-      syncInteriorPaintScopeItems(prev, {
-        wallPaintSqft: measurements.wallPaintSqft,
-        ceilingPaintSqft: measurements.ceilingPaintSqft,
-        paintAreaSqft: measurements.paintAreaSqft,
-        patchRepairSqft:
-          measurements.itemQuantities?.patch_repair?.quantity ??
-          measurements.patchRepairSqft,
-        paintAreaBasis: measurements.paintAreaBasis,
-        paintAreaNeedsConfirmation: measurements.paintAreaNeedsConfirmation,
-        paintPricingMethod: measurements.paintPricingMethod,
-        combinedPaintableAreaSqft: measurements.combinedPaintableAreaSqft,
-        paintScope: measurements.paintScope,
-        baseboardLf: measurements.baseboardLf,
-        interiorDoorCount: measurements.interiorDoorCount,
-        cabinetPaintSqft: measurements.cabinetPaintSqft,
-        exteriorPaintSqft: measurements.exteriorPaintSqft,
-        windowCount: measurements.windowCount,
-        exteriorDoorCount: measurements.exteriorDoorCount,
-        notes: scopeNotes,
-        templateKey: checklist?.templateKey,
-      })
+      applyCanonicalScopeToChecklistItems(
+        syncInteriorPaintScopeItems(prev, {
+          wallPaintSqft: measurements.wallPaintSqft,
+          ceilingPaintSqft: measurements.ceilingPaintSqft,
+          paintAreaSqft: measurements.paintAreaSqft,
+          patchRepairSqft:
+            measurements.itemQuantities?.patch_repair?.quantity ??
+            measurements.patchRepairSqft,
+          paintAreaBasis: measurements.paintAreaBasis,
+          paintAreaNeedsConfirmation: measurements.paintAreaNeedsConfirmation,
+          paintPricingMethod: measurements.paintPricingMethod,
+          combinedPaintableAreaSqft: measurements.combinedPaintableAreaSqft,
+          paintScope: measurements.paintScope,
+          baseboardLf: measurements.baseboardLf,
+          interiorDoorCount: measurements.interiorDoorCount,
+          cabinetPaintSqft: measurements.cabinetPaintSqft,
+          exteriorPaintSqft: measurements.exteriorPaintSqft,
+          windowCount: measurements.windowCount,
+          exteriorDoorCount: measurements.exteriorDoorCount,
+          notes: scopeNotes,
+          templateKey: checklist?.templateKey,
+        }),
+        scopeNotes,
+        draft?.canonicalScope
+      )
     );
   }, [
     measurements.wallPaintSqft,
@@ -30771,6 +30787,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.windowCount,
     measurements.exteriorDoorCount,
     scopeNotes,
+    draft?.canonicalScope,
     checklist?.templateKey,
   ]);
 

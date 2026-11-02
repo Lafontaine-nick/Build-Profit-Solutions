@@ -7,7 +7,6 @@ import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import { notesNameWallAreaFramingWithFlooring } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   noteKeepsItsOwnChecklist,
-  notesDescribeMixedProjectScope,
   readNoteWork,
 } from '@/utils/noteClauseReader';
 import { notesOwnerHandlesScopeCategory } from '@/utils/scopeItemNoteHints';
@@ -115,6 +114,14 @@ const EXCLUDED_ID_ALIASES: Record<string, string[]> = {
   windows: ['windows', 'window_install'],
   excavation: ['excavation', 'sitework'],
   grading: ['grading', 'sitework'],
+};
+
+const NAMED_INCLUDED_ALIASES: Record<string, string[]> = {
+  ...EXCLUDED_ID_ALIASES,
+  roofing: ['roofing', 'roofing_system', 'shingles_roofing'],
+  stucco: ['stucco'],
+  service_call: ['service_call'],
+  interior_paint: ['interior_paint', 'paint', 'paint_repair'],
 };
 
 const MEASUREMENT_KEY_TO_SCOPE_ID: Record<string, string> = {
@@ -414,7 +421,7 @@ function itemMatchesNamedIncluded(id: string, named: Set<string>): boolean {
   if (id.startsWith('custom_')) return true;
   if (named.has(id)) return true;
   if (isFloorDemoScopeId(id) && named.has('floor_demo')) return true;
-  for (const [canonicalId, aliases] of Object.entries(EXCLUDED_ID_ALIASES)) {
+  for (const [canonicalId, aliases] of Object.entries(NAMED_INCLUDED_ALIASES)) {
     if (named.has(canonicalId) && aliases.includes(id)) return true;
   }
   return false;
@@ -424,7 +431,6 @@ function shouldRestrictChecklistToNamedNotes(notes?: string | null): boolean {
   const text = String(notes || '');
   if (!namedIncludedIdsFromNotes(text).size) return false;
   if (noteKeepsItsOwnChecklist(text)) return false;
-  if (notesDescribeMixedProjectScope(text)) return false;
   if (wholeHomeRemodelNamedItemIds(text)) return false;
   if (notesDescribeDedicatedFlooringJob(text)) return false;
   if (notesNameWallAreaFramingWithFlooring(text)) return false;

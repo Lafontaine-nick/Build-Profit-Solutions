@@ -87,6 +87,7 @@ export const CANONICAL_GOLD_NOTES: CanonicalGoldNote[] = [
       'patch_repair',
     ],
     excludedIds: ['drywall_hang'],
+    absentIds: ['electrical', 'plumbing', 'windows', 'cabinets'],
   },
   {
     id: 'paint_walls',
@@ -103,6 +104,7 @@ export const CANONICAL_GOLD_NOTES: CanonicalGoldNote[] = [
     projectType: 'roofing',
     includedIds: ['roofing'],
     excludedIds: [],
+    absentIds: ['gutters', 'windows', 'siding', 'electrical'],
   },
   {
     id: 'hvac_service_call',
@@ -111,6 +113,7 @@ export const CANONICAL_GOLD_NOTES: CanonicalGoldNote[] = [
     projectType: 'hvac',
     includedIds: ['service_call'],
     excludedIds: [],
+    absentIds: ['equipment_replace', 'ductwork', 'thermostat'],
   },
   {
     id: 'stucco_replace',
@@ -119,6 +122,7 @@ export const CANONICAL_GOLD_NOTES: CanonicalGoldNote[] = [
     projectType: 'stucco',
     includedIds: ['stucco'],
     excludedIds: [],
+    absentIds: ['windows', 'electrical', 'plumbing'],
   },
   {
     id: 'kitchen_cabinets_counters',

@@ -242,6 +242,14 @@ describe('simple trade QM panels', () => {
     ).toEqual(['furnace']);
   });
 
+  it('does not treat a diagnostic furnace mention as equipment replacement', () => {
+    expect(
+      inferHvacScopeSelectionsFromNotes(
+        'HVAC service call to diagnose the furnace.'
+      )
+    ).toEqual(['service_call']);
+  });
+
   it('keeps an HVAC service call in the bid with a blank price', () => {
     const notes =
       'One HVAC service call to diagnose the furnace. Do not replace the equipment.';
@@ -734,6 +742,44 @@ describe('simple trade QM panels', () => {
         'roofDeckingReplacementSqft',
         'storyCount',
       ])
+    );
+  });
+
+  it('does not turn gutters on from a fat reroof checklist', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes: 'Reroof 26 squares of architectural shingles.',
+      hasSitePhotos: false,
+      measurements: { roofGutterLf: 180, roofDownspoutCount: 4 },
+      checklistItems: [
+        { id: 'roofing_system', state: 'included' },
+        { id: 'gutters', state: 'included' },
+        { id: 'downspouts', state: 'included' },
+        { id: 'windows', state: 'included' },
+      ],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['shingles'])
+    );
+    expect(hydrated.tradeScopeSelections?.roofing).not.toContain('gutters');
+    expect(hydrated.tradeScopeSelections?.roofing).not.toContain('downspouts');
+  });
+
+  it('keeps gutters when the reroof note names them', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes:
+        'Reroof 26 squares of architectural shingles. Include gutters.',
+      hasSitePhotos: false,
+      measurements: {},
+      checklistItems: [],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['shingles', 'gutters'])
     );
   });
 

@@ -1234,10 +1234,7 @@ export function shouldLimitRoofingChecklistToNotes(params: {
   if (!notes) return false;
   const ids = inferRoofingTradeScopeSelectionsFromNotes(notes);
   const hasInstall = ids.includes('tear_off') || ids.includes('shingles');
-  const namedAccessories = ids.filter(
-    id => id !== 'tear_off' && id !== 'shingles' && id !== 'cleanup'
-  );
-  return hasInstall && namedAccessories.length > 0;
+  return hasInstall;
 }
 
 /** Hide roofing template rows the note never names. */

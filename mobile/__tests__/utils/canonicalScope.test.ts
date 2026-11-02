@@ -113,6 +113,75 @@ describe('canonical scope contract', () => {
     expect(items.map(item => item.id)).toEqual(['interior_paint']);
   });
 
+  it('drops unnamed roofing template cards on a reroof note', () => {
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'roofing', state: 'included', label: 'Roofing' },
+        { id: 'roofing_system', state: 'included', label: 'Roofing system' },
+        { id: 'gutters', state: 'included', label: 'Gutters' },
+        { id: 'windows', state: 'included', label: 'Windows' },
+        { id: 'siding', state: 'included', label: 'Siding' },
+        { id: 'electrical', state: 'included', label: 'Electrical' },
+      ],
+      'Reroof 26 squares of architectural shingles.'
+    );
+    expect(items.map(item => item.id)).toEqual(
+      expect.arrayContaining(['roofing'])
+    );
+    expect(items.map(item => item.id)).toEqual(
+      expect.arrayContaining(['roofing_system'])
+    );
+    expect(items.map(item => item.id)).not.toContain('gutters');
+    expect(items.map(item => item.id)).not.toContain('windows');
+    expect(items.map(item => item.id)).not.toContain('siding');
+    expect(items.map(item => item.id)).not.toContain('electrical');
+  });
+
+  it('does not let hydrate restore HVAC equipment on a service-call note', () => {
+    const notes = 'HVAC service call to diagnose the furnace.';
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [
+        { id: 'service_call', state: 'included', label: 'HVAC service call' },
+        { id: 'equipment_replace', state: 'included', label: 'Equipment replace' },
+        { id: 'furnace', state: 'included', label: 'Furnace' },
+        { id: 'ductwork', state: 'included', label: 'Ductwork' },
+        { id: 'hvac', state: 'included', label: 'HVAC system' },
+      ],
+      'hvac',
+      notes,
+      {} as never,
+      'hvac'
+    );
+    expect(hydrated.map(item => item.id)).toEqual(['service_call']);
+  });
+
+  it('drops unnamed HVAC template cards on a service-call note', () => {
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'service_call', state: 'included', label: 'HVAC service call' },
+        { id: 'equipment_replace', state: 'included', label: 'Equipment replace' },
+        { id: 'ductwork', state: 'included', label: 'Ductwork' },
+        { id: 'thermostat', state: 'included', label: 'Thermostat' },
+        { id: 'hvac', state: 'included', label: 'HVAC system' },
+      ],
+      'HVAC service call to diagnose the furnace.'
+    );
+    expect(items.map(item => item.id)).toEqual(['service_call']);
+  });
+
+  it('drops unnamed stucco template cards on a stucco-only note', () => {
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'stucco', state: 'included', label: 'Stucco' },
+        { id: 'windows', state: 'included', label: 'Windows' },
+        { id: 'electrical', state: 'included', label: 'Electrical' },
+        { id: 'plumbing', state: 'included', label: 'Plumbing' },
+      ],
+      'Replace the stucco, 1,800 sqft.'
+    );
+    expect(items.map(item => item.id)).toEqual(['stucco']);
+  });
+
   it('drops unnamed drywall template cards when the note only names a hang', () => {
     const items = applyCanonicalScopeToChecklistItems(
       [
@@ -124,6 +193,37 @@ describe('canonical scope contract', () => {
       'Hang 800 sqft of drywall.'
     );
     expect(items.map(item => item.id)).toEqual(['drywall']);
+  });
+
+  it('drops unnamed room-remodel template cards on a mixed trade note', () => {
+    const notes =
+      'Replace carpet with 900 sqft LVP. Reroof 26 squares of architectural shingles. Paint walls, 2,000 sqft. Replace the stucco, 1,800 sqft. HVAC service call to diagnose the furnace. Patch and texture 300 sqft of drywall. No new hang.';
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'flooring_lvp', state: 'included', label: 'LVP' },
+        { id: 'roofing', state: 'included', label: 'Roofing' },
+        { id: 'interior_paint', state: 'included', label: 'Paint' },
+        { id: 'stucco', state: 'included', label: 'Stucco' },
+        { id: 'service_call', state: 'included', label: 'HVAC service call' },
+        { id: 'patch_repair', state: 'included', label: 'Drywall repair' },
+        { id: 'electrical', state: 'included', label: 'Electrical' },
+        { id: 'plumbing', state: 'included', label: 'Plumbing' },
+        { id: 'windows', state: 'included', label: 'Windows' },
+        { id: 'cabinets', state: 'included', label: 'Cabinets' },
+        { id: 'drywall_hang', state: 'included', label: 'Hang' },
+      ],
+      notes
+    );
+    expect(items.map(item => item.id).sort()).toEqual(
+      [
+        'flooring_lvp',
+        'interior_paint',
+        'patch_repair',
+        'roofing',
+        'service_call',
+        'stucco',
+      ].sort()
+    );
   });
 
   it('adds named mixed-trade jobs onto an empty checklist', () => {

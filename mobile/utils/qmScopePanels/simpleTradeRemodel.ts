@@ -1129,6 +1129,18 @@ export function finalizeRoofingScopeSelections(
   const fromMeasurements = inferRoofingScopeSelectionsFromMeasurements(
     ctx.measurements
   ).filter(id => id !== 'shingles' || roofingInstallMentioned);
+  const namedDrainage = new Set(
+    fromNotes.filter(id => id === 'gutters' || id === 'downspouts')
+  );
+  const savedDrainage = new Set(
+    saved.filter(id => id === 'gutters' || id === 'downspouts')
+  );
+  const keepUnnamedDrainage = (ids: string[]) =>
+    ids.filter(id => {
+      if (id !== 'gutters' && id !== 'downspouts') return true;
+      return namedDrainage.has(id) || savedDrainage.has(id);
+    });
+
   if (isGroundUpRoofingPlanImport(ctx.measurements, ctx.notes)) {
     const savedAssembly = saved.filter(
       id => !GROUND_UP_ROOFING_PLAN_EXCLUDED_IDS.has(id)
@@ -1155,20 +1167,24 @@ export function finalizeRoofingScopeSelections(
     return kept;
   }
   if (!saved.length) {
-    return filterRoofingScopeSelectionsForTearOffInstall(
-      mergeRoofingScopeSelectionIds(
-        checklistWithoutImplicitTearOff,
-        fromNotes,
-        fromMeasurements
-      ),
-      ctx.notes,
-      saved
+    return keepUnnamedDrainage(
+      filterRoofingScopeSelectionsForTearOffInstall(
+        mergeRoofingScopeSelectionIds(
+          checklistWithoutImplicitTearOff,
+          fromNotes,
+          fromMeasurements
+        ),
+        ctx.notes,
+        saved
+      )
     );
   }
-  return filterRoofingScopeSelectionsForTearOffInstall(
-    mergeRoofingScopeSelectionIds(saved, fromNotes, fromMeasurements),
-    ctx.notes,
-    saved
+  return keepUnnamedDrainage(
+    filterRoofingScopeSelectionsForTearOffInstall(
+      mergeRoofingScopeSelectionIds(saved, fromNotes, fromMeasurements),
+      ctx.notes,
+      saved
+    )
   );
 }
 
@@ -1490,6 +1506,16 @@ export function inferHvacScopeSelectionsFromNotes(
   notes: string | null | undefined
 ): string[] {
   const text = String(notes || '');
+  const serviceVisit =
+    notesNameDedicatedHvacServiceVisit(text) ||
+    /\bhvac\s+service\s+calls?\b/i.test(text);
+  const namesEquipmentWork =
+    /\b(?:replace|replacing|replacement|install|installing|installation|new)\b/i.test(
+      text
+    );
+  if (serviceVisit && !namesEquipmentWork) {
+    return ['service_call'].filter(id => !hvacNotesLeaveOptionAlone(text, id));
+  }
   const inferred: string[] = [];
   const miniSplitMentioned = /\bmini[\s-]?split\b/i.test(text);
   if (miniSplitMentioned) inferred.push('mini_split');
