@@ -2819,7 +2819,7 @@ function receptaclesWithToiletRows(): QuickMeasurementRow[] {
   return rows;
 }
 
-function stuccoWithWindowsRows(): QuickMeasurementRow[] {
+function stuccoWithWindowsRows(notes?: string | null): QuickMeasurementRow[] {
   const wall = QUICK_MEASUREMENT_FIELD_DEFS.stuccoGrossWallSqft;
   const windows = QUICK_MEASUREMENT_FIELD_DEFS.windowCount;
   const rows: QuickMeasurementRow[] = [];
@@ -2841,6 +2841,29 @@ function stuccoWithWindowsRows(): QuickMeasurementRow[] {
       },
     ]);
   }
+  const text = String(notes || '');
+  const addWhenMentioned = (
+    key:
+      | 'stuccoWindowDoorOpeningSqft'
+      | 'stuccoGarageOpeningSqft'
+      | 'stuccoOtherFinishDeductionSqft',
+    pattern: RegExp
+  ) => {
+    const field = QUICK_MEASUREMENT_FIELD_DEFS[key];
+    if (field && pattern.test(text)) rows.push([field]);
+  };
+  addWhenMentioned(
+    'stuccoWindowDoorOpeningSqft',
+    /\b(?:window|door)\s+openings?\b|\bopenings?\b[^.;\n]{0,35}\bwindow|\bdeduct\b[^.;\n]{0,35}\bwindow/i
+  );
+  addWhenMentioned(
+    'stuccoGarageOpeningSqft',
+    /\bgarage(?:\s+door)?\s+openings?\b|\bopenings?\b[^.;\n]{0,35}\bgarage/i
+  );
+  addWhenMentioned(
+    'stuccoOtherFinishDeductionSqft',
+    /\b(?:other|non[-\s]?stucco|stone|brick|siding)\b[^.;\n]{0,35}\b(?:finish|deduction|area|sq\.?\s*ft|sqft)\b/i
+  );
   return rows;
 }
 
@@ -2995,8 +3018,16 @@ export function quickMeasurementRowsForTemplate(
     projectType
   );
   const framingNoteText = String(notes || '');
-  if (notesNameStuccoWithWindows(framingNoteText)) {
-    return stuccoWithWindowsRows();
+  const notesNameStuccoOpeningDeductions =
+    /\bstucco\b/i.test(framingNoteText) &&
+    /\b(?:window|door|garage)\s+openings?\b|\bnon[-\s]?stucco\s+finishes?\b/i.test(
+      framingNoteText
+    );
+  if (
+    notesNameStuccoWithWindows(framingNoteText) ||
+    notesNameStuccoOpeningDeductions
+  ) {
+    return stuccoWithWindowsRows(framingNoteText);
   }
   if (notesNameReceptaclesWithToilet(framingNoteText)) {
     return receptaclesWithToiletRows();
@@ -3847,8 +3878,17 @@ function computeQuickMeasurementRowsForInput(
   const mixedNoteScope = notesDescribeMixedProjectScope(options?.scopeNotes);
   const crossScopeMode = Boolean(options?.crossScopeMode || mixedNoteScope);
   options = { ...options, crossScopeMode };
-  if (notesNameStuccoWithWindows(options?.scopeNotes)) {
-    return stuccoWithWindowsRows();
+  const stuccoNotes = String(options?.scopeNotes || '');
+  const notesNameStuccoOpeningDeductions =
+    /\bstucco\b/i.test(stuccoNotes) &&
+    /\b(?:window|door|garage)\s+openings?\b|\bnon[-\s]?stucco\s+finishes?\b/i.test(
+      stuccoNotes
+    );
+  if (
+    notesNameStuccoWithWindows(stuccoNotes) ||
+    notesNameStuccoOpeningDeductions
+  ) {
+    return stuccoWithWindowsRows(stuccoNotes);
   }
   if (notesNameReceptaclesWithToilet(options?.scopeNotes)) {
     return receptaclesWithToiletRows();
