@@ -3,7 +3,7 @@ import type {
   TradeMeasurementDefinition,
 } from './types';
 import { ELECTRICAL_CARDS } from './electricalPlanConvergence';
-import { PLUMBING_CARDS } from './plumbingPlanConvergence';
+import { PLUMBING_CARDS } from './plumbingCards';
 import {
   HVAC_CARDS,
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,

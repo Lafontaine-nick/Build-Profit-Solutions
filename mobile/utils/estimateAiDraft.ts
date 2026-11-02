@@ -1618,6 +1618,18 @@ function repairDraftRatePricingFromNotesUnfrozen(
     templateKey: draft.scopeChecklist?.templateKey,
     projectType: draft.projectType,
   });
+  if (
+    notesDescribeRoomContextPlumbingRelocate(text) &&
+    !draft.scopeAssumptionsConfirmed
+  ) {
+    return createStandalonePlumbingDraft(text, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: 'bathroom_remodel',
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(text),
+    });
+  }
   if (notesNameLinearFootStudWall(text)) {
     Object.assign(parsed, parseFramingMeasurementsFromNotes(text));
   }
@@ -1930,7 +1942,7 @@ function repairDraftRatePricingFromNotesUnfrozen(
       ...draft,
       originalNotes: text,
       projectType: 'bathroom',
-      projectTitle: /bath/i.test(title) ? title : 'Bathroom',
+      projectTitle: /remodel/i.test(title) ? title : 'Bathroom Remodel',
       estimateTier: 'room_remodel',
       scopeMode: 'dedicated',
       requiresScopeConfirmation: true,
@@ -2427,12 +2439,12 @@ function repairDraftRatePricingFromNotesUnfrozen(
       scopeMode !== 'dedicated' ||
       repairedDraft.projectType !== 'bathroom' ||
       repairedDraft.estimateTier !== 'room_remodel' ||
-      (Boolean(title) && !/bath/i.test(title));
+      (Boolean(title) && !/remodel/i.test(title));
     if (needsBathroomConfirmScope && !repairedDraft.scopeAssumptionsConfirmed) {
       return {
         ...repairedDraft,
         projectType: 'bathroom',
-        projectTitle: /bath/i.test(title) ? title : 'Bathroom Remodel',
+        projectTitle: /remodel/i.test(title) ? title : 'Bathroom Remodel',
         estimateTier: 'room_remodel',
         scopeMode: 'dedicated',
         classification: {

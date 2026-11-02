@@ -38,12 +38,12 @@ import {
   stripShellFramingComponentMeasurements,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
-  PLUMBING_CARDS,
   notesCustomerSuppliesPlumbingFixtures,
   notesExplicitPlumbingFixtureAllowance,
   notesExcludePlumbingScopePhrase,
   notesSuggestStandalonePlumbingTrade,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingCards';
 import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,

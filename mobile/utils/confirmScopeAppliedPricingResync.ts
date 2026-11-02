@@ -13,7 +13,7 @@ import {
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { reconcilePlumbingLineScopeMeasurements } from '@/utils/planTakeoffReviewUi';
-import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingCards';
 import {
   allowanceSplitSubKey,
   buildNormalizedScopeMeasurementsFromInput,

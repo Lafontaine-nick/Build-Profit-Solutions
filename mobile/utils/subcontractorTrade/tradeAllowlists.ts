@@ -1,6 +1,6 @@
 import type { SubcontractorTradeKey } from './types';
 import { ELECTRICAL_SCOPE_ALLOWLIST } from './electricalPlanConvergence';
-import { PLUMBING_SCOPE_ALLOWLIST } from './plumbingPlanConvergence';
+import { PLUMBING_SCOPE_ALLOWLIST } from './plumbingCards';
 import { HVAC_PLAN_SCOPE_ALLOWLIST } from './hvacPlanConvergence';
 
 /** Flatten scope group item ids (mirrors SCOPE_CHECKLIST_GROUPS — read-only reference). */

@@ -11,7 +11,7 @@ import {
   electricalCardForMeasurementKey,
   electricalPlanSheetCountBelongsInBid,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
-import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingCards';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   hasDocumentedHvacVentilationCount,

@@ -67,7 +67,7 @@ import {
 import {
   PLUMBING_ITEM_IDS,
   PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
-} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+} from '@/utils/subcontractorTrade/plumbingCards';
 import {
   FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
   notesFrameExplicitWallArea,
@@ -2067,11 +2067,9 @@ export function applyGroundUpSoftCostDefaults(
   const text = String(notes || '');
   return items.map(item => {
     if (!GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id)) return item;
-    if (inferItemStateFromNotes(item.id, text) === 'included') {
+    const inferred = inferItemStateFromNotes(item.id, text);
+    if (inferred === 'included' || inferred === 'unsure') {
       return { ...item, state: 'included' as const };
-    }
-    if (item.state === 'unsure') {
-      return { ...item, state: 'excluded' as const };
     }
     return item;
   });
@@ -5021,6 +5019,9 @@ export function filterRoomRemodelNoteScopeItems(
     has(
       /\b(?:flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing|stucco|roof(?:ing)?|gutters?)\b/i
     );
+  const isExplicitAdditionScope =
+    has(/\b(?:addition|add[-\s]?on|extension)\b/i) &&
+    has(/\b(?:build|construct|add|existing)\b/i);
   const hasExplicitFlooringDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       text
@@ -5161,8 +5162,20 @@ export function filterRoomRemodelNoteScopeItems(
       },
     ];
   }
-  if (!isMixedRemodel && !isExplicitCrossTradeRemodel) return items;
+  if (
+    !isMixedRemodel &&
+    !isExplicitCrossTradeRemodel &&
+    !isExplicitAdditionScope
+  ) {
+    return items;
+  }
   const supported = (id: string): boolean => {
+    if (
+      isExplicitAdditionScope &&
+      ['foundation', 'framing', 'roofing', 'hvac'].includes(id)
+    ) {
+      return true;
+    }
     if (id === 'demo' || id === 'floor_demo')
       return (
         has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
@@ -5232,10 +5245,7 @@ export function filterRoomRemodelNoteScopeItems(
     if (id === 'insulation' || id === 'wall_insulation' || id === 'attic_insulation')
       return has(/\binsulat(?:e|ed|ion)\b/i);
     if (id === 'air_sealing') {
-      return (
-        !notesDescribeMeasuredWholeHomeRemodel(text) &&
-        has(/\bair[\s-]?sealing\b/i)
-      );
+      return has(/\bair[\s-]?sealing\b/i);
     }
     if (id === 'drywall_repair' || id === 'drywall_patch')
       return has(/\b(?:drywall|sheetrock|gypsum)\b/i);
@@ -5400,7 +5410,7 @@ export function hydrateScopeChecklistFromNotes(
   projectType?: string | null,
   canonicalScope?: import('@/utils/canonicalScope').CanonicalScope | null
 ): ScopeChecklistItem[] {
-  return applyCanonicalScopeToChecklistItems(
+  const hydrated = ensureBathroomNoteBackedScopeItems(
     hydrateScopeChecklistFromNotesUnfrozen(
       items,
       templateKey,
@@ -5408,6 +5418,11 @@ export function hydrateScopeChecklistFromNotes(
       measurements,
       projectType
     ),
+    notes,
+    templateKey
+  );
+  return applyCanonicalScopeToChecklistItems(
+    hydrated,
     notes,
     canonicalScope
   );
@@ -5690,10 +5705,7 @@ function hydrateScopeChecklistFromNotesUnfrozen(
         if (id === 'cabinet_demo') return hasCabinetRemoval;
         if (id === 'drywall_demo') return hasDrywallDemo;
         if (id === 'air_sealing') {
-          return (
-            !notesDescribeMeasuredWholeHomeRemodel(noteText) &&
-            has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i)
-          );
+          return has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i);
         }
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'stucco')
