@@ -9743,7 +9743,8 @@ function resolveAllowanceSplitPhysicalTakeoff(
   measurements: NormalizedScopeMeasurements,
   rule: ScopeItemQuantityRule,
   override?: ScopeItemQuantityValue | null,
-  splitTotal?: number | null
+  splitTotal?: number | null,
+  ignoreStoredBasis = false
 ): { quantity: number; unit: string } | null {
   if (!usesPhysicalTakeoffUnit(rule)) return null;
   const physicalUnit = normalizeBasisUnit(rule.defaultUnit || 'each');
@@ -9768,10 +9769,12 @@ function resolveAllowanceSplitPhysicalTakeoff(
     return { quantity: electricalMeasurement, unit: physicalUnit };
   }
 
-  const storedBasis = parseStoredItemQuantity(
-    measurements,
-    allowanceSplitSubKey(itemId, 'sqft_basis')
-  );
+  const storedBasis = ignoreStoredBasis
+    ? null
+    : parseStoredItemQuantity(
+        measurements,
+        allowanceSplitSubKey(itemId, 'sqft_basis')
+      );
   if (storedBasis?.quantity != null && storedBasis.quantity > 0) {
     const storedUnit = normalizeBasisUnit(
       String(storedBasis.unit || physicalUnit)
@@ -9807,7 +9810,10 @@ function resolveAllowanceSplitPhysicalTakeoff(
         itemQuantities
       )
     ) {
-      return { quantity: override.quantity, unit: overrideUnit };
+      const quantity = parseScopeMeasurementInput(String(override.quantity));
+      if (quantity != null && quantity > 0) {
+        return { quantity, unit: overrideUnit };
+      }
     }
   }
 
@@ -10654,6 +10660,12 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     },
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   },
+  landscaping: {
+    sod_turf: {
+      unit: 'sqft',
+      measurementKeys: ['sodSqft', 'landscapeSqft'],
+    },
+  },
   kitchen: {
     floor_demo: {
       unit: 'sqft',
@@ -11129,7 +11141,8 @@ export function resolveAllowanceEditorPricingBasis(
       buildNormalizedScopeMeasurementsFromInput(measurementsInput),
       rule,
       measurementsInput.itemQuantities[itemId],
-      allowanceSplitAppliedTotal(measurementsInput.itemQuantities, itemId, rule)
+      allowanceSplitAppliedTotal(measurementsInput.itemQuantities, itemId, rule),
+      storedIsStale
     );
     if (physical) return physical;
   }
@@ -11422,7 +11435,13 @@ export function getChecklistItemQuantityRule(
   } else {
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
-  const hvacCard = hvacCardForItemId(resolvedId);
+  const isHvacOnlyCloseoutId =
+    resolvedId === 'permits' || resolvedId === 'cleanup';
+  const hvacCard =
+    isHvacOnlyCloseoutId &&
+    String(templateKey || '').toLowerCase() !== 'hvac'
+      ? undefined
+      : hvacCardForItemId(resolvedId);
   // HVAC cards also appear inside mixed-scope remodels. Their units and
   // measurement keys must use the HVAC rules even when the parent template is
   // room_remodel, flooring, or another mixed-scope template.
@@ -14046,6 +14065,9 @@ function flooringInstallNationalAverage(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended
 ): { material: number; labor: number; sourceLabel: string } | null {
+  // Demolition and prep have their own context-sensitive rate resolvers below.
+  // Do not let the generic national catalog lookup overwrite those rates.
+  if (itemId === 'floor_demo' || itemId === 'floor_prep') return null;
   if (itemId === 'flooring_carpet') {
     return {
       material: 3.5,
@@ -18749,7 +18771,6 @@ export function resolveScopeItemSuggestedPricing(
         }));
   if (
     itemId === 'insulation' &&
-    String(templateKey || '').toLowerCase() !== 'ground_up' &&
     !(
       hasConfirmedInsulationBoundary ||
       statedWholeHomeInsulationSqft != null ||
@@ -25497,8 +25518,16 @@ function normalizedOverrideUnitForRule(
   unit: string | null | undefined,
   rule: ScopeItemQuantityRule
 ): string {
-  void itemId;
-  void templateKey;
+  if (
+    itemId === 'concrete' &&
+    String(templateKey || '').toLowerCase() === 'addition' &&
+    String(unit || '').toLowerCase() === 'sqft'
+  ) {
+    // Addition concrete is canonically CY. Preserve the stored numeric value
+    // while migrating the legacy card basis so downstream pricing cannot use
+    // the stale sqft unit.
+    return 'cy';
+  }
   return unit || rule.defaultUnit;
 }
 
@@ -28853,6 +28882,26 @@ export function resolveChecklistItemQuantity(
     ),
     ctx
   );
+  if (
+    itemId === 'concrete' &&
+    String(ctx.templateKey || '').toLowerCase() === 'addition' &&
+    String(measurements.itemQuantities?.[itemId]?.unit || '').toLowerCase() ===
+      'sqft' &&
+    ['user_entered', 'manual_override'].includes(
+      String(measurements.itemQuantities?.[itemId]?.quantitySource || '')
+    ) &&
+    resolved.unit === 'sqft'
+  ) {
+    // Migrate legacy addition-concrete card entries after all measurement
+    // precedence paths have resolved, including the legacy QM path.
+    return {
+      ...resolved,
+      unit: 'cy',
+      dualCount: resolved.dualCount
+        ? { ...resolved.dualCount, unit: 'cy' }
+        : resolved.dualCount,
+    };
+  }
   if (
     itemId === 'interior_trim' &&
     isExistingShellConversionJob(ctx.templateKey, ctx.projectType, ctx.notes)

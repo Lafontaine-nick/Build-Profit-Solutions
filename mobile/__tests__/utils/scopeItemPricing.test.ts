@@ -26,6 +26,18 @@ import {
   type ScopePricingContext,
 } from '@/utils/scopeItemQuantities';
 
+const initialMeasurementSemanticsFlag =
+  process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
+
+afterEach(() => {
+  if (initialMeasurementSemanticsFlag == null) {
+    delete process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
+  } else {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 =
+      initialMeasurementSemanticsFlag;
+  }
+});
+
 function inputWith(
   fields: Partial<ScopeMeasurementsInputExtended>
 ): ScopeMeasurementsInputExtended {

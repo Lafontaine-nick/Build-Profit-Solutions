@@ -5,6 +5,29 @@ try {
   // Gesture handler not available, skip setup
 }
 
+// Keep React Native's platform primitives deterministic in the Jest runtime.
+// Some native modules are absent in the Node test environment, which otherwise
+// leaves Platform / PixelRatio undefined during component imports.
+jest.mock('react-native/Libraries/Utilities/Platform', () => {
+  const platform = {
+    OS: 'ios',
+    Version: 0,
+    isTV: false,
+    select: choices => choices.ios ?? choices.default,
+  };
+  return { ...platform, default: platform };
+});
+jest.mock('react-native/Libraries/Utilities/PixelRatio', () => {
+  const pixelRatio = {
+    get: () => 1,
+    getFontScale: () => 1,
+    getPixelSizeForLayoutSize: value => Math.round(value),
+    getLayoutSizeForPixelSize: value => value,
+    roundToNearestPixel: value => value,
+  };
+  return { ...pixelRatio, default: pixelRatio };
+});
+
 // Mock expo modules
 jest.mock('expo-router', () => ({
   router: {

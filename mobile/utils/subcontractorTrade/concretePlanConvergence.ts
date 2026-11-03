@@ -4,6 +4,8 @@ import {
   isConcreteQmScopeItemActive,
 } from '@/utils/qmScopePanels/concreteRemodel';
 import { isRvOrToyGarageBayName } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+export { CONCRETE_REVIEW_MEASUREMENT_KEYS } from './tradeDefinitionMeasurementKeys';
+import { CONCRETE_REVIEW_MEASUREMENT_KEYS } from './tradeDefinitionMeasurementKeys';
 
 /** Plan-export flat keys mapped to canonical flatwork type ids. */
 export const CONCRETE_PLAN_FLATWORK_AREA_KEYS: Record<
@@ -28,34 +30,6 @@ export const CONCRETE_PLAN_FLATWORK_THICKNESS_KEYS: Record<
   concreteRvPadThicknessInches: 'rv_pads',
   concreteWalkwayThicknessInches: 'walkways',
 };
-
-export const CONCRETE_REVIEW_MEASUREMENT_KEYS = [
-  'concreteDrivewaySqft',
-  'concreteSidewalkSqft',
-  'concretePatioSqft',
-  'concreteRvPadSqft',
-  'concreteWalkwaySqft',
-  'concreteDrivewayThicknessInches',
-  'concreteSidewalkThicknessInches',
-  'concretePatioThicknessInches',
-  'concreteRvPadThicknessInches',
-  'concreteWalkwayThicknessInches',
-  'concreteSqft',
-  'concreteCy',
-  'excavationCy',
-  'excavationAreaSqft',
-  'excavationDepthInches',
-  'concreteDemoSqft',
-  'concreteReinforcementSqft',
-  'concreteSubgradePrepSqft',
-  'complexFormingLf',
-  'thickenedEdgeLf',
-  'thickenedEdgeCy',
-  'gravelBaseCy',
-  'gravelBaseDepthInches',
-  'concretePumpCount',
-  'concreteThicknessInches',
-] as const;
 
 export type ConcreteAreaByType = Partial<
   Record<ConcreteFlatworkOptionId, number>

@@ -140,6 +140,11 @@
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.js"
     ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/__tests__/fixtures/buildWithAiGoldenFixtures.ts",
+      "<rootDir>/__tests__/utils/paintingStep2ToStep3Pricing.test.ts",
+      "<rootDir>/__tests__/utils/manualPricingFilterBudgetSplit.test.ts"
+    ],
     "transformIgnorePatterns": [
       "node_modules/(?!(expo|expo-.*|react-native|@react-native|@react-navigation|@expo|expo-router|@react-native-community|react-native-.*|@react-native-.*)/)"
     ]

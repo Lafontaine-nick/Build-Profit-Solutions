@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
  * - tap: a primary button that starts something (Save, Record payment)
  * - success / warning / error: the outcome of an action
  */
-const enabled = Platform.OS === 'ios' || Platform.OS === 'android';
+const enabled = Platform?.OS === 'ios' || Platform?.OS === 'android';
 
 function run(fn: () => Promise<void>) {
   if (!enabled) return;

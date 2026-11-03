@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 export const safeAsyncStorage = {
   async getItem(key: string): Promise<string | null> {
     try {
-      if (Platform.OS === 'web') {
+      if (Platform?.OS === 'web') {
         // On web, use localStorage with proper error handling
         if (typeof localStorage !== 'undefined') {
           return localStorage.getItem(key);
@@ -21,7 +21,7 @@ export const safeAsyncStorage = {
 
   async setItem(key: string, value: string): Promise<void> {
     try {
-      if (Platform.OS === 'web') {
+      if (Platform?.OS === 'web') {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem(key, value);
         }
@@ -35,7 +35,7 @@ export const safeAsyncStorage = {
 
   async removeItem(key: string): Promise<void> {
     try {
-      if (Platform.OS === 'web') {
+      if (Platform?.OS === 'web') {
         if (typeof localStorage !== 'undefined') {
           localStorage.removeItem(key);
         }

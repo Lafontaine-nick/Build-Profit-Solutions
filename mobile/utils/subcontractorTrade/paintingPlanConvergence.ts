@@ -1,6 +1,8 @@
 import { contractorKeptScopeItemOut } from '@/utils/contractorRemovedScope';
 import { isPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
 import { notesDoorMentionIsPaintOrKeepOnly } from '@/utils/scopeItemNoteHints';
+export { PAINTING_REVIEW_MEASUREMENT_KEYS } from './tradeDefinitionMeasurementKeys';
+import { PAINTING_REVIEW_MEASUREMENT_KEYS } from './tradeDefinitionMeasurementKeys';
 
 export type PaintScopeSurface =
   | 'walls'
@@ -59,15 +61,6 @@ const PAINTING_PLAN_ALIASES: Record<string, string> = {
   trimLf: 'baseboardLf',
   paintTrimLf: 'baseboardLf',
 };
-
-export const PAINTING_REVIEW_MEASUREMENT_KEYS = [
-  'wallPaintSqft',
-  'ceilingPaintSqft',
-  'exteriorPaintSqft',
-  'baseboardLf',
-  'interiorDoorCount',
-  'exteriorDoorCount',
-] as const;
 
 const PAINT_REMODEL_NOTE =
   /\b(?:occupied|owner[- ]occupied|furnished|repaint|re-?paint|remodel|renovation|vacant|unoccupied)\b/i;

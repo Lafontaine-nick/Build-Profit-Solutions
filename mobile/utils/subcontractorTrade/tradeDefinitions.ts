@@ -1,7 +1,9 @@
 import type { ScopePricingBehavior } from './scopePricingBehavior';
-import { CONCRETE_REVIEW_MEASUREMENT_KEYS } from './concretePlanConvergence';
-import { FLOORING_REVIEW_MEASUREMENT_KEYS } from './flooringPlanConvergence';
-import { PAINTING_REVIEW_MEASUREMENT_KEYS } from './paintingPlanConvergence';
+import {
+  CONCRETE_REVIEW_MEASUREMENT_KEYS,
+  FLOORING_REVIEW_MEASUREMENT_KEYS,
+  PAINTING_REVIEW_MEASUREMENT_KEYS,
+} from './tradeDefinitionMeasurementKeys';
 import {
   ELECTRICAL_CARDS,
   ELECTRICAL_REVIEW_MEASUREMENT_KEYS,

@@ -1,4 +1,9 @@
 /** Canonical new-flooring product ids used by the notes/manual Flooring flow. */
+export {
+  FLOORING_REVIEW_MEASUREMENT_KEYS,
+} from './tradeDefinitionMeasurementKeys';
+import { FLOORING_REVIEW_MEASUREMENT_KEYS } from './tradeDefinitionMeasurementKeys';
+
 export type FlooringProductId =
   | 'lvp'
   | 'laminate'
@@ -54,33 +59,6 @@ export const FLOORING_PLAN_DEMO_AREA_KEYS: Record<string, FlooringProductId> = {
   floorDemoSolidHardwoodSqft: 'solid_hardwood',
   floorDemoSheetVinylSqft: 'sheet_vinyl_vct',
 };
-
-export const FLOORING_REVIEW_MEASUREMENT_KEYS = [
-  'flooringSqft',
-  'floorAreaSqft',
-  'flooringLvpSqft',
-  'flooringLaminateSqft',
-  'flooringEngineeredHardwoodSqft',
-  'flooringSolidHardwoodSqft',
-  'flooringTileSqft',
-  'flooringCarpetSqft',
-  'flooringSheetVinylSqft',
-  'floorDemoSqft',
-  'floorDemoCarpetSqft',
-  'floorDemoTileSqft',
-  'floorDemoLvpSqft',
-  'floorDemoLaminateSqft',
-  'floorDemoEngineeredHardwoodSqft',
-  'floorDemoSolidHardwoodSqft',
-  'floorDemoSheetVinylSqft',
-  'floorPrepSqft',
-  'underlaymentSqft',
-  'moistureBarrierSqft',
-  'baseboardLf',
-  'transitionLf',
-  'transitionCount',
-  'quarterRoundLf',
-] as const;
 
 export const FLOORING_PRODUCT_LABELS: Record<FlooringProductId, string> = {
   lvp: 'LVP',
