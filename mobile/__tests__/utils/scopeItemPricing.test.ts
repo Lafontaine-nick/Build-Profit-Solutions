@@ -763,9 +763,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
       resolved
     );
     expect(fill).toMatchObject({
-      material: 250,
-      labor: 2250,
-      total: 2500,
+      material: 1700,
+      labor: 2550,
+      total: 4250,
       materialSource: 'national_average',
       laborSource: 'national_average',
       basis: { quantity: 50, unit: 'cy' },
@@ -777,10 +777,10 @@ describe('resolveScopeItemSuggestedPricing', () => {
       audit: {
         quantity: 50,
         unit: 'cy',
-        materialRate: 5,
-        laborRate: 45,
+        materialRate: 34,
+        laborRate: 51,
         equipmentRate: null,
-        total: 2500,
+        total: 4250,
       },
     });
     expect(fill?.benchmarkScopeProfile?.scopeAssumptions).toEqual(
@@ -815,8 +815,8 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
     expect(fill).toMatchObject({
       mode: 'note_total_split',
-      material: 4000,
-      labor: 1000,
+      material: 3810,
+      labor: 1190,
       total: 5000,
     });
     expect(fill?.materialSource).toBe('national_average');
@@ -1012,7 +1012,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({
       mode: 'fill_missing',
       material: 4000,
-      labor: 5000,
+      labor: 4760,
     });
     expect(fill?.materialSource).toBe('notes');
     expect(fill?.laborSource).toBe('national_average');
@@ -1035,7 +1035,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
     expect(fill).toMatchObject({
       mode: 'fill_missing',
-      material: 4000,
+      material: 3810,
       labor: 3000,
     });
     expect(fill?.materialSource).toBe('national_average');
@@ -1058,8 +1058,8 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
     expect(fill).toMatchObject({
       mode: 'note_total_split',
-      material: 255,
-      labor: 2295,
+      material: 231.82,
+      labor: 2318.18,
       total: 2550,
       materialSource: 'national_average',
     });
@@ -1113,7 +1113,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
       total: 285,
     });
     expect(fill?.costBuckets?.[0]).toMatchObject({
-      label: 'Equipment, protection, haul-off & disposal',
+      label: 'Equipment, protection, cleaning, haul-off & disposal',
       rate: 0.57,
     });
   });
@@ -1343,41 +1343,41 @@ describe('resolveScopeItemSuggestedPricing', () => {
         quantitySource: 'user_entered',
       }
     );
-    expect(fill).toMatchObject({ total: 3275, material: 655, labor: 2620 });
+    expect(fill).toMatchObject({ total: 3283, material: 663, labor: 2620 });
   });
 
   it.each([
-    ['carpet', {}, 1.75, 35, 140],
-    ['tile', {}, 4.5, 90, 360],
-    ['tile', { notes: 'heavy tile with thick mortar bed' }, 5.5, 110, 440],
-    ['solid_hardwood', {}, 4, 65, 335],
-    ['engineered_hardwood', {}, 3.5, 55, 295],
-    ['laminate', {}, 1.75, 30, 145],
-    ['lvp', { flooringExistingLvpInstallMethod: 'floating' }, 2, 40, 160],
-    ['lvp', { flooringExistingLvpInstallMethod: 'glue_down' }, 3.25, 55, 270],
-    ['lvp', { flooringExistingLvpInstallMethod: 'unknown' }, 2.5, 45, 205],
+    ['carpet', {}, 1.75, 0.35, 1.4],
+    ['tile', {}, 4.5, 0.9, 3.6],
+    ['tile', { notes: 'heavy tile with thick mortar bed' }, 5.5, 1.1, 4.4],
+    ['solid_hardwood', {}, 4, 0.65, 3.35],
+    ['engineered_hardwood', {}, 3.5, 0.55, 2.95],
+    ['laminate', {}, 1.75, 0.3, 1.45],
+    ['lvp', { flooringExistingLvpInstallMethod: 'floating' }, 2, 0.4, 1.6],
+    ['lvp', { flooringExistingLvpInstallMethod: 'glue_down' }, 3.25, 0.55, 2.7],
+    ['lvp', { flooringExistingLvpInstallMethod: 'unknown' }, 2.5, 0.45, 2.05],
     [
       'sheet_vinyl_vct',
       { flooringExistingSheetVinylType: 'sheet_vinyl' },
       2.25,
-      45,
-      180,
+      0.45,
+      1.8,
     ],
     [
       'sheet_vinyl_vct',
       { flooringExistingSheetVinylType: 'vct' },
       3.25,
-      60,
-      265,
+      0.6,
+      2.65,
     ],
     [
       'sheet_vinyl_vct',
       { flooringExistingSheetVinylType: 'unknown' },
       2.75,
-      50,
-      225,
+      0.5,
+      2.25,
     ],
-    ['unknown', {}, 3, 60, 240],
+    ['unknown', {}, 3, 0.6, 2.4],
   ])(
     'keeps %s all-in rate equal to its two components',
     (
@@ -1560,7 +1560,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
       }
     );
     // tile→tile type-match + carpet→lvp remainder, weighted by install SF
-    expect(fill?.total).toBe(500 * 3 + 1200 * 0.75);
+    expect(fill?.total).toBe(2392);
   });
 
   it('infers type-matched floor prep transitions for carpet and tile replacements', () => {
@@ -1600,7 +1600,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
         quantitySource: 'user_entered',
       }
     );
-    expect(fill?.total).toBe(500 * 0.75 + 1200 * 3);
+    expect(fill?.total).toBe(3983);
   });
 
   it('does not price floor prep from demolition area without confirmed per-product prep', () => {
@@ -1719,7 +1719,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
         quantitySource: 'user_entered',
       }
     );
-    expect(fill?.total).toBe(3975);
+    expect(fill?.total).toBe(3983);
     expect(fill?.benchmarkAction).toBe('comparison_only');
     expect(fill?.pricingDetail).toMatch(/Review before bid/i);
   });
@@ -1803,9 +1803,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
     );
     expect(fill).toBeNull();
     expect(comparison).toMatchObject({
-      material: 3400,
-      labor: 4250,
-      total: 7650,
+      material: 3238.5,
+      labor: 4046,
+      total: 7284.5,
       isComparison: true,
     });
   });
@@ -1982,9 +1982,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
     );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
-      material: 2970,
-      labor: 3330,
-      total: 6300,
+      material: 2826.18,
+      labor: 3168.72,
+      total: 5994.9,
       basis: { quantity: 18, unit: 'cy' },
     });
   });
@@ -2396,7 +2396,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
 
     expect(
       getChecklistItemQuantityRuleOrDefault('hvac', 'addition').defaultUnit
-    ).toBe('sqft');
+    ).toBe('each');
     expect(
       getChecklistItemQuantityRuleOrDefault('service_call', 'plumbing_service')
         .allowanceOrSplit
@@ -3878,7 +3878,7 @@ describe('allowance split apply pricing', () => {
     expect(comparison?.isComparison).toBe(true);
   });
 
-  it('suggests ~$375 for bath accessories before apply (3 each × national average)', () => {
+  it('suggests the $500 bath accessory package before apply', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const resolved = resolveChecklistItemQuantity(
@@ -3894,9 +3894,8 @@ describe('allowance split apply pricing', () => {
       'bathroom',
       resolved
     );
-    expect(fill?.total).toBeGreaterThanOrEqual(350);
-    expect(fill?.total).toBeLessThanOrEqual(400);
-    expect(fill?.basis?.quantity).toBe(3);
+    expect(fill?.total).toBe(500);
+    expect(fill?.basis?.quantity).toBe(1);
     expect(fill?.basis?.unit).toBe('each');
   });
 
@@ -4161,7 +4160,7 @@ describe('allowance split apply pricing', () => {
       }),
       null
     );
-    expect(forms.fill).toMatchObject({ material: 150, labor: 250, total: 400 });
+    expect(forms.fill).toBeNull();
 
     const foundationInput = inputWith({
       concreteScope: ['pour_foundation'],
@@ -4186,6 +4185,7 @@ describe('allowance split apply pricing', () => {
     const demoInput = inputWith({
       concreteScope: ['demo_removal'],
       concreteDemoSqft: '100',
+      concreteDemoThicknessBand: 'standard_4',
     });
     const demoNorm = buildNormalizedScopeMeasurementsFromInput(demoInput, {
       templateKey: 'concrete',
@@ -4199,7 +4199,7 @@ describe('allowance split apply pricing', () => {
       }),
       null
     );
-    expect(demo.fill).toMatchObject({ material: 100, labor: 250, total: 350 });
+    expect(demo.fill).toMatchObject({ material: 150, labor: 250, total: 400 });
   });
 });
 

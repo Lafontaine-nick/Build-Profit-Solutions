@@ -11,6 +11,7 @@ import {
 import {
   bathroomNoteTakeoff,
   notesNameShowerTileWithFlooring,
+  notesNameShowerTileTearOut,
   notesReplaceShowerTile,
   notesWithoutWetAreaFraming,
 } from '@/utils/bathroomNoteScope';
@@ -2779,16 +2780,28 @@ export function isWholeHomeQuickMeasurementTemplate(
 
 function showerTileWithFlooringRows(notes?: string | null): QuickMeasurementRow[] {
   const wall = QUICK_MEASUREMENT_FIELD_DEFS.showerWallTileSqft;
+  const demo = QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft;
   const lvp = QUICK_MEASUREMENT_FIELD_DEFS.flooringLvpSqft;
   const rows: QuickMeasurementRow[] = [];
+  if (
+    demo &&
+    (notesReplaceShowerTile(notes) || notesNameShowerTileTearOut(notes))
+  ) {
+    rows.push([
+      {
+        ...demo,
+        label: 'Shower tile demo',
+        helperText: 'Existing shower tile coming out.',
+        placeholder: 'Enter',
+      },
+    ]);
+  }
   if (wall) {
     rows.push([
       {
         ...wall,
         label: 'Shower wall tile',
-        helperText: notesReplaceShowerTile(notes)
-          ? 'Shower wall area. Tear-out uses this same sqft.'
-          : 'New shower wall tile area — priced per sqft.',
+        helperText: 'New shower wall tile area — priced per sqft.',
         placeholder: 'Enter',
       },
     ]);
@@ -3975,10 +3988,7 @@ function computeQuickMeasurementRowsForInput(
     ['plumbing', 'plumbing_service'].includes(
       String(templateKey || '').toLowerCase()
     );
-  if (
-    notesNameShowerTileWithFlooring(String(options?.scopeNotes || '')) &&
-    !options?.crossScopeMode
-  ) {
+  if (notesNameShowerTileWithFlooring(String(options?.scopeNotes || ''))) {
     return showerTileWithFlooringRows(String(options?.scopeNotes || ''));
   }
   if (

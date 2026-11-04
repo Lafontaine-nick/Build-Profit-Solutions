@@ -435,6 +435,11 @@ export function applyHydratedInsulationScopeMeasurements<
       (measurements.planFacts as PlanFacts | undefined)?.buildingAreas,
     measurements as Record<string, number | string>
   );
+  const sources =
+    (measurements.quickMeasurementSources as Record<string, string>) || {};
+  const planDetectedWall =
+    sources.exteriorWallInsulationSqft === 'detected_from_plan' ||
+    sources.exteriorWallInsulationSqft === 'plan_detected';
   const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
     Object.fromEntries(
       Object.entries(measurements)
@@ -449,6 +454,13 @@ export function applyHydratedInsulationScopeMeasurements<
   };
   for (const key of INSULATION_SCOPE_NUMERIC_KEYS) {
     if (confirmed.has(key)) continue;
+    if (
+      key === 'exteriorWallInsulationSqft' &&
+      planDetectedWall &&
+      positiveNumber(measurements.exteriorWallInsulationSqft) != null
+    ) {
+      continue;
+    }
     const value = hydrated[key];
     if (value == null || value === '') continue;
     (next as Record<string, unknown>)[key] = value;

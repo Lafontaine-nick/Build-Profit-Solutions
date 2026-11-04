@@ -67,6 +67,8 @@ async function getPricingProposal(params) {
   if (!userId) {
     throw new Error('userId is required');
   }
+  const { assertPricingMemoryUser } = require('../contractorPricingMemory/storage');
+  assertPricingMemoryUser(userId);
 
   const supplierZipCtx = resolveSupplierZipContext(draft, zipCode);
   const context = {

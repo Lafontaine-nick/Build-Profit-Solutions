@@ -337,6 +337,8 @@ import {
   showerRemovalWantsPan,
   showerRemovalWantsWalls,
   notesKeepExistingWetArea,
+  notesNameBathroomFloorRemoval,
+  notesNameShowerTileTearOut,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   notesWithoutWetAreaFraming,
@@ -16456,6 +16458,10 @@ function CollapsibleQuickMeasurements({
       }
       if (
         !notesOwnerHandlesFlooringDemo(notes) &&
+        !(
+          notesNameShowerTileWithFlooring(notes) &&
+          !notesNameBathroomFloorRemoval(notes)
+        ) &&
         !baseRows.some(row => row.some(field => field.key === 'floorDemoSqft'))
       ) {
         if (floorDemoField) {
@@ -16770,21 +16776,30 @@ function CollapsibleQuickMeasurements({
       const framed = quickMeasurementFieldDef('framedAreaSqft');
       baseRows = framed ? [[{ ...framed, label: 'Framed floor area' }]] : [];
     }
-    if (
-      notesNameShowerTileWithFlooring(notesTextForScopeFields) &&
-      !mixedScopeFlooringSelected
-    ) {
+    if (notesNameShowerTileWithFlooring(notesTextForScopeFields)) {
       const wall = quickMeasurementFieldDef('showerWallTileSqft');
+      const demo = quickMeasurementFieldDef('wallDemoSqft');
       const lvp = quickMeasurementFieldDef('flooringLvpSqft');
+      const showDemo =
+        notesReplaceShowerTile(notesTextForScopeFields) ||
+        notesNameShowerTileTearOut(notesTextForScopeFields);
       baseRows = [
+        ...(showDemo && demo
+          ? [[
+              {
+                ...demo,
+                label: 'Shower tile demo',
+                helperText: 'Existing shower tile coming out.',
+                placeholder: 'Enter',
+              },
+            ]]
+          : []),
         ...(wall
           ? [[
               {
                 ...wall,
                 label: 'Shower wall tile',
-                helperText: notesReplaceShowerTile(notesTextForScopeFields)
-                  ? 'Shower wall area. Tear-out uses this same sqft.'
-                  : 'New shower wall tile area — priced per sqft.',
+                helperText: 'New shower wall tile area — priced per sqft.',
                 placeholder: 'Enter',
               },
             ]]
@@ -17295,6 +17310,10 @@ function CollapsibleQuickMeasurements({
                   /\brough\s+openings?\b|\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
                     affirmativeFramingNotes
                   )));
+            const showerTileDemoField =
+              field.key === 'wallDemoSqft' &&
+              (notesReplaceShowerTile(noteText) ||
+                notesNameShowerTileTearOut(noteText));
             if (dedicatedStuccoScope && (paintField || framingField)) {
               return false;
             }
@@ -17303,6 +17322,7 @@ function CollapsibleQuickMeasurements({
               noteHasField ||
               (notesRequirePaintTakeoff && paintField) ||
               notesMentionDemolitionField ||
+              showerTileDemoField ||
               notesMentionFlooringField ||
               mixedScopeFlooringField ||
               notesMentionFramingField

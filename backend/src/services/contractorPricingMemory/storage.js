@@ -27,8 +27,33 @@ function ensureDataDir() {
   }
 }
 
+const SHARED_PRICING_MEMORY_USERS = new Set([
+  'anonymous',
+  'dev-user',
+  'dev-user-1',
+]);
+
+function pricingMemoryProduction() {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    String(process.env.RENDER || '').toLowerCase() === 'true'
+  );
+}
+
+/** Production pricing memory is per signed-in account. Shared dev ids stay in local test only. */
+function assertPricingMemoryUser(userId) {
+  const id = String(userId || '').trim();
+  if (!pricingMemoryProduction()) return id || 'anonymous';
+  if (!id || SHARED_PRICING_MEMORY_USERS.has(id)) {
+    const error = new Error('Pricing memory requires a signed-in user');
+    error.statusCode = 401;
+    throw error;
+  }
+  return id;
+}
+
 function safeUserId(userId) {
-  return String(userId || 'anonymous').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+  return assertPricingMemoryUser(userId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
 }
 
 function userStorePath(userId) {
@@ -60,7 +85,7 @@ function readUserFile(userId) {
 }
 
 function loadUserStore(userId) {
-  const key = String(userId || 'anonymous');
+  const key = assertPricingMemoryUser(userId);
   if (memoryCache.has(key)) return memoryCache.get(key);
   const store = readUserFile(key);
   memoryCache.set(key, store);
@@ -103,7 +128,7 @@ async function ensurePricingSchema() {
 async function persistPricingDocument(userId, store) {
   const pool = await ensurePricingSchema();
   if (!pool) return;
-  const key = String(userId || 'anonymous');
+  const key = assertPricingMemoryUser(userId);
   await pool.query(
     `INSERT INTO contractor_pricing_memory_documents (user_id, payload, updated_at)
      VALUES ($1, $2::jsonb, NOW())
@@ -114,7 +139,7 @@ async function persistPricingDocument(userId, store) {
 }
 
 function saveUserStore(userId, store) {
-  const key = String(userId || 'anonymous');
+  const key = assertPricingMemoryUser(userId);
   memoryCache.set(key, store);
   ensureDataDir();
   fs.writeFileSync(userStorePath(key), JSON.stringify(store, null, 2), 'utf8');
@@ -361,6 +386,7 @@ async function tryPersistToPostgres(userId) {
 
 module.exports = {
   DEFAULT_SETTINGS,
+  assertPricingMemoryUser,
   loadUserStore,
   saveUserStore,
   upsertEntries,

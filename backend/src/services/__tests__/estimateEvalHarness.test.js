@@ -14,7 +14,11 @@
 const { parseScopeMeasurementsFromNotes } = require('../scopeMeasurementParser');
 const { evaluateScopeExtractionConfidence } = require('../scopeExtractionConfidence');
 
-/** Keep in sync with scopeGoldenNotesCorpus.test.js fixture set (subset scored here). */
+/**
+ * Parser subset of the backend golden notes.
+ * The launch gate is mobile/utils/realNotesAcceptanceCorpus.ts
+ * (version 2026-11-04), scored by realNotesAcceptanceGate.ts.
+ */
 const EVAL_FIXTURES = [
   {
     id: 'flooring_voice_rates_and_lf',

@@ -189,7 +189,9 @@ import {
 import {
   namedBathroomConfirmScopeItems,
   notesNameBathroomAssembly,
+  bathroomChecklistItemNamedInNotes,
   notesNameBathroomFloorRemoval,
+  notesNameShowerTileTearOut,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
   showerTileWithFlooringAreas,
@@ -1311,6 +1313,19 @@ export type EstimateAiDraft = {
       evidence?: string;
     }>;
   } | null;
+  /** Read-only. The checker does not use this to add a card or a price. */
+  noteReading?: {
+    jobs: Array<{ label: string; evidence: string }>;
+    quantities: Array<{
+      label: string;
+      quantity: number;
+      unit: string;
+      evidence: string;
+    }>;
+    missingCompanions: string[];
+    wouldAsk: string | null;
+    authoritative: false;
+  } | null;
   whatAiDid?: string[];
   noteProfile?: EstimateNoteProfile | null;
   noPricingDetected?: boolean;
@@ -2306,24 +2321,43 @@ function repairDraftRatePricingFromNotesUnfrozen(
     const itemQuantities = {
       ...((measurements.itemQuantities as Record<string, unknown>) || {}),
     };
+    if (bathroomChecklistItemNamedInNotes('tub_demo', text)) {
+      itemQuantities.tub_demo = {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+    } else {
+      delete itemQuantities.tub_demo;
+    }
     if (!areas.showerWallTileSqft) {
       delete itemQuantities.shower_tile;
       delete itemQuantities.wet_area_install;
       delete itemQuantities.demo;
     }
-    if (areas.showerWallTileSqft && notesReplaceShowerTile(text)) {
+    if (
+      areas.showerWallTileSqft &&
+      (notesNameShowerTileTearOut(text) || notesReplaceShowerTile(text))
+    ) {
       itemQuantities.demo = {
         quantity: areas.showerWallTileSqft,
         unit: 'sqft',
         quantitySource: 'notes',
       };
+    } else {
+      delete itemQuantities.demo;
     }
-    if (areas.showerWallTileSqft) {
+    if (
+      areas.showerWallTileSqft &&
+      bathroomChecklistItemNamedInNotes('waterproofing', text)
+    ) {
       itemQuantities.waterproofing = {
         quantity: areas.showerWallTileSqft,
         unit: 'sqft',
         quantitySource: 'notes',
       };
+    } else {
+      delete itemQuantities.waterproofing;
     }
     if (areas.flooringSqft) {
       if (notesNameBathroomFloorRemoval(text)) {
@@ -9969,6 +10003,7 @@ export function syncConfirmScopeMeasurementsFromPackages(
   const snapshotLineById = new Map(
     snapshotLines?.map(line => [line.itemId, line]) || []
   );
+  const activeSnapshotIds = new Set<string>();
   const customSnapshotKey = (pkg: EstimateDraftScopePackage) => {
     const label = String(pkg.name || pkg.scope || 'custom scope')
       .trim()
@@ -10052,8 +10087,32 @@ export function syncConfirmScopeMeasurementsFromPackages(
         snapshotLines.push(nextLine);
         snapshotLineById.set(snapshotKey, nextLine);
       }
+      activeSnapshotIds.add(snapshotKey);
     }
     changed = true;
+  }
+
+  const checklistItems = draft.scopeChecklist?.items || [];
+  if (snapshotLines && checklistItems.length) {
+    const includedIds = new Set(
+      checklistItems
+        .filter(item => {
+          const state = String(item.state || 'included').toLowerCase();
+          return !['excluded', 'removed', 'declined', 'no'].includes(state);
+        })
+        .map(item => String(item.id || ''))
+        .filter(Boolean)
+    );
+    const kept = snapshotLines.filter(line => {
+      const itemId = String(line.itemId || '');
+      if (itemId.startsWith('custom:')) return activeSnapshotIds.has(itemId);
+      if (includedIds.has(itemId)) return true;
+      return activeSnapshotIds.has(itemId);
+    });
+    if (kept.length !== snapshotLines.length) {
+      snapshotLines.splice(0, snapshotLines.length, ...kept);
+      changed = true;
+    }
   }
 
   if (!changed) return draft;
@@ -10062,7 +10121,7 @@ export function syncConfirmScopeMeasurementsFromPackages(
     itemQuantities,
     pricingAcceptance,
   };
-  if (snapshotLines && snapshotLines.length) {
+  if (snapshotLines) {
     const snapshotTotals = snapshotLines.reduce(
       (totals, line) => ({
         total: totals.total + line.total,

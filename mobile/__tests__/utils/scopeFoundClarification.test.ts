@@ -678,8 +678,17 @@ describe('scope found clarification', () => {
     ]);
   });
 
-  it('treats a stucco replacement as removal and asks nothing', () => {
-    expect(resolveScopeFoundClarification('Replace the stucco, 1,800 sqft.')).toBe(null);
+  it('asks what else comes off when the stucco itself is already a replacement', () => {
+    const prompt = resolveScopeFoundClarification('Replace the stucco, 1,800 sqft.');
+    expect(prompt?.question).toBe('Any other removal?');
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Wood siding',
+      'Vinyl siding',
+      'Brick',
+      'Fiber cement',
+      'No demo',
+      'Not sure',
+    ]);
     expect(
       applyScopeFoundClarification([], 'Replace the stucco, 1,800 sqft.', {}).map(item => item.id)
     ).toEqual(['cladding_demo']);

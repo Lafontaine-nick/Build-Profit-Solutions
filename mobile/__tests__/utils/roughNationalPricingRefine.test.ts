@@ -147,7 +147,7 @@ describe('confirm-scope national average refinements', () => {
     expect(prep?.material).toBe(0.75);
     expect(prep?.labor).toBe(1.75);
     expect((prep?.material || 0) + (prep?.labor || 0)).toBe(2.5);
-    expect(prep?.sourceLabel).toMatch(/basic floor prep/i);
+    expect(prep?.sourceLabel).toMatch(/selected floor-prep level/i);
   });
 
   it('labels paint and drywall as wall/ceiling surface rates', () => {

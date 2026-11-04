@@ -1458,7 +1458,6 @@ describe('estimateInitialRevealUi', () => {
     expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
       'demo',
       'shower_tile',
-      'waterproofing',
       'flooring_lvp',
     ]);
     expect(repaired.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
@@ -1472,7 +1471,6 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       { name: 'Shower tile demo', quantity: undefined },
       { name: 'Shower wall tile', quantity: undefined },
-      { name: 'Shower waterproofing', quantity: undefined },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
@@ -1598,6 +1596,42 @@ describe('estimateInitialRevealUi', () => {
     });
   });
 
+  it('keeps LVP when the note also demos the tub and does not ask which shower pieces come out', () => {
+    const notes =
+      'Replace the shower tile and demo tub, and install 80 sqft of LVP in the bathroom.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        projectTitle: 'Bathroom Remodel',
+        scopeMode: 'dedicated',
+        whatAiDid: ['Detected bathroom work.'],
+        scopeChecklist: { templateKey: 'bathroom', items: [] },
+      } as EstimateAiDraft,
+      notes
+    );
+    expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'tub_demo',
+      'demo',
+      'shower_tile',
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(80);
+    expect(repaired.scopeMeasurements?.itemQuantities?.tub_demo).toMatchObject({
+      quantity: 1,
+      unit: 'each',
+    });
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row => row.name)
+    ).toEqual([
+      'Remove tub',
+      'Shower tile demo',
+      'Shower wall tile',
+      'LVP flooring',
+    ]);
+    expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
+  });
+
   it('prices stated shower walls and LVP without a floor tear-out', () => {
     const notes =
       'Replace the shower tile, 80 sqft of shower walls, and install 80 sqft of LVP in the bathroom.';
@@ -1617,7 +1651,6 @@ describe('estimateInitialRevealUi', () => {
     expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
       'demo',
       'shower_tile',
-      'waterproofing',
       'flooring_lvp',
     ]);
     expect(measurements.showerWallTileSqft).toBe(80);
@@ -1631,7 +1664,6 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       { name: 'Shower tile demo', quantity: '80 sqft' },
       { name: 'Shower wall tile', quantity: '80 sqft' },
-      { name: 'Shower waterproofing', quantity: '80 sqft' },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(
@@ -1643,7 +1675,6 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       'Shower tile demo',
       'Shower wall tile',
-      'Shower waterproofing',
       'LVP flooring',
     ]);
     const price = (id: string) => {
@@ -1667,11 +1698,6 @@ describe('estimateInitialRevealUi', () => {
       material: 640,
       labor: 1440,
       total: 2080,
-    });
-    expect(price('waterproofing')).toMatchObject({
-      material: 400,
-      labor: 560,
-      total: 960,
     });
     expect(price('flooring_lvp')).toMatchObject({
       material: 280,

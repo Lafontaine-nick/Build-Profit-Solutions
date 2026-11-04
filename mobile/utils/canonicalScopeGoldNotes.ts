@@ -2,7 +2,11 @@
  * Gold contractor notes for the canonical scope contract.
  * Each fixture names work that must stay in the bid and work that must stay off
  * Scope Found, Confirm Scope, QM, and pricing.
+ *
+ * This list is the scope half of the real-notes acceptance corpus
+ * (`realNotesAcceptanceCorpus.ts`, versioned there).
  */
+export const CANONICAL_GOLD_NOTES_VERSION = '2026-11-04';
 export type CanonicalGoldNote = {
   id: string;
   notes: string;

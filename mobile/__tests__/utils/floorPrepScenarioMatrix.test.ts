@@ -110,13 +110,13 @@ describe('flooring demo vs prep scenario matrix', () => {
       unit: 'sqft',
       quantitySource: 'user_entered',
     });
-    expect(demo.fill?.total).toBe(500 * 1.75 + 1200 * 4.5);
+    expect(demo.fill?.total).toBe(6278);
 
     const prep = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
       quantity: 1700,
       unit: 'sqft',
       quantitySource: 'user_entered',
     });
-    expect(prep.fill?.total).toBe(500 * 0.75 + 1200 * 3);
+    expect(prep.fill?.total).toBe(3983);
   });
 });

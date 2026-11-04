@@ -1111,6 +1111,31 @@ describe('shower removal question', () => {
       'Not sure',
     ]);
     expect(showerRemovalPrompt('Replace the shower door.')).toBeNull();
+    const tileAndLvp = showerRemovalPrompt(
+      'Replace the shower tile and install 80 sqft of LVP in the bathroom.'
+    );
+    expect(tileAndLvp?.question).toBe('Any other removal?');
+    expect(tileAndLvp?.options.map(option => option.label)).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Prefab enclosure',
+      'Shower door',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(
+      showerRemovalPrompt(
+        'Replace the shower tile and demo tub, and install 80 sqft of LVP in the bathroom.'
+      )?.options.map(option => option.label)
+    ).toEqual([
+      'Prefab pan',
+      'Tile pan',
+      'Prefab enclosure',
+      'Shower door',
+      'No demo',
+      'Not sure',
+    ]);
 
     const repaired = repairDraftRatePricingFromNotes(
       {
@@ -1143,7 +1168,7 @@ describe('shower removal question', () => {
     const notes =
       'New shower wall tile. New tile bathroom floor. Demo shower wall tile.';
     const prompt = showerRemovalPrompt(notes);
-    expect(prompt?.question).toBe('Is any existing material being removed?');
+    expect(prompt?.question).toBe('Any other removal?');
     expect(prompt?.options.map(option => option.label)).toEqual([
       'Tub',
       'Prefab pan',

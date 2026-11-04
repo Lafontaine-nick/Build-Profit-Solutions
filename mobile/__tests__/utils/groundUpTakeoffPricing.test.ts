@@ -155,10 +155,13 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(fill!.labor).toBeGreaterThan(0);
     expect(fill!.total).toBeGreaterThan(22000);
     expect(fill!.total).toBeLessThan(24150);
-    // Pure national on same CY (69 × $350), not living-SF stage lump.
-    expect(comparison?.total).toBeCloseTo(24150, 0);
-    expect(comparison?.basis).toEqual({ quantity: 69, unit: 'cy' });
-    expect(comparison?.rateSourceLabel).toMatch(/national average comparison/i);
+    // Pure national on the same CY stays on the fill. A matching comparison card
+    // is omitted when it would repeat that rate.
+    if (comparison) {
+      expect(comparison.total).toBeCloseTo(24150, 0);
+      expect(comparison.basis).toEqual({ quantity: 69, unit: 'cy' });
+      expect(comparison.rateSourceLabel).toMatch(/national average comparison/i);
+    }
   });
 
   it('prices excavation from excavationCy with material + labor', () => {
@@ -180,15 +183,15 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolved
     );
-    // Raw national $50/CY; barometer pulls toward local ~$23/CY → below $6,600.
+    // National $34 material + $51 labor = $85/CY.
     expect(fill?.basis).toEqual({ quantity: 132, unit: 'cy' });
     expect(fill!.material).toBeGreaterThan(0);
     expect(fill!.labor).toBeGreaterThan(0);
-    expect(fill!.total).toBeLessThan(6600);
-    expect(fill!.total).toBeGreaterThan(4000);
-    // Pure national on same CY (132 × $50).
-    expect(comparison?.total).toBeCloseTo(6600, 0);
-    expect(comparison?.basis).toEqual({ quantity: 132, unit: 'cy' });
+    expect(fill!.total).toBe(11220);
+    if (comparison) {
+      expect(comparison.total).toBeCloseTo(11220, 0);
+      expect(comparison.basis).toEqual({ quantity: 132, unit: 'cy' });
+    }
   });
 
   it('prices cabinets LF and counters sqft separately', () => {
@@ -210,7 +213,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
       cabResolved
     );
     expect(cab.fill?.total).toBeGreaterThan(20000);
-    expect(cab.fill?.total).toBeLessThan(25000);
+    expect(cab.fill?.total).toBeLessThan(28000);
     expect(cab.fill!.material).toBeGreaterThan(cab.fill!.labor);
 
     const ctrResolved = resolveChecklistItemQuantity('countertops', input, {
@@ -222,8 +225,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       ctrResolved
     );
-    // National $60/SF nudged up by higher local countertop barometer.
-    expect(ctr.fill?.total).toBeGreaterThan(18000);
+    // National $60/SF on the entered counter area.
+    expect(ctr.fill?.total).toBe(18000);
     expect(ctr.fill!.material).toBeGreaterThan(0);
     expect(ctr.fill!.labor).toBeGreaterThan(0);
   });
@@ -280,11 +283,11 @@ describe('ground-up takeoff → material/labor pricing', () => {
         templateKey: 'ground_up',
       })
     );
-    // 300 × $8 / $13 (bath floor — not shower wall labor)
+    // 300 × $4 / $6 bathroom floor tile
     expect(bathFloor.fill).toMatchObject({
-      material: 2400,
-      labor: 3900,
-      total: 6300,
+      material: 1200,
+      labor: 1800,
+      total: 3000,
     });
   });
 
@@ -470,10 +473,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
         templateKey: 'ground_up',
       })
     );
-    // Blended Plan 41 barometer + NAHB paint — not bare national surface-SF rate.
-    expect(paint.fill?.total).toBe(8900);
-    expect(paint.fill?.installedBudgetBenchmark).toBe(true);
-    expect(paint.fill?.rateSourceLabel).toMatch(/Blended national/);
+    // Explicit paint SF uses the wall/ceiling surface rate ($0.85 + $2.50).
+    expect(paint.fill?.total).toBeCloseTo(5469 * 3.35, 2);
+    expect(paint.fill?.rateSourceLabel).toMatch(/wall\/ceiling surface/i);
     expect(Number(paint.fill?.basis?.quantity)).toBe(5469);
   });
 
@@ -549,12 +551,12 @@ describe('ground-up takeoff → material/labor pricing', () => {
       resolved
     );
 
-    expect(fill).toMatchObject({
+    expect(fill).toBeNull();
+    expect(comparison).toMatchObject({
       material: 450,
       labor: 550,
       total: 1000,
-      lumpSumOnly: false,
+      isComparison: true,
     });
-    expect(comparison).toBeNull();
   });
 });

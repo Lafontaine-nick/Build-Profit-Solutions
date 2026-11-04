@@ -241,6 +241,17 @@ describe('estimateReadiness', () => {
       evaluateEstimateReadiness({
         scopeItems: [
           item({
+            quantity: { ...item().quantity, confidence: 'missing', value: null },
+          }),
+        ],
+        estimateTotals: { subtotal: 100000, total: 100000 },
+      }).canMarkBidReady
+    ).toBe(false);
+
+    expect(
+      evaluateEstimateReadiness({
+        scopeItems: [
+          item({
             pricingCompleteness: {
               ...item().pricingCompleteness!,
               markupRisk: {

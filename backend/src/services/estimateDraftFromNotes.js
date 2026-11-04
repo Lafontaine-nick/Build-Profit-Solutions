@@ -993,6 +993,40 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
       console.warn('[estimate-draft-from-notes] scope intent pass skipped', err?.message || err);
     }
   }
+  const {
+    attachReadOnlyNoteReading,
+    noteNeedsReaderPass,
+    readNoteComprehension,
+  } = require('./noteComprehension');
+  if (options.readerPass !== false && noteNeedsReaderPass(trimmed, draft)) {
+    try {
+      const reading = await readNoteComprehension(trimmed, params =>
+        createChatCompletionWithRetry(openai, {
+          model: aiModels.assistant.estimate,
+          response_format: aiRuntime.assistant.estimate.responseFormat,
+          ...params,
+        })
+      );
+      const hasSignal =
+        reading &&
+        (reading.jobs.length ||
+          reading.quantities.length ||
+          reading.missingCompanions.length ||
+          reading.wouldAsk);
+      if (!hasSignal) return draft;
+      const checklistBefore = JSON.stringify(draft.scopeChecklist?.items || []);
+      const measurementsBefore = JSON.stringify(draft.scopeMeasurements || {});
+      draft = attachReadOnlyNoteReading(draft, reading);
+      if (
+        JSON.stringify(draft.scopeChecklist?.items || []) !== checklistBefore ||
+        JSON.stringify(draft.scopeMeasurements || {}) !== measurementsBefore
+      ) {
+        throw new Error('Note reader changed the bid');
+      }
+    } catch (err) {
+      console.warn('[estimate-draft-from-notes] note reader skipped', err?.message || err);
+    }
+  }
   return draft;
 }
 

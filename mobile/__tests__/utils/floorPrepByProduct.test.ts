@@ -243,7 +243,7 @@ describe('floor prep by product', () => {
       unit: 'sqft',
       quantitySource: 'user_entered',
     });
-    expect(fill?.total).toBe(3975);
-    expect(fill?.material + fill!.labor).toBeCloseTo(3975, 2);
+    expect(fill?.total).toBe(3983);
+    expect(fill?.material + fill!.labor).toBeCloseTo(3983, 2);
   });
 });

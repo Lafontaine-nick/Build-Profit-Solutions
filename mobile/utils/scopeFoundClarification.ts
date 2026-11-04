@@ -511,16 +511,16 @@ const KITCHEN_DEMO_PIECES: Array<{
 
 function kitchenDemoPrompt(text: string): ScopeFoundClarification | null {
   if (!kitchenInstallNote(text)) return null;
-  const pieces = piecesStillUnknown(
-    text,
-    KITCHEN_DEMO_PIECES.filter(
-      piece => piece.id === 'kitchen_floor' || piece.named(text)
-    )
+  const relevant = KITCHEN_DEMO_PIECES.filter(
+    piece => piece.id === 'kitchen_floor' || piece.named(text)
   );
+  const pieces = piecesStillUnknown(text, relevant);
   if (!pieces.length) return null;
   return pieceQuestion(
     'kitchen_demo',
-    'Is demolition of the existing kitchen included?',
+    pieces.length < relevant.length
+      ? 'Any other removal?'
+      : 'Is demolition of the existing kitchen included?',
     pieces
   );
 }
@@ -919,9 +919,12 @@ function scopeFoundPiecesForNote(
 function tradePrompt(text: string): ScopeFoundClarification | null {
   const trade = tradeForText(text);
   if (!trade) return null;
-  if (/\breplace(?:ment)?\b/i.test(text)) return null;
-  if (REMOVAL_NAMED.test(text) && !/\b(?:install|new)\b/i.test(text)) return null;
-  let pieces = piecesStillUnknown(text, trade.pieces);
+  if (REMOVAL_NAMED.test(text) && !/\b(?:install|new|replace)\b/i.test(text)) {
+    return null;
+  }
+  const unknown = piecesStillUnknown(text, trade.pieces);
+  const namedSome = unknown.length < trade.pieces.length;
+  let pieces = unknown;
   if (
     trade.id === 'excavation_demo' &&
     !notesNameExistingExcavationStructure(text)
@@ -943,7 +946,11 @@ function tradePrompt(text: string): ScopeFoundClarification | null {
     }
   }
   if (!pieces.length) return null;
-  return pieceQuestion(trade.id, question, pieces);
+  return pieceQuestion(
+    trade.id,
+    namedSome ? 'Any other removal?' : question,
+    pieces
+  );
 }
 
 /** A heater note asks about the heater. A repipe asks about piping. */
@@ -2243,7 +2250,11 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
     return appendLines(items, replacement, []);
   }
   if (prompt && storedId && storedId !== prompt.id) return items;
-  if (!choice && !pieces.length) return items;
+  if (!choice && !pieces.length) {
+    const replacement = replacementDemoLines(text);
+    if (!replacement.length) return items;
+    return appendLines(items, replacement, []);
+  }
   const owned = ownedLineIds(id);
   const wanted = wantedLines(text, id, choice, pieces);
   return appendLines(items, wanted, owned);

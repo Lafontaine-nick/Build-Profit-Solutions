@@ -1,7 +1,7 @@
 const { capturePricingMemory, buildSuggestionsForDraft } = require('../contractorPricingMemory');
 const { buildMissingPriceSuggestions, inferTradeForMissing } = require('../contractorPricingMemory/suggestMissing');
 const { extractCaptureEntries } = require('../contractorPricingMemory/capture');
-const { clearMemory } = require('../contractorPricingMemory/storage');
+const { assertPricingMemoryUser, clearMemory } = require('../contractorPricingMemory/storage');
 const { normalizeDraft } = require('../estimateDraftFromNotes');
 
 describe('contractorPricingMemory', () => {
@@ -9,6 +9,20 @@ describe('contractorPricingMemory', () => {
 
   beforeEach(() => {
     clearMemory(userId);
+  });
+
+  test('refuses a shared dev user when pricing memory is in production', () => {
+    const previousEnv = process.env.NODE_ENV;
+    const previousRender = process.env.RENDER;
+    process.env.NODE_ENV = 'production';
+    delete process.env.RENDER;
+    expect(() => assertPricingMemoryUser('dev-user-1')).toThrow(/signed-in user/);
+    expect(() => assertPricingMemoryUser('anonymous')).toThrow(/signed-in user/);
+    expect(() => assertPricingMemoryUser('')).toThrow(/signed-in user/);
+    expect(assertPricingMemoryUser('user_123')).toBe('user_123');
+    process.env.NODE_ENV = previousEnv;
+    if (previousRender == null) delete process.env.RENDER;
+    else process.env.RENDER = previousRender;
   });
 
   test('does not capture from scope-only draft', () => {

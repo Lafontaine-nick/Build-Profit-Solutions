@@ -38,7 +38,11 @@ export function notesDescribeDedicatedDeckJob(
   ) {
     return false;
   }
-  if (/\bconcrete\s+patio\b/i.test(text) && !/\bdeck(?:ing)?\b/i.test(text)) {
+  if (
+    /\bpatio\b/i.test(text) &&
+    !/\bdeck(?:ing)?\b/i.test(text) &&
+    /\b(?:concrete\s+patio|pour|flat[\s-]?work|dig\s+out|forms?)\b/i.test(text)
+  ) {
     return false;
   }
   if (/\bconcrete plan imported\b/i.test(text)) return false;

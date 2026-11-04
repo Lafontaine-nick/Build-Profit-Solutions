@@ -663,9 +663,18 @@ export function notesNameShowerTileWithFlooring(
   const text = bathroomAffirmativeNotes(notes);
   if (!SHOWER_WALL_TILE.test(text) || !LVP_PRODUCT_RE.test(text)) return false;
   if (!/\b(?:install|replace|new)\b/i.test(text)) return false;
-  return !/\b(?:vanity|toilet|tub|bathtub|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
-    text
-  );
+  if (
+    /\b(?:vanity|toilet|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  // "Demo tub" is one extra card. A new tub stays on the bathroom checklist.
+  if (/\b(?:tubs?|bathtubs?)\b/i.test(text)) {
+    return named(TUB_TEAR_OUT, text) && !named(TUB_INSTALL, text);
+  }
+  return true;
 }
 
 /** Surfaces and fixtures that belong on the bathroom checklist. */
@@ -744,13 +753,43 @@ export function namedBathroomConfirmScopeItems(
 export function notesNameBathroomFloorRemoval(
   notes: string | null | undefined
 ): boolean {
-  return /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,50}\b(?:existing\s+)?(?:bathroom\s+)?(?:floor(?:ing)?|lvp)\b|\breplac(?:e|ing)\b[^.;\n]{0,30}\b(?:the\s+)?(?:existing\s+)?(?:bathroom\s+)?(?:floor(?:ing)?|lvp)\b/i.test(
-    bathroomAffirmativeNotes(notes)
+  const text = bathroomAffirmativeNotes(notes);
+  if (
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,50}\b(?:existing\s+)?(?:bathroom\s+)?floor(?:ing)?\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\breplac(?:e|ing)\b[^.;\n]{0,30}\b(?:the\s+)?(?:existing\s+)?(?:bathroom\s+)?(?:floor(?:ing)?|lvp)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  const lvpDemo =
+    text.match(
+      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,50}\blvp\b/i
+    )?.[0] || '';
+  return Boolean(lvpDemo) && !/\binstall\b/i.test(lvpDemo);
+}
+
+/**
+ * A shower-tile tear-out is its own card only when the note says the old tile
+ * is coming out. "Replace the shower tile" names the new tile, not a demo line.
+ */
+export function notesNameShowerTileTearOut(
+  notes: string | null | undefined
+): boolean {
+  const text = bathroomAffirmativeNotes(notes);
+  return /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\b(?:existing\s+)?(?:shower\s+(?:wall\s+)?tile|shower\s+walls?|wall\s+tile)\b|\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b[^.;\n]{0,40}\b(?:demo|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+    text
   );
 }
 
 /**
- * "Replace the shower tile" is tear-out plus new tile.
+ * "Replace the shower tile" is the old tile coming out and new tile going in.
  * "Install new shower tile" is the new tile only.
  */
 export function notesReplaceShowerTile(
@@ -783,30 +822,39 @@ export function showerTileWithFlooringChecklistItems(
     state: 'included';
     noteBacked: true;
   }> = [];
-  if (notesReplaceShowerTile(notes)) {
+  if (bathroomChecklistItemNamedInNotes('tub_demo', notes)) {
     items.push({
-      id: 'demo',
+      id: 'tub_demo',
       inputType: 'yes_no',
-      label: 'Shower tile demo',
-      helperText: 'Tear out the existing shower tile. Uses the new shower wall area.',
+      label: 'Remove tub',
+      helperText: 'The existing tub comes out. Count is 1.',
       category: 'demo',
       state: 'included',
       noteBacked: true,
     });
   }
-  items.push(
-    {
-      id: 'shower_tile',
+  if (notesNameShowerTileTearOut(notes) || notesReplaceShowerTile(notes)) {
+    items.push({
+      id: 'demo',
       inputType: 'yes_no',
-      label: 'Shower wall tile',
-      helperText: notesReplaceShowerTile(notes)
-        ? 'New shower wall tile. Tear-out uses this same area.'
-        : 'New shower wall tile area — enter sqft for pricing.',
-      category: 'wet_area',
+      label: 'Shower tile demo',
+      helperText: 'Tear out the existing shower tile.',
+      category: 'demo',
       state: 'included',
       noteBacked: true,
-    },
-    {
+    });
+  }
+  items.push({
+    id: 'shower_tile',
+    inputType: 'yes_no',
+    label: 'Shower wall tile',
+    helperText: 'New shower wall tile area — priced per sqft.',
+    category: 'wet_area',
+    state: 'included',
+    noteBacked: true,
+  });
+  if (bathroomChecklistItemNamedInNotes('waterproofing', notes)) {
+    items.push({
       id: 'waterproofing',
       inputType: 'yes_no',
       label: 'Shower waterproofing',
@@ -815,7 +863,9 @@ export function showerTileWithFlooringChecklistItems(
       category: 'wet_area',
       state: 'included',
       noteBacked: true,
-    },
+    });
+  }
+  items.push(
     ...(notesNameBathroomFloorRemoval(notes)
       ? [
           {
@@ -1056,7 +1106,7 @@ function noteNamesNewShowerBody(text: string): boolean {
     newWalls ||
     newFloor ||
     newShower ||
-    noteNamesNewInstall(body, /\b(?:tubs?|bathtubs?)\b/) ||
+    named(TUB_INSTALL, body) ||
     noteNamesNewInstall(body, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/) ||
     noteNamesNewInstall(body, /\b(?:tile\s+(?:shower\s+)?pan|mud\s+pan)\b/)
   );
@@ -1082,7 +1132,24 @@ export function showerRemovalPrompt(
   const text = bathroomAffirmativeNotes(notes);
   if (!text) return null;
   const options: Array<{ id: ShowerRemovalChoice; label: string }> = [];
-  if (noteNamesNewShowerBody(text)) {
+  let namedRemoval = false;
+  const offer = (
+    id: ShowerRemovalChoice,
+    label: string,
+    alreadyNamed: boolean
+  ) => {
+    if (alreadyNamed) {
+      namedRemoval = true;
+      return;
+    }
+    options.push({ id, label });
+  };
+  const showerTileNamed =
+    notesReplaceShowerTile(text) ||
+    notesNameShowerTileTearOut(text) ||
+    noteNamesShowerWallTile(text) ||
+    showerNoteNamesTileWalls(text);
+  if (noteNamesNewShowerBody(text) || showerTileNamed) {
     const showerPieces: ShowerRemovalPiece[] = [
       'tub',
       'prefab_pan',
@@ -1092,36 +1159,30 @@ export function showerRemovalPrompt(
       'shower_door',
     ];
     for (const piece of showerPieces) {
-      if (!pieceDemoAlreadyNamed(text, piece)) {
-        options.push({ id: piece, label: SHOWER_PIECE_LABELS[piece] });
-      }
+      offer(piece, SHOWER_PIECE_LABELS[piece], pieceDemoAlreadyNamed(text, piece));
     }
   } else if (
     noteNamesNewShowerDoor(text) &&
     !pieceDemoAlreadyNamed(text, 'shower_door')
   ) {
-    options.push({
-      id: 'shower_door',
-      label: SHOWER_PIECE_LABELS.shower_door,
-    });
+    offer(
+      'shower_door',
+      SHOWER_PIECE_LABELS.shower_door,
+      pieceDemoAlreadyNamed(text, 'shower_door')
+    );
   }
-  if (
-    noteNamesNewInstall(text, /\btoilets?\b/) &&
-    !removalNamedNear(text, /\btoilets?\b/)
-  ) {
-    options.push({ id: 'toilet', label: 'Toilet' });
+  if (noteNamesNewInstall(text, /\btoilets?\b/)) {
+    offer('toilet', 'Toilet', removalNamedNear(text, /\btoilets?\b/));
   }
-  if (
-    noteNamesNewInstall(text, /\bvanit(?:y|ies)\b/) &&
-    !removalNamedNear(text, /\bvanit(?:y|ies)\b/)
-  ) {
-    options.push({ id: 'vanity', label: 'Vanity' });
+  if (noteNamesNewInstall(text, /\bvanit(?:y|ies)\b/)) {
+    offer('vanity', 'Vanity', removalNamedNear(text, /\bvanit(?:y|ies)\b/));
   }
-  if (
-    noteNamesNewBathroomFloor(text) &&
-    !pieceDemoAlreadyNamed(text, 'bath_floor')
-  ) {
-    options.push({ id: 'bath_floor', label: SHOWER_PIECE_LABELS.bath_floor });
+  if (noteNamesNewBathroomFloor(text)) {
+    offer(
+      'bath_floor',
+      SHOWER_PIECE_LABELS.bath_floor,
+      pieceDemoAlreadyNamed(text, 'bath_floor')
+    );
   }
   if (!options.length) return null;
   const shower = options.some(option =>
@@ -1137,8 +1198,9 @@ export function showerRemovalPrompt(
     { id: 'unsure', label: 'Not sure' }
   );
   return {
-    question:
-      kinds > 1
+    question: namedRemoval
+      ? 'Any other removal?'
+      : kinds > 1
         ? 'Is any existing material being removed?'
         : shower
           ? 'Is any existing shower material being removed?'
@@ -1168,9 +1230,13 @@ function pieceDemoAlreadyNamed(text: string, piece: ShowerRemovalPiece): boolean
         removalNamedNear(text, /\bshower\s+floor\b/)
       );
     case 'wall_tile':
-      return removalNamedNear(
-        text,
-        /\b(?:shower\s+walls?|wall\s+tile|tile\s+walls?|shower\s+wall\s+tile)\b/
+      return (
+        notesReplaceShowerTile(text) ||
+        notesNameShowerTileTearOut(text) ||
+        removalNamedNear(
+          text,
+          /\b(?:shower\s+walls?|wall\s+tile|tile\s+walls?|shower\s+wall\s+tile|shower\s+tile)\b/
+        )
       );
     case 'prefab_enclosure':
       return removalNamedNear(text, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/);

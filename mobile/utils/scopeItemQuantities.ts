@@ -327,6 +327,7 @@ import {
 } from '@/utils/paintingNoteScope';
 import {
   copyDrywallQuantityFields,
+  drywallGarageSurfaceFromComponents,
   drywallPackageSurfacePlanningQuantity,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
@@ -5357,7 +5358,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   mirror_accessories: {
     category: 'fixtures',
     rootCause:
-      'Build Profit national-average bath accessories (~$125 each) prices towel bars, hooks, and paper holders per piece with install — not shower doors or medicine cabinets.',
+      'Build Profit national-average bath accessories ($500 each) prices one mirror and accessory package with install — not shower doors or medicine cabinets.',
     assumptions: [
       assumption(
         'accessories_material',
@@ -6454,10 +6455,10 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   mirror_accessories: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
-    defaultQuantity: 3,
+    defaultQuantity: 1,
     requiresUserQuantity: false,
     quantityHelper:
-      'Count towel bars, hooks, holders, etc. — priced per piece, not shower doors.',
+      'One bath accessory package. Edit the count when pricing individual bars, hooks, or holders.',
     missingMessage: 'Enter bath accessory count.',
   },
   floor_prep: {
@@ -9721,6 +9722,33 @@ function allowanceSplitQuantityLooksLikeDollarTotal(
   return false;
 }
 
+/**
+ * Legacy Apply stored the dollar allowance as the count, then multiplied the
+ * component rates by that dollar amount. Recover the piece count from
+ * allowance² / (material + labor) and scale the legs back down.
+ */
+function recoverCountFromInflatedAllowanceLegs(
+  allowance: number | null | undefined,
+  material: number | null | undefined,
+  labor: number | null | undefined
+): { quantity: number; material: number; labor: number } | null {
+  if (allowance == null || material == null || labor == null) return null;
+  if (!(allowance > 0 && material > allowance && labor > allowance)) return null;
+  const unitMaterial = material / allowance;
+  const unitLabor = labor / allowance;
+  const unitTotal = unitMaterial + unitLabor;
+  if (!(unitTotal > 0)) return null;
+  const count = allowance / unitTotal;
+  const rounded = Math.round(count);
+  if (rounded < 1 || rounded > 25) return null;
+  if (Math.abs(count - rounded) > 0.02) return null;
+  return {
+    quantity: rounded,
+    material: round2(rounded * unitMaterial),
+    labor: round2(rounded * unitLabor),
+  };
+}
+
 function inferPhysicalCountFromAppliedSplit(
   itemId: string,
   splitTotal: number,
@@ -9817,6 +9845,33 @@ function resolveAllowanceSplitPhysicalTakeoff(
     }
   }
 
+  const inflatedLegs = recoverCountFromInflatedAllowanceLegs(
+    parseScopeMeasurementInput(
+      String(
+        itemQuantities?.[allowanceSplitSubKey(itemId, 'allowance')]?.quantity ??
+          ''
+      )
+    ) ??
+      (override &&
+      ['allowance', 'lump_sum'].includes(String(override.unit || '').toLowerCase())
+        ? parseScopeMeasurementInput(String(override.quantity ?? ''))
+        : null),
+    parseScopeMeasurementInput(
+      String(
+        itemQuantities?.[allowanceSplitSubKey(itemId, 'material')]?.quantity ??
+          ''
+      )
+    ),
+    parseScopeMeasurementInput(
+      String(
+        itemQuantities?.[allowanceSplitSubKey(itemId, 'labor')]?.quantity ?? ''
+      )
+    )
+  );
+  if (inflatedLegs) {
+    return { quantity: inflatedLegs.quantity, unit: physicalUnit };
+  }
+
   const total =
     splitTotal ?? allowanceSplitAppliedTotal(itemQuantities, itemId, rule);
   if (total != null && total > 0) {
@@ -9893,7 +9948,27 @@ function resolveStoredAllowanceSplitQuantity(
 
   let displayMaterial = materialEntry;
   let displayLabor = laborEntry;
-  if (physicalTakeoff && total != null && total > 0 && total <= 2500) {
+  const inflatedLegs = recoverCountFromInflatedAllowanceLegs(
+    storedAllowance?.quantity ?? overrideMoney,
+    materialEntry?.quantity,
+    laborEntry?.quantity
+  );
+  if (
+    inflatedLegs &&
+    physicalTakeoff &&
+    physicalTakeoff.quantity === inflatedLegs.quantity
+  ) {
+    displayMaterial = {
+      quantity: inflatedLegs.material,
+      unit: 'allowance',
+      quantitySource,
+    };
+    displayLabor = {
+      quantity: inflatedLegs.labor,
+      unit: 'allowance',
+      quantitySource,
+    };
+  } else if (physicalTakeoff && total != null && total > 0 && total <= 2500) {
     const national = getNationalAverageBudgetSplit(
       itemId,
       physicalTakeoff.unit
@@ -10868,6 +10943,21 @@ export function resolveSuggestAlignedEditorPricingBasis(
         unit: 'sqft',
       };
     }
+    const componentQuantity = resolveDrywallPackageSurfaceQuantity(
+      measurementsInput as unknown as Record<string, unknown>,
+      { planFacts: measurementsInput.planFacts }
+    );
+    const explicitGarageSurface = drywallGarageSurfaceFromComponents(
+      measurementsInput as unknown as Record<string, unknown>
+    );
+    if (
+      explicitGarageSurface != null &&
+      explicitGarageSurface > 0 &&
+      componentQuantity != null &&
+      componentQuantity > 0
+    ) {
+      return { quantity: componentQuantity, unit: 'sqft' };
+    }
     const plannedSurface =
       formPlanningQuantity(
         'drywallSqft',
@@ -10878,10 +10968,6 @@ export function resolveSuggestAlignedEditorPricingBasis(
     if (plannedSurface != null && plannedSurface > 0) {
       return { quantity: plannedSurface, unit: 'sqft' };
     }
-    const componentQuantity = resolveDrywallPackageSurfaceQuantity(
-      measurementsInput as unknown as Record<string, unknown>,
-      { planFacts: measurementsInput.planFacts }
-    );
     if (componentQuantity != null) {
       return { quantity: componentQuantity, unit: 'sqft' };
     }
@@ -11810,7 +11896,34 @@ function explicitItemQuantityOverride(
       let displayMaterial = materialEntry;
       let displayLabor = laborEntry;
       const total = appliedTotal ?? splitTotal;
-      if (total > 0 && total <= 2500) {
+      const inflatedLegs = recoverCountFromInflatedAllowanceLegs(
+        parseScopeMeasurementInput(
+          String(
+            measurements.itemQuantities?.[
+              allowanceSplitSubKey(itemId, 'allowance')
+            ]?.quantity ??
+              override.quantity ??
+              ''
+          )
+        ),
+        materialEntry?.quantity,
+        laborEntry?.quantity
+      );
+      if (
+        inflatedLegs &&
+        physical.quantity === inflatedLegs.quantity
+      ) {
+        displayMaterial = {
+          quantity: inflatedLegs.material,
+          unit: 'allowance',
+          quantitySource,
+        };
+        displayLabor = {
+          quantity: inflatedLegs.labor,
+          unit: 'allowance',
+          quantitySource,
+        };
+      } else if (total > 0 && total <= 2500) {
         const national = getNationalAverageBudgetSplit(itemId, physical.unit);
         const expectedTotal =
           physical.quantity *
@@ -18097,6 +18210,9 @@ export function resolveScopeItemSuggestedPricing(
     }
     if (itemId === 'demo' && notesReplaceShowerTile(notesText)) {
       const areas = showerTileWithFlooringAreas(notesText);
+      const demoMeasured = parseScopeMeasurementInput(
+        (measurementsInput as { wallDemoSqft?: unknown }).wallDemoSqft
+      );
       const measured = parseScopeMeasurementInput(
         (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
       );
@@ -18106,6 +18222,7 @@ export function resolveScopeItemSuggestedPricing(
           ? Number(resolved.dualCount?.quantity ?? resolved.quantity)
           : null;
       const sqft =
+        demoMeasured ||
         areas.showerWallTileSqft ||
         measured ||
         (resolvedSqft && resolvedSqft !== areas.flooringSqft ? resolvedSqft : null);
@@ -22552,7 +22669,12 @@ export function resolveScopeItemSuggestedPricing(
       const explicitDoors = parseScopeMeasurementInput(
         measurementsInput.showerDoorCount
       );
-      if (!(explicitDoors && explicitDoors > 0)) {
+      const resolvedDoors = Number(resolved.quantity);
+      const hasDoorCount =
+        (explicitDoors != null && explicitDoors > 0) ||
+        (String(resolved.unit || '').toLowerCase() === 'each' &&
+          resolvedDoors > 0);
+      if (!hasDoorCount) {
         const lump = resolveShowerDoorLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,
@@ -23589,7 +23711,20 @@ export function resolveScopeItemSuggestedPricing(
           ) ??
           (livingSf != null ? drywallSurfacePlanningQuantity(livingSf) : null)
         : null;
+    const explicitGarageSurface = drywallGarageSurfaceFromComponents(
+      measurementsInput as unknown as Record<string, unknown>
+    );
     if (
+      usePackageQuantity &&
+      componentQuantity != null &&
+      componentQuantity > 0 &&
+      !protectedDrywallQty &&
+      explicitGarageSurface != null &&
+      explicitGarageSurface > 0
+    ) {
+      count = componentQuantity;
+      unit = 'sqft';
+    } else if (
       notesDescribeMeasuredWholeHomeRemodel(notesText) &&
       displayedDrywall != null &&
       displayedDrywall > 0
@@ -24016,6 +24151,19 @@ export function resolveScopeItemSuggestedPricing(
       resolved.quantitySource === 'default_assumption'
         ? measurementsInput
         : { ...measurementsInput, floorPrepSqft: String(count) };
+    const prepContext = buildFloorPrepPricingContext(prepMeasurements, {
+      pricingCount: count,
+      quantitySource: resolved.quantitySource,
+    });
+    if (
+      prepContext.ok &&
+      !prepContext.includedInDemo &&
+      prepContext.totalPrepArea > 0
+    ) {
+      // Migrated transition rows and per-product prep areas are the priced
+      // quantity. A leftover floorPrepSqft field must not multiply that rate.
+      count = prepContext.totalPrepArea;
+    }
     const prepAverage = floorPrepPricing(
       prepMeasurements,
       count,
@@ -28635,7 +28783,12 @@ export function resolveChecklistItemQuantity(
       };
     }
   }
-  if (itemId === 'insulation') {
+  if (
+    itemId === 'insulation' &&
+    resolvedInsulationAssemblies(
+      measurements as ScopeMeasurementsInputExtended
+    ).length === 0
+  ) {
     const noteInsulationSqft = [
       measurements.exteriorWallInsulationSqft,
       measurements.atticInsulationSqft,

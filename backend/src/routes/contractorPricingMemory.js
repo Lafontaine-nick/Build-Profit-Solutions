@@ -27,6 +27,15 @@ const { requireEntitlement } = require('../middleware/requireEntitlement');
 const { authenticateToken } = require('../middleware/authenticateToken');
 
 router.use(authenticateToken);
+router.use((req, res, next) => {
+  try {
+    const { assertPricingMemoryUser } = require('../services/contractorPricingMemory/storage');
+    req.user.userId = assertPricingMemoryUser(req.user && req.user.userId);
+    return next();
+  } catch (error) {
+    return res.status(error.statusCode || 401).json({ error: error.message });
+  }
+});
 
 router.get('/settings', (req, res) => {
   const userId = req.user.userId;

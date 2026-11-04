@@ -8,8 +8,10 @@ import {
   alignDedicatedBathroomScopeRows,
   bathroomAffirmativeNotes,
   filterDedicatedBathroomConfirmItems,
+  bathroomChecklistItemNamedInNotes,
   notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
+  notesNameShowerTileTearOut,
   notesReplaceShowerTile,
   showerRemovalItemIdForRevealName,
   showerTileWithFlooringAreas,
@@ -5218,7 +5220,16 @@ function getInitialRevealScopeRows(
       ? { quantityOverride: `${areas.showerWallTileSqft} sqft` }
       : { quantityOverride: null };
     return [
-      ...(notesReplaceShowerTile(notes)
+      ...(bathroomChecklistItemNamedInNotes('tub_demo', notes)
+        ? [
+            {
+              id: 'tub_demo',
+              name: 'Remove tub',
+              quantityOverride: '1 each',
+            },
+          ]
+        : []),
+      ...(notesNameShowerTileTearOut(notes) || notesReplaceShowerTile(notes)
         ? [
             {
               id: 'demo',
@@ -5232,11 +5243,15 @@ function getInitialRevealScopeRows(
         name: 'Shower wall tile',
         ...showerQty,
       },
-      {
-        id: 'waterproofing',
-        name: 'Shower waterproofing',
-        ...showerQty,
-      },
+      ...(bathroomChecklistItemNamedInNotes('waterproofing', notes)
+        ? [
+            {
+              id: 'waterproofing',
+              name: 'Shower waterproofing',
+              ...showerQty,
+            },
+          ]
+        : []),
       ...(notesNameBathroomFloorRemoval(notes)
         ? [
             {
