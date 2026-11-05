@@ -194,6 +194,7 @@ import {
   notesNameShowerTileTearOut,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
+  noteNamesShowerRemovalPiece,
   showerTileWithFlooringAreas,
   showerTileWithFlooringChecklistItems,
 } from '@/utils/bathroomNoteScope';
@@ -591,6 +592,8 @@ export type ScopeMeasurements = {
   bathroomVanityCabinetLf?: number | null;
   cabinetDemoLf?: number | null;
   wallDemoSqft?: number | null;
+  /** Existing tile shower pan area. Separate from the prefab pan count. */
+  demoTilePanSqft?: number | null;
   wallDemoLf?: number | null;
   showerWallTileSqft?: number | null;
   showerFloorTileSqft?: number | null;
@@ -2327,8 +2330,34 @@ function repairDraftRatePricingFromNotesUnfrozen(
         unit: 'each',
         quantitySource: 'notes',
       };
+      measurements.demoTubCount = measurements.demoTubCount || 1;
     } else {
       delete itemQuantities.tub_demo;
+    }
+    if (noteNamesShowerRemovalPiece(text, 'prefab_pan')) {
+      itemQuantities.shower_floor_demo = {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+      measurements.demoPrefabPanCount = measurements.demoPrefabPanCount || 1;
+    }
+    if (noteNamesShowerRemovalPiece(text, 'prefab_enclosure')) {
+      itemQuantities.shower_enclosure_demo = {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+      measurements.demoPrefabEnclosureCount =
+        measurements.demoPrefabEnclosureCount || 1;
+    }
+    if (noteNamesShowerRemovalPiece(text, 'shower_door')) {
+      itemQuantities.glass_door_demo = {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'notes',
+      };
+      measurements.demoShowerDoorCount = measurements.demoShowerDoorCount || 1;
     }
     if (!areas.showerWallTileSqft) {
       delete itemQuantities.shower_tile;

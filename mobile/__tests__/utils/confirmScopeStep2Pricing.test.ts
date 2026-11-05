@@ -262,6 +262,13 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierNeedsInlineTakeoffEntry('floor_demo', 'bathroom', { pricingReady: false })).toBe(
       false
     );
+    expect(
+      step2TierNeedsInlineTakeoffEntry('shower_floor_demo__tile_pan', 'room_remodel', {
+        pricingReady: false,
+        unit: 'sqft',
+        quantity: 0,
+      })
+    ).toBe(false);
   });
 
   it('keeps a mud-pan sqft field on the bathroom install card', () => {

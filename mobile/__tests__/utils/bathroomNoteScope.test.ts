@@ -28,7 +28,9 @@ import {
   notesKeepExistingWetArea,
   notesMentionStructuralFraming,
   notesNameBathroomAssembly,
+  notesNameShowerTileWithFlooring,
   shouldLimitBathroomChecklistToNotes,
+  showerTileWithFlooringChecklistItems,
 } from '../../utils/bathroomNoteScope';
 import {
   applyStep2NoteScopeFilters,
@@ -36,11 +38,13 @@ import {
 } from '../../utils/scopePackagesForReview';
 import {
   ensureBathroomVisiblePricingCards,
+  groupScopeChecklistItems,
   hydrateScopeChecklistFromNotes,
   syncWindowInstallScopeFromNotes,
 } from '../../utils/estimateScopeChecklistUi';
 import { emptyQuickMeasurementInput } from '../../utils/scopeQuickMeasurements';
 import { applyContractorRemovedScopeItems } from '../../utils/contractorRemovedScope';
+import { getScopePackagesForReview } from '../../utils/scopePackagesForReview';
 import {
   checklistItemInScope,
   resolveChecklistItemQuantity,
@@ -1070,6 +1074,130 @@ describe('shower removal question', () => {
     expect(Number(restored.wallDemoSqft)).toBe(90);
   });
 
+  it('keeps the removals selected on the shower and LVP note', () => {
+    const notes =
+      'Replace the shower tile and install 80 sqft of LVP in the bathroom.';
+    const items = applyShowerRemovalChoice(
+      [
+        { id: 'demo', state: 'included' },
+        { id: 'shower_tile', state: 'included' },
+        { id: 'flooring_lvp', state: 'included' },
+      ],
+      notes,
+      null,
+      ['tub', 'prefab_pan', 'tile_pan', 'prefab_enclosure', 'shower_door']
+    );
+    expect(items.map(item => item.id)).toEqual([
+      'demo',
+      'shower_tile',
+      'flooring_lvp',
+      'tub_demo',
+      'shower_floor_demo',
+      'shower_floor_demo__tile_pan',
+      'shower_enclosure_demo',
+      'glass_door_demo',
+    ]);
+    expect(items.find(item => item.id === 'demo')?.label).not.toBe('Demo');
+    expect(items.find(item => item.id === 'shower_floor_demo')?.label).toBe(
+      'Remove prefab pan'
+    );
+    expect(items.find(item => item.id === 'shower_floor_demo__tile_pan')?.label).toBe(
+      'Remove tile pan'
+    );
+    const groups = groupScopeChecklistItems(items as never, 'room_remodel', {
+      notes,
+    });
+    expect(groups.map(group => group.title)).toEqual([
+      'Demo',
+      'Shower wall tile',
+      'LVP flooring',
+    ]);
+    expect(groups[0].items.map(item => item.id)).toEqual([
+      'demo',
+      'tub_demo',
+      'shower_floor_demo',
+      'shower_floor_demo__tile_pan',
+      'shower_enclosure_demo',
+      'glass_door_demo',
+    ]);
+    const measured = measurementsForShowerRemovalChoice(
+      { wallDemoSqft: '100', flooringLvpSqft: '80' },
+      ['tub', 'prefab_pan', 'tile_pan', 'prefab_enclosure', 'shower_door'],
+      notes
+    );
+    expect(measured.wallDemoSqft).toBe('100');
+    expect(measured.flooringLvpSqft).toBe('80');
+    expect(measured.demoTubCount).toBe(1);
+    expect(measured.demoPrefabPanCount).toBe(1);
+    expect(measured.demoTilePanCount).toBe(1);
+    expect(measured.demoPrefabEnclosureCount).toBe(1);
+    expect(measured.demoShowerDoorCount).toBe(1);
+    expect(measured.itemQuantities?.shower_floor_demo).toMatchObject({
+      quantity: 1,
+      unit: 'each',
+    });
+  });
+
+  it('prices the removals confirmed on the shower and LVP note', () => {
+    const notes =
+      'Replace the shower tile and install 80 sqft of LVP in the bathroom.';
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      demoTubCount: '1',
+      demoPrefabPanCount: '1',
+      demoPrefabEnclosureCount: '1',
+      demoShowerDoorCount: '1',
+      demoTilePanSqft: '25',
+      wallDemoSqft: '95',
+      showerWallTileSqft: '95',
+      flooringLvpSqft: '80',
+      showerRemovalPieces: [
+        'tub',
+        'prefab_pan',
+        'tile_pan',
+        'prefab_enclosure',
+        'shower_door',
+      ],
+    };
+    const price = (id: string) =>
+      resolveScopeItemSuggestedPricing(
+        id,
+        measurements,
+        'room_remodel',
+        { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      );
+    expect(price('demo').fill).toMatchObject({
+      material: 47.5,
+      labor: 475,
+      total: 522.5,
+    });
+    expect(price('tub_demo').fill?.total).toBe(350);
+    expect(price('shower_floor_demo').fill?.total).toBe(350);
+    expect(price('shower_enclosure_demo').fill?.total).toBe(600);
+    expect(price('glass_door_demo').fill?.total).toBe(125);
+    expect(price('shower_floor_demo__tile_pan').fill?.total).toBe(225);
+    expect(price('shower_tile').fill?.total).toBe(2470);
+    expect(price('flooring_lvp').fill?.total).toBe(560);
+    const restored = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist(measurements)
+    );
+    expect(Number(restored.demoTilePanSqft)).toBe(25);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'shower_floor_demo__tile_pan',
+        restored,
+        'room_remodel',
+        { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      ).fill?.total
+    ).toBe(225);
+  });
+
   it('keeps the new toilet card and drops the unpriced removal card', () => {
     const notes = 'Install a new toilet.';
     const items = [
@@ -1124,6 +1252,40 @@ describe('shower removal question', () => {
       'No demo',
       'Not sure',
     ]);
+    const messy =
+      "Customer wants the shower retiled. Pull the old tile. Throw down about 80 square feet of vinyl plank in that bath. Don't demo the floor. No waterproofing unless I say so.";
+    const messyPrompt = showerRemovalPrompt(messy);
+    expect(messyPrompt?.question).toBe('Any other removal?');
+    expect(messyPrompt?.options.map(option => option.label)).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Prefab enclosure',
+      'Shower door',
+      'No demo',
+      'Not sure',
+    ]);
+    const messyDraft = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: messy,
+        projectType: 'bathroom',
+        scopeChecklist: { templateKey: 'bathroom', items: [] },
+        scopeMeasurements: {},
+      } as never,
+      messy
+    );
+    const messyIds = messyDraft.scopeChecklist?.items.map(item => item.id) || [];
+    expect(messyIds).toEqual(
+      expect.arrayContaining(['demo', 'shower_tile', 'flooring_lvp'])
+    );
+    expect(messyIds).not.toContain('floor_demo');
+    expect(messyIds).not.toContain('waterproofing');
+    expect(messyDraft.scopeMeasurements?.flooringLvpSqft).toBe(80);
+    expect(messyDraft.scopeMeasurements?.floorDemoSqft).toBeUndefined();
+    expect(messyDraft.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
+    expect(
+      getInitialRevealChecklistScopePreview(messyDraft).map(row => row.name)
+    ).toEqual(['Shower tile demo', 'Shower wall tile', 'LVP flooring']);
     expect(
       showerRemovalPrompt(
         'Replace the shower tile and demo tub, and install 80 sqft of LVP in the bathroom.'
@@ -1162,6 +1324,111 @@ describe('shower removal question', () => {
         row => row.name === 'Shower door'
       )
     ).toMatchObject({ amount: 1450 });
+  });
+
+  it('leaves negated waterproofing and the generic flooring card off the review draft', () => {
+    const notes =
+      "Customer wants the shower retiled. Pull the old tile. Throw down about 80 square feet of vinyl plank in that bath. Don't demo the floor. No waterproofing unless I say so.";
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'bathroom',
+        scopeChecklist: { templateKey: 'bathroom', items: [] },
+        scopeMeasurements: {},
+      } as never,
+      notes
+    );
+    const draft = {
+      ...repaired,
+      scopeAssumptionsConfirmed: true,
+      scopeMeasurements: {
+        ...(repaired.scopeMeasurements || {}),
+        showerRemovalPieces: [
+          'tub',
+          'prefab_pan',
+          'tile_pan',
+          'prefab_enclosure',
+          'shower_door',
+        ],
+      },
+    };
+    const names = getScopePackagesForReview(draft as never).map(pkg => pkg.name);
+    expect(names).toContain('LVP flooring');
+    expect(names).toContain('Shower wall tile');
+    expect(names).toContain('Shower tile demo');
+    expect(names).not.toContain('waterproofing');
+    expect(names).not.toContain('Waterproofing');
+    expect(names).not.toContain('Flooring');
+    expect(names).not.toContain('flooring_lvp');
+  });
+
+  it('drops removal buttons for the pieces the note already named', () => {
+    const notes =
+      'Replace the shower tile. Demo the tub, the prefab pan, the enclosure, and the shower door. Install 80 sqft of LVP.';
+    const prompt = showerRemovalPrompt(notes);
+    expect(prompt?.question).toBe('Any other removal?');
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Tile pan',
+      'No demo',
+      'Not sure',
+    ]);
+    expect(bathroomScopeLines(notes).map(line => line.label)).toEqual(
+      expect.arrayContaining([
+        'Remove tub',
+        'Shower tile demo / tear-out',
+        'Remove existing prefab shower pan',
+        'Remove existing prefab shower enclosure',
+        'Shower wall tile',
+        'Remove shower door',
+      ])
+    );
+    expect(notesNameShowerTileWithFlooring(notes)).toBe(true);
+    expect(
+      showerTileWithFlooringChecklistItems(notes).map(item => item.id)
+    ).toEqual([
+      'tub_demo',
+      'demo',
+      'shower_floor_demo',
+      'shower_enclosure_demo',
+      'glass_door_demo',
+      'shower_tile',
+      'flooring_lvp',
+    ]);
+    const repaired = repairDraftRatePricingFromNotes(
+      { checklist: [], scopeMeasurements: {} },
+      notes
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      ...(repaired.scopeMeasurements as Record<string, unknown>),
+      originalNotes: notes,
+    };
+    expect(measurements.flooringLvpSqft).toBe(80);
+    expect(measurements.demoTubCount).toBe(1);
+    expect(measurements.demoPrefabPanCount).toBe(1);
+    expect(measurements.demoPrefabEnclosureCount).toBe(1);
+    expect(measurements.demoShowerDoorCount).toBe(1);
+    const price = (id: string) =>
+      resolveScopeItemSuggestedPricing(
+        id,
+        measurements,
+        'room_remodel',
+        { quantity: 1, unit: 'each', quantitySource: 'notes' },
+        null,
+        null,
+        notes
+      )?.fill?.total;
+    expect(price('tub_demo')).toBe(350);
+    expect(price('shower_floor_demo')).toBe(350);
+    expect(price('shower_enclosure_demo')).toBe(600);
+    expect(price('glass_door_demo')).toBe(125);
+    expect(price('flooring_lvp')).toBe(560);
+    expect(price('shower_tile') ?? 0).toBe(0);
+    expect(
+      notesNameShowerTileWithFlooring(
+        'Replace the shower tile and install a new prefab pan and 80 sqft of LVP.'
+      )
+    ).toBe(false);
   });
 
   it('asks for the bathroom floor when the new floor is named and the demo is not', () => {

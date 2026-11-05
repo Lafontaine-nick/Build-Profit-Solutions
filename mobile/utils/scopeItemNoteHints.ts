@@ -666,6 +666,7 @@ function genericExclusionLabels(clause: string): string[] {
     .replace(/\s+not\s+included$/i, '')
     .replace(/\s+excluded$/i, '')
     .replace(/^(?:the|a|an|any|new)\s+/i, '')
+    .replace(/\s+unless\b.*$/i, '')
     .replace(/[.\s]+$/g, '')
     .trim();
   if (!subject || subject.length > 48 || NON_SCOPE_EXCLUSION.test(subject)) {

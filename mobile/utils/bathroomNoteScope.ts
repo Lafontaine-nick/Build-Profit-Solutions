@@ -76,7 +76,8 @@ export function bathroomAffirmativeNotes(
     )
     .replace(/\b(?:do not|don't|dont)\b[^.]*/gi, ' ')
     .replace(/\bno\s+(?:new\s+)?paint(?:ing)?\b/gi, ' ')
-    .replace(/\bno\s+(?:new\s+)?(?:lights?|lighting)\b/gi, ' ');
+    .replace(/\bno\s+(?:new\s+)?(?:lights?|lighting)\b/gi, ' ')
+    .replace(/\bno\s+(?:new\s+)?waterproof(?:ing)?\b[^.]*/gi, ' ');
 }
 
 /**
@@ -227,13 +228,7 @@ export function bathroomScopeLines(
   ) {
     push('shower_floor_demo', 'Remove existing prefab shower pan');
   }
-  if (
-    (/\bprefab\s+surround\b/i.test(affirmative) &&
-      /\bcoming out\b/i.test(affirmative)) ||
-    /\b(?:remove|demo|tear[\s-]?out)\b[^.]{0,80}\b(?:existing\s+)?prefab\s+(?:shower(?:\s+enclosure)?|enclosure|surround)\b/i.test(
-      affirmative
-    )
-  ) {
+  if (notesNameEnclosureRemoval(affirmative)) {
     push('shower_enclosure_demo', 'Remove existing prefab shower enclosure');
   }
   if (namedInNotes('shower_tile')) push('shower_tile', 'Shower wall tile');
@@ -396,6 +391,12 @@ export function bathroomChecklistItemNamedInNotes(
         return false;
       }
       if (
+        notesNameShowerRetile(text) ||
+        notesPullExistingShowerTile(text)
+      ) {
+        return true;
+      }
+      if (
         removalNamedNear(
           text,
           /\b(?:shower\s+walls?|wall\s+tile|tile\s+walls?|shower\s+wall\s+tile)\b/
@@ -447,7 +448,11 @@ export function bathroomChecklistItemNamedInNotes(
         noteNamesNewShowerFloorTile(text)
       );
     case 'shower_tile':
-      return named(SHOWER_WALL_TILE, text) || showerNoteNamesTileWalls(text);
+      return (
+        named(SHOWER_WALL_TILE, text) ||
+        showerNoteNamesTileWalls(text) ||
+        notesNameShowerRetile(text)
+      );
     case 'shower_floor_tile':
       return (
         noteNamesNewShowerFloorTile(text) ||
@@ -657,16 +662,46 @@ function positiveNoteQuantity(raw: string | undefined): number | null {
  * A bathroom remodel that also names a pan, vanity, toilet, or paint stays
  * on that checklist.
  */
+/** "Retile the shower" is the same job as "replace the shower tile". */
+function notesNameShowerRetile(text: string): boolean {
+  return /\bshower\b/i.test(text) && /\bre-?til(?:e|ed|ing)\b/i.test(text);
+}
+
+/** "Pull the old tile" on a shower note is the existing shower tile coming out. */
+function notesPullExistingShowerTile(text: string): boolean {
+  return (
+    /\bshower\b/i.test(text) &&
+    /\bpull\b[^.]{0,40}\b(?:the\s+)?(?:old|existing)\s+tile\b/i.test(text)
+  );
+}
+
 export function notesNameShowerTileWithFlooring(
   notes: string | null | undefined
 ): boolean {
   const text = bathroomAffirmativeNotes(notes);
-  if (!SHOWER_WALL_TILE.test(text) || !LVP_PRODUCT_RE.test(text)) return false;
-  if (!/\b(?:install|replace|new)\b/i.test(text)) return false;
+  const showerTile =
+    SHOWER_WALL_TILE.test(text) ||
+    notesNameShowerRetile(text) ||
+    notesPullExistingShowerTile(text);
+  if (!showerTile || !LVP_PRODUCT_RE.test(text)) return false;
   if (
-    /\b(?:vanity|toilet|shower\s+pan|mud\s+pan|prefab|paint(?:ing)?|waterproof|niche|bench|shower\s+door|exhaust|backer)\b/i.test(
+    !/\b(?:install|replace|new|re-?til(?:e|ed|ing)|throw\s+down)\b/i.test(text)
+  ) {
+    return false;
+  }
+  // A new pan, enclosure, door, or tub is a bathroom remodel. Demo of those
+  // pieces stays with the shower tile and the LVP.
+  if (
+    /\b(?:vanity|toilet|mud\s+pan|paint(?:ing)?|waterproof|niche|bench|exhaust|backer)\b/i.test(
       text
-    )
+    ) ||
+    named(TUB_INSTALL, text) ||
+    noteNamesNewInstall(text, /\bprefab\s+(?:shower\s+)?(?:pan|base)\b/) ||
+    noteNamesNewInstall(text, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/) ||
+    (noteNamesNewShowerDoor(text) &&
+      !noteNamesShowerRemovalPiece(text, 'shower_door')) ||
+    (/\bshower\s+pan\b/i.test(text) &&
+      !removalNamedNear(text, /\b(?:tile\s+)?shower\s+pan\b/))
   ) {
     return false;
   }
@@ -783,6 +818,9 @@ export function notesNameShowerTileTearOut(
   notes: string | null | undefined
 ): boolean {
   const text = bathroomAffirmativeNotes(notes);
+  if (notesPullExistingShowerTile(text) || notesNameShowerRetile(text)) {
+    return true;
+  }
   return /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\b(?:existing\s+)?(?:shower\s+(?:wall\s+)?tile|shower\s+walls?|wall\s+tile)\b|\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b[^.;\n]{0,40}\b(?:demo|tear[\s-]?out|rip[\s-]?out)\b/i.test(
     text
   );
@@ -796,6 +834,7 @@ export function notesReplaceShowerTile(
   notes: string | null | undefined
 ): boolean {
   const text = bathroomAffirmativeNotes(notes);
+  if (notesNameShowerRetile(text)) return true;
   if (!SHOWER_WALL_TILE.test(text)) return false;
   return /[^.;\n]*\breplac(?:e|ing|ement)\b[^.;\n]*\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b|[^.;\n]*\b(?:shower\s+(?:wall\s+)?tile|shower\s+walls?)\b[^.;\n]*\breplac(?:e|ing|ement)\b/i.test(
     text
@@ -839,6 +878,39 @@ export function showerTileWithFlooringChecklistItems(
       inputType: 'yes_no',
       label: 'Shower tile demo',
       helperText: 'Tear out the existing shower tile.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteNamesShowerRemovalPiece(notes, 'prefab_pan')) {
+    items.push({
+      id: 'shower_floor_demo',
+      inputType: 'yes_no',
+      label: 'Remove prefab pan',
+      helperText: 'The existing prefab shower pan comes out. Count is 1.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteNamesShowerRemovalPiece(notes, 'prefab_enclosure')) {
+    items.push({
+      id: 'shower_enclosure_demo',
+      inputType: 'yes_no',
+      label: 'Remove prefab enclosure',
+      helperText: 'The existing prefab enclosure comes out. Count is 1.',
+      category: 'demo',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteNamesShowerRemovalPiece(notes, 'shower_door')) {
+    items.push({
+      id: 'glass_door_demo',
+      inputType: 'yes_no',
+      label: 'Remove shower door',
+      helperText: 'The existing shower door comes out. Count is 1.',
       category: 'demo',
       state: 'included',
       noteBacked: true,
@@ -1218,6 +1290,21 @@ function noteNamesNewBathroomFloor(text: string): boolean {
   );
 }
 
+/** "Demo the enclosure" names that piece even when "prefab" is on the pan. */
+function notesNameEnclosureRemoval(text: string): boolean {
+  return (
+    removalNamedNear(text, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/) ||
+    removalNamedNear(text, /\b(?:enclosures?|surrounds?)\b/)
+  );
+}
+
+export function noteNamesShowerRemovalPiece(
+  notes: string | null | undefined,
+  piece: ShowerRemovalPiece
+): boolean {
+  return pieceDemoAlreadyNamed(bathroomAffirmativeNotes(notes), piece);
+}
+
 function pieceDemoAlreadyNamed(text: string, piece: ShowerRemovalPiece): boolean {
   switch (piece) {
     case 'tub':
@@ -1239,7 +1326,7 @@ function pieceDemoAlreadyNamed(text: string, piece: ShowerRemovalPiece): boolean
         )
       );
     case 'prefab_enclosure':
-      return removalNamedNear(text, /\bprefab\s+(?:shower\s+)?(?:enclosure|surround)\b/);
+      return notesNameEnclosureRemoval(text);
     case 'shower_door':
       return removalNamedNear(text, /\bshower\s+doors?\b/);
     case 'toilet':
@@ -1465,7 +1552,10 @@ export function measurementsForShowerRemovalChoice<
     const fromNotes = statedShowerWallSqft(notes, next.showerWallTileSqft);
     const current = Number(String(next.wallDemoSqft ?? '').replace(/,/g, ''));
     if (!(current > 0)) next.wallDemoSqft = fromNotes || (stated > 0 ? stated : null);
-  } else {
+  } else if (
+    !notesReplaceShowerTile(String(notes || '')) &&
+    !notesNameShowerTileTearOut(String(notes || ''))
+  ) {
     next.wallDemoSqft = null;
   }
   const quantities = {
@@ -1481,7 +1571,7 @@ export function measurementsForShowerRemovalChoice<
   delete quantities.shower_floor_demo__material;
   delete quantities.shower_floor_demo__labor;
   delete quantities.shower_floor_demo__allowance;
-  if (selected.has('prefab_pan') && !selected.has('tile_pan')) {
+  if (selected.has('prefab_pan')) {
     quantities.shower_floor_demo = {
       quantity: 1,
       unit: 'each',
@@ -1532,28 +1622,26 @@ export function applyShowerRemovalChoice<T extends { id?: string | null }>(
 ): T[] {
   if (!showerRemovalPrompt(notes)) return items;
   const selected = selectedRemovalPieces(choice, pieces);
-  const wanted = selected.map(piece => REMOVAL_LINES[piece]);
-  const wantedIds = new Set(wanted.map(line => line.id));
-  // A chip answer is not a sentence in the note. Only a removal the note
-  // already named keeps the "mentioned in notes" badge.
   const noteLineIds = new Set(bathroomScopeLines(notes).map(line => line.id));
-  const kept = items
-    .filter(item => {
-      const id = String(item.id || '');
-      if (!SHOWER_REMOVAL_LINE_IDS.has(id)) return true;
-      // A removal the note already named stays. The chip only adds pieces it asked about.
-      return wantedIds.has(id) || noteLineIds.has(id);
-    })
-    .map(item => {
-      const id = String(item.id || '');
-      if (!wantedIds.has(id) || noteLineIds.has(id)) return item;
-      if (!(item as { noteBacked?: boolean }).noteBacked) return item;
-      return { ...item, noteBacked: false };
-    });
-  for (const line of wanted) {
-    if (kept.some(item => item.id === line.id)) continue;
+  const assigned = selected.map(piece => {
+    const line = REMOVAL_LINES[piece];
+    const id =
+      piece === 'tile_pan' && selected.includes('prefab_pan')
+        ? `${line.id}__tile_pan`
+        : line.id;
+    return { line, id };
+  });
+  const assignedIds = new Set(assigned.map(row => row.id));
+  const kept = items.filter(item => {
+    const id = String(item.id || '');
+    if (id.endsWith('__tile_pan')) return false;
+    if (!SHOWER_REMOVAL_LINE_IDS.has(id)) return true;
+    if (assignedIds.has(id)) return false;
+    return noteLineIds.has(id);
+  });
+  for (const { line, id } of assigned) {
     kept.push({
-      id: line.id,
+      id,
       label: line.label,
       helperText: line.helperText,
       inputType: 'yes_no',

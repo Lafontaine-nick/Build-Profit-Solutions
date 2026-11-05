@@ -98,6 +98,12 @@ export type QuickMeasurementFieldKey =
   | 'bathroomUpdatesQty'
   | 'showerWallTileSqft'
   | 'showerFloorTileSqft'
+  | 'demoTubCount'
+  | 'demoPrefabPanCount'
+  | 'demoTilePanCount'
+  | 'demoTilePanSqft'
+  | 'demoPrefabEnclosureCount'
+  | 'demoShowerDoorCount'
   | 'wallDemoSqft'
   | 'wallPaintSqft'
   | 'ceilingPaintSqft'
@@ -412,6 +418,12 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'sqft',
     'interior'
   ),
+  demoTubCount: F('demoTubCount', 'Remove tub', '1', '', 'interior', undefined, 'Count from the removal you confirmed.'),
+  demoPrefabPanCount: F('demoPrefabPanCount', 'Remove prefab pan', '1', '', 'interior', undefined, 'Count from the removal you confirmed.'),
+  demoTilePanCount: F('demoTilePanCount', 'Remove tile pan', '1', '', 'interior', undefined, 'Count from the removal you confirmed.'),
+  demoTilePanSqft: F('demoTilePanSqft', 'Remove tile pan', 'Enter', 'sqft', 'interior', undefined, 'Existing tile shower pan area. The note did not state it.'),
+  demoPrefabEnclosureCount: F('demoPrefabEnclosureCount', 'Remove prefab enclosure', '1', '', 'interior', undefined, 'Count from the removal you confirmed.'),
+  demoShowerDoorCount: F('demoShowerDoorCount', 'Remove shower door', '1', '', 'interior', undefined, 'Count from the removal you confirmed.'),
   showerFloorTileSqft: F(
     'showerFloorTileSqft',
     'Shower floor',
@@ -5661,6 +5673,12 @@ export function emptyQuickMeasurementInput(): Record<
     bathroomUpdatesQty: '',
     showerWallTileSqft: '',
     showerFloorTileSqft: '',
+    demoTubCount: '',
+    demoPrefabPanCount: '',
+    demoTilePanCount: '',
+    demoTilePanSqft: '',
+    demoPrefabEnclosureCount: '',
+    demoShowerDoorCount: '',
     wallDemoSqft: '',
     wallPaintSqft: '',
     ceilingPaintSqft: '',

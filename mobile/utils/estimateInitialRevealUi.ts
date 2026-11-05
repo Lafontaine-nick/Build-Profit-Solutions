@@ -13,6 +13,7 @@ import {
   notesNameShowerTileWithFlooring,
   notesNameShowerTileTearOut,
   notesReplaceShowerTile,
+  noteNamesShowerRemovalPiece,
   showerRemovalItemIdForRevealName,
   showerTileWithFlooringAreas,
   shouldLimitBathroomChecklistToNotes,
@@ -5235,6 +5236,33 @@ function getInitialRevealScopeRows(
               id: 'demo',
               name: 'Shower tile demo',
               ...showerQty,
+            },
+          ]
+        : []),
+      ...(noteNamesShowerRemovalPiece(notes, 'prefab_pan')
+        ? [
+            {
+              id: 'shower_floor_demo',
+              name: 'Remove prefab pan',
+              quantityOverride: '1 each',
+            },
+          ]
+        : []),
+      ...(noteNamesShowerRemovalPiece(notes, 'prefab_enclosure')
+        ? [
+            {
+              id: 'shower_enclosure_demo',
+              name: 'Remove prefab enclosure',
+              quantityOverride: '1 each',
+            },
+          ]
+        : []),
+      ...(noteNamesShowerRemovalPiece(notes, 'shower_door')
+        ? [
+            {
+              id: 'glass_door_demo',
+              name: 'Remove shower door',
+              quantityOverride: '1 each',
             },
           ]
         : []),

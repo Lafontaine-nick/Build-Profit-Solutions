@@ -7454,6 +7454,9 @@ export function checklistDisplayHelper(
   ) {
     return item.helperText;
   }
+  if (item.id === 'demo' && item.label === 'Demo') {
+    return '';
+  }
   if (item.id === 'demo' && /wall demolition/i.test(String(item.label || ''))) {
     return (
       item.helperText ||
@@ -8509,7 +8512,42 @@ export function groupScopeChecklistItems(
   if (notesNameShowerTileWithFlooring(context.notes)) {
     const lines = showerTileWithFlooringChecklistItems(context.notes);
     const byId = new Map(items.map(item => [item.id, item]));
-    return lines.flatMap(entry => {
+    const demoOrder = [
+      'demo',
+      'tub_demo',
+      'shower_floor_demo',
+      'shower_floor_demo__tile_pan',
+      'shower_enclosure_demo',
+      'glass_door_demo',
+    ];
+    const demoItems = demoOrder.flatMap(id => {
+      const fromNote = lines.find(entry => entry.id === id);
+      const existing = byId.get(id);
+      if (existing?.state === 'excluded' || existing?.state === 'unsure') return [];
+      if (!fromNote && !existing) return [];
+      if (
+        !fromNote &&
+        !/(?:^|_)demo$|tub_demo|glass_door_demo|shower_enclosure_demo|shower_floor_demo/.test(id)
+      ) {
+        return [];
+      }
+      const item: ScopeChecklistItem = {
+        ...(existing || {
+          id,
+          inputType: 'yes_no',
+          category: fromNote?.category || 'demo',
+          state: 'included',
+        }),
+        id,
+        label: String(existing?.label || fromNote?.label || id),
+        helperText: String(existing?.helperText || fromNote?.helperText || ''),
+        state: 'included',
+        noteBacked: Boolean(fromNote),
+      };
+      return [item];
+    });
+    const otherGroups = lines.flatMap(entry => {
+      if (entry.id === 'demo' || entry.id === 'tub_demo') return [];
       const existing = byId.get(entry.id);
       if (existing?.state === 'excluded') return [];
       const item: ScopeChecklistItem = {
@@ -8527,6 +8565,11 @@ export function groupScopeChecklistItems(
       };
       return [{ title: entry.label, items: [item] }];
     });
+    const demoGroup =
+      demoItems.length > 1
+        ? [{ title: 'Demo', items: demoItems }]
+        : demoItems.map(item => ({ title: item.label, items: [item] }));
+    return [...demoGroup, ...otherGroups];
   }
   if (notesNameReceptaclesWithToilet(context.notes)) {
     const receptacles = items.filter(

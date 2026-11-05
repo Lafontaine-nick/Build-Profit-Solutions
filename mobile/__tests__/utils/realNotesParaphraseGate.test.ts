@@ -13,6 +13,7 @@ describe('paraphrase reader score', () => {
     });
     expect(readings.filter(row => row.passed).map(row => row.id)).toEqual([
       'shower_clean',
+      'shower_messy',
       'shower_with_tub',
       'shower_all_named',
       'kitchen_exclusion',
@@ -23,7 +24,6 @@ describe('paraphrase reader score', () => {
       'whole_house_names',
     ]);
     expect(readings.filter(row => !row.passed).map(row => row.id)).toEqual([
-      'shower_messy',
       'drywall_denial',
       'addition_no_roof',
     ]);

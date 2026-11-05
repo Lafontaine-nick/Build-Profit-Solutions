@@ -1376,7 +1376,12 @@ export function flattenConfirmScopeVisibleRows(
   ctx: ConfirmScopeVisibleRowsContext
 ): ScopeChecklistItem[] {
   const qmCtx = resolveConfirmScopeQmContext(ctx.measurements, ctx.templateKey, ctx.projectType);
-  const ordered = flattenChecklistDisplayOrder(displayItems, ctx.templateKey);
+  const ordered = flattenChecklistDisplayOrder(displayItems, ctx.templateKey, {
+    notes: String(
+      ctx.measurements.originalNotes || ctx.measurements.scopeNotes || ''
+    ),
+    projectType: ctx.projectType,
+  });
 
   return ordered.filter((item) => {
     // Step 2 hides QM-embedded cards in the scroll list; Step 3 must still list

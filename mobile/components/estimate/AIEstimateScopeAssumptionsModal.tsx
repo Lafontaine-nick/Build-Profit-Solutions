@@ -341,6 +341,7 @@ import {
   notesNameShowerTileTearOut,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
+  noteNamesShowerRemovalPiece,
   notesWithoutWetAreaFraming,
   shouldLimitBathroomChecklistToNotes,
 } from '@/utils/bathroomNoteScope';
@@ -2578,7 +2579,18 @@ function SuggestedBudgetSplitRows({
         {displayTotal}
       </Text>
 
-      {rateLine ? (
+      {rateLine && rateLine.includes('\n') ? (
+        <View style={{ marginTop: 6, gap: 2 }}>
+          {rateLine.split('\n').map(line => (
+            <Text
+              key={line}
+              style={{ color: bright, fontSize: 13, fontWeight: '600', lineHeight: 18 }}
+            >
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : rateLine ? (
         <Text style={[styles.suggestedCardRateText, { color: bright }]}>
           {rateLine}
         </Text>
@@ -12151,6 +12163,8 @@ function YesNoRow({
             item.id === 'air_sealing' ||
             (item.id === 'demo' &&
               String(templateKey || '').toLowerCase() === 'room_remodel') ||
+            item.id === 'shower_floor_demo' ||
+            String(item.id).startsWith('shower_floor_demo__') ||
             (item.id === 'insulation' &&
               Array.isArray(measurementsInput.insulationAssemblies) &&
               measurementsInput.insulationAssemblies.length > 0)
@@ -16783,7 +16797,40 @@ function CollapsibleQuickMeasurements({
       const showDemo =
         notesReplaceShowerTile(notesTextForScopeFields) ||
         notesNameShowerTileTearOut(notesTextForScopeFields);
+      const selectedPieces = new Set(measurements.showerRemovalPieces || []);
+      const removalRows = (
+        [
+          ['tub', 'demoTubCount', 'Remove tub'],
+          ['prefab_pan', 'demoPrefabPanCount', 'Remove prefab pan'],
+          ['tile_pan', 'demoTilePanSqft', 'Remove tile pan'],
+          ['prefab_enclosure', 'demoPrefabEnclosureCount', 'Remove prefab enclosure'],
+          ['shower_door', 'demoShowerDoorCount', 'Remove shower door'],
+        ] as const
+      ).flatMap(([piece, key, label]) => {
+        if (
+          !selectedPieces.has(piece) &&
+          !noteNamesShowerRemovalPiece(notesTextForScopeFields, piece)
+        ) {
+          return [];
+        }
+        const field = quickMeasurementFieldDef(key);
+        const tilePan = piece === 'tile_pan';
+        return field
+          ? [[
+              {
+                ...field,
+                label,
+                placeholder: tilePan ? 'Enter' : '1',
+                unit: tilePan ? 'sqft' : 'each',
+                helperText: tilePan
+                  ? 'Existing tile shower pan area. The note did not state it.'
+                  : 'Count from the removal you confirmed.',
+              },
+            ]]
+          : [];
+      });
       baseRows = [
+        ...removalRows,
         ...(showDemo && demo
           ? [[
               {
@@ -17314,6 +17361,13 @@ function CollapsibleQuickMeasurements({
               field.key === 'wallDemoSqft' &&
               (notesReplaceShowerTile(noteText) ||
                 notesNameShowerTileTearOut(noteText));
+            const answeredRemovalCount = [
+              'demoTubCount',
+              'demoPrefabPanCount',
+              'demoTilePanSqft',
+              'demoPrefabEnclosureCount',
+              'demoShowerDoorCount',
+            ].includes(field.key);
             if (dedicatedStuccoScope && (paintField || framingField)) {
               return false;
             }
@@ -17323,6 +17377,7 @@ function CollapsibleQuickMeasurements({
               (notesRequirePaintTakeoff && paintField) ||
               notesMentionDemolitionField ||
               showerTileDemoField ||
+              answeredRemovalCount ||
               notesMentionFlooringField ||
               mixedScopeFlooringField ||
               notesMentionFramingField
@@ -26231,6 +26286,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.showerFloorTileSqft,
       measurements.exteriorWallInsulationSqft,
       measurements.showerRemovalChoice,
+      measurements.showerRemovalPieces,
       measurements.scopeFoundClarificationId,
       measurements.scopeFoundChoice,
       measurements.scopeFoundPieces,

@@ -10,6 +10,7 @@ import {
   notesNameBathroomFloorRemoval,
   notesNameShowerTileWithFlooring,
   notesReplaceShowerTile,
+  noteNamesShowerRemovalPiece,
   notesWaterproofPanNotWalls,
   readShowerRemovalPieces,
   showerTileWithFlooringAreas,
@@ -24,9 +25,13 @@ import {
   scopeFoundRemovalPricingSpec,
 } from '@/utils/scopeFoundClarification';
 import {
+  PREFAB_ENCLOSURE_DEMO_EACH,
+  PREFAB_PAN_DEMO_EACH,
+  SHOWER_DOOR_DEMO_EACH,
   TILE_DEMO_LABOR_RATE,
   TILE_DEMO_MATERIAL_RATE,
   TILE_PAN_DEMO_INSTALLED_RATE,
+  TUB_DEMO_EACH,
 } from '@/utils/bathroomWetAreaDemoPricing';
 import {
   kitchenNoteInstallsNewCabinets,
@@ -18364,6 +18369,140 @@ export function resolveScopeItemSuggestedPricing(
         };
       }
     }
+    const confirmedRemovalEach: Record<
+      string,
+      { material: number; labor: number; label: string; countKey: string }
+    > = {
+      tub_demo: {
+        material: TUB_DEMO_EACH.material,
+        labor: TUB_DEMO_EACH.labor,
+        label: 'existing tub removal',
+        countKey: 'demoTubCount',
+      },
+      shower_enclosure_demo: {
+        material: PREFAB_ENCLOSURE_DEMO_EACH.material,
+        labor: PREFAB_ENCLOSURE_DEMO_EACH.labor,
+        label: 'existing prefab enclosure removal',
+        countKey: 'demoPrefabEnclosureCount',
+      },
+      glass_door_demo: {
+        material: SHOWER_DOOR_DEMO_EACH.material,
+        labor: SHOWER_DOOR_DEMO_EACH.labor,
+        label: 'existing shower door removal',
+        countKey: 'demoShowerDoorCount',
+      },
+    };
+    const eachRemoval = confirmedRemovalEach[itemId];
+    if (eachRemoval) {
+      const count = parseScopeMeasurementInput(
+        String(
+          (measurementsInput as Record<string, unknown>)[eachRemoval.countKey] ??
+            ''
+        )
+      );
+      if (count && count > 0) {
+        const material = round2(count * eachRemoval.material);
+        const labor = round2(count * eachRemoval.labor);
+        const each = round2(eachRemoval.material + eachRemoval.labor);
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: `Suggested budget split · National Average · ${eachRemoval.label}`,
+            helper: `${count.toLocaleString()} each × $${each.toLocaleString()}`,
+            mode: 'suggested_price',
+            basis: { quantity: count, unit: 'each' },
+            displayUnitRateLabel: `${count.toLocaleString()} each × $${each.toLocaleString()}`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: itemId,
+          },
+          comparison: null,
+        };
+      }
+    }
+    if (
+      itemId === 'shower_floor_demo' ||
+      itemId === 'shower_floor_demo__tile_pan'
+    ) {
+      const pieces = readShowerRemovalPieces(
+        (measurementsInput as { showerRemovalPieces?: unknown }).showerRemovalPieces
+      );
+      const tilePanArea =
+        itemId === 'shower_floor_demo__tile_pan' ||
+        (pieces.includes('tile_pan') && !pieces.includes('prefab_pan'));
+      if (
+        !tilePanArea &&
+        (pieces.includes('prefab_pan') ||
+          noteNamesShowerRemovalPiece(notesText, 'prefab_pan'))
+      ) {
+        const count =
+          parseScopeMeasurementInput(
+            String(
+              (measurementsInput as { demoPrefabPanCount?: unknown })
+                .demoPrefabPanCount ?? ''
+            )
+          ) || 1;
+        const material = round2(count * PREFAB_PAN_DEMO_EACH.material);
+        const labor = round2(count * PREFAB_PAN_DEMO_EACH.labor);
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel:
+              'Suggested budget split · National Average · existing prefab pan removal',
+            helper: `${count.toLocaleString()} each × $${PREFAB_PAN_DEMO_EACH.total.toLocaleString()}`,
+            mode: 'suggested_price',
+            basis: { quantity: count, unit: 'each' },
+            displayUnitRateLabel: `${count.toLocaleString()} each × $${PREFAB_PAN_DEMO_EACH.total.toLocaleString()}`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'shower_floor_demo',
+          },
+          comparison: null,
+        };
+      }
+      const panSqft = parseScopeMeasurementInput(
+        String(
+          (measurementsInput as { demoTilePanSqft?: unknown }).demoTilePanSqft ??
+            ''
+        )
+      );
+      if (panSqft && panSqft > 0) {
+        const materialRate = TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE;
+        const material = round2(panSqft * materialRate);
+        const labor = round2(panSqft * TILE_DEMO_LABOR_RATE);
+        return {
+          fill: {
+            material,
+            labor,
+            total: round2(material + labor),
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel:
+              'Suggested budget split · National Average · mud pan tear-out',
+            helper: `${panSqft.toLocaleString()} sqft mud pan × $${TILE_PAN_DEMO_INSTALLED_RATE.toFixed(2)}/SF`,
+            mode: 'suggested_price',
+            basis: { quantity: panSqft, unit: 'sqft' },
+            displayUnitRateLabel: `${panSqft.toLocaleString()} sqft × $${TILE_PAN_DEMO_INSTALLED_RATE.toFixed(2)}/sqft`,
+            benchmarkAction: 'price_ready',
+            productionStatus: 'review_required',
+            benchmarkLevel: 'component',
+            benchmarkScopeKey: 'shower_floor_demo',
+          },
+          comparison: null,
+        };
+      }
+      return empty;
+    }
   }
   if (itemId === 'flooring' || itemId === 'wall_framing') {
     const mixedPrices = wallAreaFramingWithFlooringPrices(notesText, {
@@ -30961,6 +31100,7 @@ export function scopeMeasurementsToPayload(
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
     patchRepairSqft: parseScopeMeasurementInput(sanitized.patchRepairSqft),
     wallDemoSqft: parseScopeMeasurementInput(sanitized.wallDemoSqft),
+    demoTilePanSqft: parseScopeMeasurementInput(sanitized.demoTilePanSqft),
     framedAreaSqft: parseScopeMeasurementInput(sanitized.framedAreaSqft),
     wallFramingSqft: parseScopeMeasurementInput(sanitized.wallFramingSqft),
     wallFramingLf: parseScopeMeasurementInput(sanitized.wallFramingLf),
@@ -31960,6 +32100,7 @@ export function scopeMeasurementsInputFromPayload(
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallDemoSqft: measurementFieldString(payload.wallDemoSqft),
+    demoTilePanSqft: measurementFieldString(payload.demoTilePanSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
     ceilingPaintSqft: measurementFieldString(payload.ceilingPaintSqft),
     paintAreaSqft: measurementFieldString(payload.paintAreaSqft),
@@ -34242,6 +34383,7 @@ export function initialScopeMeasurementInputExtended(
       );
     })(),
     wallDemoSqft: pick('wallDemoSqft'),
+    demoTilePanSqft: pick('demoTilePanSqft'),
     wallFramingSqft: pick('wallFramingSqft'),
     sheathingSqft: pick('sheathingSqft'),
     framingOpeningCount: pick('framingOpeningCount'),

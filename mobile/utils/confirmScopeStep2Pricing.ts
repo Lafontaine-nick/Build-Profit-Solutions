@@ -395,6 +395,14 @@ export function step2TierNeedsInlineTakeoffEntry(
     // SF is entered in Demo / tear-out Quick Measurements — no duplicate on-card takeoff box.
     return false;
   }
+  if (
+    itemId === 'shower_floor_demo' ||
+    itemId.startsWith('shower_floor_demo__')
+  ) {
+    // Tile pan area is entered in Quick Measurements. The card must not add a
+    // second area box that stays at 0 while the suggestion uses that sqft.
+    return false;
+  }
   if (itemId === 'framing' && template === 'ground_up') {
     // Covered framed SF (living + garage) is a planning assumption on the Suggest card.
     return false;
