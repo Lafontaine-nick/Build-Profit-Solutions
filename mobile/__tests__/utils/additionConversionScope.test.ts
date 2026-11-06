@@ -133,6 +133,20 @@ describe('addition / conversion scope defaults', () => {
     );
   });
 
+  it('keeps a denied-roof bedroom addition on the shell card', () => {
+    const notes =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    const next = hydrateScopeChecklistFromNotes(
+      additionChecklistItems(),
+      'addition',
+      notes,
+      undefined,
+      'room_addition'
+    );
+    expect(next.map(item => item.id)).toEqual(['framing']);
+    expect(next[0]?.label).toBe('Framing / shell');
+  });
+
   it('keeps a framing-only addition on the shell card', () => {
     const notes = 'Frame a 600 sqft addition';
     const next = hydrateScopeChecklistFromNotes(

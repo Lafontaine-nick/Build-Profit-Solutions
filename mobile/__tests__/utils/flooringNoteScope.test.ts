@@ -1,9 +1,11 @@
 import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import { buildCanonicalScope } from '@/utils/canonicalScope';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 import {
   groupScopeChecklistItems,
   hydrateScopeChecklistFromNotes,
+  scopeChecklistSummaryCounts,
   syncInteriorPaintScopeItems,
 } from '@/utils/estimateScopeChecklistUi';
 import { scopeExtractionClarificationQuestions } from '@/utils/estimateAiDraft';
@@ -13,7 +15,10 @@ import {
   splitFlooringDemoIntoStyleCards,
   syncFlooringQmScopeItems,
 } from '@/utils/qmScopePanels/flooringRemodel';
-import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
+import {
+  applyStep2NoteScopeFilters,
+  buildConfirmScopeDisplayItems,
+} from '@/utils/scopePackagesForReview';
 import { flooringQmPanel } from '@/utils/qmScopePanels/flooringRemodel';
 import {
   initialScopeMeasurementInputExtended,
@@ -36,11 +41,11 @@ import {
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
+  countScopePricingReadiness,
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
-
 const NOTES =
   'Remove the existing floor and install 700 sqft of LVP, including floor prep.';
 
@@ -416,6 +421,98 @@ describe('dedicated flooring note', () => {
       labor: 700,
       total: 875,
     });
+  });
+
+  it('replaces carpet with LVP as a carpet demo and an LVP install', () => {
+    const note = 'Replace 900 sqft of carpet with LVP.';
+    expect(notesRequestFlooringDemo(note)).toBe(true);
+    expect(dedicatedFlooringRemovedTypes(note)).toEqual(['carpet']);
+    expect(dedicatedFlooringProducts(note).map(product => product.id)).toEqual([
+      'flooring_lvp',
+    ]);
+    const seed = dedicatedFlooringMeasurementSeed(note);
+    expect(seed.flooringProductScope).toEqual(['lvp']);
+    expect(seed.flooringExistingTypes).toEqual(['carpet']);
+    expect(seed.flooringLvpSqft).toBe(900);
+    expect(seed.floorDemoSqft).toBe(900);
+    expect(seed.flooringCarpetSqft).toBeUndefined();
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'floor_demo',
+      'flooring_lvp',
+    ]);
+    expect(repaired.scopeMeasurements?.flooringProductScope).toEqual(['lvp']);
+    expect(repaired.scopeMeasurements?.flooringExistingTypes).toEqual(['carpet']);
+    expect(repaired.scopeMeasurements?.flooringCarpetSqft).toBeUndefined();
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(
+        row => `${row.name}${row.quantity ? ` · ${row.quantity}` : ''}`
+      )
+    ).toEqual(['Flooring demo / removal · 900 sqft', 'LVP · 900 sqft']);
+    const confirmItems = applyStep2NoteScopeFilters(
+      repaired.scopeChecklist?.items || [],
+      repaired,
+      (repaired.scopeMeasurements || {}) as Record<string, unknown>,
+      'flooring'
+    );
+    expect(confirmItems.map(item => item.id)).toEqual([
+      'floor_demo_style_carpet',
+      'flooring_lvp',
+    ]);
+    expect(confirmItems[0]?.label).toBe('Remove carpet');
+    const grouped = groupScopeChecklistItems(
+      [
+        {
+          id: 'floor_demo',
+          label: 'floor_demo',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'floor_demo_style_carpet',
+          label: 'Floor Demo Style Carpet',
+          helperText: 'Scope item found in notes.',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'flooring_lvp',
+          label: 'LVP',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      'flooring',
+      {
+        notes: note,
+        retainFlooringItemIds: [
+          'floor_demo',
+          'floor_demo_style_carpet',
+          'flooring_lvp',
+        ],
+      }
+    );
+    expect(
+      grouped.map(group => ({
+        title: group.title,
+        ids: group.items.map(item => item.id),
+        labels: group.items.map(item => item.label),
+      }))
+    ).toEqual([
+      {
+        title: 'Demo',
+        ids: ['floor_demo_style_carpet'],
+        labels: ['Remove carpet'],
+      },
+      { title: 'LVP', ids: ['flooring_lvp'], labels: ['LVP'] },
+    ]);
   });
 
   it('prices an LVP install when the note only excludes framing', () => {
@@ -918,6 +1015,90 @@ describe('dedicated flooring note', () => {
     expect(dedicatedFlooringProducts('Laminate').map(product => product.id)).toEqual([
       'flooring_laminate',
     ]);
+  });
+
+  it('installs LVP when the homeowner is removing the carpet', () => {
+    const note =
+      'Install 1,200 sqft of LVP. Homeowner is removing the carpet.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: note,
+        scopeChecklist: { templateKey: 'flooring', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      note
+    );
+    const items = applyStep2NoteScopeFilters(
+      repaired.scopeChecklist?.items || [],
+      repaired,
+      (repaired.scopeMeasurements || {}) as Record<string, unknown>,
+      'flooring'
+    );
+    const broad = [
+      'floor_demo',
+      'flooring',
+      'flooring_lvp',
+      'flooring_carpet',
+      'floor_prep',
+      'underlayment',
+      'transitions',
+      'trim',
+    ].map(id => ({
+      id,
+      label: id,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+    }));
+    const hydrated = hydrateScopeChecklistFromNotes(
+      broad,
+      'flooring',
+      note,
+      repaired.scopeMeasurements as never,
+      'flooring',
+      buildCanonicalScope({ notes: note, checklistItems: broad })
+    );
+    const scoped = applyStep2NoteScopeFilters(
+      hydrated,
+      {
+        ...repaired,
+        canonicalScope: buildCanonicalScope({
+          notes: note,
+          checklistItems: hydrated,
+        }),
+      },
+      (repaired.scopeMeasurements || {}) as Record<string, unknown>,
+      'flooring'
+    );
+    const summary = scopeChecklistSummaryCounts(
+      scoped,
+      countScopePricingReadiness(
+        scoped,
+        normalizeScopeMeasurements(repaired.scopeMeasurements),
+        'flooring',
+        note
+      ).needsMeasurement
+    );
+    expect({
+      included: scoped
+        .filter(item => item.state === 'included')
+        .map(item => item.id),
+      summary,
+    }).toEqual({
+      included: ['flooring_lvp'],
+      summary: {
+        included: 1,
+        unsure: 0,
+        excluded: 0,
+        needsMeasurement: 0,
+      },
+    });
+    expect(items.map(item => item.id)).toEqual(['flooring_lvp']);
+    expect(
+      groupScopeChecklistItems(items, 'flooring', { notes: note }).map(group => ({
+        title: group.title,
+        ids: group.items.map(item => item.id),
+      }))
+    ).toEqual([{ title: 'LVP', ids: ['flooring_lvp'] }]);
   });
 
   it('drops carpet demo when the homeowner is removing the carpet', () => {

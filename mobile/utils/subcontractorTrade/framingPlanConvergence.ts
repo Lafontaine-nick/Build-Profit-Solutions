@@ -133,12 +133,22 @@ export const FRAMING_PLAN_QUICK_MEASUREMENT_KEYS = [
   'framingOpeningCount',
 ] as const;
 
-/** Drop "do not / don't / never …" sentences before scope matching. */
+/** Drop denied sentences before scope matching. "No roofing in this bid." is not roofing work. */
 export function notesWithoutDeniedSentences(notes: string): string {
-  return String(notes || '').replace(
-    /\b(?:do not|don't|dont|never)\b[^.]*/gi,
-    ' '
-  );
+  const withoutSentences = String(notes || '')
+    .split(/(?<=[.!?\n])\s+/)
+    .filter(sentence => {
+      const text = sentence.trim();
+      if (!text) return false;
+      return !/^(?:(?:and|but|also)\s+)?(?:no|not|without|do not|don't|dont|never)\b/i.test(
+        text
+      );
+    })
+    .join(' ');
+  return withoutSentences
+    .replace(/\b(?:do not|don't|dont|never)\b[^.]*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -608,7 +618,7 @@ export function parseFramingMeasurementsFromNotes(
       /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
     ) ??
       count(
-        /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:room\s+)?addition\b/i
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\.?\s*ft|sqft|square\s*(?:feet|foot))\s+(?:(?:bed|bath|bonus|guest)\s*)?(?:room|home)?\s*addition\b/i
       ) ??
       count(
         /(?:framed|framing)\s*(?:area|shell)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i

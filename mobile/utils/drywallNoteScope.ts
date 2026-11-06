@@ -8,9 +8,44 @@
 
 import { notesNameAtticInsulationWithDrywallHang } from '@/utils/insulationNoteScope';
 import { noteUsesSeparateJobReader } from '@/utils/noteClauseReader';
+import { noteMentionIsOnlyNegated } from '@/utils/scopeItemNoteHints';
 
-const OTHER_TRADE_RE =
-  /\b(?:kitchen|bath(?:room)?|shower|vanity|toilet|flooring|lvp|laminate|vinyl|carpet|cabinets?|countertops?|plumbing|electrical|hvac|roof(?:ing)?|windows?|doors?|insulation|tile|siding|concrete|framing|paint(?:ing)?)\b/i;
+const COMPETING_DRYWALL_TRADE_RES = [
+  /\bkitchen\b/i,
+  /\bbath(?:room)?\b/i,
+  /\bshower\b/i,
+  /\bvanity\b/i,
+  /\btoilet\b/i,
+  /\bflooring\b/i,
+  /\blvp\b/i,
+  /\blaminate\b/i,
+  /\bvinyl\b/i,
+  /\bcarpet\b/i,
+  /\bcabinets?\b/i,
+  /\bcountertops?\b/i,
+  /\bplumbing\b/i,
+  /\belectrical\b/i,
+  /\bhvac\b/i,
+  /\broof(?:ing)?\b/i,
+  /\bwindows?\b/i,
+  /\bdoors?\b/i,
+  /\binsulation\b/i,
+  /\btile\b/i,
+  /\bsiding\b/i,
+  /\bconcrete\b/i,
+  /\bframing\b/i,
+  /\bpaint(?:ing)?\b/i,
+];
+
+/** A denied trade ("No new insulation", "Don't paint") is not other work. */
+function notesNameCompetingDrywallTrade(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return COMPETING_DRYWALL_TRADE_RES.some(
+    pattern => pattern.test(text) && !noteMentionIsOnlyNegated(text, pattern)
+  );
+}
 
 export function notesDescribeDedicatedDrywallJob(
   notes: string | null | undefined
@@ -20,7 +55,7 @@ export function notesDescribeDedicatedDrywallJob(
   const namesDrywall = /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
   const namesFinishWork = /\b(?:tape|mud|texture)\b/i.test(text);
   if (!namesDrywall && !namesFinishWork) return false;
-  return !OTHER_TRADE_RE.test(text);
+  return !notesNameCompetingDrywallTrade(text);
 }
 
 const FLOORING_BESIDE_DRYWALL_RE =
@@ -162,7 +197,7 @@ export function notesDescribeSheetrockFinishJob(
   if (notesDescribeDedicatedDrywallJob(text)) return false;
   if (notesDescribeDedicatedDrywallPatchJob(text)) return false;
   if (notesDescribeNoteRatedDrywallJob(text)) return false;
-  if (OTHER_TRADE_RE.test(text)) return false;
+  if (notesNameCompetingDrywallTrade(text)) return false;
   if (/\b(?:patch(?:ing|es)?|repair)\b/i.test(text)) return false;
   if (!/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) return false;
   return /\b(?:hang|tape|mud|texture)\b/i.test(text);
@@ -179,7 +214,7 @@ export function notesDescribeDedicatedDrywallPatchJob(
   if (notesDescribeDedicatedDrywallJob(text)) return false;
   if (!/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) return false;
   if (!/\b(?:patch(?:ing|es)?|repair)\b/i.test(text)) return false;
-  return !OTHER_TRADE_RE.test(text);
+  return !notesNameCompetingDrywallTrade(text);
 }
 
 /**
@@ -195,7 +230,7 @@ export function notesDescribeAdditionDrywallJob(
   if (!/\b(?:drywall|sheetrock|gypsum)\b/i.test(text)) return false;
   if (!/\baddition\b/i.test(text)) return false;
   if (/\b(?:patch(?:ing|es)?|repair)\b/i.test(text)) return false;
-  return !OTHER_TRADE_RE.test(text);
+  return !notesNameCompetingDrywallTrade(text);
 }
 
 /** Hang-and-finish notes and patch-only notes both use the drywall checklist. */
@@ -219,7 +254,7 @@ export function notesDescribeNoteRatedDrywallJob(
   const text = String(notes || '');
   if (notesDescribeDedicatedDrywallJob(text)) return false;
   if (notesDescribeDedicatedDrywallPatchJob(text)) return false;
-  if (OTHER_TRADE_RE.test(text)) return false;
+  if (notesNameCompetingDrywallTrade(text)) return false;
   const sentences = text.split(/(?<!\d)\.\s+/);
   const priced = (sentence: string) => /\$\s*\d/.test(sentence);
   const hangRated = sentences.some(
@@ -444,6 +479,66 @@ export function dedicatedDrywallConfirmScopeItems(
     });
   }
   return items;
+}
+
+type DrywallCardIdentity = {
+  id?: string | null;
+  checklistItemId?: string | null;
+  costCode?: string | null;
+  name?: string | null;
+  label?: string | null;
+};
+
+function drywallCardId(item: DrywallCardIdentity): string {
+  return String(item.id || item.checklistItemId || item.costCode || '');
+}
+
+const DEDICATED_DRYWALL_CARD_ORDER = [
+  'drywall_wall_demo',
+  'drywall_ceiling_demo',
+  'drywall',
+  'hang',
+  'finish_tape',
+  'patch_repair',
+];
+
+/** Wall and ceiling removal are the demo cards. A combined drywall demo line is a second copy. */
+export function dropGenericDrywallDemoBesideSurfaceCards<
+  T extends DrywallCardIdentity,
+>(items: T[]): T[] {
+  const hasSurface = items.some(item => {
+    const id = drywallCardId(item);
+    return id === 'drywall_wall_demo' || id === 'drywall_ceiling_demo';
+  });
+  if (!hasSurface) return items;
+  return items.filter(item => {
+    const id = drywallCardId(item);
+    const name = String(item.name || item.label || '').trim();
+    if (id === 'demo' || id === 'demo_removal' || id === 'drywall_demo') return false;
+    return !/^drywall demo\s*\/\s*removal$/i.test(name);
+  });
+}
+
+/** Walls, then ceilings, then hang. A combined demo line is already gone. */
+export function orderDedicatedDrywallCards<T extends DrywallCardIdentity>(
+  items: T[]
+): T[] {
+  const ranked = items.filter(item =>
+    DEDICATED_DRYWALL_CARD_ORDER.includes(drywallCardId(item))
+  );
+  if (ranked.length < 2) return items;
+  const sorted = [...ranked].sort(
+    (a, b) =>
+      DEDICATED_DRYWALL_CARD_ORDER.indexOf(drywallCardId(a)) -
+      DEDICATED_DRYWALL_CARD_ORDER.indexOf(drywallCardId(b))
+  );
+  let cursor = 0;
+  return items.map(item => {
+    if (!DEDICATED_DRYWALL_CARD_ORDER.includes(drywallCardId(item))) return item;
+    const next = sorted[cursor];
+    cursor += 1;
+    return next;
+  });
 }
 
 export function noteRatedDrywallConfirmScopeItems(

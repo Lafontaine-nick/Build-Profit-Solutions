@@ -19,12 +19,12 @@ describe('paraphrase reader score', () => {
       'kitchen_exclusion',
       'carpet_replace',
       'owner_removes_carpet',
+      'drywall_denial',
       'garage_no_hvac',
       'stucco_replace',
       'whole_house_names',
     ]);
     expect(readings.filter(row => !row.passed).map(row => row.id)).toEqual([
-      'drywall_denial',
       'addition_no_roof',
     ]);
   });

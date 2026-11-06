@@ -34,6 +34,10 @@ import {
 import { notesDescribeGroundUpHome } from '@/utils/scopeItemNoteHints';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import { flooringDemoStyleFromItemId } from '@/utils/qmScopePanels/flooringRemodel';
+import {
+  notesDescribeSheetrockFinishJob,
+  notesUseDedicatedDrywallScope,
+} from '@/utils/drywallNoteScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
 export type { BudgetSplitSource };
@@ -510,6 +514,19 @@ export function formatScopeQuantity(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       ''
     : '';
+  if (
+    draft &&
+    (previewRuleKey === 'drywall_wall_demo' ||
+      previewRuleKey === 'drywall_ceiling_demo')
+  ) {
+    const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+    const raw =
+      previewRuleKey === 'drywall_ceiling_demo'
+        ? measurements.drywallCeilingSqft
+        : measurements.wallDemoSqft;
+    const surfaceSqft = Number(String(raw ?? '').replace(/,/g, ''));
+    if (surfaceSqft > 0) return `${surfaceSqft.toLocaleString()} sqft`;
+  }
   const deckQuantity = draft
     ? deckRemovalReviewQuantity(draft, previewRuleKey)
     : null;
@@ -912,7 +929,11 @@ export function getCompactProjectSummary(draft: EstimateAiDraft): string {
     }
     return text;
   };
-  if (draft.projectTitle?.trim()) parts.push(formatLabel(draft.projectTitle));
+  const dedicatedDrywall =
+    notesUseDedicatedDrywallScope(draft.originalNotes) ||
+    notesDescribeSheetrockFinishJob(draft.originalNotes);
+  if (dedicatedDrywall) parts.push('Drywall');
+  else if (draft.projectTitle?.trim()) parts.push(formatLabel(draft.projectTitle));
   else if (draft.projectType && draft.projectType !== 'other') {
     parts.push(formatLabel(draft.projectType));
   }

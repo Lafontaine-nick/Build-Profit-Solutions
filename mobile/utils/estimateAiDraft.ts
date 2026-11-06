@@ -3177,7 +3177,6 @@ function repairDraftRatePricingFromNotesUnfrozen(
     };
   }
   if (notesDescribeNoteRatedDrywallJob(text)) {
-    const title = String(repairedDraft.projectTitle || '').trim();
     const measurements = {
       ...(repairedDraft.scopeMeasurements || {}),
     } as ScopeMeasurements;
@@ -3187,7 +3186,7 @@ function repairDraftRatePricingFromNotesUnfrozen(
     return {
       ...repairedDraft,
       projectType: 'drywall',
-      projectTitle: /drywall/i.test(title) ? title : 'Drywall',
+      projectTitle: 'Drywall',
       estimateTier: 'room_remodel',
       scopeMode: 'dedicated',
       requiresScopeConfirmation: true,
@@ -3221,7 +3220,6 @@ function repairDraftRatePricingFromNotesUnfrozen(
     notesUseDedicatedDrywallScope(text) ||
     notesDescribeSheetrockFinishJob(text)
   ) {
-    const title = String(repairedDraft.projectTitle || '').trim();
     const measurements = {
       ...(repairedDraft.scopeMeasurements || {}),
     } as ScopeMeasurements;
@@ -3270,7 +3268,7 @@ function repairDraftRatePricingFromNotesUnfrozen(
     return {
       ...repairedDraft,
       projectType: 'drywall',
-      projectTitle: /drywall/i.test(title) ? title : 'Drywall',
+      projectTitle: 'Drywall',
       estimateTier: 'room_remodel',
       scopeMode: 'dedicated',
       requiresScopeConfirmation: true,
@@ -8365,12 +8363,20 @@ function applySelectedPricingToScopePackage(
   if (!selected) {
     return stripUnconfirmedAutoPackagePricing(pkg, draft, withIdentity, basis);
   }
-  const displayBasis = quantityBasisForAppliedPackage(
-    draft,
-    pkg.name,
-    ruleKey,
-    basis
-  );
+  const surfaceDemoSqft =
+    ruleKey === 'drywall_ceiling_demo' || ruleKey === 'drywall_wall_demo'
+      ? Number(
+          String(
+            (ruleKey === 'drywall_ceiling_demo'
+              ? draft.scopeMeasurements?.drywallCeilingSqft
+              : draft.scopeMeasurements?.wallDemoSqft) ?? ''
+          ).replace(/,/g, '')
+        )
+      : null;
+  const displayBasis =
+    surfaceDemoSqft != null && surfaceDemoSqft > 0
+      ? { quantity: surfaceDemoSqft, unit: 'sqft' }
+      : quantityBasisForAppliedPackage(draft, pkg.name, ruleKey, basis);
   if (shouldPreserveUserPackagePrice(pkg, selected)) {
     const preserved = Number(pkg.price) || selected.total;
     return {

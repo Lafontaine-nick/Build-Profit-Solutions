@@ -97,18 +97,21 @@ export function splitFlooringDemoIntoStyleCards<
     if (removed.has(id)) continue;
     const existing = items.find(item => item.id === id);
     if (existing?.state === 'excluded') continue;
+    const label = flooringDemoStyleLabel(type);
+    const helperText =
+      'Remove this existing flooring. Protection, haul-off, and disposal are included. Floor prep is separate.';
     styleCards.push(
-      (existing as T) ||
-        ({
-          id,
-          label: flooringDemoStyleLabel(type),
-          helperText:
-            'Remove this existing flooring. Protection, haul-off, and disposal are included. Floor prep is separate.',
-          inputType: 'yes_no',
-          state: 'included',
-          category: 'demo',
-          noteBacked: false,
-        } as unknown as T)
+      existing
+        ? ({ ...existing, label, helperText } as T)
+        : ({
+            id,
+            label,
+            helperText,
+            inputType: 'yes_no',
+            state: 'included',
+            category: 'demo',
+            noteBacked: false,
+          } as unknown as T)
     );
   }
   const rest = withoutCombined.filter(

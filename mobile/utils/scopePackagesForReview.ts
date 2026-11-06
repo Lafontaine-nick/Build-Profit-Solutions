@@ -38,7 +38,11 @@ import {
   notesNameKitchenRemodelPanel,
   notesOpeningMentionIsKeepOnly,
 } from '@/utils/wholeHomeRemodelNote';
-import { notesDescribeDedicatedDrywallJob } from '@/utils/drywallNoteScope';
+import {
+  dropGenericDrywallDemoBesideSurfaceCards,
+  notesDescribeDedicatedDrywallJob,
+  orderDedicatedDrywallCards,
+} from '@/utils/drywallNoteScope';
 import { applyDeckInstallMaterialLabel } from '@/utils/deckNoteScope';
 import { isDrywallCompletePackageScope } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
@@ -94,6 +98,7 @@ import {
   measuredKitchenBathConfirmItems,
 } from '@/utils/kitchenNoteScope';
 import {
+  dropCombinedFloorDemoWhenStyled,
   filterDedicatedFlooringConfirmItems,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
@@ -1005,21 +1010,36 @@ export function applyStep2NoteScopeFilters(
   const existingTypes = Array.isArray(measurements.flooringExistingTypes)
     ? measurements.flooringExistingTypes.map(type => String(type))
     : [];
-  return applyCanonicalScopeToChecklistItems(
-    applyDeckInstallMaterialLabel(
-      splitRoofTearOffCards(
-        splitFlooringDemoIntoStyleCards(
-          clarified,
-          existingTypes,
-          Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+  const flooringKeepIds = retainedFlooringConfirmItemIds({
+    ...measurements,
+    scopeNotes: notes,
+    originalNotes: notes,
+  });
+  return orderDedicatedDrywallCards(
+    dropGenericDrywallDemoBesideSurfaceCards(
+    filterDedicatedFlooringConfirmItems(
+    dropCombinedFloorDemoWhenStyled(
+      applyCanonicalScopeToChecklistItems(
+        applyDeckInstallMaterialLabel(
+          splitRoofTearOffCards(
+            splitFlooringDemoIntoStyleCards(
+              clarified,
+              existingTypes,
+              Array.isArray(removedIds) ? removedIds.map(id => String(id)) : []
+            ),
+            measurements
+          ),
+          notes,
+          measurements
         ),
-        measurements
-      ),
-      notes,
-      measurements
+        notes,
+        draft.canonicalScope
+      )
     ),
     notes,
-    draft.canonicalScope
+    flooringKeepIds
+  )
+  )
   );
 }
 
@@ -1781,7 +1801,9 @@ export function reconcileScopePackagesForReview(
     result.push(stubPackageFromChecklistItem(item));
   }
 
-  return pinCleanupLast(result);
+  return pinCleanupLast(
+    orderDedicatedDrywallCards(dropGenericDrywallDemoBesideSurfaceCards(result))
+  );
 }
 
 export function getScopePackagesForReview(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
@@ -1861,14 +1883,16 @@ export function withReconciledScopePackages(
   confirmedItemsOverride?: ScopeChecklistItem[]
 ): EstimateAiDraft {
   const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
-  const checklistItems = confirmedItemsOverride?.length
-    ? buildConfirmScopeDisplayItems(
-        confirmedItemsOverride,
-        measurements,
-        draft.scopeChecklist?.templateKey,
-        draft.originalNotes
-      )
-    : confirmScopeDisplayItemsFromDraft(draft);
+  const checklistItems = dropGenericDrywallDemoBesideSurfaceCards(
+    confirmedItemsOverride?.length
+      ? buildConfirmScopeDisplayItems(
+          confirmedItemsOverride,
+          measurements,
+          draft.scopeChecklist?.templateKey,
+          draft.originalNotes
+        )
+      : confirmScopeDisplayItemsFromDraft(draft)
+  );
   if (!checklistItems.length) return draft;
   return {
     ...draft,

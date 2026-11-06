@@ -2,7 +2,10 @@
  * One interpretation of the contractor note. Downstream screens read this
  * object instead of re-deriving scope from the raw sentence.
  */
-import { notesDescribeDedicatedFlooringJob } from '@/utils/flooringNoteScope';
+import {
+  dropCombinedFloorDemoWhenStyled,
+  notesDescribeDedicatedFlooringJob,
+} from '@/utils/flooringNoteScope';
 import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import { notesNameWallAreaFramingWithFlooring } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
@@ -466,6 +469,12 @@ export function applyCanonicalScopeToChecklistItems<
     if (canonicalScopeBlocksItemId(scope, item.id)) continue;
     if (restrict && !itemMatchesNamedIncluded(item.id, named)) continue;
     if (seen.has(item.id)) continue;
+    if (
+      item.id === 'floor_demo' &&
+      next.some(row => String(row.id || '').startsWith('floor_demo_style_'))
+    ) {
+      continue;
+    }
     seen.add(item.id);
     next = [
       ...next,
@@ -476,7 +485,7 @@ export function applyCanonicalScopeToChecklistItems<
       } as T,
     ];
   }
-  return next;
+  return dropCombinedFloorDemoWhenStyled(next);
 }
 
 export function stripCanonicalExcludedMeasurements<

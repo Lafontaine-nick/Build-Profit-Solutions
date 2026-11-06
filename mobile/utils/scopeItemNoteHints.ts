@@ -580,6 +580,7 @@ const LEADING_EXCLUSION_NOTICES: Array<{ pattern: RegExp; label: string }> = [
   },
   { pattern: /\bpermits?\b/i, label: 'Permits are not in this bid' },
   { pattern: /\bhvac\b/i, label: 'HVAC is not in this bid' },
+  { pattern: /\broof(?:ing)?\b/i, label: 'Roofing is not in this bid' },
   { pattern: /\bwindows?\b/i, label: 'Windows are not in this bid' },
   { pattern: /\bdoors?\b/i, label: 'Doors are not in this bid' },
   { pattern: /\belectrical\b/i, label: 'Electrical is not in this bid' },

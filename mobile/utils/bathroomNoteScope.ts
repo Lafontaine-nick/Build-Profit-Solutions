@@ -919,8 +919,8 @@ export function showerTileWithFlooringChecklistItems(
   items.push({
     id: 'shower_tile',
     inputType: 'yes_no',
-    label: 'Shower wall tile',
-    helperText: 'New shower wall tile area — priced per sqft.',
+    label: 'Install shower tile',
+    helperText: 'New shower tile. Priced per sqft once the wall area is entered.',
     category: 'wet_area',
     state: 'included',
     noteBacked: true,
@@ -1571,11 +1571,14 @@ export function measurementsForShowerRemovalChoice<
   delete quantities.shower_floor_demo__material;
   delete quantities.shower_floor_demo__labor;
   delete quantities.shower_floor_demo__allowance;
-  if (selected.has('prefab_pan')) {
+  if (
+    selected.has('prefab_pan') ||
+    noteNamesShowerRemovalPiece(String(notes || ''), 'prefab_pan')
+  ) {
     quantities.shower_floor_demo = {
-      quantity: 1,
+      quantity: Number(next.demoPrefabPanCount) > 0 ? Number(next.demoPrefabPanCount) : 1,
       unit: 'each',
-      quantitySource: 'user_entered',
+      quantitySource: selected.has('prefab_pan') ? 'user_entered' : 'notes',
     };
   } else {
     delete quantities.shower_floor_demo;
@@ -1623,13 +1626,15 @@ export function applyShowerRemovalChoice<T extends { id?: string | null }>(
   if (!showerRemovalPrompt(notes)) return items;
   const selected = selectedRemovalPieces(choice, pieces);
   const noteLineIds = new Set(bathroomScopeLines(notes).map(line => line.id));
+  const noteNamesPrefabPan = noteNamesShowerRemovalPiece(notes, 'prefab_pan');
   const assigned = selected.map(piece => {
     const line = REMOVAL_LINES[piece];
     const id =
-      piece === 'tile_pan' && selected.includes('prefab_pan')
+      piece === 'tile_pan' &&
+      (selected.includes('prefab_pan') || noteNamesPrefabPan)
         ? `${line.id}__tile_pan`
         : line.id;
-    return { line, id };
+    return { line, id, piece };
   });
   const assignedIds = new Set(assigned.map(row => row.id));
   const kept = items.filter(item => {
@@ -1639,14 +1644,14 @@ export function applyShowerRemovalChoice<T extends { id?: string | null }>(
     if (assignedIds.has(id)) return false;
     return noteLineIds.has(id);
   });
-  for (const { line, id } of assigned) {
+  for (const { line, id, piece } of assigned) {
     kept.push({
       id,
       label: line.label,
       helperText: line.helperText,
       inputType: 'yes_no',
       state: 'included',
-      noteBacked: noteLineIds.has(line.id),
+      noteBacked: noteNamesShowerRemovalPiece(notes, piece),
       category: 'demo',
     } as unknown as T);
   }

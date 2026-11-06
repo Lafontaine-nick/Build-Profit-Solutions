@@ -297,6 +297,12 @@ import {
   wholeHomeRemodelSuppressesInventedPrice,
 } from '@/utils/wholeHomeRemodelNote';
 import {
+  allocateNoteQuoteShares,
+  noteQuoteCoversItem,
+  noteQuoteNamedInstallIds,
+  noteQuoteReplacesCardPrices,
+} from '@/utils/noteMaterialLaborQuote';
+import {
   isUndercountedDrywallSurface,
   planningFirstFloorSqft,
   syncMeasurementsWithSouthernUtahPlanFacts,
@@ -13585,6 +13591,8 @@ export type ScopeItemSuggestedPricing = {
 export type ScopeItemSuggestedPricingResolveOptions = {
   /** Recompute applied pricing after complexity/QM changes — bypass post-Apply suppress. */
   bypassAppliedSuppress?: boolean;
+  /** Price the national card, then the note total is split on top of those weights. */
+  ignoreNoteMaterialLaborQuote?: boolean;
 };
 
 function round2(n: number): number {
@@ -16880,6 +16888,136 @@ function symbolReadsDisagreedForItem(
   });
 }
 
+function measurementsWithoutNoteQuoteMoney(
+  measurements: ScopeMeasurementsInputExtended,
+  itemIds: string[]
+): ScopeMeasurementsInputExtended {
+  const itemQuantities = { ...(measurements.itemQuantities || {}) };
+  const pricingAcceptance = { ...(measurements.pricingAcceptance || {}) };
+  for (const id of itemIds) {
+    const unit = String(itemQuantities[id]?.unit || '').toLowerCase();
+    if (unit === 'allowance' || unit === 'lump_sum') delete itemQuantities[id];
+    delete itemQuantities[`${id}__material`];
+    delete itemQuantities[`${id}__labor`];
+    delete itemQuantities[`${id}__allowance`];
+    delete pricingAcceptance[id];
+  }
+  return {
+    ...measurements,
+    itemQuantities,
+    pricingAcceptance,
+  };
+}
+
+function formatNoteQuoteRate(rate: number): string {
+  const rounded = Math.round(rate * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function noteQuoteRateUnitLabel(unit: string): string {
+  const normalized = unit.toLowerCase();
+  if (normalized === 'lf' || normalized === 'linear_ft') return 'LF';
+  if (normalized === 'sqft' || normalized === 'sf') return 'sqft';
+  if (normalized === 'each' || normalized === 'ea') return 'each';
+  return unit;
+}
+
+function noteMaterialLaborQuoteSuggestedPricing(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  pricingContext: ScopePricingContext | null | undefined,
+  notes: string | null | undefined,
+  acceptance?: Record<string, { selectionStatus?: string | null } | null | undefined> | null
+): ScopeItemSuggestedPricing | null {
+  const quote = noteQuoteReplacesCardPrices(notes, acceptance);
+  if (!quote || !noteQuoteCoversItem(itemId, notes)) return null;
+  const namedIds = noteQuoteNamedInstallIds(notes);
+  const passedItems = (pricingContext?.checklistItems || []).filter(
+    item => item.state !== 'excluded' && noteQuoteCoversItem(item.id, notes)
+  );
+  const weightIds = namedIds.length
+    ? namedIds
+    : passedItems.map(item => item.id);
+  const checklistItems = weightIds
+    .filter(id => noteQuoteCoversItem(id, notes))
+    .map(id => passedItems.find(item => item.id === id) || { id });
+  if (!checklistItems.some(item => item.id === itemId)) return null;
+  if (!checklistItems.length) return null;
+  const weightMeasurements = measurementsWithoutNoteQuoteMoney(
+    measurementsInput,
+    checklistItems.map(item => item.id)
+  );
+  const weights = checklistItems.map(item => {
+    const resolved = resolveChecklistItemQuantity(item.id, weightMeasurements, {
+      choiceId: item.choiceId,
+      templateKey,
+      notes,
+    });
+    const national = resolveScopeItemSuggestedPricing(
+      item.id,
+      weightMeasurements,
+      templateKey,
+      resolved,
+      pricingContext,
+      item.choiceId,
+      notes,
+      { ignoreNoteMaterialLaborQuote: true }
+    );
+    return {
+      id: item.id,
+      material: Number(national.fill?.material) > 0 ? Number(national.fill?.material) : 0,
+      labor: Number(national.fill?.labor) > 0 ? Number(national.fill?.labor) : 0,
+      fill: national.fill,
+    };
+  });
+  const priced = weights.filter(row => row.material > 0 || row.labor > 0);
+  if (!priced.length) return null;
+  const shares = allocateNoteQuoteShares(quote, priced);
+  const share = shares.get(itemId);
+  const current = weights.find(row => row.id === itemId);
+  if (!share || !(share.total > 0) || !current?.fill) return null;
+  const basis = current.fill.basis;
+  const quantity = Number(basis?.quantity);
+  const unit = basis?.unit ? noteQuoteRateUnitLabel(basis.unit) : '';
+  const rate =
+    quantity > 0 ? formatNoteQuoteRate(share.total / quantity) : null;
+  return {
+    fill: {
+      ...current.fill,
+      material: share.material,
+      labor: share.labor,
+      total: share.total,
+      materialSource: 'notes',
+      laborSource: 'notes',
+      rateSourceLabel: 'From notes',
+      helper: current.fill.helper,
+      mode: 'suggested_price',
+      lumpSumOnly: false,
+      benchmarkAction: 'price_ready',
+      displayUnitRateLabel:
+        quantity > 0 && unit && rate
+          ? `${quantity.toLocaleString()} ${unit} × $${rate}/${unit}`
+          : current.fill.displayUnitRateLabel,
+      costBuckets: [
+        {
+          key: 'material',
+          label: 'Material',
+          amount: share.material,
+          source: 'notes',
+        },
+        {
+          key: 'labor',
+          label: 'Labor',
+          amount: share.labor,
+          source: 'notes',
+        },
+      ],
+    },
+    comparison: null,
+  };
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -16900,6 +17038,17 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  if (!options?.ignoreNoteMaterialLaborQuote) {
+    const noteQuotePricing = noteMaterialLaborQuoteSuggestedPricing(
+      itemId,
+      measurementsInput,
+      templateKey,
+      pricingContext,
+      originalNotes,
+      measurementsInput.pricingAcceptance
+    );
+    if (noteQuotePricing) return noteQuotePricing;
+  }
   const removalSpec = scopeFoundRemovalPricingSpec(itemId);
   if (removalSpec) {
     const quantity = Number(resolved.quantity);
@@ -18432,13 +18581,15 @@ export function resolveScopeItemSuggestedPricing(
       const pieces = readShowerRemovalPieces(
         (measurementsInput as { showerRemovalPieces?: unknown }).showerRemovalPieces
       );
+      const namedPrefabPan = noteNamesShowerRemovalPiece(notesText, 'prefab_pan');
       const tilePanArea =
         itemId === 'shower_floor_demo__tile_pan' ||
-        (pieces.includes('tile_pan') && !pieces.includes('prefab_pan'));
+        (pieces.includes('tile_pan') &&
+          !pieces.includes('prefab_pan') &&
+          !namedPrefabPan);
       if (
         !tilePanArea &&
-        (pieces.includes('prefab_pan') ||
-          noteNamesShowerRemovalPiece(notesText, 'prefab_pan'))
+        (pieces.includes('prefab_pan') || namedPrefabPan)
       ) {
         const count =
           parseScopeMeasurementInput(
@@ -29655,6 +29806,13 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'electrical_rough',
   },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
+  // Named drywall removal before bare "drywall", which is the hang rate.
+  { test: /\bremove drywall walls\b/i, key: 'drywall_wall_demo' },
+  { test: /\bremove drywall ceilings\b/i, key: 'drywall_ceiling_demo' },
+  {
+    test: /\bdrywall\b[^.]{0,40}\b(?:demo|demolition|removal)\b|\b(?:demo|demolition|removal)\b[^.]{0,40}\bdrywall\b/i,
+    key: 'demo_removal',
+  },
   // Drywall hang/finish/patch before bare drywall/patch.
   {
     test: /\bhang\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\bhang\b/i,

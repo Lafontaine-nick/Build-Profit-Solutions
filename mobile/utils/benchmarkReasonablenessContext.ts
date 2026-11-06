@@ -62,6 +62,12 @@ import {
   appliedPricingBucketForScope,
   inferNationalMaterialLaborSplit,
 } from '@/utils/appliedPricingBreakdownBuckets';
+import {
+  isNoteQuoteRemovalItem,
+  noteMaterialLaborQuoteSupersedes,
+  noteQuoteCoversItem,
+  reconcileNoteQuotePlanningLines,
+} from '@/utils/noteMaterialLaborQuote';
 import { resolveItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { isWholeHomeQuickMeasurementTemplate } from '@/utils/scopeQuickMeasurements';
 import { reconcileBathroomQuickMeasurements } from '@/utils/bathroomPlanningMeasurements';
@@ -139,6 +145,44 @@ export function kitchenConfirmScopeNoteRate(params: {
     return { material: 0, labor: breakdown.total, total: breakdown.total };
   }
   return { material, labor, total: breakdown.total };
+}
+
+/**
+ * A job-level material and labor total is shared across the named install cards.
+ * An applied line that stored the whole job on one card is read back as that card's share.
+ */
+function appliedNoteMaterialLaborQuoteShare(params: {
+  item: ScopeChecklistItem;
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+  pricingContext?: ScopePricingContext | null;
+  items?: ScopeChecklistItem[];
+}): { material: number; labor: number; total: number } | null {
+  if (!noteQuoteCoversItem(params.item.id, params.notes)) return null;
+  const resolved = resolveChecklistItemQuantity(params.item.id, params.measurements, {
+    choiceId: params.item.choiceId,
+    templateKey: params.templateKey,
+    notes: params.notes,
+  });
+  const suggested = resolveScopeItemSuggestedPricing(
+    params.item.id,
+    params.measurements,
+    params.templateKey,
+    resolved,
+    params.pricingContext || { checklistItems: params.items },
+    params.item.choiceId,
+    params.notes
+  );
+  const fill = suggested.fill;
+  if (!fill || fill.rateSourceLabel !== 'From notes' || fill.isComparison) return null;
+  const total = Number(fill.total);
+  if (!(Number.isFinite(total) && total > 0)) return null;
+  return {
+    material: Number(fill.material) || 0,
+    labor: Number(fill.labor) || 0,
+    total,
+  };
 }
 
 /** Same money total as Applied cards — live qty fields, then acceptance mat/lab, then totalAmount. */
@@ -1063,6 +1107,25 @@ export function listConfirmScopeAppliedPricingLines(params: {
       }
       continue;
     }
+    const quoteShare = appliedNoteMaterialLaborQuoteShare({
+      item,
+      measurements: params.measurements,
+      templateKey: params.templateKey,
+      notes: params.notes,
+      pricingContext: params.pricingContext,
+      items: params.items,
+    });
+    if (quoteShare) {
+      lines.push({
+        itemId: item.id,
+        label: item.label || item.id,
+        total: quoteShare.total,
+        material: quoteShare.material,
+        labor: quoteShare.labor,
+        allowance: 0,
+      });
+      continue;
+    }
     const noteRate = kitchenConfirmScopeNoteRate({
       itemId: item.id,
       measurements: params.measurements,
@@ -1116,7 +1179,10 @@ export function listConfirmScopeAppliedPricingLines(params: {
       allowance: split.allowance,
     });
   }
-  return lines.map(line => ({ ...line, ...planningLineDollars(line) }));
+  return reconcileNoteQuotePlanningLines(
+    lines.map(line => ({ ...line, ...planningLineDollars(line) })),
+    params.notes
+  );
 }
 
 function landscapingChoiceCountsInGroupTotal(item: {
@@ -1341,6 +1407,17 @@ function displayedTotalForGroupItem(
   ) {
     return appliedTotal;
   }
+  if (
+    isNoteQuoteRemovalItem(item.id) &&
+    noteMaterialLaborQuoteSupersedes(params.notes)
+  ) {
+    const removalTotal = resolveAppliedScopeMoneyTotal(
+      item.id,
+      params.measurements.itemQuantities,
+      params.measurements.pricingAcceptance?.[item.id]
+    );
+    if (removalTotal > 0) return removalTotal;
+  }
   if (!checklistItemInScope(item)) return 0;
   const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
     choiceId: item.choiceId,
@@ -1498,6 +1575,18 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
   /** When true, exclude visible suggestions until the contractor taps Apply. */
   appliedOnly?: boolean;
 }): ConfirmScopeAppliedPricingBreakdown {
+  if (noteMaterialLaborQuoteSupersedes(params.notes)) {
+    const lines = listConfirmScopeAppliedPricingLines(params);
+    return lines.reduce<ConfirmScopeAppliedPricingBreakdown>(
+      (sum, line) => ({
+        total: sum.total + line.total,
+        material: sum.material + line.material,
+        labor: sum.labor + line.labor,
+        allowance: sum.allowance + line.allowance,
+      }),
+      { total: 0, material: 0, labor: 0, allowance: 0 }
+    );
+  }
   const out: ConfirmScopeAppliedPricingBreakdown = {
     total: 0,
     material: 0,
@@ -1585,6 +1674,18 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
         items: params.items,
       });
       if (noted) contributePlanningLine(out, noted);
+      continue;
+    }
+    const quoteShare = appliedNoteMaterialLaborQuoteShare({
+      item,
+      measurements: params.measurements,
+      templateKey: params.templateKey,
+      notes: params.notes,
+      pricingContext: params.pricingContext,
+      items: params.items,
+    });
+    if (quoteShare) {
+      contributePlanningLine(out, quoteShare);
       continue;
     }
     const noteRate = kitchenConfirmScopeNoteRate({

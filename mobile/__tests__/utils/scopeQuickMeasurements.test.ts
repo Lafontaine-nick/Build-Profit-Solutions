@@ -1201,6 +1201,18 @@ describe('scopeQuickMeasurements', () => {
     ]);
   });
 
+  it('asks only for the bedroom addition floor area when roofing is denied', () => {
+    const notes =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    const keys = quickMeasurementRowsForInput('addition', 'room_addition', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(['framedAreaSqft']);
+  });
+
   it('asks only for framed floor area on a framing-only addition', () => {
     const notes = 'Frame a 600 sqft addition';
     const keys = quickMeasurementRowsForInput('addition', 'room_addition', {}, [], {

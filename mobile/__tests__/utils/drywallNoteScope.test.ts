@@ -1,26 +1,47 @@
 import { wholeProjectGroupDisplayTotal } from '@/utils/benchmarkReasonablenessContext';
+import { computeStep3ReviewTotals } from '@/utils/estimateDraftReviewStep3Ui';
 import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import {
+  formatScopeQuantity,
+  getCompactProjectSummary,
+  reviewScopePackages,
+} from '@/utils/estimateDraftReviewUi';
+import {
+  getScopePackagesForReview,
+  withReconciledScopePackages,
+} from '@/utils/scopePackagesForReview';
+import { countVisiblePricingCards } from '@/utils/measurementSemantics';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   checklistDisplayHelper,
   groupScopeChecklistItems,
 } from '@/utils/estimateScopeChecklistUi';
+import { scopeFoundRevealLines } from '@/utils/scopeFoundClarification';
 import {
+  confirmedAppliedRevealLines,
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
+  getInitialRevealDisplayTitle,
   getInitialRevealTagline,
+  getInitialRevealTotals,
+  getInitialRevealUnderstoodBullets,
 } from '@/utils/estimateInitialRevealUi';
 import {
   confirmScopeDrywallSqftLabel,
   dedicatedDrywallConfirmScopeItems,
   notesDescribeDedicatedDrywallJob,
 } from '@/utils/drywallNoteScope';
-import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
+import {
+  notesRequireInteriorPaintMeasurements,
+  quickMeasurementRowsForInput,
+} from '@/utils/scopeQuickMeasurements';
 import { getScopeUnitDefinition } from '@/utils/scopeIntelligence';
 import {
   groupQuickMeasurementFields,
+  placeDrywallCeilingUnderWallRemoval,
   quickMeasurementPlanningEstimateNote,
   resolveQuickMeasurementFields,
+  type QuickMeasurementFieldResult,
 } from '@/utils/quickMeasurementProvenance';
 import {
   normalizeScopeMeasurements,
@@ -1073,6 +1094,538 @@ describe('dedicated drywall note', () => {
     for (const field of grouped.confirmed) {
       expect(quickMeasurementPlanningEstimateNote(field)).toBeNull();
     }
+  });
+
+  it('hangs and finishes living-room drywall and leaves denied insulation and paint off', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    expect(notesDescribeDedicatedDrywallJob(notes)).toBe(true);
+    expect(notesRequireInteriorPaintMeasurements(notes)).toBe(false);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: notes,
+        scopeChecklist: { templateKey: 'room_remodel', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'drywall',
+    ]);
+    expect(repaired.scopeMeasurements?.drywallSqft).toBe(600);
+    expect(repaired.scopeMeasurements?.wallPaintSqft).toBeUndefined();
+    expect(repaired.scopeMeasurements?.exteriorWallInsulationSqft).toBeUndefined();
+    const measurements = normalizeScopeMeasurements(
+      repaired.scopeMeasurements || {}
+    );
+    const quantity = resolveChecklistItemQuantity('drywall', measurements, {
+      templateKey: 'drywall',
+      notes,
+    });
+    const price = resolveScopeItemSuggestedPricing(
+      'drywall',
+      repaired.scopeMeasurements || {},
+      'drywall',
+      quantity,
+      null,
+      null,
+      notes
+    );
+    expect(quantity.quantity).toBe(600);
+    expect(price.fill).toMatchObject({
+      material: 510,
+      labor: 750,
+      total: 1260,
+    });
+    expect(
+      getInitialRevealChecklistScopePreview(repaired).map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : row.name
+      )
+    ).toEqual(['Drywall hang / finish · 600 sqft']);
+    expect(
+      quickMeasurementRowsForInput('drywall', 'drywall', measurements, undefined, {
+        scopeNotes: notes,
+      })
+        .flat()
+        .map(field => field.label)
+    ).toEqual(['Drywall hang / finish']);
+    const mixedTitle = {
+      ...repaired,
+      projectTitle: 'Mixed-scope remodel',
+      scopeSummary: 'Mixed-scope remodel',
+      whatAiDid: [
+        'Mixed-scope remodel: Drywall, Painting. Flagged customer phone, customer name, project address, start date, payment terms, permit responsibility as missing.',
+      ],
+      classification: {
+        scopeMode: 'mixed' as const,
+        scopeSummary: 'Mixed-scope remodel',
+        detectedTrades: ['drywall', 'painting', 'insulation'],
+      },
+      scopeTradeLabels: ['Drywall', 'Painting', 'Insulation'],
+    };
+    expect(repaired.projectTitle).toBe('Drywall');
+    expect(getInitialRevealDisplayTitle(mixedTitle)).toBe('Drywall');
+    expect(getInitialRevealUnderstoodBullets(mixedTitle).join(' ')).not.toMatch(
+      /Mixed-scope|Painting/
+    );
+    expect(
+      quickMeasurementRowsForInput(
+        'drywall',
+        'drywall',
+        {
+          ...measurements,
+          scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+          wallDemoSqft: 600,
+        },
+        undefined,
+        { scopeNotes: notes }
+      )
+        .flat()
+        .map(field => field.label)
+    ).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+  });
+
+  it('keeps ceiling removal under walls and off the extra demo line', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    const field = (
+      key: QuickMeasurementFieldResult['key'],
+      state: QuickMeasurementFieldResult['state'],
+      filled: boolean
+    ): QuickMeasurementFieldResult => ({
+      key,
+      state,
+      filled,
+      showConfirmedBadge: false,
+      fromNotes: filled,
+      relevant: true,
+      blockingPrice: true,
+      estimate: null,
+      sourceLabel: null,
+    });
+    const ordered = placeDrywallCeilingUnderWallRemoval({
+      fromPlan: [],
+      suggestions: [],
+      needsConfirmation: [
+        field('drywallCeilingSqft', 'needs_confirmation', true),
+      ],
+      confirmed: [
+        field('wallDemoSqft', 'confirmed', true),
+        field('drywallSqft', 'confirmed', true),
+      ],
+      more: [],
+    });
+    expect(ordered.needsConfirmation).toEqual([]);
+    expect(ordered.confirmed.map(result => result.key)).toEqual([
+      'wallDemoSqft',
+      'drywallCeilingSqft',
+      'drywallSqft',
+    ]);
+    expect(
+      countVisiblePricingCards(
+        [
+          {
+            items: [
+              { id: 'drywall_wall_demo' },
+              { id: 'drywall_ceiling_demo' },
+              { id: 'drywall' },
+            ],
+          },
+        ],
+        ['drywall_wall_demo', 'drywall']
+      )
+    ).toBe(1);
+
+    const surfaceItems = dedicatedDrywallConfirmScopeItems(notes, {
+      scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+    });
+    const confirmed = [
+      ...surfaceItems,
+      {
+        id: 'demo',
+        inputType: 'yes_no' as const,
+        label: 'Drywall demo / removal',
+        state: 'included' as const,
+        noteBacked: true,
+      },
+    ];
+    const draft = {
+      originalNotes: notes,
+      projectType: 'drywall',
+      projectTitle: 'Living Room Drywall Hang and Finish',
+      scopeAssumptionsConfirmed: true,
+      whatAiDid: [
+        'Mixed-scope remodel: Drywall, Painting. Flagged customer phone, customer name, project address, start date, payment terms, permit responsibility as missing.',
+      ],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: confirmed,
+      },
+      confirmedAssumptions: confirmed,
+      scopeMeasurements: {
+        drywallSqft: 600,
+        wallDemoSqft: 600,
+        drywallCeilingSqft: 800,
+        scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+        quickMeasurementUserOverrides: { drywallCeilingSqft: true },
+        confirmedScopePricingSnapshot: {
+          total: 3360,
+          material: 860,
+          labor: 2500,
+          allowance: 0,
+          lines: [
+            {
+              itemId: 'drywall_wall_demo',
+              label: 'Remove drywall walls',
+              total: 900,
+              material: 150,
+              labor: 750,
+              allowance: 0,
+            },
+            {
+              itemId: 'drywall_ceiling_demo',
+              label: 'Remove drywall ceilings',
+              total: 1200,
+              material: 200,
+              labor: 1000,
+              allowance: 0,
+            },
+            {
+              itemId: 'drywall',
+              label: 'Drywall hang / finish',
+              total: 1260,
+              material: 510,
+              labor: 750,
+              allowance: 0,
+            },
+          ],
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Drywall demo / removal',
+          checklistItemId: 'demo',
+          price: 1260,
+          status: 'user_provided' as const,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Drywall hang / finish',
+          checklistItemId: 'drywall',
+          price: 1260,
+          status: 'user_provided' as const,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Remove drywall walls',
+          checklistItemId: 'drywall_wall_demo',
+          price: 900,
+          status: 'user_provided' as const,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Remove drywall ceilings',
+          checklistItemId: 'drywall_ceiling_demo',
+          price: 1200,
+          status: 'user_provided' as const,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+      ],
+    };
+    const applied = withReconciledScopePackages(
+      draft as Parameters<typeof withReconciledScopePackages>[0],
+      confirmed
+    );
+    const packages = reviewScopePackages(
+      applied as Parameters<typeof reviewScopePackages>[0]
+    );
+    expect(packages.map(pkg => pkg.name)).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    expect(
+      getScopePackagesForReview(
+        applied as Parameters<typeof getScopePackagesForReview>[0]
+      ).map(pkg => pkg.name)
+    ).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    const ceiling = packages.find(pkg => pkg.checklistItemId === 'drywall_ceiling_demo');
+    expect(
+      formatScopeQuantity(
+        ceiling as Parameters<typeof formatScopeQuantity>[0],
+        applied as Parameters<typeof formatScopeQuantity>[1]
+      )
+    ).toBe('800 sqft');
+    expect(packages.reduce((sum, pkg) => sum + (Number(pkg.price) || 0), 0)).toBe(3360);
+    expect(getCompactProjectSummary(applied)).toBe('Drywall · 3 scope items');
+    expect(getInitialRevealDisplayTitle(applied)).toBe('Drywall');
+    expect(
+      getInitialRevealChecklistScopePreview(applied).map(row => row.name)
+    ).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    expect(getInitialRevealUnderstoodBullets(applied, 2).join(' ')).not.toMatch(
+      /Mixed-scope|Painting|Flagged/
+    );
+    expect(
+      confirmedAppliedRevealLines(applied)?.map(row =>
+        row.quantity ? `${row.name} · ${row.quantity}` : `${row.name} · ${row.amount}`
+      )
+    ).toEqual([
+      'Remove drywall walls · 600 sqft',
+      'Remove drywall ceilings · 800 sqft',
+      'Drywall hang / finish · 600 sqft',
+    ]);
+  });
+
+  it('keeps hang on the scope found list after wall and ceiling removal are selected', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'other',
+        originalNotes: notes,
+        scopeChecklist: { templateKey: 'room_remodel', items: [] },
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    const draft = {
+      ...repaired,
+      scopeMeasurements: {
+        ...(repaired.scopeMeasurements || {}),
+        scopeFoundClarificationId: 'drywall_demo' as const,
+        scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+        wallDemoSqft: 600,
+      },
+    };
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    const added = scopeFoundRevealLines(
+      notes,
+      'drywall_demo',
+      null,
+      draft.scopeMeasurements?.scopeFoundPieces,
+      draft.scopeMeasurements
+    );
+    const addedNames = new Set(added.map(row => row.name.trim().toLowerCase()));
+    const merged = [
+      ...added,
+      ...preview.filter(row => !addedNames.has(row.name.trim().toLowerCase())),
+    ].map(row => (row.quantity ? `${row.name} · ${row.quantity}` : row.name));
+    expect(merged).toEqual([
+      'Remove drywall walls · 600 sqft',
+      'Remove drywall ceilings',
+      'Drywall hang / finish · 600 sqft',
+    ]);
+  });
+
+  it('keeps a 500 sqft ceiling on the estimate and step 3', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    const accepted = (
+      total: number,
+      material: number,
+      labor: number
+    ) => ({
+      selectionStatus: 'accepted' as const,
+      totalAmount: total,
+      materialAmount: material,
+      laborAmount: labor,
+    });
+    const split = (material: number, labor: number) => ({
+      material: {
+        quantity: material,
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+      labor: {
+        quantity: labor,
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    });
+    const wallSplit = split(150, 750);
+    const ceilingSplit = split(125, 625);
+    const hangSplit = split(510, 750);
+    const surfaceItems = dedicatedDrywallConfirmScopeItems(notes, {
+      scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+    });
+    const confirmed = [
+      ...surfaceItems,
+      {
+        id: 'demo',
+        inputType: 'yes_no' as const,
+        label: 'Drywall demo / removal',
+        state: 'included' as const,
+        noteBacked: true,
+      },
+    ];
+    const draft = {
+      originalNotes: notes,
+      projectType: 'drywall',
+      projectTitle: 'Living Room Drywall Hang and Finish',
+      scopeAssumptionsConfirmed: true,
+      whatAiDid: [
+        'Mixed-scope remodel: Drywall, Painting. Flagged customer phone, customer name, project address, start date, payment terms, permit responsibility as missing.',
+      ],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: confirmed,
+      },
+      confirmedAssumptions: confirmed,
+      scopeMeasurements: {
+        drywallSqft: 600,
+        wallDemoSqft: 600,
+        drywallCeilingSqft: 500,
+        scopeFoundPieces: ['drywall_walls', 'drywall_ceilings'],
+        quickMeasurementUserOverrides: { drywallCeilingSqft: true },
+        itemQuantities: {
+          drywall_wall_demo__material: wallSplit.material,
+          drywall_wall_demo__labor: wallSplit.labor,
+          drywall_ceiling_demo__material: ceilingSplit.material,
+          drywall_ceiling_demo__labor: ceilingSplit.labor,
+          drywall__material: hangSplit.material,
+          drywall__labor: hangSplit.labor,
+        },
+        pricingAcceptance: {
+          drywall_wall_demo: accepted(900, 150, 750),
+          drywall_ceiling_demo: accepted(750, 125, 625),
+          drywall: accepted(1260, 510, 750),
+        },
+        confirmedScopePricingSnapshot: {
+          total: 2910,
+          material: 785,
+          labor: 2125,
+          allowance: 0,
+          lines: [
+            {
+              itemId: 'drywall_wall_demo',
+              label: 'Remove drywall walls',
+              total: 900,
+              material: 150,
+              labor: 750,
+              allowance: 0,
+            },
+            {
+              itemId: 'drywall_ceiling_demo',
+              label: 'Remove drywall ceilings',
+              total: 750,
+              material: 125,
+              labor: 625,
+              allowance: 0,
+            },
+            {
+              itemId: 'drywall',
+              label: 'Drywall hang / finish',
+              total: 1260,
+              material: 510,
+              labor: 750,
+              allowance: 0,
+            },
+          ],
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Drywall demo / removal',
+          checklistItemId: 'demo',
+          price: 1260,
+          materialPrice: 510,
+          laborPrice: 750,
+          status: 'user_provided' as const,
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Drywall hang / finish',
+          checklistItemId: 'drywall',
+          price: 1260,
+          materialPrice: 510,
+          laborPrice: 750,
+          status: 'user_provided' as const,
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Remove drywall ceilings',
+          checklistItemId: 'drywall_ceiling_demo',
+          price: 750,
+          materialPrice: 125,
+          laborPrice: 625,
+          status: 'user_provided' as const,
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+        {
+          name: 'Remove drywall walls',
+          checklistItemId: 'drywall_wall_demo',
+          price: 900,
+          materialPrice: 150,
+          laborPrice: 750,
+          status: 'user_provided' as const,
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 600, unit: 'sqft' }],
+        },
+      ],
+    };
+    const applied = withReconciledScopePackages(
+      draft as Parameters<typeof withReconciledScopePackages>[0],
+      confirmed
+    );
+    const packages = reviewScopePackages(
+      applied as Parameters<typeof reviewScopePackages>[0]
+    );
+    expect(packages.map(pkg => pkg.name)).toEqual([
+      'Remove drywall walls',
+      'Remove drywall ceilings',
+      'Drywall hang / finish',
+    ]);
+    const ceiling = packages.find(pkg => pkg.checklistItemId === 'drywall_ceiling_demo');
+    expect(
+      formatScopeQuantity(
+        ceiling as Parameters<typeof formatScopeQuantity>[0],
+        applied as Parameters<typeof formatScopeQuantity>[1]
+      )
+    ).toBe('500 sqft');
+    expect(packages.map(pkg => Number(pkg.price) || 0)).toEqual([900, 750, 1260]);
+    expect(getCompactProjectSummary(applied)).toBe('Drywall · 3 scope items');
+    expect(getInitialRevealDisplayTitle(applied)).toBe('Drywall');
+    expect(getInitialRevealTagline(applied)).toBe('Detected drywall job.');
+    expect(getInitialRevealUnderstoodBullets(applied, 2).join(' ')).not.toMatch(
+      /Mixed-scope|Painting|Flagged/
+    );
+    expect(
+      confirmedAppliedRevealLines(applied)?.map(row =>
+        row.quantity
+          ? `${row.name} · ${row.quantity} · ${row.amount}`
+          : `${row.name} · ${row.amount}`
+      )
+    ).toEqual([
+      'Remove drywall walls · 600 sqft · 900',
+      'Remove drywall ceilings · 500 sqft · 750',
+      'Drywall hang / finish · 600 sqft · 1260',
+    ]);
+    const step3 = computeStep3ReviewTotals(applied, 15);
+    expect(step3.calculatedTotal).toBe(2910);
+    expect(step3.material).toBe(785);
+    expect(step3.labor).toBe(2125);
+    expect(step3.estimatedBidWithMarkup).toBe(3346.5);
+    expect(step3.scopeItemCount).toBe(3);
+    expect(getInitialRevealTotals(applied, 15)).toMatchObject({
+      material: 785,
+      labor: 2125,
+      heroTotal: 3346.5,
+      scopeItemCount: 3,
+    });
   });
 
   it('keeps hang / finish on the attic insulation measurement', () => {

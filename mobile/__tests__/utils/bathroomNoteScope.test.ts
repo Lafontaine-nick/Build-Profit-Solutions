@@ -1109,7 +1109,7 @@ describe('shower removal question', () => {
     });
     expect(groups.map(group => group.title)).toEqual([
       'Demo',
-      'Shower wall tile',
+      'Install shower tile',
       'LVP flooring',
     ]);
     expect(groups[0].items.map(item => item.id)).toEqual([
@@ -1285,7 +1285,7 @@ describe('shower removal question', () => {
     expect(messyDraft.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
     expect(
       getInitialRevealChecklistScopePreview(messyDraft).map(row => row.name)
-    ).toEqual(['Shower tile demo', 'Shower wall tile', 'LVP flooring']);
+    ).toEqual(['Shower tile demo', 'Install shower tile', 'LVP flooring']);
     expect(
       showerRemovalPrompt(
         'Replace the shower tile and demo tub, and install 80 sqft of LVP in the bathroom.'
@@ -1354,7 +1354,7 @@ describe('shower removal question', () => {
     };
     const names = getScopePackagesForReview(draft as never).map(pkg => pkg.name);
     expect(names).toContain('LVP flooring');
-    expect(names).toContain('Shower wall tile');
+    expect(names).toContain('Install shower tile');
     expect(names).toContain('Shower tile demo');
     expect(names).not.toContain('waterproofing');
     expect(names).not.toContain('Waterproofing');
@@ -1429,6 +1429,73 @@ describe('shower removal question', () => {
         'Replace the shower tile and install a new prefab pan and 80 sqft of LVP.'
       )
     ).toBe(false);
+    const withTilePan = applyShowerRemovalChoice(
+      showerTileWithFlooringChecklistItems(notes),
+      notes,
+      null,
+      ['tile_pan']
+    );
+    expect(withTilePan.map(item => item.id)).toEqual(
+      expect.arrayContaining([
+        'tub_demo',
+        'shower_floor_demo',
+        'shower_floor_demo__tile_pan',
+        'shower_enclosure_demo',
+        'glass_door_demo',
+      ])
+    );
+    expect(withTilePan.find(item => item.id === 'shower_floor_demo')?.label).toBe(
+      'Remove prefab pan'
+    );
+    expect(
+      withTilePan.find(item => item.id === 'shower_floor_demo__tile_pan')?.label
+    ).toBe('Remove tile pan');
+    expect(
+      withTilePan.find(item => item.id === 'shower_floor_demo__tile_pan')?.noteBacked
+    ).not.toBe(true);
+    const groups = groupScopeChecklistItems(withTilePan as never, 'room_remodel', {
+      notes,
+    });
+    expect(groups.map(group => group.title)).toEqual([
+      'Demo',
+      'Install shower tile',
+      'LVP flooring',
+    ]);
+    expect(groups[0].items.map(item => item.id)).toEqual([
+      'demo',
+      'tub_demo',
+      'shower_floor_demo',
+      'shower_floor_demo__tile_pan',
+      'shower_enclosure_demo',
+      'glass_door_demo',
+    ]);
+    const withPanArea = {
+      ...measurements,
+      demoTilePanSqft: '30',
+      showerRemovalPieces: ['tile_pan'],
+    };
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'shower_floor_demo',
+        withPanArea,
+        'room_remodel',
+        { quantity: 1, unit: 'each', quantitySource: 'notes' },
+        null,
+        null,
+        notes
+      )?.fill?.total
+    ).toBe(350);
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'shower_floor_demo__tile_pan',
+        withPanArea,
+        'room_remodel',
+        { quantity: 30, unit: 'sqft', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      )?.fill?.total
+    ).toBe(270);
   });
 
   it('asks for the bathroom floor when the new floor is named and the demo is not', () => {

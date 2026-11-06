@@ -4,6 +4,7 @@ import {
   FRAMING_REVIEW_MEASUREMENT_KEYS,
   buildFramingStructuredMeasurements,
   normalizeFramingPlanMeasurements,
+  notesNameFramingOnlyAddition,
   parseFramingMeasurementsFromNotes,
   resolveCoveredFramedAreaSqft,
   shellPackageIncludesSheathing,
@@ -293,6 +294,15 @@ describe('framing canonical architecture', () => {
       quantitySource: 'user_entered',
       sourceLabel: 'User entered',
       pricingReady: true,
+    });
+  });
+
+  it('reads a bedroom addition as framed floor area and keeps denied roofing off', () => {
+    const notes =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    expect(notesNameFramingOnlyAddition(notes)).toBe(true);
+    expect(parseFramingMeasurementsFromNotes(notes)).toMatchObject({
+      framedAreaSqft: 320,
     });
   });
 

@@ -282,6 +282,28 @@ function quantityLabel(value: number | null, unit: string): string {
   return `${value.toLocaleString('en-US')} ${unit}`;
 }
 
+/**
+ * Wall sqft stays on wall removal. Ceiling removal stays blank unless the
+ * note states a ceiling area. A generic drywall area can still fill either
+ * surface when the note does not say which one.
+ */
+function statedDrywallRemovalSqft(
+  text: string,
+  surface: 'walls' | 'ceilings',
+  fallbackArea: number
+): number | null {
+  const wall = statedSqftNear(text, /\bwalls?\b/i);
+  const ceiling = statedSqftNear(text, /\bceilings?\b/i);
+  if (surface === 'walls') {
+    if (wall) return wall;
+    if (ceiling) return null;
+  } else {
+    if (ceiling) return ceiling;
+    if (wall) return null;
+  }
+  return fallbackArea > 0 ? fallbackArea : null;
+}
+
 function flooringAreaForNote(text: string): number | null {
   return (
     dedicatedFlooringAreaSqft(text) ||
@@ -383,6 +405,14 @@ function subjectStays(text: string, subject: RegExp): boolean {
   ).test(text);
 }
 
+function subjectByOthers(text: string, subject: RegExp): boolean {
+  const subjectPattern = `(?:${subject.source})`;
+  return new RegExp(
+    `${subjectPattern}[^.]{0,40}\\bby\\s+others?\\b|\\bby\\s+others?\\b[^.]{0,40}${subjectPattern}`,
+    'i'
+  ).test(text);
+}
+
 function piecesStillUnknown(
   text: string,
   pieces: ReadonlyArray<{ id: string; label: string; subject: RegExp }>
@@ -391,7 +421,8 @@ function piecesStillUnknown(
     .filter(
       piece =>
         !subjectAlreadyComingOut(text, piece.subject) &&
-        !subjectStays(text, piece.subject)
+        !subjectStays(text, piece.subject) &&
+        !subjectByOthers(text, piece.subject)
     )
     .map(piece => ({ id: piece.id, label: piece.label }));
 }
@@ -912,6 +943,12 @@ function scopeFoundPiecesForNote(
 ): string[] {
   if (id === 'excavation_demo' && !notesNameExistingExcavationStructure(text)) {
     return pieces.filter(piece => piece !== 'site_structure');
+  }
+  if (
+    (id === 'kitchen_demo' || id === 'whole_home_demo') &&
+    subjectByOthers(text, /\b(?:flooring|lvp|vinyl|laminate|carpet|floors?)\b/)
+  ) {
+    return pieces.filter(piece => piece !== 'kitchen_floor' && piece !== 'flooring');
   }
   return pieces;
 }
@@ -1825,6 +1862,16 @@ export function scopeFoundRevealLines(
                       if (!(counted > 0)) return '';
                       return `${counted.toLocaleString('en-US')} ${counted === 1 ? 'flight' : 'flights'}`;
                     })()
+                  : piece === 'drywall_walls'
+                    ? quantityLabel(
+                        statedDrywallRemovalSqft(text, 'walls', area || 0),
+                        'sqft'
+                      )
+                    : piece === 'drywall_ceilings'
+                      ? quantityLabel(
+                          statedDrywallRemovalSqft(text, 'ceilings', area || 0),
+                          'sqft'
+                        )
                   : TRADE_PIECE_BY_ID.get(piece)?.area
                     ? quantityLabel(area, 'sqft')
                     : '1'),
@@ -2051,8 +2098,33 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
   if (!clearingOn && (id === 'landscape_demo' || id === 'excavation_demo')) {
     next.demoClearingSqft = null;
   }
-  if (drywallWalls && area > 0) next.wallDemoSqft = area;
-  if (drywallCeilings && area > 0) next.drywallCeilingSqft = area;
+  if (drywallWalls) {
+    next.wallDemoSqft = statedDrywallRemovalSqft(text, 'walls', area);
+  }
+  if (drywallCeilings) {
+    const statedCeiling = statedDrywallRemovalSqft(text, 'ceilings', area);
+    const existingCeiling = Number(
+      String(next.drywallCeilingSqft ?? '').replace(/,/g, '')
+    );
+    const userEnteredCeiling = Boolean(
+      (
+        next.quickMeasurementUserOverrides as
+          | Record<string, unknown>
+          | null
+          | undefined
+      )?.drywallCeilingSqft
+    );
+    const wallArea = Number(String(next.wallDemoSqft ?? '').replace(/,/g, ''));
+    const statedWall = statedDrywallRemovalSqft(text, 'walls', area);
+    const copiedFromWalls =
+      !userEnteredCeiling &&
+      existingCeiling > 0 &&
+      (existingCeiling === wallArea || existingCeiling === statedWall);
+    if (statedCeiling != null) next.drywallCeilingSqft = statedCeiling;
+    else if (userEnteredCeiling || (existingCeiling > 0 && !copiedFromWalls)) {
+      next.drywallCeilingSqft = existingCeiling;
+    } else next.drywallCeilingSqft = null;
+  }
   if (!drywallOn && id === 'drywall_demo') {
     next.wallDemoSqft = null;
     next.drywallCeilingSqft = null;
@@ -2111,11 +2183,26 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
       const piece = TRADE_PIECE_BY_ID.get(pieceId);
       if (!piece?.area) continue;
       if (pieceId === 'drywall_walls') {
-        withQuantity(quantities, 'drywall_wall_demo', area, 'sqft');
+        withQuantity(
+          quantities,
+          'drywall_wall_demo',
+          statedDrywallRemovalSqft(text, 'walls', area),
+          'sqft'
+        );
         continue;
       }
       if (pieceId === 'drywall_ceilings') {
-        withQuantity(quantities, 'drywall_ceiling_demo', area, 'sqft');
+        const keptCeiling = Number(
+          String(next.drywallCeilingSqft ?? '').replace(/,/g, '')
+        );
+        withQuantity(
+          quantities,
+          'drywall_ceiling_demo',
+          keptCeiling > 0
+            ? keptCeiling
+            : statedDrywallRemovalSqft(text, 'ceilings', area),
+          'sqft'
+        );
         continue;
       }
       if (pieceId === 'deck_surface') continue;

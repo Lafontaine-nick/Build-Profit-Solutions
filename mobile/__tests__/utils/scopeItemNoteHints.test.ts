@@ -678,6 +678,14 @@ describe('scopeItemNoteHints roofing inference', () => {
     expect(parseRoofingDeckingAllowanceFromNotes(notes)).toBe(1000);
   });
 
+  test('a denied roof on an addition says roofing is out', () => {
+    expect(
+      noteExclusionNotices(
+        'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.'
+      )
+    ).toEqual(['Roofing is not in this bid']);
+  });
+
   test('every note leaves the same yellow exclusion notices', () => {
     expect(
       noteExclusionNotices(

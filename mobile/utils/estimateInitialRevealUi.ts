@@ -106,6 +106,7 @@ import {
   dedicatedFlooringRevealQuantity,
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
+  notesRequestFlooringDemo,
 } from '@/utils/flooringNoteScope';
 import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
 import {
@@ -214,6 +215,7 @@ import {
   inferRoofingSystemFromNotes,
   inferRoofingTearOffFromNotes,
   inferRoofingTradeScopeSelectionsFromNotes,
+  affirmativeNoteText,
   noteExclusionNotices,
   noteMentionIsOnlyNegated,
   notesAskForPlumbingConnections,
@@ -450,6 +452,11 @@ function whatAiDidNamesUnstatedPaint(
   line: string,
   notes: string | null | undefined
 ): boolean {
+  const paintDenied = noteMentionIsOnlyNegated(
+    notes,
+    /\bpaint(?:ing)?\b|\brepaint\b/i
+  );
+  if (paintDenied && /mixed-scope|paint(?:ing)?/i.test(line)) return true;
   if (/\bpaint(?:ing|ed)?\b/i.test(String(notes || ''))) return false;
   return /\bpaint(?:ing)?\b/i.test(line);
 }
@@ -946,6 +953,9 @@ function collectInitialRevealConfirmItems(
   if (notesDescribeAreaOnlyAddition(draft.originalNotes)) {
     return splitInitialRevealConfirmItems(areaOnlyAdditionAttention(draft));
   }
+  if (notesNameFramingOnlyAddition(draft.originalNotes || '')) {
+    return splitInitialRevealConfirmItems([]);
+  }
   if (roofingPlanScopeOwnsReveal(draft)) {
     return splitInitialRevealConfirmItems(
       roofingPlanOnlyExport(draft)
@@ -1245,7 +1255,7 @@ function collectInitialRevealConfirmItems(
     const attention: string[] = [];
     // Demo and waterproofing price from the shower wall area, so one
     // missing measurement covers those lines.
-    if (!showerSqft) attention.push('Pricing for Shower wall tile');
+    if (!showerSqft) attention.push('Pricing for Install shower tile');
     if (!areas.flooringSqft) {
       if (notesNameBathroomFloorRemoval(draft.originalNotes)) {
         attention.push('Pricing for Bathroom floor demo');
@@ -3601,10 +3611,11 @@ function getInitialRevealScopeRows(
     );
   const plumbingRerouteLf =
     plumbingRerouteMatch?.[1] || plumbingRerouteMatch?.[2];
-  const explicitFlooringDemo = notesNameRemovalOf(
-    notes,
-    'floor(?:ing)?|lvp|laminate|vinyl|carpet|tile'
-  );
+  const explicitFlooringDemo =
+    notesNameRemovalOf(
+      notes,
+      'floor(?:ing)?|lvp|laminate|vinyl|carpet|tile'
+    ) || notesRequestFlooringDemo(notes);
   const explicitDrywallDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       notes
@@ -4632,7 +4643,17 @@ function getInitialRevealScopeRows(
     }
   }
   if (dedicatedDrywallNote) {
-    const keep = new Set(['demo', 'demo_removal', 'drywall', 'patch_repair']);
+    const hasSurfaceDemo = rows.some(
+      row =>
+        row.id === 'drywall_wall_demo' || row.id === 'drywall_ceiling_demo'
+    );
+    const keep = new Set([
+      'drywall',
+      'patch_repair',
+      'drywall_wall_demo',
+      'drywall_ceiling_demo',
+      ...(hasSurfaceDemo ? [] : ['demo', 'demo_removal']),
+    ]);
     rows = rows.filter(row => keep.has(row.id));
   }
   if (noteRatedDrywallNote) {
@@ -5268,7 +5289,7 @@ function getInitialRevealScopeRows(
         : []),
       {
         id: 'shower_tile',
-        name: 'Shower wall tile',
+        name: 'Install shower tile',
         ...showerQty,
       },
       ...(bathroomChecklistItemNamedInNotes('waterproofing', notes)
@@ -5583,16 +5604,55 @@ const REVEAL_ROW_ITEM_IDS: Record<string, string> = {
  * After Confirm Scope, the initial estimate lists the same lines as Selected
  * pricing. Scope found placeholders stay off that list.
  */
+function sqftLabel(value: unknown): string | null {
+  const quantity = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(quantity) && quantity > 0
+    ? `${quantity.toLocaleString('en-US')} sqft`
+    : null;
+}
+
+/** Wall, ceiling, and hang areas stay on their own estimate lines. */
+function dedicatedDrywallAppliedQuantity(
+  draft: EstimateAiDraft,
+  line: { itemId?: string | null; label?: string | null }
+): string | null {
+  const id = String(line.itemId || '');
+  const label = String(line.label || '');
+  const measurements = draft.scopeMeasurements;
+  if (
+    id === 'drywall_ceiling_demo' ||
+    /\bremove drywall ceilings\b/i.test(label)
+  ) {
+    return sqftLabel(measurements?.drywallCeilingSqft);
+  }
+  if (id === 'drywall_wall_demo' || /\bremove drywall walls\b/i.test(label)) {
+    return sqftLabel(measurements?.wallDemoSqft);
+  }
+  if (
+    id === 'drywall' ||
+    id === 'hang' ||
+    id === 'finish_tape' ||
+    /\bhang\s*\/\s*finish\b/i.test(label)
+  ) {
+    return sqftLabel(measurements?.drywallSqft);
+  }
+  return null;
+}
+
 export function confirmedAppliedRevealLines(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> | null {
   if (!initialRevealPricingVisible(draft)) return null;
   const snapshot = draft.scopeMeasurements?.confirmedScopePricingSnapshot;
   if (snapshot?.lines?.length) {
-    return snapshot.lines.map(line => ({
-      name: line.label,
-      amount: line.total,
-    }));
+    return snapshot.lines.map(line => {
+      const quantity = dedicatedDrywallAppliedQuantity(draft, line);
+      return {
+        name: line.label,
+        amount: line.total,
+        ...(quantity ? { quantity } : {}),
+      };
+    });
   }
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return null;
@@ -6498,6 +6558,12 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   if (classification.scopeTradeLabels.join(' · ') === 'Painting') {
     return 'Painting';
   }
+  if (
+    notesUseDedicatedDrywallScope(draft.originalNotes) ||
+    notesDescribeSheetrockFinishJob(draft.originalNotes)
+  ) {
+    return 'Drywall';
+  }
   if (stuccoPlanExport(draft)) {
     return 'Stucco';
   }
@@ -6609,6 +6675,16 @@ function getRevealClassification(draft: EstimateAiDraft) {
       scopeTradeLabels: ['Stucco', 'Windows'],
     };
   }
+  if (
+    notesUseDedicatedDrywallScope(notes) ||
+    notesDescribeSheetrockFinishJob(notes)
+  ) {
+    return {
+      scopeMode: 'dedicated',
+      scopeSummary: null,
+      scopeTradeLabels: ['Drywall'],
+    };
+  }
   const planRecord = draft.scopeMeasurements as
     | { planImportMode?: string | null; planImportTradeKey?: string | null }
     | null
@@ -6635,7 +6711,7 @@ function getRevealClassification(draft: EstimateAiDraft) {
     /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|pavers?|exterior\s+doors?)\b/i.test(
       notes
     );
-  const mixedSignalText = notes
+  const mixedSignalText = affirmativeNoteText(notes)
     .replace(/\bno\s+(?:new\s+)?paint(?:ing)?\b/gi, ' ')
     .replace(/\bshower\s+doors?\b/gi, ' ')
     .replace(/\bat\s+the\s+floor\b/gi, ' ')
@@ -6744,6 +6820,14 @@ function getRevealClassification(draft: EstimateAiDraft) {
         !/\b(?:hvac|furnace|heat\s*pump|air\s*condition(?:er|ing)?)\b/i.test(
           activeStuccoNotes
         )
+      ) &&
+      !(
+        label.toLowerCase() === 'painting' &&
+        noteMentionIsOnlyNegated(notes, /\bpaint(?:ing)?\b/i)
+      ) &&
+      !(
+        label.toLowerCase() === 'insulation' &&
+        noteMentionIsOnlyNegated(notes, /\binsulation\b/i)
       )
   );
   const hasDedicatedStuccoIntent =
@@ -7128,6 +7212,15 @@ export function getInitialRevealUnderstoodBullets(
   max = 3
 ): string[] {
   if (vagueScopeQuestion(draft.originalNotes)) return [];
+  if (
+    notesUseDedicatedDrywallScope(draft.originalNotes) ||
+    notesDescribeSheetrockFinishJob(draft.originalNotes)
+  ) {
+    return getInitialRevealScopeRows(draft)
+      .map(row => row.name.trim())
+      .filter(Boolean)
+      .slice(0, Math.max(max, 6));
+  }
   if (
     framingCoverSheetPackage(
       draft.scopeMeasurements as Record<string, unknown> | null

@@ -3551,6 +3551,9 @@ export function hasQuickMeasurementValue(value: unknown): boolean {
 export function notesRequireInteriorPaintMeasurements(
   notes?: string | null
 ): boolean {
+  if (noteMentionIsOnlyNegated(notes, /\bpaint(?:ing)?\b|\brepaint\b/i)) {
+    return false;
+  }
   const text = String(notes || '');
   const explicitSurfacePaint =
     /\b(?:paint|painting|repaint)\b[^.;\n]{0,50}\b(?:interior\s+)?(?:wall|ceiling)s?\b/i.test(

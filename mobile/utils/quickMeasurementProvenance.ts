@@ -919,6 +919,51 @@ export function groupQuickMeasurementFields(
   return groups;
 }
 
+/** Ceiling removal sits under wall removal even while the ceiling area is blank. */
+export function placeDrywallCeilingUnderWallRemoval(
+  groups: QuickMeasurementUiGroups
+): QuickMeasurementUiGroups {
+  const next: QuickMeasurementUiGroups = {
+    fromPlan: [...groups.fromPlan],
+    suggestions: [...groups.suggestions],
+    needsConfirmation: [...groups.needsConfirmation],
+    confirmed: [...groups.confirmed],
+    more: [...groups.more],
+  };
+  let ceiling: QuickMeasurementFieldResult | undefined;
+  (Object.keys(next) as QuickMeasurementGroupId[]).forEach(groupId => {
+    const index = next[groupId].findIndex(
+      result => result.key === 'drywallCeilingSqft'
+    );
+    if (index < 0) return;
+    ceiling = next[groupId][index];
+    next[groupId] = next[groupId].filter(
+      result => result.key !== 'drywallCeilingSqft'
+    );
+  });
+  if (!ceiling) return groups;
+  const wallGroup = (Object.keys(next) as QuickMeasurementGroupId[]).find(
+    groupId => next[groupId].some(result => result.key === 'wallDemoSqft')
+  );
+  const placed =
+    ceiling.filled && ceiling.state !== 'confirmed'
+      ? { ...ceiling, state: 'confirmed' as const }
+      : ceiling;
+  if (!wallGroup) {
+    next.needsConfirmation = [placed, ...next.needsConfirmation];
+    return next;
+  }
+  const wallIndex = next[wallGroup].findIndex(
+    result => result.key === 'wallDemoSqft'
+  );
+  next[wallGroup] = [
+    ...next[wallGroup].slice(0, wallIndex + 1),
+    placed,
+    ...next[wallGroup].slice(wallIndex + 1),
+  ];
+  return next;
+}
+
 export type QuickMeasurementGroupId = keyof QuickMeasurementUiGroups;
 
 /** Bath / shower takeoff fields that belong under Wet area finish, not general Suggestions. */

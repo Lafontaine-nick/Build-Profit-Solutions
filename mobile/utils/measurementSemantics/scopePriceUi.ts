@@ -447,6 +447,29 @@ export function benchmarkActionButtonLabel(
   return 'Apply';
 }
 
+/** One visible scope group is one pricing card, even when it holds several lines. */
+export function countVisiblePricingCards(
+  groups: Array<{ items: Array<{ id?: string | null }> }>,
+  readyItemIds: string[]
+): number {
+  const ready = new Set(readyItemIds.filter(Boolean));
+  if (!ready.size) return 0;
+  const seen = new Set<string>();
+  let cards = 0;
+  for (const group of groups) {
+    const ids = group.items
+      .map(item => String(item.id || ''))
+      .filter(id => ready.has(id));
+    if (!ids.length) continue;
+    cards += 1;
+    ids.forEach(id => seen.add(id));
+  }
+  for (const id of ready) {
+    if (!seen.has(id)) cards += 1;
+  }
+  return cards;
+}
+
 /** Secondary footer CTA — scroll to pricing cards instead of bulk-apply. */
 export function footerScrollToPricingButtonLabel(readyCount: number): string | null {
   if (readyCount <= 0) return null;

@@ -108,11 +108,16 @@ import {
   dedicatedFlooringConfirmScopeItems,
   dedicatedFlooringNoteText,
   dedicatedFlooringRemovedTypes,
+  dropCombinedFloorDemoWhenStyled,
   notesDescribeDedicatedFlooringJob,
   notesRequestFloorPrep,
 } from '@/utils/flooringNoteScope';
 import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
-import { isFlooringDemoStyleItem } from '@/utils/qmScopePanels/flooringRemodel';
+import {
+  flooringDemoStyleFromItemId,
+  flooringDemoStyleLabel,
+  isFlooringDemoStyleItem,
+} from '@/utils/qmScopePanels/flooringRemodel';
 import {
   explicitCrossTradeScopeItems,
   notesDescribeDrywallAndFlooringJob,
@@ -915,7 +920,7 @@ export function filterFramingOnlyAdditionScopeItems(
     {
       id: 'framing',
       inputType: 'yes_no',
-      label: framing?.label || 'Framing / shell',
+      label: 'Framing / shell',
       helperText:
         framing?.helperText ||
         'Frame the addition shell on the framed floor area in the job notes.',
@@ -2010,7 +2015,10 @@ export function applyDrywallScopeCardLayout(
   if (dedicatedNote || alreadyNoteShaped) {
     return (
       dedicatedNote
-        ? dedicatedDrywallConfirmScopeItems(inferenceCtx?.notes)
+        ? dedicatedDrywallConfirmScopeItems(
+            inferenceCtx?.notes,
+            inferenceCtx?.measurements
+          )
         : items.filter(item =>
             ['demo_removal', 'drywall', 'patch_repair'].includes(item.id)
           )
@@ -4149,9 +4157,15 @@ function injectNoteBackedPricedItems(
     Boolean(ADDITION_SCOPE_OWNERS[itemId]) &&
     existingIds.has(ADDITION_SCOPE_OWNERS[itemId]);
 
+  const styleDemoNamed =
+    items.some(row => isFlooringDemoStyleItem(row.id)) ||
+    Object.keys(itemQuantities).some(key =>
+      itemIdFromQuantityKey(key).startsWith('floor_demo_style_')
+    );
   for (const key of Object.keys(itemQuantities)) {
     const itemId = itemIdFromQuantityKey(key);
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (itemId === 'floor_demo' && styleDemoNamed) continue;
     if (isOwnedByAdditionPhase(itemId)) continue;
     if (
       itemId === 'flooring' &&
@@ -4223,7 +4237,14 @@ function injectNoteBackedPricedItems(
           helperText: electricalCard.helper,
           category: electricalCard.groupId,
         }
-      : NOTE_BACKED_SCOPE_COPY[itemId] || {
+      : flooringDemoStyleFromItemId(itemId)
+        ? {
+            label: flooringDemoStyleLabel(flooringDemoStyleFromItemId(itemId) || ''),
+            helperText:
+              'Remove this existing flooring. Protection, haul-off, and disposal are included. Floor prep is separate.',
+            category: 'demo',
+          }
+        : NOTE_BACKED_SCOPE_COPY[itemId] || {
       label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
       helperText: 'Scope item found in notes.',
       category: 'from_notes',
@@ -4242,6 +4263,7 @@ function injectNoteBackedPricedItems(
 
   for (const itemId of NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY) {
     if (existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (itemId === 'floor_demo' && styleDemoNamed) continue;
     if (isOwnedByAdditionPhase(itemId)) continue;
     if (
       itemId === 'flooring' &&
@@ -4338,7 +4360,9 @@ function injectNoteBackedPricedItems(
     });
   }
 
-  return additions.length ? [...items, ...additions] : items;
+  return dropCombinedFloorDemoWhenStyled(
+    additions.length ? [...items, ...additions] : items
+  );
 }
 
 const BATH_WET_AREA_DEMO_IDS = [
@@ -8546,8 +8570,24 @@ export function groupScopeChecklistItems(
       };
       return [item];
     });
+    const demoIds = new Set(demoOrder);
+    const demoTearOutLabel = (label: string) =>
+      /^(?:shower tile demo|remove (?:tub|prefab pan|tile pan|prefab enclosure|shower door))$/i.test(
+        label.trim()
+      );
+    for (const item of items) {
+      if (item.state === 'excluded' || item.state === 'unsure') continue;
+      if (demoItems.some(row => row.id === item.id)) continue;
+      if (
+        demoIds.has(item.id) ||
+        item.id.startsWith('shower_floor_demo__') ||
+        demoTearOutLabel(String(item.label || ''))
+      ) {
+        demoItems.push(item);
+      }
+    }
     const otherGroups = lines.flatMap(entry => {
-      if (entry.id === 'demo' || entry.id === 'tub_demo') return [];
+      if (demoIds.has(entry.id) || demoTearOutLabel(entry.label)) return [];
       const existing = byId.get(entry.id);
       if (existing?.state === 'excluded') return [];
       const item: ScopeChecklistItem = {
@@ -8658,10 +8698,24 @@ export function groupScopeChecklistItems(
       named.push(item);
     }
     if (named.length) {
-      const demo = named.filter(
-        item => item.id === 'floor_demo' || isFlooringDemoStyleItem(item.id)
+      const styleDemo = named
+        .filter(item => isFlooringDemoStyleItem(item.id))
+        .map(item => {
+          const type = flooringDemoStyleFromItemId(item.id);
+          if (!type) return item;
+          return {
+            ...item,
+            label: flooringDemoStyleLabel(type),
+            helperText:
+              'Remove this existing flooring. Protection, haul-off, and disposal are included. Floor prep is separate.',
+          };
+        });
+      const demo = styleDemo.length
+        ? styleDemo
+        : named.filter(item => item.id === 'floor_demo');
+      const install = named.filter(
+        item => item.id !== 'floor_demo' && !isFlooringDemoStyleItem(item.id)
       );
-      const install = named.filter(item => !demo.includes(item));
       const groups: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
       if (demo.length) groups.push({ title: 'Demo', items: demo });
       if (install.length === 1) {

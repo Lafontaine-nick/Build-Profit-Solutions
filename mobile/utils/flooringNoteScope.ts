@@ -125,10 +125,21 @@ function flooringClauseIsNegated(clause: string): boolean {
   return /^(?:no|not|without|do not|don't|dont|never)\b/i.test(clause.trim());
 }
 
+/** "Flooring by others" names the floor and keeps it off this bid. */
+export function notesLeaveFlooringToOthers(
+  notes: string | null | undefined
+): boolean {
+  return flooringClauses(notes).some(
+    clause =>
+      /\bfloor(?:ing)?\b/i.test(clause) && /\bby\s+others?\b/i.test(clause)
+  );
+}
+
 export function notesRequestFlooringDemo(
   notes: string | null | undefined
 ): boolean {
   if (notesOwnerHandlesFlooringDemo(notes)) return false;
+  if (dedicatedFlooringProductRoles(notes).removed.length > 0) return true;
   return flooringClauses(notes).some(
     clause => !flooringClauseIsNegated(clause) && FLOORING_DEMO_RE.test(clause)
   );
@@ -248,8 +259,23 @@ export function dedicatedFlooringProductRoles(notes: string | null | undefined):
     const end =
       sentenceBreak >= 0 ? Math.min(start + sentenceBreak, nextVerb) : nextVerb;
     if (flooringVerbRemoves(verb[0]) && ownerHandlesDemo) return;
+    const span = text.slice(start, end);
+    if (/^replace/i.test(verb[0])) {
+      const withAt = span.search(/\bwith\b/i);
+      if (withAt >= 0) {
+        if (!ownerHandlesDemo) {
+          for (const product of productsInSpan(span.slice(0, withAt))) {
+            removedIds.add(product.id);
+          }
+        }
+        for (const product of productsInSpan(span.slice(withAt))) {
+          installedIds.add(product.id);
+        }
+        return;
+      }
+    }
     const bucket = flooringVerbRemoves(verb[0]) ? removedIds : installedIds;
-    for (const product of productsInSpan(text.slice(start, end))) {
+    for (const product of productsInSpan(span)) {
       bucket.add(product.id);
     }
   });
@@ -453,7 +479,19 @@ export function retainedFlooringConfirmItemIds(
     const id = flooringDemoStyleItemId(type);
     if (!ids.includes(id)) ids.push(id);
   }
-  return ids;
+  const styled = ids.some(id => id.startsWith('floor_demo_style_'));
+  return styled ? ids.filter(id => id !== 'floor_demo') : ids;
+}
+
+/** A style card is the removal. The generic floor_demo row is the same work. */
+export function dropCombinedFloorDemoWhenStyled<
+  T extends { id?: string | null },
+>(items: T[]): T[] {
+  const styled = items.some(item =>
+    String(item.id || '').startsWith('floor_demo_style_')
+  );
+  if (!styled) return items;
+  return items.filter(item => item.id !== 'floor_demo');
 }
 
 export function filterDedicatedFlooringConfirmItems<
@@ -471,6 +509,10 @@ export function filterDedicatedFlooringConfirmItems<
   for (const id of keepIds || []) {
     if (id) allowed.add(id);
   }
+  const styled =
+    [...allowed].some(id => id.startsWith('floor_demo_style_')) ||
+    items.some(item => String(item.id || '').startsWith('floor_demo_style_'));
+  if (styled) allowed.delete('floor_demo');
   // A stale draft can still carry the old floor_demo item or existing-floor
   // style cards. Later owner-handling language is authoritative and must
   // remove those cards from Confirm Scope as well.

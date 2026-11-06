@@ -1470,11 +1470,11 @@ describe('estimateInitialRevealUi', () => {
       }))
     ).toEqual([
       { name: 'Shower tile demo', quantity: undefined },
-      { name: 'Shower wall tile', quantity: undefined },
+      { name: 'Install shower tile', quantity: undefined },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
-      'Price needed for Shower wall tile',
+      'Price needed for Install shower tile',
     ]);
     expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
     expect(getInitialRevealTagline(repaired)).toBe('Bathroom · Flooring');
@@ -1626,7 +1626,7 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       'Remove tub',
       'Shower tile demo',
-      'Shower wall tile',
+      'Install shower tile',
       'LVP flooring',
     ]);
     expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
@@ -1663,7 +1663,7 @@ describe('estimateInitialRevealUi', () => {
       }))
     ).toEqual([
       { name: 'Shower tile demo', quantity: '80 sqft' },
-      { name: 'Shower wall tile', quantity: '80 sqft' },
+      { name: 'Install shower tile', quantity: '80 sqft' },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(
@@ -1674,7 +1674,7 @@ describe('estimateInitialRevealUi', () => {
       ).map(group => group.title)
     ).toEqual([
       'Shower tile demo',
-      'Shower wall tile',
+      'Install shower tile',
       'LVP flooring',
     ]);
     const price = (id: string) => {
@@ -1704,6 +1704,36 @@ describe('estimateInitialRevealUi', () => {
       labor: 280,
       total: 560,
     });
+  });
+
+  it('keeps a denied-roof bedroom addition on the framing shell', () => {
+    const notes =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'room_addition',
+      scopeChecklist: {
+        templateKey: 'addition',
+        items: [
+          { id: 'foundation', label: 'Footings / slab / foundation', state: 'included' },
+          { id: 'concrete', label: 'Concrete', state: 'included' },
+          { id: 'framing', label: 'Framing / shell', state: 'included' },
+          { id: 'windows_doors', label: 'Windows & exterior doors', state: 'included' },
+          { id: 'electrical_rough', label: 'Rough electrical', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+          { id: 'drywall', label: 'Drywall', state: 'included' },
+          { id: 'paint', label: 'Interior paint', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['Framing / shell']);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Roofing is not in this bid',
+    ]);
   });
 
   it('keeps Scope found to the framing shell for a framing-only addition', () => {

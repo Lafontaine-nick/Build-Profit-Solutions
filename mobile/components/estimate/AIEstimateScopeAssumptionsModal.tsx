@@ -355,6 +355,7 @@ import {
 import {
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
+  notesLeaveFlooringToOthers,
   notesRequestFlooringDemo,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
@@ -648,6 +649,7 @@ import {
   summarizeQuickMeasurementFieldStates,
   countGarageDoorPlanningEstimates,
   pinQuickMeasurementFieldInGroup,
+  placeDrywallCeilingUnderWallRemoval,
   splitWetAreaQuickMeasurementFields,
   WET_AREA_QUICK_MEASUREMENT_KEYS,
   tagPlanDetectedQuickMeasurementKeys,
@@ -865,6 +867,7 @@ import {
   coversLabelList,
   FOOTER_PLANNING_BENCHMARK_INFO,
   confirmScopePricingScrollLabel,
+  countVisiblePricingCards,
   footerScrollToPricingButtonLabel,
   footerSuggestedPricingPendingHint,
   footerSuggestedPricingSummary,
@@ -15873,9 +15876,10 @@ function CollapsibleQuickMeasurements({
       !mixedScopeMode &&
       isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
   const compactMixedScope = mixedScopeMode && !singleTradeImport;
-  const flooringIsNamedInNotes = /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
-    String(notes || '')
-  );
+  const flooringIsNamedInNotes =
+    /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+      String(notes || '')
+    ) && !notesLeaveFlooringToOthers(notes);
   const mixedScopeFlooringSelected =
     includedScopeKeys.includes('flooring') ||
       includedScopeKeys.includes('floor_demo') ||
@@ -16528,9 +16532,24 @@ function CollapsibleQuickMeasurements({
     if (notesDescribeAreaOnlyAddition(notes)) {
       return baseRows;
     }
-    if (notesOwnerHandlesFlooringDemo(notes)) {
+    if (notesOwnerHandlesFlooringDemo(notes) || notesLeaveFlooringToOthers(notes)) {
+      const hiddenFloorKeys = new Set<QuickMeasurementFieldKey>(
+        notesLeaveFlooringToOthers(notes)
+          ? [
+              'floorDemoSqft',
+              'flooringSqft',
+              'flooringLvpSqft',
+              'flooringLaminateSqft',
+              'flooringEngineeredHardwoodSqft',
+              'flooringSolidHardwoodSqft',
+              'flooringTileSqft',
+              'flooringCarpetSqft',
+              'flooringSheetVinylSqft',
+            ]
+          : ['floorDemoSqft']
+      );
       baseRows = baseRows
-        .map(row => row.filter(field => field.key !== 'floorDemoSqft'))
+        .map(row => row.filter(field => !hiddenFloorKeys.has(field.key)))
         .filter(row => row.length > 0);
     }
     if (notesDescribeDedicatedFlooringJob(notes)) {
@@ -16592,6 +16611,8 @@ function CollapsibleQuickMeasurements({
     }
     const genericPaintNeedsConfirmation =
       notesRequireInteriorPaintMeasurements(notes) &&
+      !notesUseDedicatedDrywallScope(notes) &&
+      !notesDescribeSheetrockFinishJob(notes) &&
       !hasCeilingPaintOnly &&
       String(effectiveTemplateKey || '').toLowerCase() !== 'insulation' &&
       !baseRows.some(row =>
@@ -16683,6 +16704,8 @@ function CollapsibleQuickMeasurements({
         ) {
           ensureScopeField('framingOpeningCount');
         }
+      } else if (notesNameFramingOnlyAddition(notesTextForScopeFields)) {
+        ensureScopeField('framedAreaSqft');
       } else if (String(effectiveTemplateKey || '').toLowerCase() !== 'ground_up') {
         ensureScopeField('framedAreaSqft', {
           label: 'Wall framing area',
@@ -16845,8 +16868,8 @@ function CollapsibleQuickMeasurements({
           ? [[
               {
                 ...wall,
-                label: 'Shower wall tile',
-                helperText: 'New shower wall tile area — priced per sqft.',
+                label: 'Install shower tile',
+                helperText: 'New shower tile area — priced per sqft.',
                 placeholder: 'Enter',
               },
             ]]
@@ -18347,8 +18370,9 @@ function CollapsibleQuickMeasurements({
         ...stickyResults,
       ];
     }
-    // Paint belongs with the blank takeoffs, directly under wall demolition.
-    // A typed paint area must not jump into Confirmed above that box.
+    // Paint belongs with the blank takeoffs, after the drywall removal rows.
+    // Ceiling removal stays directly under wall removal. A typed paint area
+    // must not jump into Confirmed above those rows.
     const wallDemoGroup = (
       Object.keys(positioned) as QuickMeasurementGroupId[]
     ).find(groupId =>
@@ -18372,12 +18396,51 @@ function CollapsibleQuickMeasurements({
         const demoIndex = positioned[wallDemoGroup].findIndex(
           result => result.key === 'wallDemoSqft'
         );
+        let insertAt = demoIndex + 1;
+        if (
+          positioned[wallDemoGroup][insertAt]?.key === 'drywallCeilingSqft'
+        ) {
+          insertAt += 1;
+        }
         positioned[wallDemoGroup] = [
-          ...positioned[wallDemoGroup].slice(0, demoIndex + 1),
+          ...positioned[wallDemoGroup].slice(0, insertAt),
           paintResult,
-          ...positioned[wallDemoGroup].slice(demoIndex + 1),
+          ...positioned[wallDemoGroup].slice(insertAt),
         ];
       }
+    }
+    // Ceiling removal stays directly under wall removal, including while the
+    // ceiling area is still blank.
+    let ceilingResult: QuickMeasurementFieldResult | undefined;
+    (Object.keys(positioned) as QuickMeasurementGroupId[]).forEach(groupId => {
+      const index = positioned[groupId].findIndex(
+        result => result.key === 'drywallCeilingSqft'
+      );
+      if (index < 0) return;
+      ceilingResult = positioned[groupId][index];
+      positioned[groupId] = positioned[groupId].filter(
+        result => result.key !== 'drywallCeilingSqft'
+      );
+    });
+    const ceilingWallGroup = (
+      Object.keys(positioned) as QuickMeasurementGroupId[]
+    ).find(groupId =>
+      positioned[groupId].some(result => result.key === 'wallDemoSqft')
+    );
+    if (ceilingResult && ceilingWallGroup) {
+      const wallIndex = positioned[ceilingWallGroup].findIndex(
+        result => result.key === 'wallDemoSqft'
+      );
+      positioned[ceilingWallGroup] = [
+        ...positioned[ceilingWallGroup].slice(0, wallIndex + 1),
+        ceilingResult,
+        ...positioned[ceilingWallGroup].slice(wallIndex + 1),
+      ];
+    } else if (ceilingResult) {
+      positioned.needsConfirmation = [
+        ceilingResult,
+        ...positioned.needsConfirmation,
+      ];
     }
     // Opening counts belong together on the Confirm Scope card. A filled
     // door count can be classified as optional by the generic relevance map
@@ -18486,10 +18549,50 @@ function CollapsibleQuickMeasurements({
         home.homeIndex
       );
     }
+    // A filled count of 1 was landing in Confirmed, under the continue button.
+    // Keep every shower-and-LVP measurement in one list at the top.
+    if (notesNameShowerTileWithFlooring(notes)) {
+      const showerLvpOrder: QuickMeasurementFieldKey[] = [
+        'demoTubCount',
+        'demoPrefabPanCount',
+        'demoPrefabEnclosureCount',
+        'demoShowerDoorCount',
+        'demoTilePanSqft',
+        'wallDemoSqft',
+        'showerWallTileSqft',
+        'flooringLvpSqft',
+      ];
+      const orderIndex = new Map(
+        showerLvpOrder.map((key, index) => [key, index])
+      );
+      const gathered: QuickMeasurementFieldResult[] = [];
+      (Object.keys(positioned) as QuickMeasurementGroupId[]).forEach(
+        groupId => {
+          const kept: QuickMeasurementFieldResult[] = [];
+          for (const result of positioned[groupId]) {
+            if (orderIndex.has(result.key)) gathered.push(result);
+            else kept.push(result);
+          }
+          positioned = { ...positioned, [groupId]: kept };
+        }
+      );
+      gathered.sort(
+        (a, b) =>
+          (orderIndex.get(a.key) ?? 0) - (orderIndex.get(b.key) ?? 0)
+      );
+      positioned = {
+        ...positioned,
+        needsConfirmation: [
+          ...gathered,
+          ...positioned.needsConfirmation,
+        ],
+      };
+    }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
+    const drywallOrdered = placeDrywallCeilingUnderWallRemoval(positioned);
     if (!showWetAreaFinishSteppers)
-      return { groups: positioned, wetArea: [] as typeof positioned.more };
-    return splitWetAreaQuickMeasurementFields(positioned);
+      return { groups: drywallOrdered, wetArea: [] as typeof positioned.more };
+    return splitWetAreaQuickMeasurementFields(drywallOrdered);
   }, [
     fieldResults,
     editingFieldKey,
@@ -24578,9 +24681,11 @@ function ScopeGroupSection({
         </View>
       ) : null}
       {!collapsed || !title
-        ? items.map(item => (
-            <React.Fragment key={item.id}>{renderItem(item)}</React.Fragment>
-          ))
+        ? items
+            .filter(item => item?.id)
+            .map(item => (
+              <React.Fragment key={item.id}>{renderItem(item)}</React.Fragment>
+            ))
         : null}
     </View>
   );
@@ -26900,13 +27005,30 @@ export default function AIEstimateScopeAssumptionsModal({
       const islandStillUnset =
         answeredScopeFoundPieces.includes('island') &&
         !(Number(prev.kitchenDemoIslandCount) > 0);
+      const ceilingSqft = Number(
+        String(prev.drywallCeilingSqft ?? '').replace(/,/g, '')
+      );
+      const wallSqft = Number(String(prev.wallDemoSqft ?? '').replace(/,/g, ''));
+      const scopeFoundNotes = String(draft?.originalNotes || '');
+      const statedWallSqft = Number(
+        String(
+          scopeFoundNotes.match(
+            /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?walls?\b/i
+          )?.[1] || ''
+        ).replace(/,/g, '')
+      );
+      const ceilingCopiedFromWalls =
+        answeredScopeFoundPieces.includes('drywall_ceilings') &&
+        ceilingSqft > 0 &&
+        !prev.quickMeasurementUserOverrides?.drywallCeilingSqft &&
+        !/\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?ceilings?\b/i.test(
+          scopeFoundNotes
+        ) &&
+        (ceilingSqft === wallSqft || ceilingSqft === statedWallSqft);
       const drywallRemovalStillUnset =
         (answeredScopeFoundPieces.includes('drywall_walls') &&
-          !(Number(String(prev.wallDemoSqft ?? '').replace(/,/g, '')) > 0)) ||
-        (answeredScopeFoundPieces.includes('drywall_ceilings') &&
-          !(
-            Number(String(prev.drywallCeilingSqft ?? '').replace(/,/g, '')) > 0
-          ));
+          !(wallSqft > 0)) ||
+        ceilingCopiedFromWalls;
       const electricalRemovalStillUnset =
         (answeredScopeFoundPieces.includes('electrical_panel') &&
           !(Number(prev.panelRemovalCount) > 0)) ||
@@ -27486,7 +27608,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ),
       {
         notes: measurementNotes,
-        templateKey: checklist.templateKey,
+        templateKey: checklist?.templateKey,
         projectType: draftForScope?.projectType ?? draft?.projectType,
       }
     );
@@ -27901,7 +28023,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       hydratedPlanTrade === 'insulation' ||
       hydrateTradeContext.tradeKey === 'insulation' ||
-      String(checklist.templateKey || '').toLowerCase() === 'insulation'
+      String(checklist?.templateKey || '').toLowerCase() === 'insulation'
     ) {
       nextMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(
         nextMeasurements,
@@ -27946,7 +28068,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       hydratedPlanTrade === 'electrical' ||
       hydrateTradeContext.tradeKey === 'electrical' ||
-      String(checklist.templateKey || '').toLowerCase() === 'electrical'
+      String(checklist?.templateKey || '').toLowerCase() === 'electrical'
     ) {
       const complexityPatches = hydrateProjectComplexityInputFields({
         floorAreaSqft: nextMeasurements.floorAreaSqft,
@@ -27984,7 +28106,7 @@ export default function AIEstimateScopeAssumptionsModal({
       hydratedPlanTrade === 'plumbing' ||
       hydrateTradeContext.tradeKey === 'plumbing' ||
       ['plumbing', 'plumbing_service'].includes(
-        String(checklist.templateKey || '').toLowerCase()
+        String(checklist?.templateKey || '').toLowerCase()
       )
     ) {
       nextMeasurements = applySouthernUtahPlumbingPackageTakeoffDefaults(
@@ -27995,7 +28117,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ) as typeof nextMeasurements;
       nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
         notes: scopeNotes,
-        templateKey: checklist.templateKey,
+        templateKey: checklist?.templateKey,
         projectType: draftForScope?.projectType ?? draft?.projectType,
       });
       nextMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
@@ -28020,14 +28142,14 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       hydratedPlanTrade === 'framing' ||
       hydrateTradeContext.tradeKey === 'framing' ||
-      String(checklist.templateKey || '').toLowerCase() === 'framing'
+      String(checklist?.templateKey || '').toLowerCase() === 'framing'
     ) {
       nextMeasurements = reconcileFramingScopeMeasurements(
         nextMeasurements as Record<string, unknown>
       ) as typeof nextMeasurements;
       nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
         notes: scopeNotes,
-        templateKey: checklist.templateKey,
+        templateKey: checklist?.templateKey,
         projectType: draftForScope?.projectType ?? draft?.projectType,
       });
       const structured = buildFramingStructuredMeasurements(
@@ -28048,7 +28170,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       hydratedPlanTrade === 'hvac' ||
       hydrateTradeContext.tradeKey === 'hvac' ||
-      String(checklist.templateKey || '').toLowerCase() === 'hvac' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'hvac' ||
       notesNameDedicatedHvacEquipmentJob(scopeNotes) ||
       mixedHvacScope
     ) {
@@ -28063,7 +28185,7 @@ export default function AIEstimateScopeAssumptionsModal({
       };
       nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
         notes: scopeNotes,
-        templateKey: checklist.templateKey,
+        templateKey: checklist?.templateKey,
         projectType: draftForScope?.projectType ?? draft?.projectType,
       });
       const structured = buildHvacStructuredMeasurements(
@@ -28150,7 +28272,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (
-      String(checklist.templateKey || '').toLowerCase() === 'roofing' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'roofing' ||
       roofingNotesFlow
     ) {
       const roofingInferenceNotes = collectRoofingInferenceNotes(
@@ -28166,7 +28288,7 @@ export default function AIEstimateScopeAssumptionsModal({
         checklistItems: sourceItems,
       }) as typeof nextMeasurements;
     }
-    if (String(checklist.templateKey || '').toLowerCase() === 'painting') {
+    if (String(checklist?.templateKey || '').toLowerCase() === 'painting') {
       const exteriorDeclined = Boolean(
         nextMeasurements.quickMeasurementUserOverrides?.paintScopeExterior
       );
@@ -28244,7 +28366,7 @@ export default function AIEstimateScopeAssumptionsModal({
       draftForScope?.canonicalScope
     );
     const bathroomNotesFlow =
-      String(checklist.templateKey || '').toLowerCase() === 'bathroom' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
       explicitBathroomRemodelNotes;
     if (bathroomNotesFlow && Array.isArray(checklist.items)) {
@@ -28289,7 +28411,7 @@ export default function AIEstimateScopeAssumptionsModal({
         notes: scopeNotes,
       }
     );
-    if (String(checklist.templateKey || '').toLowerCase() === 'painting') {
+    if (String(checklist?.templateKey || '').toLowerCase() === 'painting') {
       const paintingItemIds = new Set([
         'prep',
         'interior_paint',
@@ -28333,7 +28455,7 @@ export default function AIEstimateScopeAssumptionsModal({
     );
     if (
       mixedHvacScope ||
-      String(checklist.templateKey || '').toLowerCase() === 'hvac'
+      String(checklist?.templateKey || '').toLowerCase() === 'hvac'
     ) {
       normalized = simpleTradePanelFor('hvac').syncScopeItems(
         normalized,
@@ -28341,7 +28463,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     if (
-      String(checklist.templateKey || '').toLowerCase() === 'bathroom' &&
+      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' &&
       normalized.some(item => item.id === 'baseboard_install') &&
       !normalized.some(item => item.id === 'trim_paint')
     ) {
@@ -28398,7 +28520,7 @@ export default function AIEstimateScopeAssumptionsModal({
       /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     if (
       ['plumbing', 'plumbing_service'].includes(
-        String(checklist.templateKey || '').toLowerCase()
+        String(checklist?.templateKey || '').toLowerCase()
       ) ||
       hydratedPlanTrade === 'plumbing' ||
       hydrateTradeContext.tradeKey === 'plumbing' ||
@@ -28434,7 +28556,7 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
     if (
-      String(checklist.templateKey || '').toLowerCase() === 'framing' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'framing' ||
       hydratedPlanTrade === 'framing' ||
       hydrateTradeContext.tradeKey === 'framing'
     ) {
@@ -28444,7 +28566,7 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
     if (
-      String(checklist.templateKey || '').toLowerCase() === 'windows_doors' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'windows_doors' ||
       hydratedPlanTrade === 'windows_doors' ||
       hydrateTradeContext.tradeKey === 'windows_doors'
     ) {
@@ -28454,7 +28576,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     if (
-      String(checklist.templateKey || '').toLowerCase() === 'garage_doors' ||
+      String(checklist?.templateKey || '').toLowerCase() === 'garage_doors' ||
       hydratedPlanTrade === 'garage_doors' ||
       hydrateTradeContext.tradeKey === 'garage_doors'
     ) {
@@ -28468,7 +28590,7 @@ export default function AIEstimateScopeAssumptionsModal({
     // this pass, host workflows such as Kitchen can retain only the generic
     // electrical row and lose explicit note-backed items like "8 receptacles".
     normalized = syncElectricalScopeItems(normalized, {
-      templateKey: checklist.templateKey,
+      templateKey: checklist?.templateKey,
       projectType: draftForScope?.projectType,
       notes: scopeNotes,
       electricalScope: nextMeasurements.electricalScope,
@@ -28476,13 +28598,13 @@ export default function AIEstimateScopeAssumptionsModal({
     });
     const mixedScopeInput = {
       draft: draftForScope,
-      templateKey: checklist.templateKey,
+      templateKey: checklist?.templateKey,
       projectType: draftForScope?.projectType,
       notes: scopeNotes,
       measurements: nextMeasurements as Record<string, unknown>,
       mixedScopeTrades: mixedScopeTradesFromDraft(draftForScope),
       wholeHomeLayout: isWholeHomeQuickMeasurementTemplate(
-        checklist.templateKey
+        checklist?.templateKey
       ),
       singleTradeImport: singleTradePlanImport,
       selectedTrade: singleTradeKey,
@@ -28492,12 +28614,12 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     const textureMigration = stripStandaloneDrywallTextureItem(normalized);
     const drywallPlanExportCrewSplit = isDrywallPlanExportCrewSplit({
-      templateKey: checklist.templateKey,
+      templateKey: checklist?.templateKey,
       planImportMode: nextMeasurements.planImportMode,
       planImportTradeKey: nextMeasurements.planImportTradeKey,
     });
     const drywallCompletePackage = isDrywallCompletePackageScope({
-      templateKey: checklist.templateKey,
+      templateKey: checklist?.templateKey,
       planImportMode: nextMeasurements.planImportMode,
       planImportTradeKey: nextMeasurements.planImportTradeKey,
     });
@@ -28505,7 +28627,7 @@ export default function AIEstimateScopeAssumptionsModal({
       drywallCompletePackage || drywallPlanExportCrewSplit
         ? normalized
         : textureMigration.items,
-      checklist.templateKey,
+      checklist?.templateKey,
       {
         notes: scopeNotes,
         measurements: {
@@ -28833,7 +28955,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     } else if (
       ['plumbing', 'plumbing_service'].includes(
-        String(checklist.templateKey || '').toLowerCase()
+        String(checklist?.templateKey || '').toLowerCase()
       )
     ) {
       setNotesTradeMode(
@@ -28850,7 +28972,7 @@ export default function AIEstimateScopeAssumptionsModal({
     setShowCustomItemInput(false);
     const grouped = groupScopeChecklistItems(
       displayForHydrate,
-      checklist.templateKey,
+      checklist?.templateKey,
       {
         projectType: draft?.projectType,
         notes: scopeNotes,
@@ -28860,7 +28982,7 @@ export default function AIEstimateScopeAssumptionsModal({
       initialScopeGroupCollapse(
         grouped,
         norm,
-        checklist.templateKey,
+        checklist?.templateKey,
         scopeNotes,
         draft?.projectType
       )
@@ -28887,7 +29009,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (!scopeHydrated || !checklist?.templateKey) return;
     setItems(prev => {
       const withDefaults = applyAdditionConversionScopeDefaults(prev, {
-        templateKey: checklist.templateKey,
+        templateKey: checklist?.templateKey,
         projectType: draft?.projectType,
         notes: scopeNotes,
       });
@@ -28895,7 +29017,7 @@ export default function AIEstimateScopeAssumptionsModal({
         withDefaults,
         measurements as Record<string, unknown>,
         {
-          templateKey: checklist.templateKey,
+          templateKey: checklist?.templateKey,
           projectType: draft?.projectType,
           notes: scopeNotes,
         }
@@ -30368,6 +30490,59 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
 
+    // Tear-out cards stay inside Demo. A named prefab pan or enclosure must
+    // not render as its own group beside that header.
+    if (notesNameShowerTileWithFlooring(scopeNotes)) {
+      const demoOrder = [
+        'demo',
+        'tub_demo',
+        'shower_floor_demo',
+        'shower_floor_demo__tile_pan',
+        'shower_enclosure_demo',
+        'glass_door_demo',
+      ];
+      const demoRank = new Map(demoOrder.map((id, index) => [id, index]));
+      const demoTearOutLabel =
+        /^(?:shower tile demo|remove (?:tub|prefab pan|tile pan|prefab enclosure|shower door))$/i;
+      const isDemoCard = (item: { id: string; label?: string | null }) =>
+        demoRank.has(item.id) ||
+        item.id.startsWith('shower_floor_demo__') ||
+        demoTearOutLabel.test(String(item.label || '').trim());
+      const demoItems: ScopeChecklistItem[] = [];
+      const seenDemo = new Set<string>();
+      const rest: typeof groups = [];
+      for (const group of groups) {
+        const kept: ScopeChecklistItem[] = [];
+        for (const item of group.items) {
+          if (isDemoCard(item)) {
+            if (seenDemo.has(item.id)) continue;
+            seenDemo.add(item.id);
+            demoItems.push(
+              item.id === 'shower_floor_demo'
+                ? { ...item, label: 'Remove prefab pan' }
+                : item.id === 'shower_floor_demo__tile_pan'
+                  ? { ...item, label: 'Remove tile pan' }
+                  : item.id === 'shower_enclosure_demo'
+                    ? { ...item, label: 'Remove prefab enclosure' }
+                    : item.id === 'glass_door_demo' ||
+                        /^remove shower door$/i.test(String(item.label || '').trim())
+                      ? { ...item, label: 'Remove shower door' }
+                      : item
+            );
+          } else {
+            kept.push(item);
+          }
+        }
+        if (kept.length) rest.push({ ...group, items: kept });
+      }
+      demoItems.sort(
+        (a, b) => (demoRank.get(a.id) ?? 50) - (demoRank.get(b.id) ?? 50)
+      );
+      if (demoItems.length) {
+        groups.splice(0, groups.length, { title: 'Demo', items: demoItems }, ...rest);
+      }
+    }
+
     // Put groups with committed pricing first so contractors see the estimate
     // impact before the remaining scope questions.
     return groups
@@ -31693,7 +31868,10 @@ export default function AIEstimateScopeAssumptionsModal({
       suggestedPricingFooterBreakdown.needsMeasurementCount,
   });
   const scrollToPricingLabel = confirmScopePricingScrollLabel({
-    readyCount: suggestedPricingFooterBreakdown.readyCount,
+    readyCount: countVisiblePricingCards(
+      scopeGroupedItems,
+      suggestedPricingFooterBreakdown.readyRows.map(row => row.itemId)
+    ),
     selectedTotal: step2AppliedEstimateTotal,
   });
   const pricingPendingHint = footerSuggestedPricingPendingHint({
@@ -35892,11 +36070,14 @@ export default function AIEstimateScopeAssumptionsModal({
                           ).replace(/,/g, '')
                         )
                       : null;
-                    const fill = groupApplyBlockMatchingDisplayedLine(
-                      rawFill,
-                      displayedGroupLines.get(item.id),
-                      deviceTakeoff
-                    );
+                    const fill =
+                      rawFill.rateSourceLabel === 'From notes'
+                        ? rawFill
+                        : groupApplyBlockMatchingDisplayedLine(
+                            rawFill,
+                            displayedGroupLines.get(item.id),
+                            deviceTakeoff
+                          );
                     const acceptance = measurements.pricingAcceptance?.[item.id];
                     const userLocked =
                       acceptance?.selectionStatus === 'manual_adjusted' ||

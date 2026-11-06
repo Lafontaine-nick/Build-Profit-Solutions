@@ -2080,6 +2080,19 @@ export function parseScopeMeasurementsFromNotes(
   // on hang/finish, and leave the patch quantity on patch repair.
   const hangFinishSqft = pickSqftFromClauses([/\bhang\s+and\s+finish\b/]);
   if (hangFinishSqft) out.drywallSqft = hangFinishSqft;
+  // "Hang and finish the drywall in the living room, about 600 sqft of walls"
+  // splits the area off the hang clause. That wall area still belongs to hang.
+  if (!out.drywallSqft) {
+    const hangWallArea = text.match(
+      /\bhang\s+and\s+finish\b[^.]{0,160}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\s+of\s+(?:the\s+)?walls?\b/i
+    );
+    const hangWallSqft = hangWallArea?.[1]
+      ? Number(hangWallArea[1].replace(/,/g, ''))
+      : null;
+    if (hangWallSqft && Number.isFinite(hangWallSqft) && hangWallSqft > 0) {
+      out.drywallSqft = hangWallSqft;
+    }
+  }
 
   const insulationSqft = (patterns: RegExp[]) => {
     // An R-value identifies the insulation assembly, not its area. Only

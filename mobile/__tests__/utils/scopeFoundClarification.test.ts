@@ -279,6 +279,29 @@ describe('scope found clarification', () => {
     ]);
   });
 
+  it('leaves flooring off the kitchen demolition question when flooring is by others', () => {
+    const notes =
+      'Kitchen remodel with 18 LF cabinets, 55 sqft counters, and 28 sqft backsplash. Flooring by others. Labor $8,500, material $12,000.';
+    const prompt = resolveScopeFoundClarification(notes);
+    expect(prompt?.id).toBe('kitchen_demo');
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Cabinets',
+      'Countertops',
+      'Backsplash',
+      'No demo',
+      'Not sure',
+    ]);
+    const chosen = measurementsForScopeFoundChoice(
+      {},
+      'kitchen_demo',
+      ['cabinets', 'countertops', 'backsplash', 'kitchen_floor'],
+      notes
+    );
+    expect(chosen.scopeFoundPieces).not.toContain('kitchen_floor');
+    expect(chosen.floorDemoSqft).toBeNull();
+    expect(chosen.itemQuantities?.floor_demo).toBeUndefined();
+  });
+
   it('asks removal only for the counter and backsplash a kitchen note names', () => {
     const notes = 'Quartz countertops 60 sqft. Tile backsplash 30 sqft.';
     const prompt = resolveScopeFoundClarification(notes);
@@ -620,6 +643,60 @@ describe('scope found clarification', () => {
       'Brick removal',
       'Fiber cement removal',
     ]);
+  });
+
+  it('keeps a stated wall area off ceiling removal', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    const chosen = measurementsForScopeFoundChoice(
+      {},
+      'drywall_demo',
+      ['drywall_walls', 'drywall_ceilings'],
+      notes
+    );
+    expect(chosen.wallDemoSqft).toBe(600);
+    expect(chosen.drywallCeilingSqft).toBeNull();
+    expect(chosen.itemQuantities?.drywall_wall_demo).toMatchObject({
+      quantity: 600,
+      unit: 'sqft',
+    });
+    expect(chosen.itemQuantities?.drywall_ceiling_demo).toBeUndefined();
+    expect(
+      scopeFoundRevealLines(notes, 'drywall_demo', null, [
+        'drywall_walls',
+        'drywall_ceilings',
+      ]).map(
+        line => (line.quantity ? `${line.name} · ${line.quantity}` : line.name)
+      )
+    ).toEqual(['Remove drywall walls · 600 sqft', 'Remove drywall ceilings']);
+  });
+
+  it('keeps a typed ceiling area when the wall area is reapplied', () => {
+    const notes =
+      "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint.";
+    const chosen = measurementsForScopeFoundChoice(
+      {
+        wallDemoSqft: 600,
+        drywallCeilingSqft: 500,
+        quickMeasurementUserOverrides: { drywallCeilingSqft: true },
+      },
+      'drywall_demo',
+      ['drywall_walls', 'drywall_ceilings'],
+      notes
+    );
+    expect(chosen.wallDemoSqft).toBe(600);
+    expect(chosen.drywallCeilingSqft).toBe(500);
+    expect(chosen.itemQuantities?.drywall_ceiling_demo).toMatchObject({
+      quantity: 500,
+      unit: 'sqft',
+    });
+    const copied = measurementsForScopeFoundChoice(
+      { wallDemoSqft: 600, drywallCeilingSqft: 600 },
+      'drywall_demo',
+      ['drywall_walls', 'drywall_ceilings'],
+      notes
+    );
+    expect(copied.drywallCeilingSqft).toBeNull();
   });
 
   it('asks which existing material is coming out on the other single-trade jobs', () => {
