@@ -70,6 +70,7 @@ import {
   notesNameOwnerSuppliedAppliances,
   notesOpeningMentionIsKeepOnly,
   notesStateFlooringArea,
+  wholeHomeRemodelIncludesFinishDemo,
   wholeHomeRemodelNamedItemIds,
 } from '@/utils/wholeHomeRemodelNote';
 import {
@@ -5145,9 +5146,22 @@ function computeQuickMeasurementRowsForInput(
       }
       if (field.key === 'floorDemoSqft') {
         if (notesOwnerHandlesFlooringDemo(noteText)) return false;
-        return /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
-          noteText
-        );
+        const selectedPieces = Array.isArray(
+          (measurements as { scopeFoundPieces?: unknown }).scopeFoundPieces
+        )
+          ? (
+              (measurements as { scopeFoundPieces?: unknown })
+                .scopeFoundPieces as unknown[]
+            ).map(piece => String(piece))
+          : [];
+        if (selectedPieces.includes('flooring')) return true;
+        if (
+          wholeHomeRemodelIncludesFinishDemo(noteText) &&
+          /\b(?:flooring|lvp|carpet|vinyl|hardwood|laminate)\b/i.test(noteText)
+        ) {
+          return true;
+        }
+        return notesRequestFlooringDemo(noteText);
       }
       if (field.key === 'roofSquares') {
         return /\b(?:roof(?:ing)?|reroof|re[\s-]?roof|shingles?)\b/i.test(

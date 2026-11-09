@@ -5,6 +5,7 @@ import {
   type KitchenDemoSurface,
 } from '@/utils/kitchenNoteScope';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
+import { wholeHomeRemodelIncludesFinishDemo } from '@/utils/wholeHomeRemodelNote';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
 function positiveCount(value: unknown): number | null {
@@ -53,6 +54,8 @@ export function kitchenSelectedDemoSurfaces(params: {
   const notes = String(params.notes || '');
   const measurements = params.measurements || {};
   const demo = params.demo || {};
+  const impliedKitchenDemo =
+    wholeHomeRemodelIncludesFinishDemo(notes) && /\bkitchen\b/i.test(notes);
   const on = (
     surface: KitchenDemoSurface,
     pieceId: string,
@@ -63,24 +66,30 @@ export function kitchenSelectedDemoSurfaces(params: {
     (count ?? 0) > 0 ||
     scopeFoundKeepsKitchenDemo(measurements, pieceId, choices);
   return {
-    cabinet: on(
-      'cabinet',
-      'cabinets',
-      ['yes', 'all', 'cabinets'],
-      demo.kitchenDemoCabinetCount
-    ),
-    counter: on(
-      'counter',
-      'countertops',
-      ['yes', 'all', 'cabinets'],
-      demo.kitchenDemoCounterCount
-    ),
-    backsplash: on(
-      'backsplash',
-      'backsplash',
-      ['yes', 'all', 'cabinets'],
-      demo.kitchenDemoBacksplashCount
-    ),
+    cabinet:
+      impliedKitchenDemo ||
+      on(
+        'cabinet',
+        'cabinets',
+        ['yes', 'all', 'cabinets'],
+        demo.kitchenDemoCabinetCount
+      ),
+    counter:
+      impliedKitchenDemo ||
+      on(
+        'counter',
+        'countertops',
+        ['yes', 'all', 'cabinets'],
+        demo.kitchenDemoCounterCount
+      ),
+    backsplash:
+      impliedKitchenDemo ||
+      on(
+        'backsplash',
+        'backsplash',
+        ['yes', 'all', 'cabinets'],
+        demo.kitchenDemoBacksplashCount
+      ),
     floor: on(
       'floor',
       'kitchen_floor',

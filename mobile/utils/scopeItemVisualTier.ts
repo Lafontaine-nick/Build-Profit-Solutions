@@ -29,6 +29,14 @@ export type ScopeItemNoteBadge =
   | 'from_plan'
   | 'review';
 
+const CLADDING_REMOVAL_NAMED_IN_NOTES: Record<string, RegExp> = {
+  cladding_demo__old_stucco: /\bstucco\b/i,
+  cladding_demo__wood_siding: /\bwood\s+siding\b/i,
+  cladding_demo__vinyl_siding: /\bvinyl\s+siding\b/i,
+  cladding_demo__brick: /\bbrick\b/i,
+  cladding_demo__fiber_cement: /\bfiber\s+cement\b|\bhardie\b/i,
+};
+
 function notesIncludeSitePhotos(notes: string | null | undefined): boolean {
   const n = String(notes || '');
   return /---\s*Site photos\s*---|Detected from site photos/i.test(n);
@@ -384,6 +392,12 @@ export function scopeItemNoteBadge(
       String(notes || '')
     )
   ) {
+    return null;
+  }
+
+  // A tapped exterior finish is the contractor's answer unless the note names it.
+  const claddingSubject = CLADDING_REMOVAL_NAMED_IN_NOTES[item.id];
+  if (claddingSubject && !claddingSubject.test(String(notes || ''))) {
     return null;
   }
 

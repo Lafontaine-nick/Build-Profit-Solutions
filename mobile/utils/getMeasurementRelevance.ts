@@ -26,6 +26,8 @@ import {
   readNoteWork,
 } from '@/utils/noteClauseReader';
 import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
+import { notesOwnerHandlesFlooringDemo } from '@/utils/flooringOwnerDemoNote';
+import { wholeHomeRemodelIncludesFinishDemo } from '@/utils/wholeHomeRemodelNote';
 
 export type MeasurementRelevance = {
   relevant: boolean;
@@ -331,9 +333,19 @@ export function getMeasurementRelevance(params: {
     /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
       notesText
     );
+  if (wholeHomeFlooringScope && measurementKey === 'flooringSqft') {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   if (
-    wholeHomeFlooringScope &&
-    (measurementKey === 'flooringSqft' || measurementKey === 'floorDemoSqft')
+    measurementKey === 'floorDemoSqft' &&
+    wholeHomeRemodelIncludesFinishDemo(notesText) &&
+    /\b(?:flooring|lvp|carpet|vinyl|hardwood|laminate)\b/i.test(notesText) &&
+    !notesOwnerHandlesFlooringDemo(notesText)
   ) {
     return {
       relevant: true,

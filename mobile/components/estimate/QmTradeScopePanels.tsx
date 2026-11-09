@@ -47,6 +47,7 @@ import {
 import {
   notesNameBathroomRemodelPanel,
   notesNameKitchenRemodelPanel,
+  wholeHomeRemodelIncludesFinishDemo,
 } from '@/utils/wholeHomeRemodelNote';
 import { type ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
@@ -4736,6 +4737,10 @@ export const QmBathroomFixturesPanels = React.memo(
         !notesMentionVanity &&
         !/\btoilets?\b/i.test(noteText) &&
         !/\b(?:shower|tub|bathtub)\b/i.test(noteText);
+      const selectedBathroomDemo =
+        readScopeFoundPieces(measurements.scopeFoundPieces).includes('bathrooms') ||
+        (wholeHomeRemodelIncludesFinishDemo(notes) &&
+          /\bbath(?:room)?s?\b/i.test(String(notes || '')));
       const visibleBathroomInstallRows = openBathroomRemodel
         ? BATHROOM_INSTALL_FIXTURE_ROWS.filter(
             row => row.key === 'bathroomInstallVanityCount'
@@ -4765,6 +4770,7 @@ export const QmBathroomFixturesPanels = React.memo(
       const visibleBathroomDemoRows = BATHROOM_DEMO_FIXTURE_ROWS.filter(row => {
         if (row.key === 'bathroomDemoVanityCount') {
           return (
+            selectedBathroomDemo ||
             notesNameDemoVanity ||
             demo.bathroomDemoVanityCount != null ||
             existing.bathroomExistingVanityCount != null
@@ -4801,7 +4807,13 @@ export const QmBathroomFixturesPanels = React.memo(
           {visibleBathroomInstallRows.length > 0 ||
           visibleBathroomDemoRows.length > 0 ? (
           <QmScopePanelSection
-            title={notesMentionCountertop ? 'Vanity & countertop' : 'Vanity'}
+            title={
+              openBathroomRemodel
+                ? 'Bathroom install'
+                : notesMentionCountertop
+                  ? 'Vanity & countertop'
+                  : 'Vanity'
+            }
             {...vanityInstallStyle}
             caption={fixtureCaption}
             rows={visibleBathroomInstallRows}
@@ -4824,7 +4836,8 @@ export const QmBathroomFixturesPanels = React.memo(
             stepperIncreaseDisabled={{
               bathroomDemoVanityCount:
                 existing.bathroomExistingVanityCount == null &&
-                !notesNameDemoVanity,
+                !notesNameDemoVanity &&
+                !selectedBathroomDemo,
               bathroomDemoCounterCount:
                 existing.bathroomExistingCounterCount == null &&
                 !notesNameDemoCountertop,
@@ -4936,6 +4949,7 @@ export const QmBathroomFixturesPanels = React.memo(
           />
           ) : null}
           {openBathroomRemodel ||
+          selectedBathroomDemo ||
           toiletFaucet.bathroomDemoToiletCount != null ||
           toiletFaucet.bathroomInstallToiletCount != null ||
           toiletFaucet.bathroomInstallFaucetCount != null ? (
@@ -4944,7 +4958,8 @@ export const QmBathroomFixturesPanels = React.memo(
               {...vanityInstallStyle}
               caption='Counts from the note. Supply and drain stay on the vanity and faucet.'
               rows={[
-                ...(toiletFaucet.bathroomDemoToiletCount != null
+                ...(selectedBathroomDemo ||
+                toiletFaucet.bathroomDemoToiletCount != null
                   ? [{ key: 'bathroomDemoToiletCount', label: 'Remove toilet' }]
                   : []),
                 ...(openBathroomRemodel ||
@@ -7802,7 +7817,7 @@ export function QmRoofingScopePanels({
                   : 'Enter the number of stories. This does not calculate roof area.'
               }
               value={String(measurements.storyCount || '')}
-              placeholder='1'
+              placeholder='Enter'
               unitLabel='story'
               keyboardType='number-pad'
               onChangeText={value =>

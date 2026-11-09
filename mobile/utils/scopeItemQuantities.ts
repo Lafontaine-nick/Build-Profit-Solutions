@@ -8698,6 +8698,61 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Receptacle count from the job notes.',
     missingMessage: 'Enter receptacle count or pricing.',
   },
+  electrical_gfci_receptacle: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['gfciReceptacleCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'GFCI receptacle count.',
+    missingMessage: 'Enter GFCI receptacle count or pricing.',
+  },
+  electrical_main_panel: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['mainPanelCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Main panel count.',
+    missingMessage: 'Enter panel count or pricing.',
+  },
+  electrical_dedicated_20a: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['dedicated20aCircuitCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Dedicated 20A circuit count.',
+    missingMessage: 'Enter circuit count or pricing.',
+  },
+  electrical_single_pole_switch: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['singlePoleSwitchCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Single-pole switch count.',
+    missingMessage: 'Enter switch count or pricing.',
+  },
+  electrical_recessed_light: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['recessedLightCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Recessed light count.',
+    missingMessage: 'Enter lighting count or pricing.',
+  },
+  plumbing_rough: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_rough,
+    measurementKeys: ['plumbingRoughPointCount'],
+    quantityHelper:
+      'Supply, drain, and vent rough-in points. Slab saw-cutting, trenching, and patching are priced separately.',
+    missingMessage: 'Enter rough-in points or pricing.',
+  },
+  fixture_replace: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.fixture_replace,
+    measurementKeys: ['fixtureReplacementCount'],
+  },
+  water_heater: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.water_heater,
+    measurementKeys: ['waterHeaterCount'],
+  },
 };
 
 /** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
@@ -15818,25 +15873,43 @@ function insulationAssemblyRateAdjustmentsForValues(
   };
   const typeKey = Object.keys(typeRates).find(key => type.includes(key));
   const [typeMaterial, typeLabor] = typeKey ? typeRates[typeKey] : [1, 1];
-  const rValue = Number(String(rValueInput || '').match(/\d{2,3}/)?.[0] || '');
+  const rValue = Number(String(rValueInput || '').match(/\d{1,3}/)?.[0] || '');
   const rMaterial =
     {
+      5: 0.55,
+      10: 0.7,
       13: 0.85,
       15: 0.9,
       19: 0.95,
+      20: 0.98,
       21: 1,
+      23: 1.05,
       30: 1.1875,
       38: 1.3,
       49: 1.5,
       60: 1.7,
     }[rValue] ??
-    (rValue > 0 ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60)) : 1);
+    (rValue > 0 ? Math.max(0.55, Math.min(1.7, 0.65 + rValue / 60)) : 1);
+  // A thicker blow or spray pass takes more time. A cavity batt does not.
+  const depthLabor =
+    (typeKey === 'blown-in' ||
+      typeKey === 'cellulose' ||
+      typeKey === 'spray foam') &&
+    rValue >= 30
+      ? rValue >= 60
+        ? 1.35
+        : rValue >= 49
+          ? 1.25
+          : rValue >= 38
+            ? 1.15
+            : 1.08
+      : 1;
   const materialAddPerSqft =
     typeKey === 'batt' ? insulationBattFacingMaterialAddPerSqft(battFacing) : 0;
   return {
     materialMultiplier: typeMaterial * rMaterial,
     materialAddPerSqft,
-    laborMultiplier: typeLabor,
+    laborMultiplier: typeLabor * depthLabor,
     label: [
       typeKey ? typeKey : null,
       typeKey === 'batt' ? insulationBattFacingLabel(battFacing) : null,
@@ -18873,10 +18946,14 @@ export function resolveScopeItemSuggestedPricing(
         ...assemblyInput,
         airSealingIncluded: false,
       };
+      // A remodel that tapped Insulation shows its rows at this job's rate.
+      const remainderInsulation = readScopeFoundPieces(
+        (measurementsInput as { scopeFoundPieces?: unknown }).scopeFoundPieces
+      ).includes('remodel_insulation');
       const assemblyFill = resolveInsulationAssemblyScopeSuggestedPricing(
         assemblyPricingInput,
         pricingContext,
-        'insulation'
+        remainderInsulation ? templateKey : 'insulation'
       );
       if (assemblyFill) {
         return {
@@ -21861,12 +21938,18 @@ export function resolveScopeItemSuggestedPricing(
       Number(resolved.quantity) > 0
         ? Number(resolved.quantity)
         : null;
+    const fromRemainderWall = readScopeFoundPieces(
+      (measurementsInput as { scopeFoundPieces?: unknown }).scopeFoundPieces
+    ).includes('extent_bath_out_wall_tile');
     const sqft =
       resolvedSqft ||
       parseScopeMeasurementInput(measurementsInput.wallDemoSqft) ||
-      parseScopeMeasurementInput(
-        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
-      );
+      (fromRemainderWall
+        ? null
+        : parseScopeMeasurementInput(
+            (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+          ));
+    if (fromRemainderWall && !(sqft && sqft > 0)) return empty;
     if (sqft && sqft > 0) {
       const material = round2(sqft * TILE_DEMO_MATERIAL_RATE);
       const labor = round2(sqft * TILE_DEMO_LABOR_RATE);
@@ -22944,6 +23027,13 @@ export function resolveScopeItemSuggestedPricing(
       if (itemId === 'shower_floor_tile') {
         if (!(floorSf && floorSf > 0) && !userTile) return empty;
       } else if (!(wallSf && wallSf > 1) && !userTile) {
+        if (
+          readScopeFoundPieces(
+            (measurementsInput as { scopeFoundPieces?: unknown }).scopeFoundPieces
+          ).includes('extent_bath_in_wall_tile')
+        ) {
+          return empty;
+        }
         const lump = resolveShowerTileLumpSuggestedFill({
           livingSf,
           state: pricingContext?.state,

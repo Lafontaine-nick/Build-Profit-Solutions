@@ -1812,7 +1812,23 @@ function appendRevealAttentionExtras(
   draft: EstimateAiDraft,
   buckets: InitialRevealConfirmBuckets
 ): InitialRevealConfirmBuckets {
-  const extras = noteExclusionNotices(draft.originalNotes);
+  const notes = draft.originalNotes;
+  const extras = noteExclusionNotices(notes).filter(item => {
+    if (
+      notesOpeningMentionIsKeepOnly(notes, 'windows') &&
+      /\bwindows?\b/i.test(item)
+    ) {
+      return false;
+    }
+    if (
+      (notesDoorMentionIsPaintOrKeepOnly(notes) ||
+        notesOpeningMentionIsKeepOnly(notes, 'doors')) &&
+      /\bdoors?\b/i.test(item)
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (!extras.length) return buckets;
   // Exclusions lead so "not in this bid" is visible before missing prices.
   const pricingScope = [...extras];
@@ -3748,7 +3764,15 @@ function getInitialRevealScopeRows(
                             ? 'Shrubs'
                             : id === 'decking_repair'
                               ? 'Roof decking repair'
-                              : name;
+                              : id === 'kitchen_updates'
+                                ? 'Kitchen'
+                                : id === 'bathroom_updates'
+                                  ? /\bbathrooms\b|\bbaths\b|\b(?:two|three|four|five|six|\d+)\s+baths?\b/i.test(
+                                      notes
+                                    )
+                                    ? 'Bathrooms'
+                                    : 'Bathroom'
+                                  : name;
   const facts = draft.scopeChecklist?.scopeFacts || [];
   const resolvedFactIds = new Set(
     facts
@@ -5071,7 +5095,7 @@ function getInitialRevealScopeRows(
       !kitchenHasDetails &&
       !next.some(row => row.id === 'kitchen_updates' || row.id === 'cabinets')
     ) {
-      next.push({ id: 'kitchen_updates', name: 'Kitchen updates' });
+      next.push({ id: 'kitchen_updates', name: 'Kitchen' });
     }
     if (
       namedWholeHomeIds.has('bathroom_updates') &&
@@ -5083,7 +5107,14 @@ function getInitialRevealScopeRows(
           row.id === 'shower_tile'
       )
     ) {
-      next.push({ id: 'bathroom_updates', name: 'Bathroom updates' });
+      next.push({
+        id: 'bathroom_updates',
+        name: /\bbathrooms\b|\bbaths\b|\b(?:two|three|four|five|six|\d+)\s+baths?\b/i.test(
+          notes
+        )
+          ? 'Bathrooms'
+          : 'Bathroom',
+      });
     }
     return next;
   })();
@@ -6630,6 +6661,7 @@ function getRevealClassification(draft: EstimateAiDraft) {
   const tradeLabels: Record<string, string> = {
     framing: 'Framing',
     flooring: 'Flooring',
+    kitchen: 'Kitchen',
     bathroom: 'Bathroom',
     bath: 'Bathroom',
     drywall: 'Drywall',
@@ -6784,6 +6816,14 @@ function getRevealClassification(draft: EstimateAiDraft) {
         return 'Exterior doors';
       }
       if (normalized === 'concrete') return 'Concrete';
+      if (normalized === 'kitchen') return 'Kitchen';
+      if (normalized === 'bathroom' || normalized === 'bath') {
+        return /\bbathrooms\b|\bbaths\b|\b(?:two|three|four|five|six|\d+)\s+baths?\b/i.test(
+          notes
+        )
+          ? 'Bathrooms'
+          : 'Bathroom';
+      }
       return value || null;
     })
     .filter((label): label is string => Boolean(label));

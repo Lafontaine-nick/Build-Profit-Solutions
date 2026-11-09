@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { reviewPackageTakeoffCaption } from '@/utils/planTakeoffReviewUi';
 import {
   formatPlanningMoney,
+  insulationAssemblyReviewLines,
   type EstimateAiDraft,
 } from '@/utils/estimateAiDraft';
 import {
@@ -554,6 +555,15 @@ export default function AIEstimateDraftReviewCompact({
               ? formatPlanningMoney(liveSplitTotal)
               : amount || (suggestedAmount > 0 ? formatPlanningMoney(suggestedAmount) : null);
           const rowAmountColor = suggestedAmount > 0 ? '#fbbf24' : '#2dcc9a';
+          const assemblyLines = amount
+            ? insulationAssemblyReviewLines(
+                pkg,
+                draft,
+                liveSplitTotal != null && liveSplitTotal > 0
+                  ? liveSplitTotal
+                  : scopePackagePricedAmount(pkg, draft)
+              )
+            : null;
           const editorBreakdown =
             isEditingPricing && canEditInline && !isSoftCost
               ? emptyBudgetBreakdown(pkg, resolvedBreakdown)
@@ -647,7 +657,23 @@ export default function AIEstimateDraftReviewCompact({
                   >
                     {pkg.name}
                   </Text>
-                  {qty ? (
+                  {assemblyLines ? (
+                    <View style={{ marginTop: 4, gap: 3 }}>
+                      {assemblyLines.map((line, lineIndex) => (
+                        <View
+                          key={`${line.name}-${lineIndex}`}
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}
+                        >
+                          <Text style={{ color: Colors.sub, fontSize: 12, flex: 1 }} numberOfLines={2}>
+                            {line.name} · {line.sqft.toLocaleString()} sqft
+                          </Text>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>
+                            {formatPlanningMoney(line.total)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : qty ? (
                     <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}>{qty}</Text>
                   ) : isSoftCost ? (
                     <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}>Allowance</Text>

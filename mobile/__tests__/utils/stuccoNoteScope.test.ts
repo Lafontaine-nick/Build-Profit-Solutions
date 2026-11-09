@@ -30,6 +30,7 @@ import {
   filterStuccoWithWindowsConfirmItems,
   notesDescribeDedicatedStuccoJob,
   notesNameStuccoWithWindows,
+  statedStuccoWallMeasurements,
   stuccoInstallSystemIds,
 } from '@/utils/stuccoNoteScope';
 
@@ -37,10 +38,11 @@ const NOTE =
   'Patch and install new stucco on 800 sqft of exterior wall, including mesh and base coat.';
 
 describe('dedicated stucco note', () => {
-  it('offers 3-coat and 1-coat until the note names another system', () => {
+  it('offers 3-coat, 1-coat, and synthetic until the note names a color coat', () => {
     expect(stuccoInstallSystemIds('Rear house stucco, 800 sqft.')).toEqual([
       'three_coat',
       'one_coat',
+      'eifs',
     ]);
     expect(stuccoInstallSystemIds('Install EIFS on the rear wall.')).toEqual([
       'three_coat',
@@ -49,7 +51,18 @@ describe('dedicated stucco note', () => {
     ]);
     expect(
       stuccoInstallSystemIds('Color coat the existing stucco, 800 sqft.')
-    ).toEqual(['three_coat', 'one_coat', 'finish_only']);
+    ).toEqual(['three_coat', 'one_coat', 'eifs', 'finish_only']);
+  });
+
+  it('fills the wall area from a short replacement note', () => {
+    expect(statedStuccoWallMeasurements('Replace the stucco, 1,800 sqft.')).toMatchObject({
+      stuccoGrossWallSqft: 1800,
+      stuccoNetWallSqft: 1800,
+    });
+    expect(statedStuccoWallMeasurements(NOTE)).toMatchObject({
+      stuccoGrossWallSqft: 800,
+      stuccoNetWallSqft: 800,
+    });
   });
 
   it('keeps one stucco line at the stated wall area', () => {

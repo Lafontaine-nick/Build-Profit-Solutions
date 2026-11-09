@@ -1,6 +1,15 @@
+import { applyStep2NoteScopeFilters } from '@/utils/scopePackagesForReview';
 import {
   applyScopeFoundClarification,
+  declineRemodelExtent,
   flooringReplaceIncludesRemoval,
+  remodelExtentFollowUps,
+  garageNoAdditionalWork,
+  garageScopeAssistant,
+  garageScopeTextAdditions,
+  remodelRemainderMeasurementFields,
+  toggleGarageSuggestionPiece,
+  withGarageDrywallHangChoice,
   interiorPaintSurfacesAnswered,
   measurementsForScopeFoundChoice,
   resolveScopeFoundClarification,
@@ -386,19 +395,42 @@ describe('scope found clarification', () => {
     ).toEqual(['ceiling_paint', 'trim_paint']);
   });
 
-  it('asks one demolition question for a whole-home remodel', () => {
-    const prompt = resolveScopeFoundClarification(
-      'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.'
+  it('includes named whole-home finish demo without a demolition question', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two baths, flooring, interior paint, and a new roof. No HVAC.';
+    expect(resolveScopeFoundClarification(notes)).toBeNull();
+    expect(applyScopeFoundClarification([], notes, {}).map(item => item.id)).toEqual([
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'floor_demo',
+      'fixture_demo',
+    ]);
+  });
+
+  it('keeps finish demo when a typed addition is added on a whole-home remodel', () => {
+    const notes =
+      'Whole house remodel. Kitchen, two baths, flooring, interior paint, and a new roof. No HVAC.';
+    const flooring = garageScopeTextAdditions(
+      'Add 600 sqft of flooring removal and install',
+      notes
     );
-    expect(prompt?.id).toBe('whole_home_demo');
-    expect(prompt?.options.map(option => option.label)).toEqual([
-      'Cabinets',
-      'Countertops',
-      'Backsplash',
-      'Appliances',
-      'Flooring',
-      'No demo',
-      'Not sure',
+    expect(flooring.pieceIds).toEqual(['remodel_demo', 'remodel_flooring']);
+    expect(flooring.counts).toEqual({ floorDemoSqft: '600', flooringSqft: '600' });
+    const added = garageScopeTextAdditions('6 outlets', notes);
+    const measurements = {
+      ...measurementsForScopeFoundChoice({}, 'remodel_remainder', added.pieceIds, notes),
+      ...added.counts,
+    };
+    expect(resolveScopeFoundClarification(notes)).toBeNull();
+    expect(applyScopeFoundClarification([], notes, measurements).map(item => item.id)).toEqual([
+      'cabinet_demo',
+      'countertop_demo',
+      'backsplash_demo',
+      'floor_demo',
+      'fixture_demo',
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
     ]);
   });
 
@@ -757,8 +789,9 @@ describe('scope found clarification', () => {
 
   it('asks what else comes off when the stucco itself is already a replacement', () => {
     const prompt = resolveScopeFoundClarification('Replace the stucco, 1,800 sqft.');
-    expect(prompt?.question).toBe('Any other removal?');
+    expect(prompt?.question).toBe('Is existing exterior finish being removed?');
     expect(prompt?.options.map(option => option.label)).toEqual([
+      'Stucco',
       'Wood siding',
       'Vinyl siding',
       'Brick',
@@ -1094,5 +1127,494 @@ describe('scope found clarification', () => {
     expect(next.scopeFoundPieces).toEqual(['carpet']);
     expect(next.scopeFoundChoice).toBeNull();
     expect(next.flooringExistingTypes).toEqual(['carpet']);
+  });
+
+  it('asks a garage conversion which unnamed phases are in the bid', () => {
+    const notes =
+      'Convert the 400 sqft garage. Hang 800 sqft of drywall and install 400 sqft of LVP. No new HVAC.';
+    const prompt = resolveScopeFoundClarification(notes);
+    expect(prompt?.question).toBe('Anything else in this garage conversion?');
+    expect(prompt?.options.map(option => option.label)).toEqual([
+      'Demo',
+      'Paint',
+      'Insulation',
+      'Electrical',
+      'Framing',
+      'Trim',
+      'Bathroom',
+      'Plumbing',
+      'No',
+      'Not sure',
+    ]);
+    const answered = measurementsForScopeFoundChoice(
+      {},
+      'remodel_remainder',
+      ['remodel_demo', 'remodel_paint'],
+      notes
+    );
+    expect(answered.floorDemoSqft).toBeUndefined();
+    expect(answered.scopeFoundPieces).toEqual(['remodel_demo', 'remodel_paint']);
+    const items = applyScopeFoundClarification(
+      [
+        { id: 'drywall', label: 'Drywall hang / finish', state: 'included' },
+        { id: 'flooring_lvp', label: 'LVP', state: 'included' },
+      ],
+      notes,
+      answered
+    );
+    expect(items.map(item => item.id)).toEqual([
+      'drywall',
+      'flooring_lvp',
+      'floor_demo',
+      'interior_paint',
+    ]);
+    expect(
+      applyScopeFoundClarification(items, notes, {
+        scopeFoundClarificationId: 'remodel_remainder',
+        scopeFoundChoice: 'none',
+        scopeFoundPieces: [],
+      }).map(item => item.id)
+    ).toEqual(['drywall', 'flooring_lvp']);
+    expect(
+      scopeFoundRevealLines(
+        notes,
+        'remodel_remainder',
+        null,
+        ['remodel_demo'],
+        answered
+      ).map(line => [line.name, line.quantity])
+    ).toEqual([['Flooring demo', '']]);
+    const pieces = [
+      'remodel_demo',
+      'remodel_paint',
+      'remodel_insulation',
+      'remodel_electrical',
+      'remodel_framing',
+      'remodel_trim',
+      'remodel_bathroom',
+    ];
+    expect(remodelRemainderMeasurementFields(pieces).map(row => row.label)).toEqual([
+      'Flooring demo',
+      'Paint',
+      'Framing',
+      'Trim',
+    ]);
+    const withExtent = [
+      ...pieces,
+      'extent_electrical_receptacles',
+      'extent_bathroom_toilet',
+      'extent_bath_in_wall_tile',
+      'extent_bathroom_floor',
+    ];
+    expect(remodelExtentFollowUps(withExtent).map(row => row.question)).toEqual([
+      'What electrical?',
+      "What's coming out?",
+      "What's going in?",
+    ]);
+    expect(remodelExtentFollowUps(['remodel_insulation'])).toEqual([]);
+    expect(
+      remodelExtentFollowUps(['remodel_bathroom']).find(
+        row => row.question === "What's coming out?"
+      )?.options.map(option => option.label)
+    ).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Wall tile',
+      'Prefab enclosure',
+      'Shower door',
+      'Toilet',
+      'Vanity',
+      'Bath floor',
+    ]);
+    expect(
+      remodelExtentFollowUps(['remodel_bathroom'])
+        .find(row => row.question === "What's going in?")
+        ?.options.map(option => option.label)
+    ).toEqual([
+      'Tub',
+      'Prefab pan',
+      'Tile pan',
+      'Wall tile',
+      'Prefab enclosure',
+      'Shower door',
+      'Toilet',
+      'Vanity',
+      'Bath floor',
+    ]);
+    expect(remodelRemainderMeasurementFields(withExtent).map(row => row.label)).toEqual([
+      'Flooring demo',
+      'Paint',
+      'Framing',
+      'Trim',
+      'Receptacles',
+      'GFCI receptacles',
+      'Wall tile',
+      'Bath floor',
+    ]);
+    expect(
+      applyScopeFoundClarification(
+        [
+          { id: 'drywall', label: 'Drywall hang / finish', state: 'included' },
+          { id: 'flooring_lvp', label: 'LVP', state: 'included' },
+        ],
+        notes,
+        {
+          scopeFoundClarificationId: 'remodel_remainder',
+          scopeFoundPieces: withExtent,
+        }
+      ).map(item => item.id)
+    ).toEqual([
+      'drywall',
+      'flooring_lvp',
+      'floor_demo',
+      'interior_paint',
+      'insulation',
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+      'wall_framing',
+      'interior_trim',
+      'shower_tile',
+      'toilet',
+      'floor_tile',
+    ]);
+    expect(
+      scopeFoundRevealLines(notes, 'remodel_remainder', null, withExtent).map(line => [
+        line.name,
+        line.quantity,
+      ])
+    ).toEqual([
+      ['Flooring demo', ''],
+      ['Paint', ''],
+      ['Insulation', ''],
+      ['Electrical', 'Receptacles'],
+      ['Framing', ''],
+      ['Trim', ''],
+      ['Bathroom', 'Going in: Wall tile, Toilet, Bath floor'],
+    ]);
+    const withTub = measurementsForScopeFoundChoice(
+      {},
+      'remodel_remainder',
+      ['remodel_bathroom', 'extent_bath_out_tub', 'extent_bathroom_toilet'],
+      notes
+    );
+    expect(withTub.demoTubCount).toBe(1);
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        withTub
+      ).map(item => item.id)
+    ).toEqual(expect.arrayContaining(['tub_demo', 'toilet']));
+    const noDemo = measurementsForScopeFoundChoice(
+      withTub,
+      'remodel_remainder',
+      ['remodel_bathroom', 'extent_none_remodel_bathroom_out', 'extent_bath_in_wall_tile'],
+      notes
+    );
+    expect(noDemo.demoTubCount).toBeNull();
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        noDemo
+      ).map(item => item.id)
+    ).toEqual(expect.arrayContaining(['shower_tile']));
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        noDemo
+      ).map(item => item.id)
+    ).not.toContain('shower_floor_tile');
+    const tubGoingIn = measurementsForScopeFoundChoice(
+      {},
+      'remodel_remainder',
+      ['remodel_bathroom', 'extent_none_remodel_bathroom_out', 'extent_bath_in_tub'],
+      notes
+    );
+    expect(
+      (tubGoingIn.itemQuantities as { tub_install?: { quantity?: number } }).tub_install
+        ?.quantity
+    ).toBe(1);
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        tubGoingIn
+      ).map(item => item.id)
+    ).toEqual(expect.arrayContaining(['tub_install']));
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        tubGoingIn
+      ).map(item => item.id)
+    ).not.toContain('tub_demo');
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        noDemo
+      ).map(item => item.id)
+    ).not.toContain('tub_demo');
+    const nothingComingOrGoing = measurementsForScopeFoundChoice(
+      {},
+      'remodel_remainder',
+      [
+        'remodel_bathroom',
+        'extent_none_remodel_bathroom_out',
+        'extent_unsure_remodel_bathroom_in',
+      ],
+      notes
+    );
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        nothingComingOrGoing
+      ).map(item => item.id)
+    ).not.toEqual(expect.arrayContaining(['bathroom_updates', 'tub_demo', 'toilet']));
+    expect(
+      remodelRemainderMeasurementFields(
+        declineRemodelExtent(
+          ['remodel_electrical', 'extent_electrical_receptacles'],
+          'remodel_electrical'
+        )
+      ).map(row => row.label)
+    ).toEqual([
+      'Panel',
+      'Circuits',
+      'Receptacles',
+      'GFCI receptacles',
+      'Switches',
+      'Lighting',
+    ]);
+    const plumbingUnsure = declineRemodelExtent(
+      ['remodel_plumbing', 'extent_plumbing_rough'],
+      'remodel_plumbing'
+    );
+    expect(remodelRemainderMeasurementFields(plumbingUnsure).map(row => row.label)).toEqual([
+      'Rough-in points',
+      'Fixtures',
+      'Water heater',
+      'Water line',
+    ]);
+    expect(
+      remodelRemainderMeasurementFields([
+        ...plumbingUnsure,
+        'remodel_bathroom',
+        'extent_bathroom_toilet',
+      ]).find(row => row.key === 'fixtureReplacementCount')?.label
+    ).toBe('Other fixtures');
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        { scopeFoundClarificationId: 'remodel_remainder', scopeFoundPieces: plumbingUnsure }
+      ).map(item => item.id)
+    ).toEqual(['drywall']);
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        {
+          scopeFoundClarificationId: 'remodel_remainder',
+          scopeFoundPieces: plumbingUnsure,
+          plumbingRoughPointCount: '4',
+          waterLineLf: '40',
+        }
+      ).map(item => item.id)
+    ).toEqual(['drywall', 'plumbing_rough', 'water_line']);
+    const electricalUnsure = declineRemodelExtent(
+      ['remodel_electrical'],
+      'remodel_electrical'
+    );
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        {
+          scopeFoundClarificationId: 'remodel_remainder',
+          scopeFoundPieces: electricalUnsure,
+          standardReceptacleCount: '6',
+          gfciReceptacleCount: '2',
+        }
+      ).map(item => item.id)
+    ).toEqual([
+      'drywall',
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+    ]);
+    expect(
+      remodelExtentFollowUps(['remodel_electrical', 'remodel_insulation']).map(
+        row => row.question
+      )
+    ).toEqual(['What electrical?']);
+    expect(remodelExtentFollowUps(['remodel_kitchen']).map(row => row.question)).toEqual([
+      'What kitchen?',
+    ]);
+    expect(remodelExtentFollowUps(['remodel_hvac']).map(row => [row.question, row.options.map(option => option.label)])).toEqual([
+      ['What HVAC?', ['System', 'Ductwork', 'Registers', 'Thermostat']],
+    ]);
+    expect(
+      remodelExtentFollowUps(['remodel_landscaping', 'remodel_concrete']).map(row => row.question)
+    ).toEqual(['What landscaping?', 'What concrete?']);
+    const withPlumbing = [
+      'remodel_plumbing',
+      'extent_plumbing_rough',
+      'extent_plumbing_fixtures',
+      'extent_plumbing_heater',
+      'extent_plumbing_water_line',
+    ];
+    expect(remodelExtentFollowUps(withPlumbing).map(row => [row.question, row.options.map(option => option.label)])).toEqual([
+      ['What plumbing?', ['Rough-in', 'Fixtures', 'Water heater', 'Water line']],
+    ]);
+    expect(
+      applyScopeFoundClarification(
+        [{ id: 'drywall', label: 'Drywall hang / finish', state: 'included' }],
+        notes,
+        { scopeFoundClarificationId: 'remodel_remainder', scopeFoundPieces: withPlumbing }
+      ).map(item => [item.id, item.label])
+    ).toEqual([
+      ['drywall', 'Drywall hang / finish'],
+      ['plumbing_rough', 'Plumbing rough-in'],
+      ['fixture_replace', 'Plumbing fixtures'],
+      ['water_heater', 'Water heater'],
+      ['water_line', 'Water line'],
+    ]);
+    expect(
+      remodelRemainderMeasurementFields([
+        ...withPlumbing,
+        'remodel_bathroom',
+        'extent_bathroom_toilet',
+      ]).find(row => row.key === 'fixtureReplacementCount')?.label
+    ).toBe('Other fixtures');
+    const confirmed = applyStep2NoteScopeFilters(
+      [
+        {
+          id: 'drywall',
+          label: 'Drywall hang / finish',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        { id: 'flooring_lvp', label: 'LVP', inputType: 'yes_no', state: 'included' },
+      ],
+      {
+        originalNotes: notes,
+        scopeChecklist: { templateKey: 'room_remodel', items: [] },
+      } as Parameters<typeof applyStep2NoteScopeFilters>[1],
+      {
+        scopeFoundClarificationId: 'remodel_remainder',
+        scopeFoundPieces: pieces,
+      },
+      'room_remodel'
+    );
+    expect(confirmed.map(item => item.id)).toEqual(
+      expect.arrayContaining([
+        'drywall',
+        'flooring_lvp',
+        'floor_demo',
+        'interior_paint',
+        'insulation',
+        'electrical_rough',
+        'wall_framing',
+        'interior_trim',
+        'bathroom_updates',
+      ])
+    );
+  });
+
+  it('asks a partial room remodel about the phases the note left out', () => {
+    const prompt = resolveScopeFoundClarification(
+      'Remodel the living room. Paint the walls.'
+    );
+    expect(prompt?.question).toBe('Anything else in this remodel?');
+    expect(prompt?.options.map(option => option.label)).not.toContain('Paint');
+    expect(prompt?.options.map(option => option.label)).toEqual(
+      expect.arrayContaining(['Demo', 'Flooring', 'Drywall', 'No', 'Not sure'])
+    );
+  });
+
+  it('leaves a framing-only addition and a drywall hang on their own questions', () => {
+    expect(
+      resolveScopeFoundClarification(
+        'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.'
+      )?.id
+    ).not.toBe('remodel_remainder');
+    expect(
+      resolveScopeFoundClarification(
+        "Hang and finish the drywall in the living room, about 600 sqft of walls. No new insulation. Don't paint."
+      )?.id
+    ).toBe('drywall_demo');
+  });
+
+  it('asks a garage conversion one hang question and maps a short addition', () => {
+    const notes =
+      'Convert the 400 sqft garage. Hang 800 sqft of drywall and install 400 sqft of LVP. No new HVAC.';
+    const assistant = garageScopeAssistant(notes);
+    expect(assistant?.hangQuestion).toBe(
+      'The note says hang drywall. Include taping and finishing?'
+    );
+    expect(assistant?.suggestions.map(option => option.label)).toEqual([
+      'Demo',
+      'Paint',
+      'Insulation',
+      'Electrical',
+    ]);
+    expect(assistant?.more.map(option => option.label)).toEqual([
+      'Framing',
+      'Trim',
+      'Bathroom',
+      'Plumbing',
+    ]);
+    expect(
+      garageScopeAssistant(
+        'Convert the garage. Hang and finish 800 sqft of drywall. Install LVP.'
+      )?.hangQuestion
+    ).toBeNull();
+    const hang = withGarageDrywallHangChoice([], 'hang_only');
+    expect(scopeFoundRevealLines(notes, 'remodel_remainder', null, hang)).toEqual([]);
+    const added = garageScopeTextAdditions('add 6 outlets and batt insulation');
+    expect(added.matched).toBe(true);
+    expect(added.counts.standardReceptacleCount).toBe('6');
+    expect(added.pieceIds).toEqual(
+      expect.arrayContaining([
+        'remodel_insulation',
+        'remodel_electrical',
+        'extent_electrical_receptacles',
+      ])
+    );
+    expect(garageScopeTextAdditions('add a skylight').matched).toBe(false);
+    const flooring = garageScopeTextAdditions('Install 600 sqft of flooring');
+    expect(flooring.pieceIds).toContain('remodel_flooring');
+    expect(flooring.counts.flooringSqft).toBe('600');
+    const room = garageScopeAssistant('Remodel the living room. Paint the walls.');
+    expect(room?.intro).toBe('For this remodel, add work the note did not name.');
+    expect(room?.suggestions.map(option => option.label)).toEqual([
+      'Demo',
+      'Flooring',
+      'Drywall',
+      'Trim',
+    ]);
+    expect(room?.more.map(option => option.label)).toEqual([
+      'Electrical',
+      'Insulation',
+      'Doors',
+    ]);
+    expect(room?.hangQuestion).toBeNull();
+    const kitchen = garageScopeTextAdditions('Add appliances', 'Remodel the kitchen.');
+    expect(kitchen.pieceIds).toContain('remodel_appliances');
+    const trim = garageScopeTextAdditions(
+      'Install 40 lf of trim',
+      'Remodel the living room.'
+    );
+    expect(trim.pieceIds).toContain('remodel_trim');
+    expect(trim.counts.baseboardLf).toBe('40');
+    const plumbing = toggleGarageSuggestionPiece(hang, 'remodel_plumbing');
+    expect(plumbing).toEqual(
+      expect.arrayContaining(['remodel_plumbing', 'extent_unsure_remodel_plumbing'])
+    );
+    expect(garageNoAdditionalWork(plumbing)).toEqual(['garage_drywall_hang_only', 'garage_no_additional_work']);
   });
 });

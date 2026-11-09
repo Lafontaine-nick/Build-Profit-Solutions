@@ -64,6 +64,83 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(resolved.pricingReady).toBe(false);
   });
 
+  it('prices a garage remodel insulation row at the same rate its assembly card shows', () => {
+    const notes =
+      'Convert the 400 sqft garage. Hang 800 sqft of drywall and install 400 sqft of LVP. No new HVAC.';
+    const pricing = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({
+        scopeFoundClarificationId: 'remodel_remainder',
+        scopeFoundPieces: ['remodel_insulation'],
+        insulationAssemblies: [
+          {
+            id: 'garage-cellulose-wall',
+            materialType: 'Cellulose',
+            rValue: 'R-15',
+            sqft: '1000',
+            location: 'exterior_wall',
+            source: 'contractor_entered',
+            confirmed: true,
+          },
+        ],
+      } as Partial<ScopeMeasurementsInputExtended>),
+      'room_remodel',
+      { quantity: null, unit: 'sqft', quantitySource: 'missing' },
+      null,
+      null,
+      notes
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 1012.5,
+      labor: 1750,
+      total: 2762.5,
+    });
+  });
+
+  it('prices garage remodel plumbing from the Plumbing follow-up counts', () => {
+    const measurements = inputWith({
+      plumbingRoughPointCount: '4',
+      fixtureReplacementCount: '2',
+      waterHeaterCount: '1',
+      waterLineLf: '40',
+    } as Partial<ScopeMeasurementsInputExtended>);
+    const totals = ['plumbing_rough', 'fixture_replace', 'water_heater', 'water_line'].map(
+      itemId => {
+        const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+          templateKey: 'room_remodel',
+        });
+        return resolveScopeItemSuggestedPricing(itemId, measurements, 'room_remodel', resolved)
+          .fill?.total;
+      }
+    );
+    expect(totals).toEqual([2000, 600, 2000, 1200]);
+  });
+
+  it('prices garage remodel electrical from the Electrical follow-up counts', () => {
+    const measurements = inputWith({
+      standardReceptacleCount: '4',
+      gfciReceptacleCount: '2',
+      dedicated20aCircuitCount: '2',
+      singlePoleSwitchCount: '3',
+      recessedLightCount: '6',
+    } as Partial<ScopeMeasurementsInputExtended>);
+    const totals = [
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+      'electrical_dedicated_20a',
+      'electrical_single_pole_switch',
+      'electrical_recessed_light',
+    ].map(itemId => {
+      const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+        templateKey: 'room_remodel',
+      });
+      return resolveScopeItemSuggestedPricing(itemId, measurements, 'room_remodel', resolved)
+        .fill?.total;
+    });
+    expect(totals).toEqual([440, 350, 800, 285, 900]);
+  });
+
   it('prices note-backed interior trim LF with the national LF rate', () => {
     const pricing = resolveScopeItemSuggestedPricing(
       'interior_trim',

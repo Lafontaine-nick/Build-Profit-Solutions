@@ -84,7 +84,7 @@ describe('getMeasurementRelevance', () => {
     ).toBe(true);
   });
 
-  test('whole-home flooring exposes both install and demo measurements', () => {
+  test('whole-home remodel includes flooring install and removal', () => {
     const notes =
       'Whole house remodel. Kitchen, two bathrooms, flooring, paint, doors, and baseboard.';
     for (const measurementKey of ['flooringSqft', 'floorDemoSqft'] as const) {

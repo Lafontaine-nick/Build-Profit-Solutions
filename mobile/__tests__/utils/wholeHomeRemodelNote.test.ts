@@ -497,8 +497,8 @@ describe('whole-home remodel note authority', () => {
     const names = preview.map(row => row.name);
     expect(names).toContain('Flooring installation');
     expect(names).toContain('Interior paint');
-    expect(names).toContain('Kitchen updates');
-    expect(names).toContain('Bathroom updates');
+    expect(names).toContain('Kitchen');
+    expect(names).toContain('Bathroom');
     expect(names).not.toContain('Window install');
     expect(names).not.toContain('Interior door installation');
 
@@ -550,8 +550,8 @@ describe('whole-home remodel note authority', () => {
       },
     } as EstimateAiDraft).pricingScope;
     expect(attention.join(' ')).not.toMatch(/window/i);
-    expect(attention.join(' ')).toMatch(/Kitchen updates/);
-    expect(attention.join(' ')).toMatch(/Bathroom updates/);
+    expect(attention.join(' ')).toMatch(/\bKitchen\b/);
+    expect(attention.join(' ')).toMatch(/\bBathroom\b/);
 
     const confirmItems = applyStep2NoteScopeFilters(
       [

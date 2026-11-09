@@ -3,6 +3,7 @@ import {
   Modal,
   View,
   Text,
+  TextInput,
   StyleSheet,
   StatusBar,
   Platform,
@@ -29,16 +30,30 @@ import {
   type ShowerRemovalPiece,
 } from '@/utils/bathroomNoteScope';
 import {
+  declineRemodelExtent,
+  garageDrywallHangChoice,
+  garageNoAdditionalWork,
+  garageScopeAssistant,
+  garageScopeTextAdditions,
+  matchScopeOptionText,
   readScopeFoundChoice,
   readScopeFoundClarificationId,
   readScopeFoundPieces,
+  remodelExtentAnswered,
+  remodelExtentFollowUps,
+  remodelExtentSummary,
   resolveScopeFoundClarification,
   ROOF_TEAR_OFF_CARDS,
   scopeFoundRevealLines,
+  toggleRemodelExtentPiece,
+  toggleRemodelScopePiece,
+  toggleGarageSuggestionPiece,
+  withGarageDrywallHangChoice,
   type ScopeFoundChoice,
   type ScopeFoundClarificationId,
 } from '@/utils/scopeFoundClarification';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
@@ -87,7 +102,8 @@ type Props = {
   ) => void;
   onScopeFoundChoice?: (
     id: ScopeFoundClarificationId,
-    choice: ScopeFoundChoice | string[]
+    choice: ScopeFoundChoice | string[],
+    extra?: Record<string, string>
   ) => void;
 };
 
@@ -262,16 +278,11 @@ function AIEstimateInitialRevealModal({
     };
   }, [draft, markupPct]);
 
-  const visiblePricingItems = viewModel
-    ? confirmListExpanded
-      ? viewModel.confirmBuckets.pricingScope
-      : viewModel.confirmBuckets.pricingScope.slice(0, PRICING_PREVIEW_COUNT)
-    : [];
-  const hiddenPricingCount = viewModel
-    ? Math.max(0, viewModel.confirmBuckets.pricingScope.length - visiblePricingItems.length)
-    : 0;
-
   const brandAccent = darkMode ? BRAND_ACCENT : BRAND_ACCENT_LIGHT;
+  const assistantControlBg = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.06)';
+  const assistantControlBorder = darkMode
+    ? 'rgba(255,255,255,0.16)'
+    : 'rgba(15,23,42,0.16)';
   const flowCardStyle = useMemo(
     () => estimateFlowCardStyle(Colors, darkMode),
     [Colors, darkMode]
@@ -292,33 +303,141 @@ function AIEstimateInitialRevealModal({
     showerRemovalDeclined === 'none' || showerRemovalDeclined === 'unsure'
       ? showerRemovalDeclined
       : null;
+  const storedScopeFoundId = readScopeFoundClarificationId(
+    draft?.scopeMeasurements?.scopeFoundClarificationId
+  );
+  const showManualScopeAdd = !clarification;
   const scopeFoundIdMatches =
-    clarification &&
-    clarification.id !== 'shower' &&
-    readScopeFoundClarificationId(draft?.scopeMeasurements?.scopeFoundClarificationId) ===
-      clarification.id;
+    (clarification &&
+      clarification.id !== 'shower' &&
+      storedScopeFoundId === clarification.id) ||
+    (showManualScopeAdd && storedScopeFoundId === 'remodel_remainder');
   const scopeFoundPieces = scopeFoundIdMatches
     ? readScopeFoundPieces(draft?.scopeMeasurements?.scopeFoundPieces)
     : [];
   const scopeFoundPiecesRef = useRef(scopeFoundPieces);
+  const scopeNoteRef = useRef<TextInput>(null);
+  const applyTypedScopeRef = useRef<() => boolean>(() => true);
   scopeFoundPiecesRef.current = scopeFoundPieces;
   const scopeFoundSelected = scopeFoundIdMatches
     ? readScopeFoundChoice(draft?.scopeMeasurements?.scopeFoundChoice)
     : null;
-  const clarificationAnswered =
-    clarification?.id === 'shower'
+  const extentFollowUps =
+    clarification?.id === 'remodel_remainder' ? remodelExtentFollowUps(scopeFoundPieces) : [];
+  const garageAssistant =
+    clarification?.id === 'remodel_remainder'
+      ? garageScopeAssistant(draft?.originalNotes)
+      : null;
+  const hangChoice = garageDrywallHangChoice(scopeFoundPieces);
+  const applyGaragePieces = (
+    next: string[],
+    extra?: Record<string, string>
+  ) => {
+    if (!clarification) return;
+    scopeFoundPiecesRef.current = next;
+    onScopeFoundChoice?.(clarification.id, next.length ? next : 'none', extra);
+  };
+  const applyTypedScope = (): boolean => {
+    const text = scopeNote;
+    if (!text.trim()) return true;
+    if (!clarification || garageAssistant) {
+      const added = garageScopeTextAdditions(text, draft?.originalNotes);
+      if (!added.matched) {
+        setScopeNoteError(
+          garageAssistant
+            ? "That didn't match a scope item. Use Expand list."
+            : "That didn't match a scope item."
+        );
+        return false;
+      }
+      const merged = [
+        ...scopeFoundPiecesRef.current.filter(id => id !== 'garage_no_additional_work'),
+        ...added.pieceIds.filter(id => !scopeFoundPiecesRef.current.includes(id)),
+      ];
+      scopeFoundPiecesRef.current = merged;
+      if (clarification) {
+        applyGaragePieces(merged, added.counts);
+      } else {
+        onScopeFoundChoice?.('remodel_remainder', merged, added.counts);
+      }
+      setScopeNote('');
+      setScopeNoteError('');
+      return true;
+    }
+    const ids = matchScopeOptionText(text, clarification.options);
+    if (!ids.length) {
+      setScopeNoteError("That didn't match a scope item. Use Expand list.");
+      return false;
+    }
+    if (clarification.id === 'shower') {
+      const next = [...new Set([...showerRemovalPieces, ...ids])];
+      onShowerRemovalChoice?.(next as ShowerRemovalPiece[]);
+    } else if (clarification.multi) {
+      let next = scopeFoundPiecesRef.current;
+      for (const id of ids) {
+        if (!next.includes(id)) next = toggleRemodelScopePiece(next, id);
+      }
+      scopeFoundPiecesRef.current = next;
+      onScopeFoundChoice?.(clarification.id, next);
+    } else {
+      const choice = readScopeFoundChoice(ids[0]);
+      if (choice) onScopeFoundChoice?.(clarification.id, choice);
+    }
+    setScopeNote('');
+    setScopeNoteError('');
+    return true;
+  };
+  applyTypedScopeRef.current = applyTypedScope;
+  const [activeExtentId, setActiveExtentId] = useState<string | null>(null);
+  const [manualScope, setManualScope] = useState(false);
+  const [hangEditing, setHangEditing] = useState(false);
+  const [scopeNote, setScopeNote] = useState('');
+  const [scopeNoteFocused, setScopeNoteFocused] = useState(false);
+  const [scopeNoteError, setScopeNoteError] = useState('');
+  const removalMaterialOptions = (clarification?.options ?? []).filter(
+    option => option.id !== 'none' && option.id !== 'unsure'
+  );
+  const removalMaterialsFitOnScreen = removalMaterialOptions.length <= 6;
+  const visibleRemovalMaterials =
+    manualScope || removalMaterialsFitOnScreen
+      ? removalMaterialOptions
+      : removalMaterialOptions.slice(0, 4);
+  const hangStillOpen = Boolean(garageAssistant?.hangQuestion) && !hangChoice;
+  const clarificationAnswered = hangStillOpen
+    ? false
+    : clarification?.id === 'shower'
       ? showerRemovalPieces.length > 0 || Boolean(showerRemovalSelected)
-      : scopeFoundPieces.length > 0 || Boolean(scopeFoundSelected);
+      : Boolean(scopeFoundSelected) ||
+        (scopeFoundPieces.length > 0 &&
+          extentFollowUps.every(followUp =>
+            remodelExtentAnswered(scopeFoundPieces, followUp.parentId)
+          ));
   const clarificationOpen =
     Boolean(clarification) &&
     !clarificationAnswered &&
     Boolean(viewModel?.needsScopeConfirmation);
+  const settledHvacCount =
+    garageAssistant && /\bgarage\b/i.test(String(draft?.originalNotes || ''))
+      ? (viewModel?.confirmBuckets.pricingScope || []).filter(
+          item => item.trim().toLowerCase() === 'hvac is not in this bid'
+        ).length
+      : 0;
+  const openAttentionItems = (viewModel?.confirmBuckets.pricingScope || []).filter(
+    item => settledHvacCount === 0 || item.trim().toLowerCase() !== 'hvac is not in this bid'
+  );
+  const visiblePricingItems = confirmListExpanded
+    ? openAttentionItems
+    : openAttentionItems.slice(0, PRICING_PREVIEW_COUNT);
+  const hiddenPricingCount = Math.max(
+    0,
+    openAttentionItems.length - visiblePricingItems.length
+  );
   const status =
     draft && viewModel
       ? getInitialRevealStatusLabel(
           draft,
           initialRevealStatusAttentionCount(
-            viewModel.attentionCount,
+            Math.max(0, viewModel.attentionCount - settledHvacCount),
             clarificationOpen
           )
         )
@@ -382,12 +501,18 @@ function AIEstimateInitialRevealModal({
       claimed.add(hit.id);
       return { ...row, amount: hit.amount, awaitingPrice: false };
     };
-    return omitPricedPaintPlaceholders(
+    const rows = omitPricedPaintPlaceholders(
       [
         ...added.map(row => fill(row, true)),
         ...previewRows.map(row => fill(row, false)),
       ],
       Boolean(draft && initialRevealPricingVisible(draft))
+    );
+    if (hangChoice !== 'hang_only') return rows;
+    return rows.map(row =>
+      /hang\s*\/\s*finish/i.test(row.name)
+        ? { ...row, name: row.name.replace(/hang\s*\/\s*finish/gi, 'hang') }
+        : row
     );
   }, [
     viewModel,
@@ -399,10 +524,17 @@ function AIEstimateInitialRevealModal({
     draft?.scopeMeasurements?.scopeFoundPieces,
     showerRemovalPieces,
     showerRemovalSelected,
+    hangChoice,
   ]);
 
   useEffect(() => {
     if (visible) {
+      setActiveExtentId(null);
+      setManualScope(false);
+      setHangEditing(false);
+      setScopeNote('');
+      setScopeNoteFocused(false);
+      setScopeNoteError('');
       setConfirmListExpanded(false);
       scopeDefaultAppliedRef.current = false;
       setDetailsExpanded(true);
@@ -426,6 +558,7 @@ function AIEstimateInitialRevealModal({
 
   const handlePrimary = useCallback(() => {
     if (viewModel?.needsScopeConfirmation && onConfirmScope) {
+      if (!applyTypedScopeRef.current()) return;
       onConfirmScope();
       return;
     }
@@ -546,7 +679,9 @@ function AIEstimateInitialRevealModal({
                 </View>
 
                 <Text style={[styles.projectTitle, { color: Colors.text }]} numberOfLines={2}>
-                  {viewModel.displayTitle}
+                  {hangChoice === 'hang_only'
+                    ? viewModel.displayTitle.replace(/hang\s*\/\s*finish/gi, 'hang')
+                    : viewModel.displayTitle}
                 </Text>
                 {viewModel.tagline ? (
                   <Text style={[styles.tagline, { color: Colors.sub }]} numberOfLines={2}>
@@ -665,9 +800,9 @@ function AIEstimateInitialRevealModal({
                       <Text style={[styles.blockTitle, { color: Colors.text }]}>
                         {viewModel.attentionTitle}
                       </Text>
-                      {viewModel.attentionCount > 0 ? (
+                      {openAttentionItems.length > 0 ? (
                         <View style={[styles.countPill, { backgroundColor: 'rgba(251, 191, 36, 0.14)' }]}>
-                          <Text style={styles.countPillText}>{viewModel.attentionCount}</Text>
+                          <Text style={styles.countPillText}>{openAttentionItems.length}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -691,7 +826,7 @@ function AIEstimateInitialRevealModal({
                       </ReliablePress>
                     ) : null}
                     {confirmListExpanded &&
-                    viewModel.confirmBuckets.pricingScope.length > PRICING_PREVIEW_COUNT ? (
+                    openAttentionItems.length > PRICING_PREVIEW_COUNT ? (
                       <ReliablePress
                         onPress={handleCollapseConfirm}
                         style={styles.moreLink}
@@ -731,16 +866,275 @@ function AIEstimateInitialRevealModal({
                         </View>
                       )}
                     </View>
+                    {garageAssistant ? (
+                      <>
+                        {garageAssistant.hangQuestion ? (
+                          <>
+                            {hangChoice && !hangEditing ? (
+                              <View style={styles.hangSummaryRow}>
+                                <MaterialIcons name="check-circle" size={18} color={brandAccent} />
+                                <View style={styles.hangSummaryCopy}>
+                                  <Text style={[styles.hangSummaryTitle, { color: Colors.text }]}>
+                                    {hangChoice === 'hang_only'
+                                      ? 'Drywall · Hang'
+                                      : hangChoice === 'unsure'
+                                        ? 'Drywall · Not sure yet'
+                                        : 'Drywall · Hang and finish'}
+                                  </Text>
+                                  {scopeListRows.find(row => /drywall/i.test(row.name))?.quantity ? (
+                                    <Text style={[styles.hangSummaryDetail, { color: Colors.sub }]}>
+                                      {scopeListRows.find(row => /drywall/i.test(row.name))?.quantity}{' '}
+                                      confirmed
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <ReliablePress
+                                  onPress={() => setHangEditing(true)}
+                                  accessibilityLabel="Edit drywall finish"
+                                >
+                                  <Text style={[styles.hangEdit, { color: brandAccent }]}>Edit</Text>
+                                </ReliablePress>
+                              </View>
+                            ) : (
+                              <>
+                            <View style={[styles.checkRow, styles.assistantQuestion]}>
+                              {hangChoice ? null : <View style={styles.pendingDot} />}
+                              <Text style={[styles.checkText, { color: Colors.text }]}>
+                                {garageAssistant.hangQuestion}
+                              </Text>
+                            </View>
+                            {scopeFoundChipRows([
+                              { id: 'hang_only' as const, label: 'Hang only' },
+                              { id: 'hang_and_finish' as const, label: 'Hang and finish' },
+                              { id: 'unsure' as const, label: 'Not sure yet' },
+                            ]).map(row => (
+                              <View
+                                key={`hang-${row.map(option => option.id).join('-')}`}
+                                style={[
+                                  styles.removalChipRow,
+                                  styles.assistantChipRow,
+                                  row.length === 1 ? styles.hangSingleRow : null,
+                                ]}
+                              >
+                                {row.map(option => {
+                                  const selected = hangChoice === option.id;
+                                  return (
+                                    <GestureTouchableOpacity
+                                      key={option.id}
+                                      onPress={() => {
+                                        applyGaragePieces(
+                                          withGarageDrywallHangChoice(
+                                            scopeFoundPiecesRef.current,
+                                            option.id
+                                          )
+                                        );
+                                        setHangEditing(false);
+                                      }}
+                                      accessibilityRole="button"
+                                      accessibilityState={{ selected }}
+                                      containerStyle={
+                                        row.length === 1
+                                          ? styles.hangSingleChip
+                                          : styles.removalChipCell
+                                      }
+                                      style={[
+                                        styles.removalChip,
+                                        {
+                                          borderColor: selected
+                                            ? brandAccent
+                                            : 'rgba(148, 163, 184, 0.16)',
+                                          backgroundColor: selected
+                                            ? 'rgba(45, 204, 154, 0.14)'
+                                            : 'rgba(148, 163, 184, 0.16)',
+                                        },
+                                      ]}
+                                    >
+                                      {selected ? (
+                                        <MaterialIcons name="check" size={15} color={brandAccent} />
+                                      ) : null}
+                                      <Text
+                                        numberOfLines={1}
+                                        style={[styles.removalChipText, { color: Colors.text }]}
+                                      >
+                                        {option.label}
+                                      </Text>
+                                    </GestureTouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                            ))}
+                              </>
+                            )}
+                          </>
+                        ) : null}
+                        <View style={[styles.checkRow, styles.assistantBlock]}>
+                          <Text style={[styles.checkText, { color: Colors.text }]}>
+                            Anything else included?
+                          </Text>
+                        </View>
+                        <Text style={[styles.bodyLine, styles.assistantHelp, { color: Colors.sub }]}>
+                          {garageAssistant.intro}
+                        </Text>
+                        {scopeFoundChipRows(
+                          manualScope
+                            ? [...garageAssistant.suggestions, ...garageAssistant.more]
+                            : garageAssistant.suggestions
+                        ).map(row => (
+                          <View
+                            key={`suggest-${row.map(option => option.id).join('-')}`}
+                            style={[styles.removalChipRow, styles.assistantChipRow]}
+                          >
+                            {row.map(option => {
+                              const selected = scopeFoundPieces.includes(option.id);
+                              return (
+                                <GestureTouchableOpacity
+                                  key={option.id}
+                                  onPress={() =>
+                                    applyGaragePieces(
+                                      toggleGarageSuggestionPiece(
+                                        scopeFoundPiecesRef.current,
+                                        option.id
+                                      )
+                                    )
+                                  }
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  containerStyle={styles.removalChipCell}
+                                  style={[
+                                    styles.removalChip,
+                                    {
+                                      borderColor: selected
+                                        ? brandAccent
+                                        : 'rgba(148, 163, 184, 0.16)',
+                                      backgroundColor: selected
+                                        ? 'rgba(45, 204, 154, 0.14)'
+                                        : 'rgba(148, 163, 184, 0.16)',
+                                    },
+                                  ]}
+                                >
+                                  {selected ? (
+                                    <MaterialIcons name="check" size={15} color={brandAccent} />
+                                  ) : null}
+                                  <Text
+                                    numberOfLines={1}
+                                    adjustsFontSizeToFit
+                                    minimumFontScale={0.85}
+                                    style={[styles.removalChipText, { color: Colors.text }]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </GestureTouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ))}
+                        {garageAssistant.more.length > 0 ? (
+                          <ReliablePress
+                            onPress={() => setManualScope(value => !value)}
+                            style={styles.expandList}
+                            accessibilityLabel={manualScope ? 'Show less' : 'Expand list'}
+                          >
+                            <Text style={[styles.expandListText, { color: Colors.sub }]}>
+                              {manualScope ? 'Show less' : 'Expand list'}
+                            </Text>
+                            <MaterialIcons
+                              name={manualScope ? 'expand-less' : 'expand-more'}
+                              size={18}
+                              color={Colors.sub}
+                            />
+                          </ReliablePress>
+                        ) : null}
+                        <View
+                          style={[
+                            styles.assistantField,
+                            {
+                              borderColor: scopeNoteFocused ? brandAccent : assistantControlBorder,
+                              backgroundColor: assistantControlBg,
+                            },
+                          ]}
+                        >
+                          <GestureTouchableOpacity
+                            onPress={() => scopeNoteRef.current?.focus()}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel="Type to add work"
+                          >
+                            <MaterialIcons
+                              name="edit"
+                              size={18}
+                              color={scopeNoteFocused ? brandAccent : Colors.sub}
+                            />
+                          </GestureTouchableOpacity>
+                          <TextInput
+                            ref={scopeNoteRef}
+                            value={scopeNote}
+                            onChangeText={value => {
+                              setScopeNote(value);
+                              if (scopeNoteError) setScopeNoteError('');
+                            }}
+                            onFocus={() => setScopeNoteFocused(true)}
+                            onBlur={() => setScopeNoteFocused(false)}
+                            placeholder="Type to add, e.g. 6 outlets"
+                            placeholderTextColor={
+                              darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.45)'
+                            }
+                            style={[styles.assistantInput, { color: Colors.text }]}
+                            onSubmitEditing={() => {
+                              applyTypedScope();
+                            }}
+                          {...resolveTextInputKeyboardProps()}
+                          />
+                        </View>
+                        {scopeNoteError ? (
+                          <Text style={[styles.bodyLine, { color: '#fbbf24' }]}>{scopeNoteError}</Text>
+                        ) : null}
+                        <ReliablePress
+                          onPress={() => {
+                            applyTypedScope();
+                          }}
+                          style={styles.assistantAddLink}
+                          accessibilityLabel="Add to scope"
+                        >
+                          <Text style={[styles.extentLinkText, { color: brandAccent }]}>
+                            Add to scope
+                          </Text>
+                        </ReliablePress>
+                        <ReliablePress
+                          onPress={() =>
+                            applyGaragePieces(garageNoAdditionalWork(scopeFoundPiecesRef.current))
+                          }
+                          accessibilityLabel="No additional work"
+                        >
+                          <Text
+                            style={[
+                              styles.checkText,
+                              styles.assistantDecline,
+                              {
+                                color: scopeFoundPieces.includes('garage_no_additional_work')
+                                  ? brandAccent
+                                  : Colors.sub,
+                              },
+                            ]}
+                          >
+                            {scopeFoundPieces.includes('garage_no_additional_work')
+                              ? 'No additional work'
+                              : 'No additional work'}
+                          </Text>
+                        </ReliablePress>
+                      </>
+                    ) : (
+                      <>
                     <View style={styles.checkRow}>
                       {clarificationAnswered ? null : <View style={styles.pendingDot} />}
                       <Text style={[styles.checkText, { color: Colors.text }]}>
                         {clarification.question}
                       </Text>
                     </View>
-                    {scopeFoundChipRows(
-                      clarification.options.filter(
-                        option => option.id !== 'none' && option.id !== 'unsure'
-                      )
+                    {packChipRows(
+                      visibleRemovalMaterials,
+                      visibleRemovalMaterials.length === 5 ||
+                        visibleRemovalMaterials.length === 6
+                        ? 3
+                        : 2
                     )
                       .concat(
                         scopeFoundChipRows(
@@ -752,7 +1146,7 @@ function AIEstimateInitialRevealModal({
                       .map(row => (
                       <View
                         key={`removal-row-${row.map(option => option.id).join('-')}`}
-                        style={styles.removalChipRow}
+                        style={[styles.removalChipRow, styles.removalMaterialGridRow]}
                       >
                         {row.map(option => {
                           const exclusive =
@@ -790,10 +1184,11 @@ function AIEstimateInitialRevealModal({
                                     if (choice) onScopeFoundChoice?.(clarification.id, choice);
                                     return;
                                   }
-                                  const current = scopeFoundPiecesRef.current;
-                                  const next = current.includes(option.id)
-                                    ? current.filter(item => item !== option.id)
-                                    : [...current, option.id];
+                                  const next = toggleRemodelScopePiece(
+                                    scopeFoundPiecesRef.current,
+                                    option.id
+                                  );
+                                  if (next.includes(option.id)) setActiveExtentId(option.id);
                                   scopeFoundPiecesRef.current = next;
                                   onScopeFoundChoice?.(clarification.id, next);
                                   return;
@@ -843,6 +1238,284 @@ function AIEstimateInitialRevealModal({
                         })}
                       </View>
                     ))}
+                    {removalMaterialsFitOnScreen ? null : (
+                      <ReliablePress
+                        onPress={() => setManualScope(value => !value)}
+                        style={styles.expandList}
+                        accessibilityLabel={manualScope ? 'Show less' : 'Expand list'}
+                      >
+                        <Text style={[styles.expandListText, { color: Colors.sub }]}>
+                          {manualScope ? 'Show less' : 'Expand list'}
+                        </Text>
+                        <MaterialIcons
+                          name={manualScope ? 'expand-less' : 'expand-more'}
+                          size={18}
+                          color={Colors.sub}
+                        />
+                      </ReliablePress>
+                    )}
+                    <View
+                      style={[
+                        styles.assistantField,
+                        {
+                          borderColor: scopeNoteFocused ? brandAccent : assistantControlBorder,
+                          backgroundColor: assistantControlBg,
+                        },
+                      ]}
+                    >
+                      <GestureTouchableOpacity
+                        onPress={() => scopeNoteRef.current?.focus()}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Type to add work"
+                      >
+                        <MaterialIcons
+                          name="edit"
+                          size={18}
+                          color={scopeNoteFocused ? brandAccent : Colors.sub}
+                        />
+                      </GestureTouchableOpacity>
+                      <TextInput
+                        ref={scopeNoteRef}
+                        value={scopeNote}
+                        onChangeText={value => {
+                          setScopeNote(value);
+                          if (scopeNoteError) setScopeNoteError('');
+                        }}
+                        onFocus={() => setScopeNoteFocused(true)}
+                        onBlur={() => setScopeNoteFocused(false)}
+                        placeholder="Type to add, e.g. 6 outlets"
+                        placeholderTextColor={
+                          darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.45)'
+                        }
+                        style={[styles.assistantInput, { color: Colors.text }]}
+                        onSubmitEditing={() => {
+                          applyTypedScope();
+                        }}
+                        {...resolveTextInputKeyboardProps()}
+                      />
+                    </View>
+                    {scopeNoteError ? (
+                      <Text style={[styles.bodyLine, { color: '#fbbf24' }]}>{scopeNoteError}</Text>
+                    ) : null}
+                    <ReliablePress
+                      onPress={() => {
+                        applyTypedScope();
+                      }}
+                      style={styles.assistantAddLink}
+                      accessibilityLabel="Add to scope"
+                    >
+                      <Text style={[styles.extentLinkText, { color: brandAccent }]}>
+                        Add to scope
+                      </Text>
+                    </ReliablePress>
+                    {clarification.id === 'remodel_remainder'
+                      ? extentFollowUps.map(followUp => {
+                          const answered = remodelExtentAnswered(
+                            scopeFoundPieces,
+                            followUp.parentId
+                          );
+                          const declines = followUp.declines;
+                          const declineIds = new Set(declines.map(option => option.id));
+                          if (answered && activeExtentId !== followUp.parentId) {
+                            return (
+                              <View
+                                key={followUp.parentId}
+                                style={[styles.extentFollowUp, styles.extentSummaryRow]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.checkText,
+                                    styles.extentSummaryText,
+                                    { color: Colors.text },
+                                  ]}
+                                  numberOfLines={2}
+                                >
+                                  {followUp.label} ·{' '}
+                                  {remodelExtentSummary(scopeFoundPieces, followUp.parentId)}
+                                </Text>
+                                <ReliablePress
+                                  onPress={() => setActiveExtentId(followUp.parentId)}
+                                  accessibilityLabel={`Edit ${followUp.label}`}
+                                >
+                                  <Text style={[styles.extentLinkText, { color: brandAccent }]}>
+                                    Edit
+                                  </Text>
+                                </ReliablePress>
+                              </View>
+                            );
+                          }
+                          return (
+                            <View key={followUp.parentId} style={styles.extentFollowUp}>
+                              <View style={styles.checkRow}>
+                                {answered ? null : <View style={styles.pendingDot} />}
+                                <Text style={[styles.checkText, { color: Colors.text }]}>
+                                  {followUp.question}
+                                </Text>
+                              </View>
+                              {scopeFoundChipRows([...followUp.options, ...declines]).map(row => (
+                                  <View
+                                    key={`${followUp.parentId}-${row.map(option => option.id).join('-')}`}
+                                    style={styles.removalChipRow}
+                                  >
+                                    {row.map(option => {
+                                      const exclusive = declineIds.has(option.id);
+                                      const selected = scopeFoundPieces.includes(option.id);
+                                      return (
+                                        <GestureTouchableOpacity
+                                          key={option.id}
+                                          onPress={() => {
+                                            const next = exclusive
+                                              ? declineRemodelExtent(
+                                                  scopeFoundPiecesRef.current,
+                                                  followUp.parentId,
+                                                  option.id
+                                                )
+                                              : toggleRemodelExtentPiece(
+                                                  scopeFoundPiecesRef.current,
+                                                  option.id
+                                                );
+                                            setActiveExtentId(
+                                              exclusive ? null : followUp.parentId
+                                            );
+                                            scopeFoundPiecesRef.current = next;
+                                            onScopeFoundChoice?.(clarification.id, next);
+                                          }}
+                                          accessibilityRole="button"
+                                          accessibilityState={{ selected }}
+                                          containerStyle={styles.removalChipCell}
+                                          style={[
+                                            styles.removalChip,
+                                            {
+                                              borderColor: selected
+                                                ? brandAccent
+                                                : 'rgba(148, 163, 184, 0.16)',
+                                              backgroundColor: selected
+                                                ? 'rgba(45, 204, 154, 0.14)'
+                                                : exclusive
+                                                  ? 'rgba(148, 163, 184, 0.11)'
+                                                  : 'rgba(148, 163, 184, 0.16)',
+                                            },
+                                          ]}
+                                        >
+                                          {selected ? (
+                                            <MaterialIcons
+                                              name="check"
+                                              size={15}
+                                              color={brandAccent}
+                                            />
+                                          ) : null}
+                                          <Text
+                                            numberOfLines={1}
+                                            adjustsFontSizeToFit
+                                            minimumFontScale={0.85}
+                                            style={[
+                                              styles.removalChipText,
+                                              {
+                                                color: selected
+                                                  ? Colors.text
+                                                  : exclusive
+                                                    ? Colors.sub
+                                                    : Colors.text,
+                                              },
+                                            ]}
+                                          >
+                                            {option.label}
+                                          </Text>
+                                        </GestureTouchableOpacity>
+                                      );
+                                    })}
+                                  </View>
+                                ))}
+                              {answered ? (
+                                <ReliablePress
+                                  onPress={() => setActiveExtentId(null)}
+                                  style={styles.extentDone}
+                                  accessibilityLabel={`Done with ${followUp.label}`}
+                                >
+                                  <Text style={[styles.extentLinkText, { color: brandAccent }]}>
+                                    Done
+                                  </Text>
+                                </ReliablePress>
+                              ) : null}
+                            </View>
+                          );
+                        })
+                      : null}
+                      </>
+                    )}
+                  </View>
+                ) : null}
+
+                {showManualScopeAdd ? (
+                  <View
+                    style={[
+                      styles.block,
+                      (viewModel.showWhatWeFound || visiblePricingItems.length > 0) &&
+                        styles.blockBorder,
+                      { borderTopColor: dividerColor },
+                    ]}
+                  >
+                    <Text style={[styles.blockTitle, { color: Colors.text }]}>
+                      Anything the note left out?
+                    </Text>
+                    <Text style={[styles.bodyLine, styles.assistantHelp, { color: Colors.sub }]}>
+                      Add any other work for this job.
+                    </Text>
+                    <View
+                      style={[
+                        styles.assistantField,
+                        styles.manualScopeField,
+                        {
+                          borderColor: scopeNoteFocused ? brandAccent : assistantControlBorder,
+                          backgroundColor: assistantControlBg,
+                        },
+                      ]}
+                    >
+                      <GestureTouchableOpacity
+                        onPress={() => scopeNoteRef.current?.focus()}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Type to add work"
+                      >
+                        <MaterialIcons
+                          name="edit"
+                          size={18}
+                          color={scopeNoteFocused ? brandAccent : Colors.sub}
+                        />
+                      </GestureTouchableOpacity>
+                      <TextInput
+                        ref={scopeNoteRef}
+                        value={scopeNote}
+                        onChangeText={value => {
+                          setScopeNote(value);
+                          if (scopeNoteError) setScopeNoteError('');
+                        }}
+                        onFocus={() => setScopeNoteFocused(true)}
+                        onBlur={() => setScopeNoteFocused(false)}
+                        placeholder="Type to add, e.g. 6 outlets"
+                        placeholderTextColor={
+                          darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.45)'
+                        }
+                        style={[styles.assistantInput, { color: Colors.text }]}
+                        onSubmitEditing={() => {
+                          applyTypedScope();
+                        }}
+                        {...resolveTextInputKeyboardProps()}
+                      />
+                    </View>
+                    {scopeNoteError ? (
+                      <Text style={[styles.bodyLine, { color: '#fbbf24' }]}>{scopeNoteError}</Text>
+                    ) : null}
+                    <ReliablePress
+                      onPress={() => {
+                        applyTypedScope();
+                      }}
+                      style={styles.assistantAddLink}
+                      accessibilityLabel="Add to scope"
+                    >
+                      <Text style={[styles.extentLinkText, { color: brandAccent }]}>
+                        Add to scope
+                      </Text>
+                    </ReliablePress>
                   </View>
                 ) : null}
 
@@ -890,7 +1563,13 @@ function AIEstimateInitialRevealModal({
                             <View style={styles.scopeNameWrap}>
                               <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
                                 {name}
-                                {quantity ? ` · ${quantity}` : ''}
+                                {quantity
+                                  ? ` · ${
+                                      quantity === 'Not sure'
+                                        ? 'Count on the next step'
+                                        : quantity
+                                    }`
+                                  : ''}
                               </Text>
                             </View>
                             {!viewModel.suppressRevealPricing &&
@@ -1210,17 +1889,72 @@ const styles = StyleSheet.create({
     backgroundColor: '#fbbf24',
     marginTop: 7,
   },
+  extentFollowUp: {
+    marginTop: 14,
+  },
+  extentSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  extentSummaryText: {
+    flex: 1,
+  },
+  extentLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  extentDone: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingVertical: 4,
+  },
   removalChipRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
     gap: 8,
     marginBottom: 6,
   },
+  removalMaterialGridRow: {
+    gap: 8,
+    marginBottom: 8,
+  },
   removalChipCell: {
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
     minWidth: 0,
+  },
+  hangSingleRow: {
+    justifyContent: 'center',
+  },
+  hangSingleChip: {
+    width: '48%',
+  },
+  hangSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  hangSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hangSummaryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  hangSummaryDetail: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  hangEdit: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   removalChip: {
     width: '100%',
@@ -1261,5 +1995,60 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: -0.2,
+  },
+  assistantQuestion: {
+    marginBottom: 14,
+  },
+  assistantBlock: {
+    marginTop: 16,
+  },
+  assistantHelp: {
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  assistantChipRow: {
+    marginBottom: 10,
+  },
+  manualScopeField: {
+    marginTop: 0,
+  },
+  assistantAddLink: {
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  assistantDecline: {
+    marginTop: 14,
+  },
+  assistantField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 48,
+    marginTop: 16,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  assistantInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    paddingVertical: 12,
+    minWidth: 0,
+  },
+  expandList: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 2,
+    marginBottom: 2,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  expandListText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

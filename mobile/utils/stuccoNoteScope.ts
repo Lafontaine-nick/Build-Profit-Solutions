@@ -23,13 +23,12 @@ export type StuccoInstallSystemId =
   | 'eifs'
   | 'finish_only';
 
-/** A new stucco install is 3-coat or 1-coat. EIFS and a color coat stay off until the note names them. */
+/** A new stucco install offers 3-coat, 1-coat, and synthetic. A color coat stays off until the note names it. */
 export function stuccoInstallSystemIds(
   notes?: string | null
 ): StuccoInstallSystemId[] {
   const text = String(notes || '');
-  const ids: StuccoInstallSystemId[] = ['three_coat', 'one_coat'];
-  if (/\beifs\b|\bsynthetic(?:\s+stucco)?\b/i.test(text)) ids.push('eifs');
+  const ids: StuccoInstallSystemId[] = ['three_coat', 'one_coat', 'eifs'];
   if (
     /\b(?:finish|color|texture)\s+coat\b|\brecoat\b|\bre-?stucco\b/i.test(text)
   ) {
@@ -87,6 +86,25 @@ export function dedicatedStuccoWallSqft(
   );
   if (Number.isFinite(generic) && generic > 0) return generic;
   return null;
+}
+
+/**
+ * Wall area Confirm Scope prices. A labeled takeoff wins. "Replace the stucco,
+ * 1,800 sqft" still fills gross and net when nothing was deducted.
+ */
+export function statedStuccoWallMeasurements(notes: string | null | undefined) {
+  const parsed = parseStuccoMeasurementsFromNotes(String(notes || ''));
+  if (parsed.stuccoGrossWallSqft != null || parsed.stuccoNetWallSqft != null) {
+    return parsed;
+  }
+  if (!notesDescribeDedicatedStuccoJob(notes)) return parsed;
+  const wall = dedicatedStuccoWallSqft(notes);
+  if (wall == null) return parsed;
+  return {
+    ...parsed,
+    stuccoGrossWallSqft: wall,
+    stuccoNetWallSqft: wall,
+  };
 }
 
 export function dedicatedStuccoRevealLines(

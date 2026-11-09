@@ -1075,9 +1075,29 @@ export default function AIEstimateBuilderModal({
         <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
           Job notes
         </Text>
-        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: showSavedNotesHint ? 4 : 10 }}>
-          Sizes, materials, or lump sums. Paste them or dictate below.
+        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: 10 }}>
+          Paste them or dictate below.
         </Text>
+        <View
+          style={[
+            styles.notesTip,
+            {
+              backgroundColor: darkMode ? 'rgba(45, 204, 154, 0.10)' : 'rgba(45, 204, 154, 0.08)',
+              borderColor: darkMode ? 'rgba(45, 204, 154, 0.28)' : 'rgba(45, 204, 154, 0.35)',
+              marginBottom: showSavedNotesHint ? 6 : 12,
+            },
+          ]}
+        >
+          <MaterialIcons name='tips-and-updates' size={18} color='#2dcc9a' style={styles.notesTipIcon} />
+          <View style={styles.notesTipCopy}>
+            <Text style={[styles.notesTipTitle, { color: Colors.text }]}>
+              Be specific for accurate pricing
+            </Text>
+            <Text style={[styles.notesTipBody, { color: Colors.sub }]}>
+              Name each trade, size, and material, plus anything that stays out.
+            </Text>
+          </View>
+        </View>
         {showSavedNotesHint ? (
           <Text
             style={{
@@ -1279,6 +1299,31 @@ const styles = StyleSheet.create({
   },
   generateCtaMint: {
     backgroundColor: '#2dcc9a',
+  },
+  notesTip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  notesTipIcon: {
+    marginTop: 1,
+  },
+  notesTipCopy: {
+    flex: 1,
+  },
+  notesTipTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  notesTipBody: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
   },
   generateCtaDisabled: {
     backgroundColor: 'rgba(148, 163, 184, 0.12)',

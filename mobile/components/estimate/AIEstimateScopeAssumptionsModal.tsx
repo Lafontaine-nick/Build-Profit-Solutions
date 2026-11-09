@@ -351,6 +351,7 @@ import {
   readScopeFoundChoice,
   readScopeFoundClarificationId,
   readScopeFoundPieces,
+  remodelRemainderMeasurementFields,
 } from '@/utils/scopeFoundClarification';
 import {
   filterDedicatedFlooringConfirmItems,
@@ -389,7 +390,10 @@ import {
   notesDescribeDedicatedInsulationJob,
   notesNameAtticInsulationWithDrywallHang,
 } from '@/utils/insulationNoteScope';
-import { notesNameStuccoWithWindows } from '@/utils/stuccoNoteScope';
+import {
+  notesNameStuccoWithWindows,
+  statedStuccoWallMeasurements,
+} from '@/utils/stuccoNoteScope';
 import { notesDescribeAreaOnlyAddition } from '@/utils/additionConversionPlanning';
 import {
   applyConcretePatioWithSodCards,
@@ -635,7 +639,6 @@ import {
   notesStateGarageSqft,
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
-  parseStuccoMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import {
   groupQuickMeasurementFields,
@@ -13285,13 +13288,17 @@ function mepQuickMeasurementPricingHint(
   return `Suggested ${ratePart}${complexitySuffix}`;
 }
 
+/** The insulation-notes assembly card, once this remodel chip is in the bid. */
+function scopeFoundWantsInsulationCard(pieces: readonly string[]): boolean {
+  return pieces.includes('remodel_insulation');
+}
+
 const INSULATION_TYPE_OPTIONS = [
   'Batt',
   'Blown-in',
   'Spray foam',
   'Rigid foam board',
   'Cellulose',
-  'Mineral wool',
 ] as const;
 
 const INSULATION_R_VALUE_OPTIONS = [
@@ -13320,10 +13327,10 @@ type InsulationAssemblyLocation =
 
 const INSULATION_R_VALUES_BY_MATERIAL: Record<string, readonly string[]> = {
   batt: ['R-13', 'R-15', 'R-19', 'R-21', 'R-23', 'R-30', 'R-38', 'R-49'],
-  'blown-in': ['R-30', 'R-38', 'R-49', 'R-60'],
+  'blown-in': ['R-15', 'R-23', 'R-30', 'R-38', 'R-49', 'R-60'],
   'spray foam': ['R-13', 'R-21', 'R-30', 'R-38', 'R-49', 'R-60'],
   'rigid foam board': ['R-5', 'R-10', 'R-15', 'R-20', 'R-30'],
-  cellulose: ['R-30', 'R-38', 'R-49', 'R-60'],
+  cellulose: ['R-13', 'R-15', 'R-21', 'R-23', 'R-30', 'R-38', 'R-49', 'R-60'],
   'mineral wool': ['R-15', 'R-21', 'R-30', 'R-38'],
 };
 
@@ -13331,9 +13338,9 @@ const INSULATION_R_VALUES_BY_LOCATION: Record<
   InsulationAssemblyLocation,
   readonly string[]
 > = {
-  exterior_wall: ['R-13', 'R-15', 'R-19', 'R-21', 'R-23'],
+  exterior_wall: ['R-5', 'R-10', 'R-13', 'R-15', 'R-19', 'R-20', 'R-21', 'R-23'],
   attic_ceiling: ['R-30', 'R-38', 'R-49', 'R-60'],
-  roof_deck: ['R-21', 'R-30', 'R-38', 'R-49'],
+  roof_deck: ['R-5', 'R-10', 'R-15', 'R-20', 'R-21', 'R-30', 'R-38', 'R-49'],
   floor: ['R-19', 'R-21', 'R-30', 'R-38'],
   garage_separation: ['R-13', 'R-15', 'R-19', 'R-21'],
 };
@@ -13345,6 +13352,21 @@ function insulationMaterialKey(materialType: string): string {
       value.includes(key)
     ) || 'batt'
   );
+}
+
+function insulationLocationsForMaterial(materialType: string) {
+  const key = insulationMaterialKey(materialType);
+  if (key === 'cellulose' || key === 'blown-in') {
+    return INSULATION_LOCATION_OPTIONS.filter(
+      option => option.key === 'exterior_wall' || option.key === 'attic_ceiling'
+    );
+  }
+  if (key === 'rigid foam board') {
+    return INSULATION_LOCATION_OPTIONS.filter(
+      option => option.key === 'exterior_wall' || option.key === 'roof_deck'
+    );
+  }
+  return INSULATION_LOCATION_OPTIONS;
 }
 
 function insulationLocationForMaterial(
@@ -13961,7 +13983,7 @@ function insulationAssemblyRowTitle(
     materialType || 'Insulation',
     facing,
     genericWallLocation ? 'Wall' : insulationLocationLabel(row.location),
-    row.rValue.trim() || 'R-value not specified',
+    row.rValue.trim(),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -14178,6 +14200,7 @@ function buildInsulationAssemblyRows(
     }));
   }
   if (fallbackRows.length) return fallbackRows;
+  if (!legacyMaterial && !legacyRValue) return [];
   return [
     {
       id: 'insulation-assembly-1',
@@ -14198,6 +14221,8 @@ function InsulationAssemblyCard({
   onChange,
   onAssembliesChange,
   templateKey = null,
+  embedded = false,
+  onProgressChange,
   Colors,
   darkMode,
 }: {
@@ -14212,6 +14237,11 @@ function InsulationAssemblyCard({
   ) => void;
   onAssembliesChange: (assemblies: InsulationAssembly[] | null) => void;
   templateKey?: string | null;
+  /** Sits inside Quick measurements as a group, without its own card frame. */
+  embedded?: boolean;
+  onProgressChange?: (
+    progress: { priced: number; setup: number } | null
+  ) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -14354,14 +14384,6 @@ function InsulationAssemblyCard({
     collapsedTypes.has(insulationMaterialTypeKey(materialType));
   const visibleRows = rows.filter(row => !isTypeCollapsed(row.materialType));
   const hiddenRowCount = rows.length - visibleRows.length;
-  const totalConfirmedSqft = rows.reduce(
-    (sum, row) =>
-      sum +
-      (row.confirmed === false || row.source === 'calculated_from_plan'
-        ? 0
-        : parseSqft(row.sqft)),
-    0
-  );
   const totalNeedsConfirmationSqft = rows.reduce(
     (sum, row) =>
       sum +
@@ -14419,35 +14441,42 @@ function InsulationAssemblyCard({
   ) => {
     updateRows(insulationAssemblyRowsWithoutPricedLocation(rows, location));
   };
+  const typedRows = rows.filter(row => row.materialType.trim());
+  useEffect(() => {
+    onProgressChange?.({
+      priced: pricedAssemblyCount,
+      setup: setupAssemblyCount,
+    });
+  }, [onProgressChange, pricedAssemblyCount, setupAssemblyCount]);
+  useEffect(() => () => onProgressChange?.(null), [onProgressChange]);
   const assemblySummaryParts = [
-    `${pricedAssemblyCount} priced ${
-      pricedAssemblyCount === 1 ? 'assembly' : 'assemblies'
-    }`,
-    `${totalConfirmedSqft.toLocaleString()} sqft`,
+    'Insulation',
+    typedRows.length
+      ? `${typedRows.length} ${
+          typedRows.length === 1 ? 'assembly' : 'assemblies'
+        }`
+      : null,
     assemblyPricingTotal > 0 ? formatPlanningMoney(assemblyPricingTotal) : null,
-    setupAssemblyCount > 0 ? `${setupAssemblyCount} need setup` : null,
+    setupAssemblyCount > 0 ? `${setupAssemblyCount} to finish` : null,
     hiddenRowCount > 0 ? `${hiddenRowCount} hidden` : null,
     totalNeedsConfirmationSqft > 0
-      ? `${totalNeedsConfirmationSqft.toLocaleString()} to confirm`
+      ? `${totalNeedsConfirmationSqft.toLocaleString()} sqft to confirm`
       : null,
   ].filter(Boolean);
-  const selectedTypes = Array.from(
-    new Set(visibleRows.map(row => row.materialType.trim()))
-  );
   const toggleType = (materialType: string) => {
     const key = insulationMaterialTypeKey(materialType);
     const matching = rowsForInsulationMaterialType(rows, materialType);
-    const hasCompleteMatchingRow = matching.some(
-      row =>
-        row.materialType.trim() && row.rValue.trim() && Number(row.sqft) > 0
-    );
-    if (matching.length && hasCompleteMatchingRow) {
+    if (matching.length) {
+      const removeIds = new Set(matching.map(row => row.id));
+      if (expandedAssemblyId && removeIds.has(expandedAssemblyId)) {
+        setExpandedAssemblyId(null);
+      }
       setCollapsedTypes(prev => {
         const next = new Set(prev);
         next.delete(key);
         return next;
       });
-      setExpandedAssemblyId(matching[0].id);
+      updateRows(rows.filter(row => !removeIds.has(row.id)));
       return;
     }
     setCollapsedTypes(prev => {
@@ -14547,7 +14576,19 @@ function InsulationAssemblyCard({
     if (expandedAssemblyId === id) setExpandedAssemblyId(null);
     updateRows(rows.filter(row => row.id !== id));
   };
-  const addAssemblyRow = (materialType: string) => {
+  const addAnotherAssemblyRow = () => {
+    const source =
+      typedRows.find(row => row.id === expandedAssemblyId) ||
+      typedRows[typedRows.length - 1];
+    if (!source) return;
+    const materialType = source.materialType;
+    const usedLocations = new Set(
+      rowsForInsulationMaterialType(rows, materialType).map(row => row.location)
+    );
+    const location =
+      insulationLocationsForMaterial(materialType).find(
+        option => !usedLocations.has(option.key)
+      )?.key ?? insulationLocationForMaterial(materialType);
     const id = `insulation-assembly-${Date.now()}`;
     setExpandedAssemblyId(id);
     updateRows([
@@ -14557,18 +14598,13 @@ function InsulationAssemblyCard({
         materialType,
         rValue: '',
         sqft: '',
-        location: insulationLocationForMaterial(materialType),
+        location,
         battFacing: battFacingForNewRow(materialType),
       },
     ]);
   };
   const renderTypeOptions = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ height: 44 }}
-      contentContainerStyle={{ gap: 8, paddingRight: 4, alignItems: 'center' }}
-    >
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       {INSULATION_TYPE_OPTIONS.map(option => {
         const hasRows = rowsForInsulationMaterialType(rows, option).length > 0;
         const hidden = hasRows && isTypeCollapsed(option);
@@ -14621,14 +14657,10 @@ function InsulationAssemblyCard({
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
   const renderRValueOptions = (row: InsulationAssembly) => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
-    >
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
       {supportedInsulationRValues(row.materialType, row.location).map(
         option => {
           const selected =
@@ -14639,10 +14671,10 @@ function InsulationAssemblyCard({
               onPress={() => selectRowRValue(row, option)}
               activeOpacity={0.75}
               style={{
-                minWidth: 54,
+                minWidth: 58,
                 alignItems: 'center',
-                paddingVertical: 6,
-                paddingHorizontal: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
                 borderRadius: 8,
                 borderWidth: 1,
                 borderColor: selected
@@ -14660,7 +14692,7 @@ function InsulationAssemblyCard({
               <Text
                 style={{
                   color: selected ? '#050B13' : Colors.text,
-                  fontSize: 10,
+                  fontSize: 12,
                   fontWeight: '700',
                 }}
               >
@@ -14670,14 +14702,10 @@ function InsulationAssemblyCard({
           );
         }
       )}
-    </ScrollView>
+    </View>
   );
   const renderBattFacingOptions = (row: InsulationAssembly) => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
-    >
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
       {INSULATION_BATT_FACING_OPTIONS.map(option => {
         const selected =
           (row.battFacing || INSULATION_BATT_FACING_DEFAULT) === option.key;
@@ -14695,8 +14723,8 @@ function InsulationAssemblyCard({
             style={{
               minWidth: 78,
               alignItems: 'center',
-              paddingVertical: 6,
-              paddingHorizontal: 8,
+              paddingVertical: 8,
+              paddingHorizontal: 10,
               borderRadius: 8,
               borderWidth: 1,
               borderColor: selected
@@ -14714,7 +14742,7 @@ function InsulationAssemblyCard({
             <Text
               style={{
                 color: selected ? '#050B13' : Colors.text,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: '700',
               }}
             >
@@ -14723,15 +14751,11 @@ function InsulationAssemblyCard({
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
   const renderLocationOptions = (row: InsulationAssembly) => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
-    >
-      {INSULATION_LOCATION_OPTIONS.map(option => {
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {insulationLocationsForMaterial(row.materialType).map(option => {
         const selected = row.location === option.key;
         return (
           <TouchableOpacity
@@ -14755,8 +14779,8 @@ function InsulationAssemblyCard({
             style={{
               minWidth: 98,
               alignItems: 'center',
-              paddingVertical: 6,
-              paddingHorizontal: 8,
+              paddingVertical: 8,
+              paddingHorizontal: 10,
               borderRadius: 8,
               borderWidth: 1,
               borderColor: selected
@@ -14774,7 +14798,7 @@ function InsulationAssemblyCard({
             <Text
               style={{
                 color: selected ? '#050B13' : Colors.text,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: '700',
                 textAlign: 'center',
               }}
@@ -14784,91 +14808,73 @@ function InsulationAssemblyCard({
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
+  const rowNextStep = (row: InsulationAssembly): string | null => {
+    if (!row.location) return 'Pick location';
+    if (!row.rValue.trim()) return 'Pick R-value';
+    if (parseSqft(row.sqft) <= 0) return 'Add sqft';
+    return null;
+  };
+  const fieldLabelStyle = {
+    color: darkMode ? '#d7e1f0' : Colors.text,
+    fontSize: 12,
+    fontWeight: '600' as const,
+    marginTop: 12,
+    marginBottom: 8,
+  };
   return (
     <View
-      style={{
-        alignSelf: 'stretch',
-        marginTop: 12,
-        marginBottom: 12,
-        padding: 12,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
-        backgroundColor: darkMode ? '#202022' : Colors.surface,
-        shadowColor: '#000',
-        shadowOpacity: darkMode ? 0.24 : 0.08,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: 3,
-      }}
+      style={
+        embedded
+          ? { alignSelf: 'stretch' }
+          : {
+              alignSelf: 'stretch',
+              marginTop: 12,
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
+              backgroundColor: darkMode ? '#202022' : Colors.surface,
+              shadowColor: '#000',
+              shadowOpacity: darkMode ? 0.24 : 0.08,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 3,
+            }
+      }
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
+      <Text
+        accessibilityLabel={`${assemblySummaryParts.join(', ')}. ${assemblyPlanningRateLabel} pricing.`}
+        style={
+          embedded
+            ? [
+                styles.remainderGroupTitle,
+                { color: darkMode ? '#cbd5e1' : Colors.text, marginBottom: 8 },
+              ]
+            : {
+                color: Colors.text,
+                fontSize: 15,
+                fontWeight: '800',
+                marginBottom: 10,
+              }
+        }
       >
-        <View
+        {assemblySummaryParts.join(' · ')}
+      </Text>
+      {!typedRows.length ? (
+        <Text
           style={{
-            flex: 1,
+            color: captionColor(darkMode, Colors),
+            fontSize: 12,
+            marginTop: -2,
+            marginBottom: 8,
           }}
         >
-          <Text
-            style={{
-              color: Colors.text,
-              fontSize: 15,
-              fontWeight: '800',
-            }}
-          >
-            Insulation assemblies
-          </Text>
-          <Text
-            style={{
-              color: captionColor(darkMode, Colors),
-              fontSize: 10,
-              fontWeight: '600',
-              marginTop: 6,
-            }}
-          >
-            {assemblySummaryParts.join(' · ')}
-          </Text>
-          <Text
-            style={{
-              color: captionColor(darkMode, Colors),
-              fontSize: 10,
-              marginTop: 2,
-            }}
-          >
-            {assemblyPlanningRateLabel} pricing
-          </Text>
-        </View>
-      </View>
-      <Text
-        style={{
-          color: captionColor(darkMode, Colors),
-          fontSize: 10,
-          marginTop: 4,
-          lineHeight: 14,
-        }}
-      >
-        Tap a row to edit. Tap Done when finished, or add another assembly
-        below.
-      </Text>
-      <Text
-        style={{
-          color: captionColor(darkMode, Colors),
-          fontSize: 11,
-          fontWeight: '700',
-          marginTop: 10,
-          marginBottom: 5,
-          letterSpacing: 0.35,
-        }}
-      >
-        Installation type
-      </Text>
+          Pick a type to start
+        </Text>
+      ) : null}
       {renderTypeOptions()}
       {hiddenRowCount > 0 ? (
         <Text
@@ -14993,18 +14999,10 @@ function InsulationAssemblyCard({
           </TouchableOpacity>
         </View>
       ))}
-      {selectedTypes.map(materialType => {
-        const typeRows = rows.filter(
-          row => row.materialType.toLowerCase() === materialType.toLowerCase()
-        );
-        return (
-          <View
-            key={materialType}
-            style={{
-              marginTop: 8,
-            }}
-          >
-            {typeRows.map(row => {
+      {typedRows.length ? (
+          <View style={{ marginTop: 8 }}>
+            {visibleRows.filter(row => row.materialType.trim()).map(row => {
+              const materialType = row.materialType;
               const isExpanded = expandedAssemblyId === row.id;
               const area = String(row.sqft ?? '').trim();
               const areaNumber = Number(area.replace(/,/g, ''));
@@ -15015,13 +15013,23 @@ function InsulationAssemblyCard({
               const needsConfirmation =
                 row.confirmed === false ||
                 row.source === 'calculated_from_plan';
-              const isIncomplete = isIncompleteInsulationAssembly(row);
               const isDuplicate = duplicateAssemblyIds.has(row.id);
               const facingNeedsReview = insulationBattFacingNeedsReview(
                 materialType,
                 row.battFacing
               );
               const pricing = rowPricingById.get(row.id);
+              const nextStep = rowNextStep(row);
+              const statusText = isDuplicate
+                ? 'Possible duplicate'
+                : nextStep
+                  ? nextStep
+                  : needsConfirmation
+                    ? `Confirm ${areaLabel} sqft`
+                    : pricing
+                      ? `${formatDraftMoney(pricing.installedRate)}/SF · ${areaLabel} sqft`
+                      : `${areaLabel} sqft`;
+              const statusIsPrompt = isDuplicate || Boolean(nextStep) || needsConfirmation;
               return (
                 <View
                   key={row.id}
@@ -15053,7 +15061,7 @@ function InsulationAssemblyCard({
                       <Text
                         style={{
                           color: Colors.text,
-                          fontSize: 11,
+                          fontSize: 13,
                           fontWeight: '700',
                         }}
                       >
@@ -15061,19 +15069,15 @@ function InsulationAssemblyCard({
                       </Text>
                       <Text
                         style={{
-                          color: captionColor(darkMode, Colors),
-                          fontSize: 10,
+                          color: statusIsPrompt
+                            ? '#fbbf24'
+                            : captionColor(darkMode, Colors),
+                          fontSize: 11,
+                          fontWeight: statusIsPrompt ? '600' : '400',
                           marginTop: 2,
                         }}
                       >
-                        {area
-                          ? pricing
-                            ? `${formatDraftMoney(pricing.installedRate)}/SF · ${areaLabel} sqft${needsConfirmation ? ' · confirm' : ''}`
-                            : `${areaLabel} sqft${needsConfirmation ? ' · confirm' : ''}`
-                          : 'Square feet needed'}
-                        {isDuplicate ? ' · possible duplicate' : ''}
-                        {facingNeedsReview ? ' · review facing before bid' : ''}
-                        {isIncomplete && !isDuplicate ? ' · setup needed' : ''}
+                        {statusText}
                       </Text>
                     </View>
                     <View
@@ -15173,16 +15177,11 @@ function InsulationAssemblyCard({
                           double-counting.
                         </Text>
                       ) : null}
-                      <Text
-                        style={{
-                          color: '#d7e1f0',
-                          fontSize: 12,
-                          fontWeight: '600',
-                          marginBottom: 8,
-                        }}
-                      >
-                        Target R-value
+                      <Text style={[fieldLabelStyle, { marginTop: 4 }]}>
+                        Location
                       </Text>
+                      {renderLocationOptions(row)}
+                      <Text style={fieldLabelStyle}>R-value</Text>
                       {renderRValueOptions(row)}
                       {!supportedInsulationRValues(
                         row.materialType,
@@ -15200,45 +15199,21 @@ function InsulationAssemblyCard({
                       ) : null}
                       {isBattInsulationMaterial(materialType) ? (
                         <>
-                          <Text
-                            style={{
-                              color: '#d7e1f0',
-                              fontSize: 12,
-                              fontWeight: '600',
-                              marginTop: 12,
-                              marginBottom: 8,
-                            }}
-                          >
-                            Batt facing
-                          </Text>
+                          <Text style={fieldLabelStyle}>Facing</Text>
                           {renderBattFacingOptions(row)}
                           {facingNeedsReview ? (
                             <Text
                               style={{
-                                color: '#d7e1f0',
+                                color: captionColor(darkMode, Colors),
                                 fontSize: 10,
                                 marginTop: 6,
-                                lineHeight: 14,
                               }}
                             >
-                              Priced at unfaced rate. Review before bid if plans
-                              specify kraft or foil facing.
+                              Priced at unfaced rate
                             </Text>
                           ) : null}
                         </>
                       ) : null}
-                      <Text
-                        style={{
-                          color: '#d7e1f0',
-                          fontSize: 12,
-                          fontWeight: '600',
-                          marginTop: 12,
-                          marginBottom: 8,
-                        }}
-                      >
-                        Assembly location
-                      </Text>
-                      {renderLocationOptions(row)}
                       <View
                         style={{
                           flexDirection: 'row',
@@ -15247,12 +15222,7 @@ function InsulationAssemblyCard({
                           marginTop: 10,
                         }}
                       >
-                        <Text
-                          style={{
-                            color: captionColor(darkMode, Colors),
-                            fontSize: 11,
-                          }}
-                        >
+                        <Text style={[fieldLabelStyle, { marginTop: 0, marginBottom: 0 }]}>
                           Square feet
                         </Text>
                         <View
@@ -15306,31 +15276,25 @@ function InsulationAssemblyCard({
                       <View
                         style={{
                           flexDirection: 'row',
-                          gap: 8,
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
                           marginTop: 12,
                         }}
                       >
                         <TouchableOpacity
                           onPress={() => deleteAssemblyRow(row.id)}
                           activeOpacity={0.75}
-                          style={{
-                            flex: 1,
-                            minHeight: 44,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: 14,
-                            borderWidth: 0,
-                            backgroundColor: darkMode ? '#3A3A3C' : '#E2E8F0',
-                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          style={{ minHeight: 36, justifyContent: 'center' }}
                         >
                           <Text
                             style={{
                               color: '#f87171',
-                              fontSize: 15,
+                              fontSize: 13,
                               fontWeight: '600',
                             }}
                           >
-                            Delete
+                            Remove
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
@@ -15340,19 +15304,18 @@ function InsulationAssemblyCard({
                           }}
                           activeOpacity={0.75}
                           style={{
-                            flex: 1,
-                            minHeight: 44,
+                            minHeight: 36,
+                            paddingHorizontal: 18,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            borderRadius: 14,
-                            borderWidth: 0,
+                            borderRadius: 10,
                             backgroundColor: '#2dcc9a',
                           }}
                         >
                           <Text
                             style={{
                               color: '#050B13',
-                              fontSize: 15,
+                              fontSize: 13,
                               fontWeight: '700',
                             }}
                           >
@@ -15366,12 +15329,14 @@ function InsulationAssemblyCard({
               );
             })}
             <TouchableOpacity
-              onPress={() => addAssemblyRow(materialType)}
+              onPress={addAnotherAssemblyRow}
               activeOpacity={0.75}
               style={{
                 alignSelf: 'flex-start',
                 marginTop: 8,
-                paddingHorizontal: 10,
+                minHeight: 36,
+                justifyContent: 'center',
+                paddingHorizontal: 12,
                 paddingVertical: 7,
                 borderRadius: 8,
                 borderWidth: 1,
@@ -15382,25 +15347,15 @@ function InsulationAssemblyCard({
               <Text
                 style={{
                   color: Colors.text,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: '700',
                 }}
               >
-                + Add {materialType} assembly
+                + Add another
               </Text>
             </TouchableOpacity>
-            <View
-              style={{
-                height: StyleSheet.hairlineWidth,
-                marginTop: 12,
-                backgroundColor: darkMode
-                  ? 'rgba(148,163,184,0.2)'
-                  : Colors.line,
-              }}
-            />
           </View>
-        );
-      })}
+      ) : null}
     </View>
   );
 }
@@ -16004,7 +15959,7 @@ function CollapsibleQuickMeasurements({
     });
     const parsedPlumbing = parsePlumbingMeasurementsFromNotes(notes || '');
     const parsedStucco = stuccoNoteFlow
-      ? parseStuccoMeasurementsFromNotes(notes || '')
+      ? statedStuccoWallMeasurements(notes || '')
       : {};
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
     const noteKeys: QuickMeasurementFieldKey[] = [];
@@ -16474,7 +16429,12 @@ function CollapsibleQuickMeasurements({
           ]);
         }
       }
+      const selectedRemainder = readScopeFoundPieces(measurements.scopeFoundPieces);
+      const floorDemoAsked =
+        notesRequestFlooringDemo(notes) ||
+        selectedRemainder.includes('remodel_demo');
       if (
+        floorDemoAsked &&
         !notesOwnerHandlesFlooringDemo(notes) &&
         !(
           notesNameShowerTileWithFlooring(notes) &&
@@ -16486,8 +16446,12 @@ function CollapsibleQuickMeasurements({
           flooringRows.push([
             {
               ...floorDemoField,
-              label: 'Flooring demo / removal',
-              helperText: 'Area where existing flooring will be removed.',
+              label: selectedRemainder.includes('remodel_demo')
+                ? 'Flooring demo'
+                : 'Flooring demo / removal',
+              helperText: selectedRemainder.includes('remodel_demo')
+                ? 'Area of the existing work that comes out.'
+                : 'Area where existing flooring will be removed.',
             },
           ]);
         }
@@ -16522,10 +16486,63 @@ function CollapsibleQuickMeasurements({
         }
       }
     }
+    for (const extra of remodelRemainderMeasurementFields(
+      readScopeFoundPieces(measurements.scopeFoundPieces)
+    )) {
+      const remainderUnit =
+        extra.key === 'plumbingRoughPointCount' ? 'points' : undefined;
+      if (baseRows.some(row => row.some(field => field.key === extra.key))) {
+        baseRows = baseRows.map(row =>
+          row.map(field =>
+            field.key === extra.key
+              ? {
+                  ...field,
+                  label: extra.label,
+                  ...(remainderUnit ? { unit: remainderUnit } : {}),
+                  ...(extra.optional
+                    ? {
+                        helperText:
+                          'Optional. Enter a count if this is in the job.',
+                      }
+                    : {}),
+                }
+              : field
+          )
+        );
+        continue;
+      }
+      const field = quickMeasurementFieldDef(extra.key);
+      if (!field) continue;
+      baseRows = [
+        ...baseRows,
+        [
+          {
+            ...field,
+            label: extra.label,
+            ...(remainderUnit ? { unit: remainderUnit } : {}),
+            helperText: extra.optional
+              ? 'Optional. Enter a count if this is in the job.'
+              : 'Enter the amount for this added scope.',
+          },
+        ],
+      ];
+    }
     // R-value is edited on Insulation assemblies now. Keep the legacy
     // standalone field out of every Quick Measurements layout.
+    const hiddenInsulationKeys = new Set<QuickMeasurementFieldKey>([
+      'insulationRValue',
+      ...(scopeFoundWantsInsulationCard(
+        readScopeFoundPieces(measurements.scopeFoundPieces)
+      )
+        ? ([
+            'exteriorWallInsulationSqft',
+            'atticInsulationSqft',
+            'floorInsulationSqft',
+          ] as QuickMeasurementFieldKey[])
+        : []),
+    ]);
     baseRows = baseRows
-      .map(row => row.filter(field => field.key !== 'insulationRValue'))
+      .map(row => row.filter(field => !hiddenInsulationKeys.has(field.key)))
       .filter(row => row.length > 0);
     // A short room addition already lists its package measurements.
     // Stored shell keys must not add garage, kitchen, or a second drywall row.
@@ -17255,10 +17272,16 @@ function CollapsibleQuickMeasurements({
     ) {
       const notesRequirePaintTakeoff =
         notesRequireInteriorPaintMeasurements(notes);
+      const selectedRemainderKeys = new Set(
+        remodelRemainderMeasurementFields(
+          readScopeFoundPieces(measurements.scopeFoundPieces)
+        ).map(row => row.key)
+      );
       return baseRows
         .map(row =>
           row.filter(field => {
             const noteText = String(notes || '');
+            if (selectedRemainderKeys.has(field.key)) return true;
             if (
               field.key === 'floorAreaSqft' &&
               notesDescribeDedicatedFlooringJob(noteText)
@@ -17361,9 +17384,15 @@ function CollapsibleQuickMeasurements({
                 noteText
               ) &&
               !notesDescribeDedicatedFlooringJob(noteText);
+            const floorDemoAsked =
+              notesRequestFlooringDemo(noteText) ||
+              readScopeFoundPieces(measurements.scopeFoundPieces).includes(
+                'remodel_demo'
+              );
             const mixedScopeFlooringField =
               mixedScopeFlooringSelected &&
-              (field.key === 'flooringSqft' || field.key === 'floorDemoSqft');
+              (field.key === 'flooringSqft' ||
+                (field.key === 'floorDemoSqft' && floorDemoAsked));
             const affirmativeFramingNotes = notesWithoutDeniedSentences(
               activeNotesForScopeFields
             );
@@ -17612,7 +17641,15 @@ function CollapsibleQuickMeasurements({
       /\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint(?:ing|ed)?|refinish(?:ing|ed)?)\b/i.test(
         String(notes || '')
       ) && !notesRequireInteriorPaintMeasurements(notes);
-    return resolved
+    const remainderRows = remodelRemainderMeasurementFields(
+      readScopeFoundPieces(measurements.scopeFoundPieces)
+    );
+    const remainderOrder = remainderRows.map(row => row.key);
+    const selectedRemainderKeys = new Set(remainderOrder);
+    const optionalRemainderKeys = new Set(
+      remainderRows.filter(row => row.optional).map(row => row.key)
+    );
+    const mapped = resolved
       .filter(
         result =>
           !(
@@ -17628,9 +17665,27 @@ function CollapsibleQuickMeasurements({
           )
       )
       .map(result => {
+        if (selectedRemainderKeys.has(result.key)) {
+          const optional = optionalRemainderKeys.has(result.key);
+          return {
+            ...result,
+            relevant: true,
+            blockingPrice: optional
+              ? false
+              : !result.filled || result.blockingPrice,
+            state: result.filled
+              ? ('confirmed' as const)
+              : ('needs_confirmation' as const),
+          };
+        }
         if (
           mixedScopeFlooringSelected &&
-          (result.key === 'flooringSqft' || result.key === 'floorDemoSqft')
+          (result.key === 'flooringSqft' ||
+            (result.key === 'floorDemoSqft' &&
+              (notesRequestFlooringDemo(String(notes || '')) ||
+                readScopeFoundPieces(measurements.scopeFoundPieces).includes(
+                  'remodel_demo'
+                ))))
         ) {
           return {
             ...result,
@@ -17684,6 +17739,19 @@ function CollapsibleQuickMeasurements({
           ? { ...result, state: 'needs_confirmation' as const }
           : result;
       });
+    const firstRemainderIndex = mapped.findIndex(result =>
+      selectedRemainderKeys.has(result.key)
+    );
+    if (firstRemainderIndex < 0) return mapped;
+    const remainder = mapped
+      .filter(result => selectedRemainderKeys.has(result.key))
+      .sort((a, b) => remainderOrder.indexOf(a.key) - remainderOrder.indexOf(b.key));
+    const others = mapped.filter(result => !selectedRemainderKeys.has(result.key));
+    return [
+      ...others.slice(0, firstRemainderIndex),
+      ...remainder,
+      ...others.slice(firstRemainderIndex),
+    ];
   }, [
     rows,
     measurements,
@@ -17883,8 +17951,16 @@ function CollapsibleQuickMeasurements({
   const paintScopePanelOwnsMeasurements =
     String(templateKey || '').toLowerCase() === 'painting';
   const fieldResultsForSummary = useMemo(
-    () =>
-      fieldResults.filter(result => {
+    () => {
+      const optionalRemainderKeys = new Set(
+        remodelRemainderMeasurementFields(
+          readScopeFoundPieces(measurements.scopeFoundPieces)
+        )
+          .filter(row => row.optional)
+          .map(row => row.key)
+      );
+      return fieldResults.filter(result => {
+        if (optionalRemainderKeys.has(result.key) && !result.filled) return false;
         if (
           paintScopePanelOwnsMeasurements &&
           paintingEmbeddedMeasurementKeys.has(result.key)
@@ -17957,7 +18033,8 @@ function CollapsibleQuickMeasurements({
           return false;
         }
         return true;
-      }),
+      });
+    },
     [
       fieldResults,
       paintScopePanelOwnsMeasurements,
@@ -17972,6 +18049,7 @@ function CollapsibleQuickMeasurements({
       measurements.quickMeasurementUserOverrides,
       measurements.planImportTradeKey,
       measurements.planImportMode,
+      measurements.scopeFoundPieces,
       dedicatedElectricalMeasurementKeys,
     ]
   );
@@ -18183,9 +18261,6 @@ function CollapsibleQuickMeasurements({
       /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|enclosure|walls?|floor\s+tile)|bathtub|wet\s+area|prefab|tub\b(?!\s+surround))\b/i.test(
         noteText
       );
-    if (notesNameBathroomRemodelPanel(notes) && !notesExplicitWetAreaWork) {
-      return true;
-    }
     if (isWholeHomeMixedRemodel && !notesExplicitWetAreaWork) return false;
     if (
       (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
@@ -18588,6 +18663,51 @@ function CollapsibleQuickMeasurements({
         ],
       };
     }
+    // Scope Found extras keep the chip order: single boxes first, then each
+    // trade's boxes under its header.
+    const remainderOrder = remodelRemainderMeasurementFields(
+      readScopeFoundPieces(measurements.scopeFoundPieces)
+    ).map(row => row.key);
+    if (remainderOrder.length) {
+      const remainderKeys = new Set(remainderOrder);
+      const pending = positioned.needsConfirmation;
+      const firstIndex = pending.findIndex(result => remainderKeys.has(result.key));
+      if (firstIndex >= 0) {
+        const others = pending.filter(result => !remainderKeys.has(result.key));
+        const remainder = pending
+          .filter(result => remainderKeys.has(result.key))
+          .sort((a, b) => remainderOrder.indexOf(a.key) - remainderOrder.indexOf(b.key));
+        positioned = {
+          ...positioned,
+          needsConfirmation: [
+            ...others.slice(0, firstIndex),
+            ...remainder,
+            ...others.slice(firstIndex),
+          ],
+        };
+      }
+    }
+    // Not sure boxes stay in one section. A blank one is optional, so it
+    // must not sit under Needs confirmation or jump when a count is typed.
+    const optionalRemainderKeys = new Set(
+      remodelRemainderMeasurementFields(
+        readScopeFoundPieces(measurements.scopeFoundPieces)
+      )
+        .filter(row => row.optional)
+        .map(row => row.key)
+    );
+    if (optionalRemainderKeys.size) {
+      const withoutOptional = (list: QuickMeasurementFieldResult[]) =>
+        list.filter(result => !optionalRemainderKeys.has(result.key));
+      positioned = {
+        ...positioned,
+        fromPlan: withoutOptional(positioned.fromPlan),
+        suggestions: withoutOptional(positioned.suggestions),
+        needsConfirmation: withoutOptional(positioned.needsConfirmation),
+        confirmed: withoutOptional(positioned.confirmed),
+        more: withoutOptional(positioned.more),
+      };
+    }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
     const drywallOrdered = placeDrywallCeilingUnderWallRemoval(positioned);
     if (!showWetAreaFinishSteppers)
@@ -18610,6 +18730,63 @@ function CollapsibleQuickMeasurements({
     notes,
   ]);
   const displayGroups = groups.groups;
+  const remainderInsulationCard = scopeFoundWantsInsulationCard(
+    readScopeFoundPieces(measurements.scopeFoundPieces)
+  );
+  const [reportedInsulationProgress, setReportedInsulationProgress] =
+    useState<{ priced: number; setup: number } | null>(null);
+  const handleRemainderInsulationProgress = useCallback(
+    (progress: { priced: number; setup: number } | null) =>
+      setReportedInsulationProgress(prev =>
+        prev === progress ||
+        (prev &&
+          progress &&
+          prev.priced === progress.priced &&
+          prev.setup === progress.setup)
+          ? prev
+          : progress
+      ),
+    []
+  );
+  const remainderInsulationProgress = useMemo(() => {
+    if (reportedInsulationProgress) return reportedInsulationProgress;
+    const stored = Array.isArray(measurements.insulationAssemblies)
+      ? (measurements.insulationAssemblies as InsulationAssembly[])
+      : [];
+    return {
+      priced: stored.filter(isPricedInsulationAssembly).length,
+      setup: stored.filter(isIncompleteInsulationAssembly).length,
+    };
+  }, [reportedInsulationProgress, measurements.insulationAssemblies]);
+  const renderRemainderInsulationAssemblyCard = () =>
+    remainderInsulationCard ? (
+      <InsulationAssemblyCard
+        measurements={measurements as Record<string, unknown>}
+        notes={notes}
+        templateKey={templateKey}
+        embedded
+        onProgressChange={handleRemainderInsulationProgress}
+        onChange={(key, value) =>
+          setMeasurements(prev => ({ ...prev, [key]: value }))
+        }
+        onAssembliesChange={assemblies =>
+          setMeasurements(prev => {
+            if (
+              JSON.stringify(prev.insulationAssemblies ?? null) ===
+              JSON.stringify(assemblies ?? null)
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              insulationAssemblies: assemblies,
+            };
+          })
+        }
+        Colors={Colors}
+        darkMode={darkMode}
+      />
+    ) : null;
   const wetAreaFields = groups.wetArea;
   const visibleMoreResults = displayGroups.more.filter(result => result.filled);
   const roofingMeasurementKeys = new Set<QuickMeasurementFieldKey>([
@@ -18670,12 +18847,29 @@ function CollapsibleQuickMeasurements({
       next.detected += 1;
       next.relevantTotal += 1;
     }
+    if (remainderInsulationCard) {
+      next.relevantTotal += 1;
+      if (
+        remainderInsulationProgress.priced > 0 &&
+        remainderInsulationProgress.setup === 0
+      ) {
+        next.confirmed += 1;
+      } else {
+        next.needsConfirmation += 1;
+      }
+    }
     return countWindowsDoorsPlanOpeningsAsFromPlan(
       next,
       visible,
       measurements as unknown as Record<string, unknown>
     );
-  }, [fieldResultsForSummary, flooringPlanOmitsExistingWork, measurements]);
+  }, [
+    fieldResultsForSummary,
+    flooringPlanOmitsExistingWork,
+    measurements,
+    remainderInsulationCard,
+    remainderInsulationProgress,
+  ]);
   const measurementConflicts = useMemo(
     () =>
       (measurements.measurementConflicts || []).filter(
@@ -21681,6 +21875,18 @@ function CollapsibleQuickMeasurements({
       {title}
     </Text>
   );
+  const remainderRows = remodelRemainderMeasurementFields(
+    readScopeFoundPieces(measurements.scopeFoundPieces)
+  );
+  const remainderGroupByKey = new Map(
+    remainderRows
+      .filter(row => row.group)
+      .map(row => [row.key, row.group as string])
+  );
+  const optionalRemainderResults = remainderRows
+    .filter(row => row.optional)
+    .map(row => fieldResults.find(result => result.key === row.key))
+    .filter((result): result is QuickMeasurementFieldResult => Boolean(result));
   const kitchenEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
     'kitchenFloorSqft',
     'backsplashSqft',
@@ -21869,6 +22075,18 @@ function CollapsibleQuickMeasurements({
               )?.evidenceKind || ''
             ) !== 'explicit_label')))
     );
+  const needsConfirmationFieldsShown = displayGroups.needsConfirmation.some(
+    shouldRenderGeneralResult
+  );
+  const remainderInsulationDone =
+    remainderInsulationCard &&
+    remainderInsulationProgress.priced > 0 &&
+    remainderInsulationProgress.setup === 0;
+  const remainderInsulationOpensSection =
+    remainderInsulationDone || !needsConfirmationFieldsShown;
+  const confirmedContinuesInsulation =
+    remainderInsulationDone &&
+    !confirmedRoofingResults.some(shouldRenderGeneralResult);
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
     variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more',
@@ -23901,9 +24119,6 @@ function CollapsibleQuickMeasurements({
                   Bathroom remodel measurements
                 </Text>
               ) : null}
-              {notesNameBathroomRemodelPanel(notes) && !bathroomPhotoWetArea
-                ? renderWetAreaFinishPanel()
-                : null}
               {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
                 <>
                   {renderDemoTearOutPanel()}
@@ -24174,9 +24389,7 @@ function CollapsibleQuickMeasurements({
                 </View>
               ) : null}
 
-              {displayGroups.needsConfirmation.some(
-                shouldRenderGeneralResult
-              ) ? (
+              {needsConfirmationFieldsShown ? (
                 <View
                   style={[
                     styles.quickMeasurementSection,
@@ -24189,14 +24402,119 @@ function CollapsibleQuickMeasurements({
                   ]}
                 >
                   {sectionTitle('Needs confirmation', '#fbbf24')}
-                  {displayGroups.needsConfirmation.map((result, index) =>
-                    renderDisplayedResultField(
+                  {displayGroups.needsConfirmation.map((result, index) => {
+                    const field = renderDisplayedResultField(
                       result,
                       fieldVariantForResult(result),
                       'needsConfirmation',
                       index
-                    )
-                  )}
+                    );
+                    const group = remainderGroupByKey.get(result.key);
+                    const previousGroup =
+                      index > 0
+                        ? remainderGroupByKey.get(
+                            displayGroups.needsConfirmation[index - 1].key
+                          )
+                        : undefined;
+                    return !group || group === previousGroup ? (
+                      field
+                    ) : (
+                      <React.Fragment key={`remainder-group-${group}`}>
+                        <Text
+                          style={[
+                            styles.remainderGroupTitle,
+                            { color: darkMode ? '#cbd5e1' : Colors.text },
+                          ]}
+                        >
+                          {group}
+                        </Text>
+                        {field}
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {optionalRemainderResults.length ? (
+                <View
+                  style={[
+                    styles.quickMeasurementSection,
+                    needsConfirmationFieldsShown || remainderInsulationCard
+                      ? { marginTop: 12 }
+                      : [
+                          styles.quickMeasurementSectionSplit,
+                          {
+                            borderTopColor: darkMode
+                              ? 'rgba(255,255,255,0.12)'
+                              : Colors.line,
+                          },
+                        ],
+                  ]}
+                >
+                  {optionalRemainderResults.map((result, index) => {
+                    const field = renderDisplayedResultField(
+                      result,
+                      fieldVariantForResult(result),
+                      'needsConfirmation',
+                      index
+                    );
+                    const group = remainderGroupByKey.get(result.key);
+                    const previousGroup =
+                      index > 0
+                        ? remainderGroupByKey.get(
+                            optionalRemainderResults[index - 1].key
+                          )
+                        : undefined;
+                    if (!group || group === previousGroup) return field;
+                    return (
+                      <React.Fragment key={`optional-remainder-${group}`}>
+                        <Text
+                          style={[
+                            styles.remainderGroupTitle,
+                            { color: darkMode ? '#cbd5e1' : Colors.text },
+                          ]}
+                        >
+                          {group}
+                        </Text>
+                        <Text
+                          style={{
+                            color: captionColor(darkMode, Colors),
+                            fontSize: 12,
+                            marginBottom: 8,
+                          }}
+                        >
+                          Enter what applies.
+                        </Text>
+                        {field}
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {/* One fixed slot so the card keeps its rows and focus when it is finished. */}
+              {remainderInsulationCard ? (
+                <View
+                  style={[
+                    styles.quickMeasurementSection,
+                    remainderInsulationOpensSection
+                      ? [
+                          styles.quickMeasurementSectionSplit,
+                          {
+                            borderTopColor: darkMode
+                              ? 'rgba(255,255,255,0.12)'
+                              : Colors.line,
+                          },
+                        ]
+                      : { marginTop: 12 },
+                  ]}
+                >
+                  {remainderInsulationOpensSection
+                    ? remainderInsulationDone
+                      ? sectionTitle('Confirmed')
+                      : sectionTitle('Needs confirmation', '#fbbf24')
+                    : null}
+                  {renderRemainderInsulationAssemblyCard()}
                 </View>
               ) : null}
 
@@ -24228,15 +24546,19 @@ function CollapsibleQuickMeasurements({
                 <View
                   style={[
                     styles.quickMeasurementSection,
-                    styles.quickMeasurementSectionSplit,
-                    {
-                      borderTopColor: darkMode
-                        ? 'rgba(255,255,255,0.12)'
-                        : Colors.line,
-                    },
+                    confirmedContinuesInsulation
+                      ? { marginTop: 12 }
+                      : [
+                          styles.quickMeasurementSectionSplit,
+                          {
+                            borderTopColor: darkMode
+                              ? 'rgba(255,255,255,0.12)'
+                              : Colors.line,
+                          },
+                        ],
                   ]}
                 >
-                  {sectionTitle('Confirmed')}
+                  {confirmedContinuesInsulation ? null : sectionTitle('Confirmed')}
                   {confirmedNonRoofingResults.map((result, index) =>
                     renderDisplayedResultField(
                       result,
@@ -31342,6 +31664,7 @@ export default function AIEstimateScopeAssumptionsModal({
         deferredMeasurements.roofGutterLf ?? '',
         deferredMeasurements.roofDownspoutCount ?? '',
         deferredMeasurements.roofingSystemChoice ?? '',
+        JSON.stringify(deferredMeasurements.insulationAssemblies ?? null),
         JSON.stringify(deferredMeasurements.pricingAcceptance ?? {}),
       ].join('\u001f'),
     [
@@ -36723,6 +37046,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.12,
+    marginBottom: 2,
+  },
+  remainderGroupTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 10,
     marginBottom: 2,
   },
   quickMeasurementsDone: {

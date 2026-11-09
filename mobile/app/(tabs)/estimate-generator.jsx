@@ -5775,15 +5775,27 @@ export default function EstimateGeneratorScreen() {
     });
   }, []);
 
-  const handleScopeFoundChoice = useCallback((id, choice) => {
+  const handleScopeFoundChoice = useCallback((id, choice, extra) => {
     setAiDraft(prev => {
       if (!prev) return prev;
-      const scopeMeasurements = measurementsForScopeFoundChoice(
-        prev.scopeMeasurements || {},
-        id,
-        choice,
-        prev.originalNotes
-      );
+      const scopeMeasurements = {
+        ...measurementsForScopeFoundChoice(
+          prev.scopeMeasurements || {},
+          id,
+          choice,
+          prev.originalNotes
+        ),
+        ...(extra && typeof extra === 'object' ? extra : {}),
+      };
+      if (extra && typeof extra === 'object') {
+        const overrides = {
+          ...(scopeMeasurements.quickMeasurementUserOverrides || {}),
+        };
+        for (const [key, value] of Object.entries(extra)) {
+          if (value != null && String(value).trim() !== '') overrides[key] = true;
+        }
+        scopeMeasurements.quickMeasurementUserOverrides = overrides;
+      }
       latestScopeMeasurementsRef.current = scopeMeasurements;
       return { ...prev, scopeMeasurements };
     });

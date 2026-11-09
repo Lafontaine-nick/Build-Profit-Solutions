@@ -115,6 +115,23 @@ function notesNameWholeHomeRemodelScope(text: string): boolean {
 }
 
 /**
+ * Whole-house remodel already includes demo of the finishes it names.
+ * Scope Found does not ask which of those finishes come out.
+ */
+export function wholeHomeRemodelIncludesFinishDemo(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  if (!notesNameWholeHomeRemodelScope(text)) return false;
+  if (/\bno\s+demo\b|\bwithout\s+demo\b|\bno\s+demolition\b/i.test(text)) return false;
+  return (
+    /\bkitchen\b/i.test(text) ||
+    /\bbath(?:room)?s?\b/i.test(text) ||
+    /\b(?:flooring|lvp|carpet|vinyl|hardwood|laminate)\b/i.test(text)
+  );
+}
+
+/**
  * A whole-home note that names a kitchen without a takeoff.
  * Confirm Scope uses the kitchen remodel panel, not a lump updates card.
  */
@@ -133,7 +150,7 @@ export function notesNameKitchenRemodelPanel(
 
 /**
  * A whole-home note that names a bathroom without a takeoff.
- * Confirm Scope uses the bathroom remodel panel, not a lump updates card.
+ * Confirm Scope uses the bathroom install panel. Shower tile stays off until the note names it.
  */
 export function notesNameBathroomRemodelPanel(
   notes: string | null | undefined

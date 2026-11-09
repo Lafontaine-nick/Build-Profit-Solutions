@@ -290,6 +290,48 @@ describe('scopeItemNoteBadge', () => {
     ).toBeNull();
   });
 
+  test('a stucco replacement badges stucco removal and not the other finishes', () => {
+    const notes = 'Replace the stucco, 1,800 sqft.';
+    const ctx = {
+      templateKey: 'stucco',
+      notes,
+      measurements: normalizeScopeMeasurements({
+        stuccoGrossWallSqft: 1800,
+        itemQuantities: {
+          cladding_demo__old_stucco: { quantity: 1800, unit: 'sqft' },
+        },
+      } as never),
+    };
+    const card = (id: string, label: string) =>
+      ({
+        id,
+        label,
+        state: 'included',
+        inputType: 'yes_no',
+        noteBacked: true,
+      }) as ScopeChecklistItem;
+    expect(scopeItemNoteBadge(card('cladding_demo__old_stucco', 'Stucco removal'), ctx)).toBe(
+      'mentioned'
+    );
+    expect(scopeItemNoteBadge(card('cladding_demo__wood_siding', 'Wood siding removal'), ctx)).toBeNull();
+    expect(scopeItemNoteBadge(card('cladding_demo__vinyl_siding', 'Vinyl siding removal'), ctx)).toBeNull();
+    expect(scopeItemNoteBadge(card('cladding_demo__brick', 'Brick removal'), ctx)).toBeNull();
+    expect(
+      scopeItemNoteBadge(card('cladding_demo__fiber_cement', 'Fiber cement removal'), ctx)
+    ).toBeNull();
+    expect(
+      scopeItemNoteBadge(card('cladding_demo__wood_siding', 'Wood siding removal'), {
+        ...ctx,
+        notes: 'Remove the wood siding and replace the stucco, 1,800 sqft.',
+        measurements: normalizeScopeMeasurements({
+          itemQuantities: {
+            cladding_demo__wood_siding: { quantity: 500, unit: 'sqft' },
+          },
+        } as never),
+      })
+    ).toBe('mentioned');
+  });
+
   test('a new shingle note does not badge a selected tear-off as mentioned', () => {
     const shingles = {
       id: 'tear_off_shingles',

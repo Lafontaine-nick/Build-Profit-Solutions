@@ -91,6 +91,7 @@ import {
 import { applyContractorRemovedScopeItems } from '@/utils/contractorRemovedScope';
 import {
   applyScopeFoundClarification,
+  readScopeFoundPieces,
   splitRoofTearOffCards,
 } from '@/utils/scopeFoundClarification';
 import {
@@ -995,18 +996,21 @@ export function applyStep2NoteScopeFilters(
       ...(item.inputType === 'multi_choice' ? { choiceIds: ['not_in_scope'] } : {}),
     }));
   }
-  const clarified = dropToiletDemoBesideNewToilet(
-    applyScopeFoundClarification(
-      applyShowerRemovalChoice(
-        scoped,
-        notes,
-        measurements.showerRemovalChoice,
-        measurements.showerRemovalPieces
-      ),
+  const clarifiedItems = applyScopeFoundClarification(
+    applyShowerRemovalChoice(
+      scoped,
       notes,
-      measurements
-    )
+      measurements.showerRemovalChoice,
+      measurements.showerRemovalPieces
+    ),
+    notes,
+    measurements
   );
+  const clarified = readScopeFoundPieces(measurements.scopeFoundPieces).includes(
+    'extent_bath_out_toilet'
+  )
+    ? clarifiedItems
+    : dropToiletDemoBesideNewToilet(clarifiedItems);
   const existingTypes = Array.isArray(measurements.flooringExistingTypes)
     ? measurements.flooringExistingTypes.map(type => String(type))
     : [];
@@ -1017,6 +1021,7 @@ export function applyStep2NoteScopeFilters(
   });
   return orderDedicatedDrywallCards(
     dropGenericDrywallDemoBesideSurfaceCards(
+    applyScopeFoundClarification(
     filterDedicatedFlooringConfirmItems(
     dropCombinedFloorDemoWhenStyled(
       applyCanonicalScopeToChecklistItems(
@@ -1038,6 +1043,9 @@ export function applyStep2NoteScopeFilters(
     ),
     notes,
     flooringKeepIds
+  ),
+    notes,
+    measurements
   )
   )
   );

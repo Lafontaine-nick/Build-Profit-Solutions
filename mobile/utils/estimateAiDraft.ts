@@ -17,6 +17,7 @@ import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
   checklistItemInScope,
+  resolveInsulationAssemblyRowPricingMap,
 } from '@/utils/scopeItemQuantities';
 import { resolveKitchenCountertopTakeoffSqft } from '@/utils/qmScopePanels/kitchenRemodel';
 import {
@@ -148,7 +149,10 @@ import {
   confirmedPaintingMeasurementTextLines,
   ensurePaintingPlanChecklistItems,
 } from '@/utils/subcontractorTrade/paintingPlanConvergence';
-import { applyHydratedInsulationScopeMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import {
+  applyHydratedInsulationScopeMeasurements,
+  insulationBattFacingLabel,
+} from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import type {
   ElectricalPanelLocation,
   ElectricalProjectCondition,
@@ -9615,6 +9619,107 @@ function catalogUnitToLineItemUnit(unit: string): string {
   return u;
 }
 
+const INSULATION_APPLY_LOCATION_LABELS: Record<string, string> = {
+  exterior_wall: 'Exterior wall',
+  attic_ceiling: 'Attic / ceiling',
+  roof_deck: 'Roof deck',
+  garage_separation: 'Garage separation',
+  floor: 'Floor',
+};
+
+type InsulationApplyPart = {
+  name: string;
+  sqft: number;
+  material: number;
+  labor: number;
+  total: number;
+};
+
+/**
+ * Each priced insulation row from Confirm scope, as its own bid line.
+ * Only when the rows cover the same area the package was priced on.
+ */
+function insulationApplyPartsForPackage(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): InsulationApplyPart[] | null {
+  if (resolvePackageCostCode(pkg) !== 'insulation') return null;
+  const rows = draft.scopeMeasurements?.insulationAssemblies;
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const rowId = (row: InsulationAssembly, index: number) =>
+    String(row.id || `insulation-assembly-${index + 1}`);
+  const pricing = resolveInsulationAssemblyRowPricingMap(
+    rows.map((row, index) => ({ ...row, id: rowId(row, index) })),
+    { templateKey: draft.scopeChecklist?.templateKey ?? null }
+  );
+  const parts = rows.flatMap((row, index): InsulationApplyPart[] => {
+    const priced = pricing.get(rowId(row, index));
+    if (!priced) return [];
+    const facing = insulationBattFacingLabel(row.battFacing);
+    const type = [
+      row.materialType || 'Insulation',
+      facing ? facing.toLowerCase() : null,
+      row.rValue,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const location = INSULATION_APPLY_LOCATION_LABELS[row.location || ''];
+    return [
+      {
+        name: location ? `${type} · ${location}` : type,
+        sqft: priced.sqft,
+        material: priced.material,
+        labor: priced.labor,
+        total: priced.total,
+      },
+    ];
+  });
+  if (!parts.length) return null;
+  const physical = physicalQuantityForAppliedPackage(pkg, draft);
+  const partSqft = parts.reduce((sum, part) => sum + part.sqft, 0);
+  if (
+    !physical ||
+    catalogUnitToLineItemUnit(physical.unit) !== 'sq ft' ||
+    Math.abs(physical.quantity - partSqft) > 1
+  ) {
+    return null;
+  }
+  return parts;
+}
+
+/** Review sub-lines under Insulation, one per priced assembly, adding up to the row total. */
+export function insulationAssemblyReviewLines(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft,
+  total: number
+): Array<{ name: string; sqft: number; total: number }> | null {
+  if (!(total > 0)) return null;
+  const parts = insulationApplyPartsForPackage(pkg, draft);
+  if (!parts) return null;
+  const amounts = allocateAppliedAmount(
+    total,
+    parts.map(part => part.total)
+  );
+  return parts.map((part, index) => ({
+    name: part.name,
+    sqft: part.sqft,
+    total: amounts[index],
+  }));
+}
+
+/** Splits applied dollars by row weight; the last row takes the rounding cents. */
+function allocateAppliedAmount(amount: number, weights: number[]): number[] {
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  if (!(weightTotal > 0)) return weights.map(() => 0);
+  let remaining = Math.round(amount * 100);
+  return weights.map((weight, index) => {
+    if (index === weights.length - 1) return remaining / 100;
+    const cents = Math.round((amount * weight * 100) / weightTotal);
+    remaining -= cents;
+    return cents / 100;
+  });
+}
+
 function laborLineItemsFromDraft(
   draft: EstimateAiDraft,
   applyConfirmedOnly: boolean
@@ -9653,7 +9758,7 @@ function laborLineItemsFromDraft(
     const lineUnit = physical
       ? catalogUnitToLineItemUnit(physical.unit)
       : undefined;
-    lines.push({
+    const line = {
       id: newLineItemId(),
       name: pkg.name,
       description: laborDescriptionForPackage(pkg, parsedSplit),
@@ -9678,7 +9783,33 @@ function laborLineItemsFromDraft(
       ),
       displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
       partialPricing: pkg.status === 'partial_pricing',
-    });
+    };
+    const insulationParts = insulationApplyPartsForPackage(pkg, draft);
+    if (insulationParts) {
+      const amounts = allocateAppliedAmount(
+        total,
+        insulationParts.map(part => (isCombinedOnly ? part.total : part.labor))
+      );
+      insulationParts.forEach((part, index) => {
+        const amount = amounts[index];
+        lines.push({
+          ...line,
+          id: newLineItemId(),
+          name: part.name,
+          description: part.name,
+          hours: part.sqft,
+          quantity: part.sqft,
+          qty: part.sqft,
+          unit: 'sq ft',
+          mode: 'sqft',
+          rate: amount / part.sqft,
+          total: amount,
+          totalCost: amount,
+        });
+      });
+      continue;
+    }
+    lines.push(line);
   }
 
   return lines;
@@ -9707,6 +9838,38 @@ function materialLineItemsFromDraft(
     const physical = physicalQuantityForAppliedPackage(pkg, draft);
     const qty = physical ? physical.quantity : 1;
     const unit = physical ? catalogUnitToLineItemUnit(physical.unit) : 'lot';
+
+    const insulationParts =
+      splitMaterial > 0 ? insulationApplyPartsForPackage(pkg, draft) : null;
+    if (insulationParts) {
+      const amounts = allocateAppliedAmount(
+        splitMaterial,
+        insulationParts.map(part => part.material)
+      );
+      insulationParts.forEach((part, index) => {
+        const amount = amounts[index];
+        lines.push({
+          id: newLineItemId(),
+          name: `${part.name} — materials`,
+          description: `Materials for ${part.name}`,
+          quantity: part.sqft,
+          qty: part.sqft,
+          unit: 'sq ft',
+          mode: 'sqft',
+          unitPrice: amount / part.sqft,
+          cost: amount / part.sqft,
+          total: amount,
+          section: pkg.name,
+          source: 'ai-draft',
+          sourceItemId: costCode,
+          costCode,
+          checklistItemId: costCode,
+          isManual: true,
+          displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'material'),
+        });
+      });
+      continue;
+    }
 
     if (splitMaterial > 0) {
       lines.push({

@@ -1,4 +1,8 @@
-import { showerRemovalPrompt } from '@/utils/bathroomNoteScope';
+import {
+  measurementsForShowerRemovalChoice,
+  showerRemovalPrompt,
+  type ShowerRemovalPiece,
+} from '@/utils/bathroomNoteScope';
 import {
   dedicatedFlooringAreaSqft,
   notesDescribeDedicatedFlooringJob,
@@ -31,8 +35,13 @@ import { notesDescribeDedicatedWindowsDoorsJob } from '@/utils/windowsDoorsNoteS
 import {
   inferRoofingSystemFromNotes,
   inferRoofingTearOffFromNotes,
+  noteMentionIsOnlyNegated,
 } from '@/utils/scopeItemNoteHints';
-import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelNote';
+import {
+  notesDescribeMeasuredWholeHomeRemodel,
+  wholeHomeRemodelIncludesFinishDemo,
+} from '@/utils/wholeHomeRemodelNote';
+import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 
 export type ScopeFoundClarificationId =
   | 'shower'
@@ -53,7 +62,8 @@ export type ScopeFoundClarificationId =
   | 'plumbing_demo'
   | 'openings_demo'
   | 'excavation_demo'
-  | 'existing_structure';
+  | 'existing_structure'
+  | 'remodel_remainder';
 
 export type ScopeFoundChoice =
   | 'yes'
@@ -124,6 +134,7 @@ const IDS = new Set<ScopeFoundClarificationId>([
   'openings_demo',
   'excavation_demo',
   'existing_structure',
+  'remodel_remainder',
 ]);
 
 function noteText(notes: string | null | undefined): string {
@@ -358,6 +369,7 @@ const PIECE_IDS = new Set<string>([
   'trim',
   'doors',
   'paint_cabinets',
+  'bathrooms',
 ]);
 
 const FLOOR_TYPE_BY_PIECE: Record<string, string> = {
@@ -558,6 +570,7 @@ function kitchenDemoPrompt(text: string): ScopeFoundClarification | null {
 
 function wholeHomeDemoPrompt(text: string): ScopeFoundClarification | null {
   if (!notesLookLikeWholeHome(text)) return null;
+  if (wholeHomeRemodelIncludesFinishDemo(text)) return null;
   const pieces = [
     ...(/\bkitchen\b/i.test(text)
       ? piecesStillUnknown(text, [
@@ -573,6 +586,20 @@ function wholeHomeDemoPrompt(text: string): ScopeFoundClarification | null {
             id: 'flooring',
             label: 'Flooring',
             subject: /\bflooring\b|\bfloors?\b/,
+          },
+        ])
+      : []),
+    ...(/\bbath(?:room)?s?\b/i.test(text)
+      ? piecesStillUnknown(text, [
+          {
+            id: 'bathrooms',
+            label:
+              /\bbathrooms\b|\bbaths\b|\b(?:two|three|four|five|six|\d+)\s+baths?\b/i.test(
+                text
+              )
+                ? 'Bathrooms'
+                : 'Bathroom',
+            subject: /\bbath(?:room)?s?\b/,
           },
         ])
       : []),
@@ -960,8 +987,15 @@ function tradePrompt(text: string): ScopeFoundClarification | null {
     return null;
   }
   const unknown = piecesStillUnknown(text, trade.pieces);
-  const namedSome = unknown.length < trade.pieces.length;
   let pieces = unknown;
+  // "Replace the stucco" names the new finish. The old layer can still be stucco.
+  if (trade.id === 'stucco_demo') {
+    const stuccoPiece = trade.pieces.find(piece => piece.id === 'old_stucco');
+    if (stuccoPiece && !pieces.some(piece => piece.id === 'old_stucco')) {
+      pieces = [stuccoPiece, ...pieces];
+    }
+  }
+  const namedSome = pieces.length < trade.pieces.length;
   if (
     trade.id === 'excavation_demo' &&
     !notesNameExistingExcavationStructure(text)
@@ -1032,10 +1066,1295 @@ function replacementDemoLines(text: string): ClarificationLine[] {
   });
 }
 
+type RemodelPhase = {
+  id: string;
+  label: string;
+  /** Work the note already put on the bid, or named as out. */
+  named: RegExp;
+  line: ClarificationLine;
+};
+
+const REMODEL_PHASES = {
+  demo: {
+    id: 'remodel_demo',
+    label: 'Demo',
+    named: REMOVAL_NAMED,
+    line: line(
+      'floor_demo',
+      'Demo',
+      'Existing work that comes out. Enter the area.',
+      'demo'
+    ),
+  },
+  paint: {
+    id: 'remodel_paint',
+    label: 'Paint',
+    named: /\bpaint(?:ing)?\b/i,
+    line: line('interior_paint', 'Paint', 'Paint for this remodel. Enter the area.', 'paint'),
+  },
+  insulation: {
+    id: 'remodel_insulation',
+    label: 'Insulation',
+    named: /\binsulat(?:e|ion|ing)\b/i,
+    line: line(
+      'insulation',
+      'Insulation',
+      'Insulation for this remodel. Enter the area.',
+      'insulation'
+    ),
+  },
+  electrical: {
+    id: 'remodel_electrical',
+    label: 'Electrical',
+    named: /\b(?:electrical|wiring|outlets?|receptacles?|recessed|panel)\b/i,
+    line: line(
+      'electrical_rough',
+      'Electrical',
+      'Electrical work for this remodel.',
+      'electrical'
+    ),
+  },
+  framing: {
+    id: 'remodel_framing',
+    label: 'Framing',
+    named: /\b(?:frame|framing|framed)\b/i,
+    line: line(
+      'wall_framing',
+      'Framing',
+      'Interior framing for this remodel. Enter the area.',
+      'framing'
+    ),
+  },
+  trim: {
+    id: 'remodel_trim',
+    label: 'Trim',
+    named: /\b(?:trim|baseboards?)\b/i,
+    line: line(
+      'interior_trim',
+      'Trim',
+      'Trim for this remodel. Enter the length.',
+      'trim'
+    ),
+  },
+  bathroom: {
+    id: 'remodel_bathroom',
+    label: 'Bathroom',
+    named: /\b(?:bath(?:room)?s?|toilet|vanity|shower|tub)\b/i,
+    line: line(
+      'bathroom_updates',
+      'Bathroom',
+      'Bathroom work for this remodel.',
+      'bathroom'
+    ),
+  },
+  flooring: {
+    id: 'remodel_flooring',
+    label: 'Flooring',
+    named: /\b(?:flooring|lvp|vinyl|carpet|laminate|hardwood|tile)\b/i,
+    line: line(
+      'flooring',
+      'Flooring',
+      'Flooring for this remodel. Enter the area.',
+      'flooring'
+    ),
+  },
+  hvac: {
+    id: 'remodel_hvac',
+    label: 'HVAC',
+    named: /\bhvac\b|\bmini\s*split\b/i,
+    line: line('hvac', 'HVAC', 'HVAC for this remodel.', 'hvac'),
+  },
+  drywall: {
+    id: 'remodel_drywall',
+    label: 'Drywall',
+    named: /\b(?:drywall|sheetrock|gypsum)\b|\bhang\s+and\s+finish\b/i,
+    line: line(
+      'drywall',
+      'Drywall',
+      'Drywall for this remodel. Enter the area.',
+      'drywall'
+    ),
+  },
+  doors: {
+    id: 'remodel_doors',
+    label: 'Doors',
+    named: /\bdoors?\b/i,
+    line: line(
+      'interior_doors',
+      'Doors',
+      'Doors for this remodel. Enter the count.',
+      'openings'
+    ),
+  },
+  kitchen: {
+    id: 'remodel_kitchen',
+    label: 'Kitchen',
+    named: /\bkitchen\b/i,
+    line: line('kitchen_updates', 'Kitchen', 'Kitchen work for this remodel.', 'kitchen'),
+  },
+  roofing: {
+    id: 'remodel_roofing',
+    label: 'Roofing',
+    named: /\broof(?:ing)?\b|\bshingles?\b/i,
+    line: line('roofing', 'Roofing', 'Roofing for this remodel.', 'roofing'),
+  },
+  tile: {
+    id: 'remodel_tile',
+    label: 'Tile',
+    named: /\btile\b/i,
+    line: line('tile', 'Tile', 'Tile for this remodel. Enter the area.', 'tile'),
+  },
+  vanity: {
+    id: 'remodel_vanity',
+    label: 'Vanity',
+    named: /\bvanit(?:y|ies)\b/i,
+    line: line('vanity', 'Vanity', 'Vanity for this bathroom remodel.', 'bathroom'),
+  },
+  toilet: {
+    id: 'remodel_toilet',
+    label: 'Toilet',
+    named: /\btoilets?\b/i,
+    line: line('toilet', 'Toilet', 'Toilet for this bathroom remodel.', 'bathroom'),
+  },
+  plumbing: {
+    id: 'remodel_plumbing',
+    label: 'Plumbing',
+    named: /\bplumb(?:ing)?\b/i,
+    line: line(
+      'plumbing_rough',
+      'Plumbing',
+      'Plumbing for this remodel.',
+      'plumbing'
+    ),
+  },
+  appliances: {
+    id: 'remodel_appliances',
+    label: 'Appliances',
+    named: /\bappliances?\b/i,
+    line: line(
+      'appliances',
+      'Appliances',
+      'Appliances for this kitchen remodel.',
+      'kitchen'
+    ),
+  },
+  landscaping: {
+    id: 'remodel_landscaping',
+    label: 'Landscaping',
+    named: /\b(?:landscap(?:e|ing)|sod|pavers?)\b/i,
+    line: line(
+      'landscaping',
+      'Landscaping',
+      'Landscaping for this remodel.',
+      'site'
+    ),
+  },
+  concrete: {
+    id: 'remodel_concrete',
+    label: 'Concrete',
+    named: /\b(?:concrete|driveway|sidewalk|patio)\b/i,
+    line: line('concrete', 'Concrete', 'Concrete for this remodel.', 'structure'),
+  },
+} as const satisfies Record<string, RemodelPhase>;
+
+const REMODEL_LINE_BY_PIECE = new Map<string, ClarificationLine>(
+  Object.values(REMODEL_PHASES).map(phase => [phase.id, phase.line])
+);
+
+for (const phase of Object.values(REMODEL_PHASES)) PIECE_IDS.add(phase.id);
+
+const GARAGE_HANG_PIECE = {
+  hang_only: 'garage_drywall_hang_only',
+  hang_and_finish: 'garage_drywall_hang_finish',
+  unsure: 'garage_drywall_hang_unsure',
+} as const;
+const GARAGE_HANG_PIECES = new Set<string>(Object.values(GARAGE_HANG_PIECE));
+for (const id of GARAGE_HANG_PIECES) PIECE_IDS.add(id);
+const GARAGE_NO_ADDITIONAL = 'garage_no_additional_work';
+PIECE_IDS.add(GARAGE_NO_ADDITIONAL);
+
+export type GarageDrywallHangChoice = keyof typeof GARAGE_HANG_PIECE;
+
+export function garageDrywallHangChoice(
+  pieces: readonly string[] | null | undefined
+): GarageDrywallHangChoice | null {
+  const selected = new Set(pieces || []);
+  if (selected.has(GARAGE_HANG_PIECE.hang_only)) return 'hang_only';
+  if (selected.has(GARAGE_HANG_PIECE.hang_and_finish)) return 'hang_and_finish';
+  if (selected.has(GARAGE_HANG_PIECE.unsure)) return 'unsure';
+  return null;
+}
+
+export function withGarageDrywallHangChoice(
+  pieces: readonly string[],
+  choice: GarageDrywallHangChoice
+): string[] {
+  return [...pieces.filter(id => !GARAGE_HANG_PIECES.has(id)), GARAGE_HANG_PIECE[choice]];
+}
+
+export function garageNoAdditionalWork(pieces: readonly string[]): string[] {
+  return [...pieces.filter(id => GARAGE_HANG_PIECES.has(id)), GARAGE_NO_ADDITIONAL];
+}
+
+/** Garage Scope Found assistant. Other remodels keep the chip grid. */
+function scopeAssistantIntro(question: string): string {
+  if (/\bgarage\b/i.test(question)) {
+    return 'For this garage conversion, add work the note did not name.';
+  }
+  if (/\bbathroom\b/i.test(question)) {
+    return 'For this bathroom remodel, add work the note did not name.';
+  }
+  if (/\bkitchen\b/i.test(question)) {
+    return 'For this kitchen remodel, add work the note did not name.';
+  }
+  if (/\bconversion\b/i.test(question)) {
+    return 'For this conversion, add work the note did not name.';
+  }
+  return 'For this remodel, add work the note did not name.';
+}
+
+/** Short Scope Found list for any remodel note, not only a garage conversion. */
+export function garageScopeAssistant(notes: string | null | undefined): {
+  hangQuestion: string | null;
+  intro: string;
+  suggestions: Array<{ id: string; label: string }>;
+  more: Array<{ id: string; label: string }>;
+} | null {
+  const text = noteText(notes);
+  const pack = remodelRemainderPackage(text);
+  if (!pack) return null;
+  const hangQuestion =
+    /\bhang\b/i.test(text) &&
+    /\b(?:drywall|sheetrock|gypsum)\b/i.test(text) &&
+    !/\b(?:tape|mud|finish|texture)\b/i.test(text)
+      ? 'The note says hang drywall. Include taping and finishing?'
+      : null;
+  const open = openRemodelPhases(text, pack.phases).map(phase => ({
+    id: phase.id,
+    label: phase.label,
+  }));
+  return {
+    hangQuestion,
+    intro: scopeAssistantIntro(pack.question),
+    suggestions: open.slice(0, 4),
+    more: open.slice(4),
+  };
+}
+
+export function toggleGarageSuggestionPiece(
+  pieces: readonly string[],
+  pieceId: string
+): string[] {
+  const turningOff = pieces.includes(pieceId);
+  const next = toggleRemodelScopePiece(pieces, pieceId).filter(
+    id => id !== GARAGE_NO_ADDITIONAL
+  );
+  if (turningOff) return next;
+  if (pieceId === 'remodel_plumbing' || pieceId === 'remodel_electrical') {
+    return declineRemodelExtent(next, pieceId);
+  }
+  return next;
+}
+
+const TYPED_SCOPE_MEASURE: Record<string, { key: string; unit: 'sqft' | 'lf' }> = {
+  remodel_demo: { key: 'floorDemoSqft', unit: 'sqft' },
+  remodel_paint: { key: 'wallPaintSqft', unit: 'sqft' },
+  remodel_framing: { key: 'wallFramingSqft', unit: 'sqft' },
+  remodel_trim: { key: 'baseboardLf', unit: 'lf' },
+  remodel_flooring: { key: 'flooringSqft', unit: 'sqft' },
+  remodel_drywall: { key: 'drywallSqft', unit: 'sqft' },
+};
+
+function typedScopeMeasure(clause: string, unit: 'sqft' | 'lf'): string | null {
+  const match = clause.match(
+    unit === 'sqft'
+      ? /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+      : /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|lin(?:ear)?\.?\s*(?:ft|feet)|linear\s+feet)/i
+  );
+  if (!match) return null;
+  const value = Number(match[1].replace(/,/g, ''));
+  return value > 0 ? String(value) : null;
+}
+
+/** Quantity typed with an added trade, such as 600 sqft of flooring. */
+export function typedRemainderQuantity(
+  piece: string,
+  measurements?: object | null
+): string {
+  const spec = TYPED_SCOPE_MEASURE[piece];
+  if (!spec || !measurements) return '';
+  const raw = (measurements as Record<string, unknown>)[spec.key];
+  const value = Number(String(raw ?? '').replace(/,/g, ''));
+  if (!(value > 0)) return '';
+  return `${value.toLocaleString('en-US')} ${spec.unit}`;
+}
+
+/** Maps a typed addition onto catalog pieces. A stated count or area is kept. */
+export function garageScopeTextAdditions(text: string, notes?: string | null): {
+  pieceIds: string[];
+  counts: Record<string, string>;
+  matched: boolean;
+} {
+  const sentence = text.trim();
+  if (!sentence) return { pieceIds: [], counts: {}, matched: false };
+  const clauses = sentence
+    .split(/[.;\n]+|\s+\band\b\s+/i)
+    .map(part => part.trim())
+    .filter(Boolean);
+  const phases =
+    remodelRemainderPackage(noteText(notes))?.phases ?? CONVERSION_PHASES;
+  const pieceIds: string[] = [];
+  const counts: Record<string, string> = {};
+  for (const phase of phases) {
+    const clause = clauses.find(part => phase.named.test(part));
+    if (!clause) continue;
+    pieceIds.push(phase.id);
+    const measure = TYPED_SCOPE_MEASURE[phase.id];
+    if (measure) {
+      const quantity = typedScopeMeasure(clause, measure.unit);
+      if (quantity) counts[measure.key] = quantity;
+    }
+    if (phase.id === 'remodel_plumbing') pieceIds.push(extentUnsureId(phase.id));
+    if (phase.id === 'remodel_electrical') {
+      const outlets = clause.match(/(\d+)\s*(?:outlets?|receptacles?)\b/i);
+      if (outlets && Number(outlets[1]) > 0) {
+        pieceIds.push('extent_electrical_receptacles');
+        counts.standardReceptacleCount = String(Number(outlets[1]));
+      } else {
+        pieceIds.push(extentUnsureId(phase.id));
+      }
+    }
+  }
+  return { pieceIds, counts, matched: pieceIds.length > 0 };
+}
+
+/** Option ids a typed sentence names on a non-remodel Scope Found question. */
+export function matchScopeOptionText(
+  text: string,
+  options: ReadonlyArray<{ id: string; label: string }>
+): string[] {
+  const sentence = text.trim().toLowerCase();
+  if (!sentence) return [];
+  return options
+    .filter(option => option.id !== 'none' && option.id !== 'unsure')
+    .filter(option => {
+      const label = option.label.toLowerCase();
+      if (sentence.includes(label)) return true;
+      return label
+        .split(/[^a-z0-9]+/)
+        .filter(word => word.length > 3)
+        .some(word => sentence.includes(word));
+    })
+    .map(option => option.id);
+}
+
+const CONVERSION_PHASES: RemodelPhase[] = [
+  REMODEL_PHASES.demo,
+  REMODEL_PHASES.paint,
+  REMODEL_PHASES.insulation,
+  REMODEL_PHASES.electrical,
+  REMODEL_PHASES.framing,
+  REMODEL_PHASES.trim,
+  REMODEL_PHASES.bathroom,
+  REMODEL_PHASES.plumbing,
+  REMODEL_PHASES.flooring,
+  REMODEL_PHASES.hvac,
+];
+
+const ROOM_PHASES: RemodelPhase[] = [
+  REMODEL_PHASES.demo,
+  REMODEL_PHASES.paint,
+  REMODEL_PHASES.flooring,
+  REMODEL_PHASES.drywall,
+  REMODEL_PHASES.trim,
+  REMODEL_PHASES.electrical,
+  REMODEL_PHASES.insulation,
+  REMODEL_PHASES.doors,
+];
+
+const BATHROOM_PHASES: RemodelPhase[] = [
+  REMODEL_PHASES.demo,
+  REMODEL_PHASES.flooring,
+  REMODEL_PHASES.paint,
+  REMODEL_PHASES.tile,
+  REMODEL_PHASES.vanity,
+  REMODEL_PHASES.toilet,
+  REMODEL_PHASES.electrical,
+];
+
+const KITCHEN_PHASES: RemodelPhase[] = [
+  REMODEL_PHASES.demo,
+  REMODEL_PHASES.paint,
+  REMODEL_PHASES.electrical,
+  REMODEL_PHASES.appliances,
+  REMODEL_PHASES.flooring,
+  REMODEL_PHASES.plumbing,
+];
+
+const WHOLE_HOME_PHASES: RemodelPhase[] = [
+  REMODEL_PHASES.demo,
+  REMODEL_PHASES.kitchen,
+  REMODEL_PHASES.bathroom,
+  REMODEL_PHASES.flooring,
+  REMODEL_PHASES.paint,
+  REMODEL_PHASES.electrical,
+  REMODEL_PHASES.hvac,
+  REMODEL_PHASES.roofing,
+  REMODEL_PHASES.drywall,
+  REMODEL_PHASES.landscaping,
+  REMODEL_PHASES.concrete,
+];
+
+function affirmativeRemodelText(text: string): string {
+  return text
+    .split(/[.;\n]+/)
+    .map(clause => clause.trim())
+    .filter(
+      clause =>
+        clause &&
+        !/^(?:no|not|without|do not|don't|dont|never)\b/i.test(clause)
+    )
+    .join('. ');
+}
+
+function openRemodelPhases(text: string, phases: RemodelPhase[]): RemodelPhase[] {
+  const affirmative = affirmativeRemodelText(text);
+  return phases.filter(phase => {
+    if (noteMentionIsOnlyNegated(text, phase.named)) return false;
+    if (subjectByOthers(text, phase.named)) return false;
+    return !phase.named.test(affirmative);
+  });
+}
+
+function remodelRemainderPackage(
+  text: string
+): { question: string; phases: RemodelPhase[] } | null {
+  if (!text || notesLookLikeNewBuild(text) || notesNameFramingOnlyAddition(text)) {
+    return null;
+  }
+  if (
+    /\bgarage\s+conversion\b/i.test(text) ||
+    /\bconvert(?:ing)?\s+(?:the\s+)?(?:\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|[-\s]?car)\s+)?garage\b/i.test(
+      text
+    )
+  ) {
+    return {
+      question: 'Anything else in this garage conversion?',
+      phases: CONVERSION_PHASES,
+    };
+  }
+  if (
+    /\b(?:basement|attic|bonus\s+room)\s+conversion\b/i.test(text) ||
+    /\bconvert(?:ing)?\s+(?:the\s+)?(?:basement|attic|bonus\s+room)\b/i.test(text)
+  ) {
+    return { question: 'Anything else in this conversion?', phases: CONVERSION_PHASES };
+  }
+  if (/\bbath(?:room)?\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?bath(?:room)?\b/i.test(text)) {
+    return {
+      question: 'Anything else in this bathroom remodel?',
+      phases: BATHROOM_PHASES,
+    };
+  }
+  if (/\bkitchen\s+remodel\b|\bremodel(?:ing)?\s+(?:the\s+)?kitchen\b/i.test(text)) {
+    return {
+      question: 'Anything else in this kitchen remodel?',
+      phases: KITCHEN_PHASES,
+    };
+  }
+  if (notesLookLikeWholeHome(text)) {
+    return { question: 'Anything else in this remodel?', phases: WHOLE_HOME_PHASES };
+  }
+  if (/\b(?:remodels?|renovat(?:e|ion|ing))\b/i.test(text)) {
+    return { question: 'Anything else in this remodel?', phases: ROOM_PHASES };
+  }
+  return null;
+}
+
+/** Phases a remodel note left unnamed. Named work and explicit exclusions stay off the chips. */
+function remodelRemainderPrompt(text: string): ScopeFoundClarification | null {
+  const pack = remodelRemainderPackage(text);
+  if (!pack) return null;
+  const phases = openRemodelPhases(text, pack.phases);
+  if (!phases.length) return null;
+  return pieceQuestion(
+    'remodel_remainder',
+    pack.question,
+    phases.map(phase => ({ id: phase.id, label: phase.label })),
+    'No'
+  );
+}
+
+export type RemodelRemainderMeasurement = {
+  pieceId: string;
+  key: QuickMeasurementFieldKey;
+  label: string;
+  /** Trade header on Confirm Scope when one chip opens several boxes. */
+  group?: string;
+  /** Shown for Not sure. A blank box is not a missing quantity. */
+  optional?: boolean;
+};
+
+const REMODEL_REMAINDER_MEASUREMENTS: RemodelRemainderMeasurement[] = [
+  { pieceId: 'remodel_demo', key: 'floorDemoSqft', label: 'Flooring demo' },
+  { pieceId: 'remodel_paint', key: 'wallPaintSqft', label: 'Paint' },
+  { pieceId: 'remodel_framing', key: 'wallFramingSqft', label: 'Framing' },
+  { pieceId: 'remodel_trim', key: 'baseboardLf', label: 'Trim' },
+  { pieceId: 'remodel_flooring', key: 'flooringSqft', label: 'Flooring' },
+  { pieceId: 'remodel_drywall', key: 'drywallSqft', label: 'Drywall' },
+];
+
+type RemodelExtentField = { key: QuickMeasurementFieldKey; label: string };
+
+type RemodelExtent = {
+  id: string;
+  label: string;
+  fields: RemodelExtentField[];
+  /** Cards this part puts on the bid in place of the trade's general line. */
+  lines?: ClarificationLine[];
+  /** Confirm Scope header when one chip asks more than one question. */
+  group?: string;
+};
+
+type RemodelExtentQuestion = {
+  id: string;
+  label: string;
+  question: string;
+  /** Extra exclusive chip. Not sure is always available. */
+  declineLabel?: string;
+  extents: RemodelExtent[];
+};
+
+type RemodelExtentParent = {
+  id: string;
+  question: string;
+  extents: RemodelExtent[];
+  questions?: RemodelExtentQuestion[];
+};
+
+/**
+ * Trades whose Confirm Scope layout is a whole takeoff. Tapping the chip asks
+ * which part is in the bid, and only that part gets a measurement box.
+ */
+const REMODEL_EXTENT_PARENTS: RemodelExtentParent[] = [
+  {
+    id: 'remodel_electrical',
+    question: 'What electrical?',
+    extents: [
+      {
+        id: 'extent_electrical_panel',
+        label: 'Panel',
+        fields: [{ key: 'mainPanelCount', label: 'Panel' }],
+        lines: [line('electrical_main_panel', 'Main panel', 'New main panel.', 'electrical')],
+      },
+      {
+        id: 'extent_electrical_circuits',
+        label: 'Circuits',
+        fields: [{ key: 'dedicated20aCircuitCount', label: 'Circuits' }],
+        lines: [
+          line('electrical_dedicated_20a', 'Dedicated 20A circuits', 'New circuits.', 'electrical'),
+        ],
+      },
+      {
+        id: 'extent_electrical_receptacles',
+        label: 'Receptacles',
+        fields: [
+          { key: 'standardReceptacleCount', label: 'Receptacles' },
+          { key: 'gfciReceptacleCount', label: 'GFCI receptacles' },
+        ],
+        lines: [
+          line('electrical_standard_receptacle', 'Receptacles', 'Standard receptacles.', 'electrical'),
+          line('electrical_gfci_receptacle', 'GFCI receptacles', 'GFCI receptacles.', 'electrical'),
+        ],
+      },
+      {
+        id: 'extent_electrical_switches',
+        label: 'Switches',
+        fields: [{ key: 'singlePoleSwitchCount', label: 'Switches' }],
+        lines: [
+          line('electrical_single_pole_switch', 'Switches', 'Single-pole switches.', 'electrical'),
+        ],
+      },
+      {
+        id: 'extent_electrical_lighting',
+        label: 'Lighting',
+        fields: [{ key: 'recessedLightCount', label: 'Lighting' }],
+        lines: [line('electrical_recessed_light', 'Lighting', 'Recessed lights.', 'electrical')],
+      },
+    ],
+  },
+  {
+    id: 'remodel_bathroom',
+    question: "What's coming out?",
+    extents: [],
+    questions: [
+      {
+        id: 'remodel_bathroom_out',
+        label: 'Coming out',
+        question: "What's coming out?",
+        declineLabel: 'No',
+        extents: [
+          {
+            id: 'extent_bath_out_tub',
+            label: 'Tub',
+            group: 'Coming out',
+            fields: [],
+            lines: [line('tub_demo', 'Remove tub', 'The existing tub comes out. Count is 1.', 'demo')],
+          },
+          {
+            id: 'extent_bath_out_prefab_pan',
+            label: 'Prefab pan',
+            group: 'Coming out',
+            fields: [],
+            lines: [
+              line(
+                'shower_floor_demo',
+                'Remove prefab pan',
+                'The existing prefab shower pan comes out. Count is 1.',
+                'demo'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_out_tile_pan',
+            label: 'Tile pan',
+            group: 'Coming out',
+            fields: [{ key: 'demoTilePanSqft', label: 'Tile pan' }],
+            lines: [
+              line(
+                'shower_floor_demo__tile_pan',
+                'Remove tile pan',
+                'The existing tile shower pan comes out. The area stays blank until it is measured.',
+                'demo'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_out_wall_tile',
+            label: 'Wall tile',
+            group: 'Coming out',
+            fields: [{ key: 'wallDemoSqft', label: 'Shower wall demo' }],
+            lines: [
+              line(
+                'wall_demo',
+                'Demo shower walls',
+                'The existing shower walls come out. Enter the area.',
+                'demo'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_out_enclosure',
+            label: 'Prefab enclosure',
+            group: 'Coming out',
+            fields: [],
+            lines: [
+              line(
+                'shower_enclosure_demo',
+                'Remove prefab enclosure',
+                'The existing prefab enclosure comes out. Count is 1.',
+                'demo'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_out_door',
+            label: 'Shower door',
+            group: 'Coming out',
+            fields: [],
+            lines: [
+              line(
+                'glass_door_demo',
+                'Remove shower door',
+                'The existing shower door comes out. Count is 1.',
+                'demo'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_out_toilet',
+            label: 'Toilet',
+            group: 'Coming out',
+            fields: [],
+            lines: [
+              line('toilet_demo', 'Remove toilet', 'The existing toilet comes out. Count is 1.', 'demo'),
+            ],
+          },
+          {
+            id: 'extent_bath_out_vanity',
+            label: 'Vanity',
+            group: 'Coming out',
+            fields: [],
+            lines: [
+              line('vanity_demo', 'Remove vanity', 'The existing vanity comes out. Count is 1.', 'demo'),
+            ],
+          },
+          {
+            id: 'extent_bath_out_floor',
+            label: 'Bath floor',
+            group: 'Coming out',
+            fields: [{ key: 'bathroomFloorSqft', label: 'Bath floor demo' }],
+            lines: [
+              line(
+                'floor_demo',
+                'Demo bath floor',
+                'The existing bathroom floor comes out. The area stays blank until it is measured.',
+                'demo'
+              ),
+            ],
+          },
+        ],
+      },
+      {
+        id: 'remodel_bathroom_in',
+        label: 'Going in',
+        question: "What's going in?",
+        declineLabel: 'No',
+        extents: [
+          {
+            id: 'extent_bath_in_tub',
+            label: 'Tub',
+            group: 'Going in',
+            fields: [],
+            lines: [line('tub_install', 'Tub install', 'The new tub. Count is 1.', 'bathroom')],
+          },
+          {
+            id: 'extent_bath_in_prefab_pan',
+            label: 'Prefab pan',
+            group: 'Going in',
+            fields: [],
+            lines: [
+              line(
+                'prefab_shower_pan',
+                'Prefab shower pan',
+                'The new prefab shower pan. Count is 1.',
+                'bathroom'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_in_tile_pan',
+            label: 'Tile pan',
+            group: 'Going in',
+            fields: [{ key: 'showerFloorTileSqft', label: 'Tile pan' }],
+            lines: [
+              line(
+                'shower_pan',
+                'Build shower pan',
+                'The new tile shower pan. The area stays blank until it is measured.',
+                'bathroom'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_in_wall_tile',
+            label: 'Wall tile',
+            group: 'Going in',
+            fields: [{ key: 'showerWallTileSqft', label: 'Wall tile' }],
+            lines: [
+              line(
+                'shower_tile',
+                'Install shower tile',
+                'The new shower wall tile. The area stays blank until it is measured.',
+                'shower'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_in_enclosure',
+            label: 'Prefab enclosure',
+            group: 'Going in',
+            fields: [],
+            lines: [
+              line(
+                'prefab_shower_enclosure',
+                'Prefab shower enclosure',
+                'The new prefab enclosure. Count is 1.',
+                'bathroom'
+              ),
+            ],
+          },
+          {
+            id: 'extent_bath_in_door',
+            label: 'Shower door',
+            group: 'Going in',
+            fields: [],
+            lines: [
+              line('glass_door', 'Shower door', 'The new shower door. Count is 1.', 'bathroom'),
+            ],
+          },
+          {
+            id: 'extent_bathroom_toilet',
+            label: 'Toilet',
+            group: 'Going in',
+            fields: [],
+            lines: [line('toilet', 'Toilet', 'Toilet for this bathroom. Count is 1.', 'bathroom')],
+          },
+          {
+            id: 'extent_bathroom_vanity',
+            label: 'Vanity',
+            group: 'Going in',
+            fields: [],
+            lines: [line('vanity', 'Vanity', 'Vanity for this bathroom. Count is 1.', 'bathroom')],
+          },
+          {
+            id: 'extent_bathroom_floor',
+            label: 'Bath floor',
+            group: 'Going in',
+            fields: [{ key: 'bathroomFloorSqft', label: 'Bath floor' }],
+            lines: [
+              line(
+                'floor_tile',
+                'Bath floor tile',
+                'The new bathroom floor. The area stays blank until it is measured.',
+                'bathroom'
+              ),
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'remodel_kitchen',
+    question: 'What kitchen?',
+    extents: [
+      {
+        id: 'extent_kitchen_cabinets',
+        label: 'Cabinets',
+        fields: [{ key: 'cabinetLf', label: 'Cabinets' }],
+      },
+      {
+        id: 'extent_kitchen_counters',
+        label: 'Counters',
+        fields: [{ key: 'countertopSqft', label: 'Counters' }],
+      },
+      {
+        id: 'extent_kitchen_backsplash',
+        label: 'Backsplash',
+        fields: [{ key: 'backsplashSqft', label: 'Backsplash' }],
+      },
+      {
+        id: 'extent_kitchen_floor',
+        label: 'Floor',
+        fields: [{ key: 'kitchenFloorSqft', label: 'Kitchen floor' }],
+      },
+    ],
+  },
+  {
+    id: 'remodel_plumbing',
+    question: 'What plumbing?',
+    extents: [
+      {
+        id: 'extent_plumbing_rough',
+        label: 'Rough-in',
+        fields: [{ key: 'plumbingRoughPointCount', label: 'Rough-in points' }],
+        lines: [
+          line(
+            'plumbing_rough',
+            'Plumbing rough-in',
+            'Supply, drain, and vent rough-in points.',
+            'plumbing'
+          ),
+        ],
+      },
+      {
+        id: 'extent_plumbing_fixtures',
+        label: 'Fixtures',
+        fields: [{ key: 'fixtureReplacementCount', label: 'Fixtures' }],
+        lines: [
+          line(
+            'fixture_replace',
+            'Plumbing fixtures',
+            'Set plumbing fixtures at the new rough-in.',
+            'plumbing'
+          ),
+        ],
+      },
+      {
+        id: 'extent_plumbing_heater',
+        label: 'Water heater',
+        fields: [{ key: 'waterHeaterCount', label: 'Water heater' }],
+        lines: [line('water_heater', 'Water heater', 'Water heater.', 'plumbing')],
+      },
+      {
+        id: 'extent_plumbing_water_line',
+        label: 'Water line',
+        fields: [{ key: 'waterLineLf', label: 'Water line' }],
+        lines: [line('water_line', 'Water line', 'Water supply line.', 'plumbing')],
+      },
+    ],
+  },
+  {
+    id: 'remodel_hvac',
+    question: 'What HVAC?',
+    extents: [
+      {
+        id: 'extent_hvac_system',
+        label: 'System',
+        fields: [{ key: 'hvacSystemCount', label: 'System' }],
+      },
+      {
+        id: 'extent_hvac_ductwork',
+        label: 'Ductwork',
+        fields: [{ key: 'hvacDuctworkLf', label: 'Ductwork' }],
+      },
+      {
+        id: 'extent_hvac_registers',
+        label: 'Registers',
+        fields: [
+          { key: 'hvacSupplyRegisterCount', label: 'Supply registers' },
+          { key: 'hvacReturnGrilleCount', label: 'Return grilles' },
+        ],
+      },
+      {
+        id: 'extent_hvac_thermostat',
+        label: 'Thermostat',
+        fields: [{ key: 'hvacThermostatCount', label: 'Thermostat' }],
+      },
+    ],
+  },
+  {
+    id: 'remodel_landscaping',
+    question: 'What landscaping?',
+    extents: [
+      {
+        id: 'extent_landscape_sod',
+        label: 'Sod',
+        fields: [{ key: 'sodSqft', label: 'Sod' }],
+      },
+      {
+        id: 'extent_landscape_rock',
+        label: 'Rock / mulch',
+        fields: [{ key: 'rockMulchSqft', label: 'Rock / mulch' }],
+      },
+      {
+        id: 'extent_landscape_pavers',
+        label: 'Pavers',
+        fields: [{ key: 'paverSqft', label: 'Pavers' }],
+      },
+      {
+        id: 'extent_landscape_planting',
+        label: 'Planting',
+        fields: [{ key: 'landscapeSqft', label: 'Planting' }],
+      },
+    ],
+  },
+  {
+    id: 'remodel_concrete',
+    question: 'What concrete?',
+    extents: [
+      {
+        id: 'extent_concrete_driveway',
+        label: 'Driveway',
+        fields: [{ key: 'concreteDrivewaySqft', label: 'Driveway' }],
+      },
+      {
+        id: 'extent_concrete_sidewalk',
+        label: 'Sidewalk',
+        fields: [{ key: 'concreteSidewalkSqft', label: 'Sidewalk' }],
+      },
+      {
+        id: 'extent_concrete_patio',
+        label: 'Patio',
+        fields: [{ key: 'concretePatioSqft', label: 'Patio' }],
+      },
+      {
+        id: 'extent_concrete_walkway',
+        label: 'Walkway',
+        fields: [{ key: 'concreteWalkwaySqft', label: 'Walkway' }],
+      },
+    ],
+  },
+];
+
+const EXTENT_PARENT_BY_ID = new Map(
+  REMODEL_EXTENT_PARENTS.map(parent => [parent.id, parent])
+);
+
+function parentQuestions(parent: RemodelExtentParent): RemodelExtentQuestion[] {
+  if (parent.questions?.length) return parent.questions;
+  return [
+    {
+      id: parent.id,
+      label: parent.id,
+      question: parent.question,
+      extents: parent.extents,
+    },
+  ];
+}
+
+const EXTENT_BY_ID = new Map<
+  string,
+  RemodelExtent & { parentId: string; chipId: string }
+>();
+const QUESTION_CHIP_ID = new Map<string, string>();
+
+function extentUnsureId(questionId: string): string {
+  return `extent_unsure_${questionId}`;
+}
+
+function extentNoneId(questionId: string): string {
+  return `extent_none_${questionId}`;
+}
+
+for (const parent of REMODEL_EXTENT_PARENTS) {
+  for (const question of parentQuestions(parent)) {
+    QUESTION_CHIP_ID.set(question.id, parent.id);
+    PIECE_IDS.add(extentUnsureId(question.id));
+    if (question.declineLabel) PIECE_IDS.add(extentNoneId(question.id));
+    for (const extent of question.extents) {
+      PIECE_IDS.add(extent.id);
+      EXTENT_BY_ID.set(extent.id, {
+        ...extent,
+        parentId: question.id,
+        chipId: parent.id,
+      });
+    }
+  }
+}
+
+function questionDeclineIds(questionId: string): string[] {
+  return [extentUnsureId(questionId), extentNoneId(questionId)];
+}
+
+export function pruneRemodelExtentPieces(pieces: readonly string[]): string[] {
+  const selected = new Set(pieces);
+  return pieces.filter(id => {
+    const extent = EXTENT_BY_ID.get(id);
+    if (extent) return selected.has(extent.chipId);
+    const questionId = id.startsWith('extent_unsure_')
+      ? id.slice('extent_unsure_'.length)
+      : id.startsWith('extent_none_')
+        ? id.slice('extent_none_'.length)
+        : '';
+    if (!questionId) return true;
+    const chipId = QUESTION_CHIP_ID.get(questionId);
+    return Boolean(chipId && selected.has(chipId));
+  });
+}
+
+function remodelExtentLines(pieces: readonly string[], parentId: string): ClarificationLine[] {
+  const selected = new Set(pieces);
+  const parent = EXTENT_PARENT_BY_ID.get(parentId);
+  if (!parent) return [];
+  return parentQuestions(parent).flatMap(question =>
+    question.extents
+      .filter(extent => selected.has(extent.id))
+      .flatMap(extent => {
+        if (extent.id === 'extent_bath_out_floor' && selected.has('remodel_demo')) {
+          return [];
+        }
+        return extent.lines || [];
+      })
+  );
+}
+
+function questionSummary(
+  selected: Set<string>,
+  question: RemodelExtentQuestion
+): string {
+  if (selected.has(extentNoneId(question.id))) return question.declineLabel || 'No';
+  if (selected.has(extentUnsureId(question.id))) return 'Not sure';
+  return question.extents
+    .filter(extent => selected.has(extent.id))
+    .map(extent => extent.label)
+    .join(', ');
+}
+
+/** "Walls, Ceiling" for the parts picked under one trade chip. */
+function questionById(questionId: string): RemodelExtentQuestion | null {
+  for (const parent of REMODEL_EXTENT_PARENTS) {
+    const question = parentQuestions(parent).find(item => item.id === questionId);
+    if (question) return question;
+  }
+  return null;
+}
+
+export function remodelExtentSummary(
+  pieces: readonly string[] | null | undefined,
+  parentId: string
+): string {
+  const selected = new Set(pieces || []);
+  const parent = EXTENT_PARENT_BY_ID.get(parentId);
+  if (parent?.questions?.length) {
+    return parent.questions
+      .map(item => {
+        const summary = questionSummary(selected, item);
+        return summary ? `${item.label}: ${summary}` : '';
+      })
+      .filter(Boolean)
+      .join(' · ');
+  }
+  const question = questionById(parentId);
+  if (question && question.id !== parent?.id) return questionSummary(selected, question);
+  if (selected.has(extentNoneId(parentId))) return 'No';
+  if (selected.has(extentUnsureId(parentId))) return 'Not sure';
+  return (question?.extents || parent?.extents || [])
+    .filter(extent => selected.has(extent.id))
+    .map(extent => extent.label)
+    .join(', ');
+}
+
+export function isRemodelExtentPiece(pieceId: string): boolean {
+  return EXTENT_BY_ID.has(pieceId) || pieceId.startsWith('extent_unsure_');
+}
+
+export type RemodelExtentFollowUp = {
+  parentId: string;
+  label: string;
+  question: string;
+  options: Array<{ id: string; label: string }>;
+  declines: Array<{ id: string; label: string }>;
+};
+
+/** Follow-up questions for the long-layout chips that are currently on. */
+export function remodelExtentFollowUps(
+  pieces: readonly string[] | null | undefined
+): RemodelExtentFollowUp[] {
+  const selected = new Set(pruneRemodelExtentPieces(pieces || []));
+  return REMODEL_EXTENT_PARENTS.flatMap(parent => {
+    if (!selected.has(parent.id)) return [];
+    return parentQuestions(parent).map(question => ({
+      parentId: question.id,
+      label:
+        question.id === parent.id
+          ? PIECE_REVEAL[parent.id] || parent.id
+          : question.label,
+      question: question.question,
+      options: question.extents.map(extent => ({
+        id: extent.id,
+        label: extent.label,
+      })),
+      declines: [
+        ...(question.declineLabel
+          ? [{ id: extentNoneId(question.id), label: question.declineLabel }]
+          : []),
+        { id: extentUnsureId(question.id), label: 'Not sure' },
+      ],
+    }));
+  });
+}
+
+export function remodelExtentAnswered(
+  pieces: readonly string[] | null | undefined,
+  questionId: string
+): boolean {
+  const selected = new Set(pieces || []);
+  if (questionDeclineIds(questionId).some(id => selected.has(id))) return true;
+  const question = questionById(questionId);
+  return (question?.extents || []).some(extent => selected.has(extent.id));
+}
+
+export function toggleRemodelScopePiece(pieces: readonly string[], pieceId: string): string[] {
+  const next = pieces.includes(pieceId)
+    ? pieces.filter(id => id !== pieceId)
+    : [...pieces, pieceId];
+  return pruneRemodelExtentPieces(next);
+}
+
+export function toggleRemodelExtentPiece(
+  pieces: readonly string[],
+  extentId: string
+): string[] {
+  const extent = EXTENT_BY_ID.get(extentId);
+  if (!extent) return [...pieces];
+  const declines = new Set(questionDeclineIds(extent.parentId));
+  if (pieces.includes(extentId)) {
+    return pieces.filter(id => id !== extentId);
+  }
+  return [...pieces.filter(id => !declines.has(id)), extentId];
+}
+
+export function declineRemodelExtent(
+  pieces: readonly string[],
+  questionId: string,
+  declineId?: string
+): string[] {
+  const childIds = new Set((questionById(questionId)?.extents || []).map(extent => extent.id));
+  const declines = new Set(questionDeclineIds(questionId));
+  const chosen = declineId || extentUnsureId(questionId);
+  return [...pieces.filter(id => !childIds.has(id) && !declines.has(id)), chosen];
+}
+
+/** Blank measurement boxes for the chips the contractor tapped. */
+export function remodelRemainderMeasurementFields(
+  pieces: readonly string[] | null | undefined
+): RemodelRemainderMeasurement[] {
+  const selected = new Set(pruneRemodelExtentPieces(pieces || []));
+  const phases = Object.values(REMODEL_PHASES).filter(phase => selected.has(phase.id));
+  const rows: RemodelRemainderMeasurement[] = REMODEL_REMAINDER_MEASUREMENTS.filter(row =>
+    phases.some(phase => phase.id === row.pieceId)
+  );
+  for (const phase of phases) {
+    const parent = EXTENT_PARENT_BY_ID.get(phase.id);
+    if (!parent) continue;
+    for (const question of parentQuestions(parent)) {
+      for (const extent of question.extents) {
+        if (!selected.has(extent.id)) continue;
+        if (extent.id === 'extent_bath_out_floor' && selected.has('extent_bathroom_floor')) {
+          continue;
+        }
+        for (const field of extent.fields) {
+          const existing = rows.find(row => row.key === field.key);
+          if (existing) {
+            existing.label = field.label;
+            existing.group = extent.group || phase.label;
+            continue;
+          }
+          rows.push({
+            pieceId: extent.id,
+            key: field.key,
+            label: field.label,
+            group: extent.group || phase.label,
+          });
+        }
+      }
+    }
+  }
+  for (const parentId of UNSURE_OPENS_MEASUREMENTS) {
+    if (!selected.has(extentUnsureId(parentId))) continue;
+    const parent = EXTENT_PARENT_BY_ID.get(parentId);
+    if (!parent) continue;
+    const group = PIECE_REVEAL[parentId] || parentId;
+    for (const question of parentQuestions(parent)) {
+      for (const extent of question.extents) {
+        for (const field of extent.fields) {
+          if (rows.some(row => row.key === field.key)) continue;
+          rows.push({
+            pieceId: extent.id,
+            key: field.key,
+            label: field.label,
+            group,
+            optional: true,
+          });
+        }
+      }
+    }
+  }
+  // Bathroom fixtures price on their own cards. Plumbing counts the rest.
+  if (BATHROOM_FIXTURE_EXTENT_IDS.some(id => selected.has(id))) {
+    const fixtures = rows.find(row => row.key === 'fixtureReplacementCount');
+    if (fixtures?.pieceId === 'extent_plumbing_fixtures') {
+      fixtures.label = 'Other fixtures';
+    }
+  }
+  return rows;
+}
+
+const BATHROOM_FIXTURE_EXTENT_IDS = [
+  'extent_bath_in_tub',
+  'extent_bath_in_prefab_pan',
+  'extent_bath_in_tile_pan',
+  'extent_bath_in_enclosure',
+  'extent_bathroom_toilet',
+  'extent_bathroom_vanity',
+];
+
 /**
  * One Scope Found question, or none. The shower question wins on a bathroom
  * note. A new build or addition asks only when the note names an existing
- * structure and does not say what happens to it.
+ * structure and does not say what happens to it. A remodel that leaves phases
+ * unnamed asks once for those phases.
  */
 export function resolveScopeFoundClarification(
   notes: string | null | undefined
@@ -1060,7 +2379,8 @@ export function resolveScopeFoundClarification(
     kitchenDemoPrompt(text) ||
     wholeHomeDemoPrompt(text) ||
     tradePrompt(text) ||
-    existingStructurePrompt(text)
+    existingStructurePrompt(text) ||
+    (wholeHomeRemodelIncludesFinishDemo(text) ? null : remodelRemainderPrompt(text))
   );
 }
 
@@ -1080,7 +2400,9 @@ export function readScopeFoundChoice(value: unknown): ScopeFoundChoice | null {
 
 export function readScopeFoundPieces(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((piece): piece is string => PIECE_IDS.has(String(piece)));
+  return pruneRemodelExtentPieces(
+    value.filter((piece): piece is string => PIECE_IDS.has(String(piece)))
+  );
 }
 
 /** Scope Found already named the interior paint surfaces. */
@@ -1165,6 +2487,30 @@ function kitchenLines(text: string, choice: ScopeFoundChoice): ClarificationLine
   return lines;
 }
 
+function impliedWholeHomeDemoLines(text: string): ClarificationLine[] {
+  if (!wholeHomeRemodelIncludesFinishDemo(text)) return [];
+  const lines: ClarificationLine[] = [];
+  if (/\bkitchen\b/i.test(text)) {
+    lines.push(
+      line('cabinet_demo', 'Cabinet demo', 'The existing kitchen cabinets come out.', 'demo'),
+      line('countertop_demo', 'Countertop demo', 'The existing countertops come out.', 'demo'),
+      line('backsplash_demo', 'Backsplash demo', 'The existing backsplash comes out.', 'demo')
+    );
+  }
+  if (
+    /\b(?:flooring|lvp|carpet|vinyl|hardwood|laminate)\b/i.test(text) &&
+    !notesOwnerHandlesFlooringDemo(text)
+  ) {
+    lines.push(flooringDemoLine(text));
+  }
+  if (/\bbath(?:room)?s?\b/i.test(text)) {
+    lines.push(
+      line('fixture_demo', 'Bathroom demo', 'The existing bathrooms come out.', 'demo')
+    );
+  }
+  return lines;
+}
+
 function wholeHomeLines(text: string): ClarificationLine[] {
   const lines: ClarificationLine[] = [];
   if (/\b(?:flooring|lvp|carpet|vinyl|hardwood)\b/i.test(text)) {
@@ -1173,6 +2519,11 @@ function wholeHomeLines(text: string): ClarificationLine[] {
   if (/\bkitchen\b/i.test(text)) {
     lines.push(
       line('cabinet_demo', 'Cabinet demo', 'The existing kitchen cabinets come out.', 'demo')
+    );
+  }
+  if (/\bbath(?:room)?s?\b/i.test(text)) {
+    lines.push(
+      line('fixture_demo', 'Bathroom demo', 'The existing bathrooms come out.', 'demo')
     );
   }
   return lines;
@@ -1210,6 +2561,7 @@ const OWNED_LINE_IDS: Record<Exclude<ScopeFoundClarificationId, 'shower'>, strin
     'countertop_demo',
     'backsplash_demo',
     'appliance_removal',
+    'fixture_demo',
   ],
   interior_paint_extent: [
     'interior_paint',
@@ -1248,6 +2600,26 @@ const OWNED_LINE_IDS: Record<Exclude<ScopeFoundClarificationId, 'shower'>, strin
   openings_demo: ['opening_demo'],
   excavation_demo: ['demo_clearing', 'demo_removal', 'existing_structure_demo'],
   existing_structure: ['existing_house_demo', 'existing_garage_demo'],
+  remodel_remainder: [
+    'floor_demo',
+    'interior_paint',
+    'insulation',
+    'electrical_rough',
+    'wall_framing',
+    'interior_trim',
+    'bathroom_updates',
+    'flooring',
+    'hvac',
+    'drywall',
+    'interior_doors',
+    'kitchen_updates',
+    'roofing',
+    'tile',
+    'vanity',
+    'toilet',
+    'plumbing_rough',
+    'appliances',
+  ],
 };
 
 export const ROOF_TEAR_OFF_CARDS = [
@@ -1567,6 +2939,7 @@ const PIECE_REVEAL: Record<string, string> = {
   kitchen_floor: 'Flooring demo / removal',
   island: 'Island demo',
   appliances: 'Appliance removal',
+  bathrooms: 'Bathroom demo',
   walls: 'Interior wall paint',
   ceilings: 'Ceiling paint',
   trim: 'Trim paint',
@@ -1574,9 +2947,59 @@ const PIECE_REVEAL: Record<string, string> = {
   paint_cabinets: 'Cabinet paint',
   house: 'Remove existing house',
   garage: 'Remove existing garage',
+  remodel_demo: 'Flooring demo',
+  remodel_paint: 'Paint',
+  remodel_insulation: 'Insulation',
+  remodel_electrical: 'Electrical',
+  remodel_framing: 'Framing',
+  remodel_trim: 'Trim',
+  remodel_bathroom: 'Bathroom',
+  remodel_flooring: 'Flooring',
+  remodel_hvac: 'HVAC',
+  remodel_drywall: 'Drywall',
+  remodel_doors: 'Doors',
+  remodel_kitchen: 'Kitchen',
+  remodel_roofing: 'Roofing',
+  remodel_tile: 'Tile',
+  remodel_vanity: 'Vanity',
+  remodel_toilet: 'Toilet',
+  remodel_plumbing: 'Plumbing',
+  remodel_appliances: 'Appliances',
+  remodel_landscaping: 'Landscaping',
+  remodel_concrete: 'Concrete',
 };
 
-function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
+const UNSURE_OPENS_MEASUREMENTS = ['remodel_plumbing', 'remodel_electrical'] as const;
+
+function enteredMeasurement(
+  measurements: Record<string, unknown> | null | undefined,
+  key: string
+): number {
+  const value = Number(String(measurements?.[key] ?? '').replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function linesForFilledUnsureExtents(
+  parentId: string,
+  measurements: Record<string, unknown> | null | undefined
+): ClarificationLine[] {
+  if (!(UNSURE_OPENS_MEASUREMENTS as readonly string[]).includes(parentId)) return [];
+  const parent = EXTENT_PARENT_BY_ID.get(parentId);
+  if (!parent) return [];
+  return parentQuestions(parent).flatMap(question =>
+    question.extents
+      .filter(extent =>
+        extent.fields.some(field => enteredMeasurement(measurements, field.key) > 0)
+      )
+      .flatMap(extent => extent.lines || [])
+  );
+}
+
+function linesForPieces(
+  text: string,
+  pieces: string[],
+  measurements?: Record<string, unknown> | null
+): ClarificationLine[] {
   const selected = new Set(pieces);
   const lines: ClarificationLine[] = [];
   const floor = ['flooring', 'carpet', 'tile', 'hardwood', 'vinyl', 'laminate', 'kitchen_floor'].some(
@@ -1602,6 +3025,11 @@ function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
   if (selected.has('appliances')) {
     lines.push(
       line('appliance_removal', 'Appliance removal', 'The existing appliances come out.', 'demo')
+    );
+  }
+  if (selected.has('bathrooms')) {
+    lines.push(
+      line('fixture_demo', 'Bathroom demo', 'The existing bathrooms come out.', 'demo')
     );
   }
   if (selected.has('drywall_walls')) {
@@ -1693,6 +3121,27 @@ function linesForPieces(text: string, pieces: string[]): ClarificationLine[] {
       line('existing_garage_demo', 'Remove existing garage', 'The existing garage comes out.', 'demo')
     );
   }
+  for (const pieceId of pieces) {
+    const remodelLine = REMODEL_LINE_BY_PIECE.get(pieceId);
+    if (!remodelLine) continue;
+    const partLines = remodelExtentLines(pieces, pieceId);
+    const parent = EXTENT_PARENT_BY_ID.get(pieceId);
+    const questions = parent?.questions || [];
+    const declined =
+      questions.length > 0 &&
+      questions.every(
+        question =>
+          selected.has(extentNoneId(question.id)) ||
+          selected.has(extentUnsureId(question.id))
+      );
+    const unsureOpensMeasurements =
+      (UNSURE_OPENS_MEASUREMENTS as readonly string[]).includes(pieceId) &&
+      selected.has(extentUnsureId(pieceId));
+    if (partLines.length) lines.push(...partLines);
+    else if (unsureOpensMeasurements) {
+      lines.push(...linesForFilledUnsureExtents(pieceId, measurements));
+    } else if (!declined) lines.push(remodelLine);
+  }
   const seen = new Set(lines.map(item => item.id));
   for (const pieceId of pieces) {
     const row = SCOPE_FOUND_REMOVAL_BY_PIECE.get(pieceId);
@@ -1730,9 +3179,10 @@ function wantedLines(
   notes: string,
   id: ScopeFoundClarificationId,
   choice: ScopeFoundChoice | null,
-  pieces: string[] = []
+  pieces: string[] = [],
+  measurements?: Record<string, unknown> | null
 ): ClarificationLine[] {
-  if (pieces.length) return linesForPieces(notes, pieces);
+  if (pieces.length) return linesForPieces(notes, pieces, measurements);
   if (id === 'flooring_demo' && flooringReplaceIncludesRemoval(notes) && choice == null) {
     return [flooringDemoLine(notes)];
   }
@@ -1802,10 +3252,19 @@ export function scopeFoundRevealLines(
   if (pieces.length) {
     const area = flooringAreaForNote(text);
     const squares = statedSquares(text);
-    return pieces.map(piece => ({
+    const visiblePieces = pieces.filter(
+      piece =>
+        !isRemodelExtentPiece(piece) &&
+        !GARAGE_HANG_PIECES.has(piece) &&
+        piece !== GARAGE_NO_ADDITIONAL
+    );
+    return visiblePieces.map(piece => ({
       name: PIECE_REVEAL[piece] || TRADE_PIECE_BY_ID.get(piece)?.reveal || piece,
       amount: 0,
-      quantity:
+      quantity: piece.startsWith('remodel_')
+        ? remodelExtentSummary(pieces, piece) ||
+          typedRemainderQuantity(piece, measurements)
+        :
         piece === 'kitchen_floor'
           ? quantityLabel(statedKitchenFloorSqft(text), 'sqft')
           : piece === 'flooring'
@@ -2297,12 +3756,90 @@ export function measurementsForScopeFoundChoice<T extends Record<string, unknown
     }
     delete quantities.electrical_demo;
   }
+  if (id === 'remodel_remainder') {
+    const bathOut: Array<[string, ShowerRemovalPiece]> = [
+      ['extent_bath_out_tub', 'tub'],
+      ['extent_bath_out_prefab_pan', 'prefab_pan'],
+      ['extent_bath_out_tile_pan', 'tile_pan'],
+      ['extent_bath_out_wall_tile', 'wall_tile'],
+      ['extent_bath_out_enclosure', 'prefab_enclosure'],
+      ['extent_bath_out_door', 'shower_door'],
+      ['extent_bath_out_toilet', 'toilet'],
+      ['extent_bath_out_vanity', 'vanity'],
+      ['extent_bath_out_floor', 'bath_floor'],
+    ];
+    const removal = bathOut
+      .filter(([piece]) => selected.has(piece))
+      .filter(([piece]) => piece !== 'extent_bath_out_floor' || !selected.has('remodel_demo'))
+      .map(([, piece]) => piece);
+    const wallBefore = next.wallDemoSqft;
+    const synced = measurementsForShowerRemovalChoice(
+      next,
+      removal.length ? removal : 'none',
+      text
+    );
+    if (removal.includes('wall_tile')) {
+      const typed = Number(String(wallBefore ?? '').replace(/,/g, ''));
+      if (!(typed > 0)) {
+        synced.wallDemoSqft = null;
+        const syncedQuantities = {
+          ...((synced.itemQuantities as Record<string, unknown> | null | undefined) || {}),
+        };
+        delete syncedQuantities.wall_demo;
+        synced.itemQuantities = syncedQuantities;
+      }
+    }
+    if (removal.includes('vanity')) {
+      if (!(Number(synced.bathroomDemoVanityCount) > 0)) synced.bathroomDemoVanityCount = 1;
+    } else {
+      synced.bathroomDemoVanityCount = null;
+    }
+    Object.assign(next, synced);
+    const syncedQuantities =
+      (synced.itemQuantities as Record<string, unknown> | null | undefined) || {};
+    Object.assign(quantities, syncedQuantities);
+    if (!removal.includes('prefab_pan')) delete quantities.shower_floor_demo;
+    if (!removal.includes('wall_tile')) delete quantities.wall_demo;
+    if (selected.has('remodel_bathroom')) {
+      const bathInEach: Array<[string, string]> = [
+        ['extent_bath_in_tub', 'tub_install'],
+        ['extent_bath_in_prefab_pan', 'prefab_shower_pan'],
+        ['extent_bath_in_enclosure', 'prefab_shower_enclosure'],
+        ['extent_bath_in_door', 'glass_door'],
+        ['extent_bathroom_toilet', 'toilet'],
+        ['extent_bathroom_vanity', 'vanity'],
+      ];
+      for (const [piece, itemId] of bathInEach) {
+        if (selected.has(piece)) withQuantity(quantities, itemId, 1, 'each');
+        else delete quantities[itemId];
+      }
+      next.showerDoorCount = selected.has('extent_bath_in_door')
+        ? Number(next.showerDoorCount) > 0
+          ? next.showerDoorCount
+          : 1
+        : null;
+    }
+  }
   next.itemQuantities = quantities;
   return next as unknown as T;
 }
 
 /** Adds the lines the answer confirmed. No demo and not sure add nothing. */
-function ownedLineIds(id: string): string[] {
+function ownedLineIds(id: string, notes = ''): string[] {
+  if (id === 'remodel_remainder') {
+    const prompt = remodelRemainderPrompt(notes);
+    const open = new Set((prompt?.options || []).map(option => option.id));
+    return [
+      ...[...open]
+        .map(pieceId => REMODEL_LINE_BY_PIECE.get(pieceId)?.id)
+        .filter((itemId): itemId is string => Boolean(itemId)),
+      ...REMODEL_EXTENT_PARENTS.filter(parent => open.has(parent.id)).flatMap(parent =>
+        parentQuestions(parent).flatMap(question =>
+          question.extents.flatMap(extent => (extent.lines || []).map(item => item.id))
+        )
+      ),
+    ];
+  }
   const base =
     OWNED_LINE_IDS[id as Exclude<ScopeFoundClarificationId, 'shower'>] || [];
   const trade = TRADE_DEMOS.find(item => item.id === id);
@@ -2319,6 +3856,7 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
     scopeFoundClarificationId?: unknown;
     scopeFoundChoice?: unknown;
     scopeFoundPieces?: unknown;
+    [key: string]: unknown;
   } | null | undefined
 ): T[] {
   const text = noteText(notes);
@@ -2331,20 +3869,42 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
     readScopeFoundPieces(measurements?.scopeFoundPieces)
   );
   const id = prompt && prompt.id !== 'shower' ? prompt.id : storedId;
+  const impliedDemo =
+    choice === 'none' ? [] : impliedWholeHomeDemoLines(text);
   if (!id || id === 'shower') {
-    const replacement = replacementDemoLines(text);
+    const replacement = impliedDemo.length ? impliedDemo : replacementDemoLines(text);
     if (!replacement.length) return items;
-    return appendLines(items, replacement, []);
+    return appendLines(
+      items,
+      replacement,
+      impliedDemo.length ? ownedLineIds('whole_home_demo', text) : []
+    );
   }
   if (prompt && storedId && storedId !== prompt.id) return items;
   if (!choice && !pieces.length) {
+    if (impliedDemo.length && (!storedId || id === 'whole_home_demo')) {
+      return appendLines(items, impliedDemo, ownedLineIds('whole_home_demo', text));
+    }
+    if (id === 'remodel_remainder' && storedId === 'remodel_remainder') {
+      return appendLines(items, [], ownedLineIds(id, text));
+    }
     const replacement = replacementDemoLines(text);
     if (!replacement.length) return items;
     return appendLines(items, replacement, []);
   }
-  const owned = ownedLineIds(id);
-  const wanted = wantedLines(text, id, choice, pieces);
-  return appendLines(items, wanted, owned);
+  const owned = ownedLineIds(id, text);
+  const wanted = wantedLines(
+    text,
+    id,
+    choice,
+    pieces,
+    measurements as Record<string, unknown> | null | undefined
+  );
+  return appendLines(
+    items,
+    id === 'remodel_remainder' ? [...impliedDemo, ...wanted] : wanted,
+    owned
+  );
 }
 
 function appendLines<T extends { id?: string | null }>(
