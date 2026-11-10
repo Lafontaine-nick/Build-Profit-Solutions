@@ -125,6 +125,7 @@ import {
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
   notesNameRoughOpeningsOnly,
+  notesNameUnmeasuredWallFraming,
   notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
@@ -1253,9 +1254,17 @@ function collectInitialRevealConfirmItems(
         ? measured
         : null);
     const attention: string[] = [];
-    // Demo and waterproofing price from the shower wall area, so one
-    // missing measurement covers those lines.
     if (!showerSqft) attention.push('Pricing for Install shower tile');
+    const waterproofSqft = Number(
+      String(draft.scopeMeasurements?.waterproofingSqft ?? '').replace(/,/g, '')
+    );
+    if (
+      bathroomChecklistItemNamedInNotes('waterproofing', draft.originalNotes) &&
+      !(waterproofSqft > 0) &&
+      !areas.showerWallTileSqft
+    ) {
+      attention.push('Pricing for Shower waterproofing');
+    }
     if (!areas.flooringSqft) {
       if (notesNameBathroomFloorRemoval(draft.originalNotes)) {
         attention.push('Pricing for Bathroom floor demo');
@@ -5177,7 +5186,9 @@ function getInitialRevealScopeRows(
         ];
       })()
     : visibleRevealRows;
-  const dedicatedWallAreaRows = notesNameDedicatedWallAreaFraming(notes)
+  const dedicatedWallAreaRows = notesNameUnmeasuredWallFraming(notes)
+    ? [{ id: 'wall_framing', name: 'Wall framing' }]
+    : notesNameDedicatedWallAreaFraming(notes)
     ? (() => {
         const parsed = parseFramingMeasurementsFromNotes(notes);
         const rows: InitialRevealScopeRow[] = [];

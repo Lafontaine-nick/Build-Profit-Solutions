@@ -10,6 +10,7 @@ import {
   remodelRemainderMeasurementFields,
   toggleGarageSuggestionPiece,
   withGarageDrywallHangChoice,
+  withTypedTrimChoice,
   interiorPaintSurfacesAnswered,
   measurementsForScopeFoundChoice,
   resolveScopeFoundClarification,
@@ -23,6 +24,7 @@ import { getScopeUnitDefinition } from '@/utils/scopeIntelligence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
 import {
   normalizeScopeMeasurements,
+  prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
@@ -1611,6 +1613,75 @@ describe('scope found clarification', () => {
     );
     expect(trim.pieceIds).toContain('remodel_trim');
     expect(trim.counts.baseboardLf).toBe('40');
+    const bathroom =
+      'Bathroom remodel, demo bathroom floor and shower floor tile and shower walls. Install new shower walls with waterproofing and shower wall tile. Install new shower pan and tile. Install new shower floor. Install new vanity and countertop.';
+    const baseboard = garageScopeTextAdditions('Install 50 LF of baseboard', bathroom);
+    expect(baseboard.matched).toBe(true);
+    expect(baseboard.pieceIds).toContain('remodel_trim');
+    expect(baseboard.counts.baseboardLf).toBe('50');
+    expect(baseboard.counts.typedTrimLabel).toBe('Baseboard');
+    expect(baseboard.counts.baseboardDemoLf).toBeUndefined();
+    expect(
+      scopeFoundRevealLines(bathroom, 'shower', null, ['remodel_trim'], {
+        baseboardLf: '50',
+        typedTrimLabel: 'Baseboard',
+      }).some(row => row.name === 'Baseboard' && row.quantity === '50 lf')
+    ).toBe(true);
+    const kept = withTypedTrimChoice(
+      [{ id: 'shower_tile', state: 'included' }],
+      { scopeFoundPieces: ['remodel_trim'], typedTrimLabel: 'Baseboard' }
+    );
+    expect(kept.map(item => item.id)).toEqual(['shower_tile', 'baseboard_install']);
+    const demoAndInstall = garageScopeTextAdditions(
+      'Add 50LF of baseboard demo and install',
+      bathroom
+    );
+    expect(demoAndInstall.counts.baseboardLf).toBe('50');
+    expect(demoAndInstall.counts.baseboardDemoLf).toBe('50');
+    expect(demoAndInstall.counts.typedTrimLabel).toBe('Baseboard');
+    expect(
+      scopeFoundRevealLines(bathroom, 'shower', null, ['remodel_trim'], {
+        baseboardLf: '50',
+        baseboardDemoLf: '50',
+        typedTrimLabel: 'Baseboard',
+      }).map(row => row.name)
+    ).toEqual(['Baseboard demo', 'Baseboard']);
+    const demoKept = withTypedTrimChoice(
+      [{ id: 'shower_tile', state: 'included' }],
+      {
+        scopeFoundPieces: ['remodel_trim'],
+        typedTrimLabel: 'Baseboard',
+        baseboardDemoLf: '50',
+      }
+    );
+    expect(demoKept.map(item => item.id)).toEqual([
+      'shower_tile',
+      'baseboard_demo',
+      'baseboard_install',
+    ]);
+    const sentence = "Let's remove 50 LF of baseboard and install new baseboard";
+    const typed = garageScopeTextAdditions(sentence, bathroom);
+    expect(typed.counts.baseboardLf).toBe('50');
+    expect(typed.counts.baseboardDemoLf).toBe('50');
+    expect(typed.counts.typedTrimLabel).toBe('Baseboard');
+    const restored = prepareScopeMeasurementsInputForUi(
+      {
+        baseboardLf: typed.counts.baseboardLf,
+        baseboardDemoLf: typed.counts.baseboardDemoLf,
+        typedTrimLabel: 'Baseboard',
+        typedBaseboardInstall: '1',
+        typedScopeAddendum: sentence,
+        scopeFoundPieces: ['remodel_trim'],
+      },
+      { notes: bathroom, templateKey: 'bathroom' }
+    );
+    expect(restored.typedTrimLabel).toBe('Baseboard');
+    expect(String(restored.baseboardDemoLf)).toBe('50');
+    expect(String(restored.baseboardLf)).toBe('50');
+    expect(restored.typedScopeAddendum).toBe(sentence);
+    expect(
+      remodelRemainderMeasurementFields(['remodel_trim'], restored).map(row => row.label)
+    ).toEqual(['Baseboard demo', 'Baseboard']);
     const plumbing = toggleGarageSuggestionPiece(hang, 'remodel_plumbing');
     expect(plumbing).toEqual(
       expect.arrayContaining(['remodel_plumbing', 'extent_unsure_remodel_plumbing'])

@@ -148,12 +148,22 @@ describe('resolveKitchenDrywallPatchSuggestedPricing', () => {
 });
 
 describe('bathroom drywall checklist consolidation', () => {
-  it('always injects paint_repair for bathroom templates', () => {
+  it('injects paint_repair when the bathroom note names paint', () => {
     const items = ensureBathroomPaintRepairItem(
       [{ id: 'plumbing_rough', label: 'Rough', state: 'included', inputType: 'yes_no' }],
-      'bathroom'
+      'bathroom',
+      'Paint the bathroom walls.'
     );
     expect(items.some((row) => row.id === 'paint_repair')).toBe(true);
+  });
+
+  it('leaves paint off a bathroom note that never names it', () => {
+    const items = ensureBathroomPaintRepairItem(
+      [{ id: 'plumbing_rough', label: 'Rough', state: 'included', inputType: 'yes_no' }],
+      'bathroom',
+      'Bathroom remodel. Install new bathroom floor and a vanity.'
+    );
+    expect(items.some((row) => row.id === 'paint_repair')).toBe(false);
   });
 
   it('removes legacy drywall rows and migrates included state to paint_repair', () => {

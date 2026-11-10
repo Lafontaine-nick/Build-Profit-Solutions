@@ -211,6 +211,7 @@ import {
   normalizeFramingPlanMeasurements,
   notesNameDedicatedWallAreaFraming,
   notesNameLinearFootStudWall,
+  notesNameUnmeasuredWallFraming,
   notesNameWallAreaFramingWithFlooring,
   parseFramingMeasurementsFromNotes,
   syncFramingScopeItems,
@@ -600,11 +601,21 @@ export type ScopeMeasurements = {
   demoTilePanSqft?: number | null;
   wallDemoLf?: number | null;
   showerWallTileSqft?: number | null;
+  /** Shower-wall area for fiber board, fiber tape, vapor barrier, and RedGard/waterproofing. */
+  waterproofingSqft?: number | null;
   showerFloorTileSqft?: number | null;
   wallPaintSqft?: number | null;
   ceilingPaintSqft?: number | null;
   exteriorPaintSqft?: number | null;
   baseboardLf?: number | null;
+  /** Existing baseboard coming out. Set when the note says baseboard demo. */
+  baseboardDemoLf?: number | null;
+  /** Baseboard when the added line said baseboard. Trim stays the general word. */
+  typedTrimLabel?: 'Baseboard' | 'Trim' | null;
+  /** '0' when the added line is removal only. */
+  typedBaseboardInstall?: '0' | '1' | null;
+  /** The Scope Found sentence that added baseboard. The job note may not contain the word. */
+  typedScopeAddendum?: string | null;
   interiorDoorCount?: number | null;
   windowCount?: number | null;
   exteriorDoorCount?: number | null;
@@ -2389,8 +2400,14 @@ function repairDraftRatePricingFromNotesUnfrozen(
         unit: 'sqft',
         quantitySource: 'notes',
       };
+      if (!measurements.quickMeasurementUserOverrides?.waterproofingSqft) {
+        measurements.waterproofingSqft = areas.showerWallTileSqft;
+      }
     } else {
       delete itemQuantities.waterproofing;
+      if (!measurements.quickMeasurementUserOverrides?.waterproofingSqft) {
+        delete measurements.waterproofingSqft;
+      }
     }
     if (areas.flooringSqft) {
       if (notesNameBathroomFloorRemoval(text)) {
@@ -2885,6 +2902,66 @@ function repairDraftRatePricingFromNotesUnfrozen(
         title: 'Framing — confirm project scope',
         intro: 'Confirm the stud wall and openings before pricing.',
         items,
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+      missingInfo: [],
+      needsReviewItems: [],
+      stillNeededReview: [],
+    };
+  }
+  if (
+    notesNameUnmeasuredWallFraming(text) &&
+    !repairedDraft.scopeAssumptionsConfirmed
+  ) {
+    const measurements = {
+      ...(repairedDraft.scopeMeasurements || {}),
+    } as ScopeMeasurements;
+    delete measurements.framedAreaSqft;
+    delete measurements.garageSqft;
+    delete measurements.floorAreaSqft;
+    delete measurements.sheathingSqft;
+    delete measurements.wallFramingLf;
+    delete measurements.wallDemoSqft;
+    delete measurements.framingOpeningCount;
+    return {
+      ...repairedDraft,
+      projectType: 'framing',
+      estimateTier: 'room_remodel',
+      scopeMode: 'dedicated',
+      requiresScopeConfirmation: true,
+      classification: {
+        ...(repairedDraft.classification || {}),
+        scopeMode: 'dedicated',
+        primaryTrade: 'framing',
+        detectedTrades: ['framing'],
+        scopeSummary: null,
+      },
+      scopeSummary: null,
+      scopeTradeLabels: ['Framing'],
+      detectedTrades: ['framing'],
+      whatAiDid: ['Detected framing.'],
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'framing',
+        title: 'Framing — confirm project scope',
+        intro: 'Confirm the wall area before pricing.',
+        items: [
+          {
+            id: 'wall_framing',
+            inputType: 'yes_no',
+            label: 'Wall framing',
+            helperText: 'Frame the walls identified in the job notes.',
+            category: 'structural',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
         suggestedMeasurements:
           repairedDraft.scopeChecklist?.suggestedMeasurements || null,
         requiresConfirmation: true,

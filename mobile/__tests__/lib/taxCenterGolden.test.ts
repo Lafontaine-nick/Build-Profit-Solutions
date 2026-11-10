@@ -5,8 +5,11 @@
  */
 import {
   buildProjectTaxSummaries,
+  buildSubcontractorPaymentSummary,
+  buildW2PaymentSummary,
   calculateOutstandingInvoices,
   computeTaxCenterSummary,
+  groupExpensesByTaxCategory,
   expenseCountsTowardSubcontractorPayments,
   expenseCountsTowardW2Payments,
   laborPayeeCountsAsSubcontractorPayment,
@@ -550,6 +553,185 @@ describe('labor paid-to subcontractor payments', () => {
     };
     expect(buildW9ReminderPayees(rows, [received])).toEqual([]);
     expect(buildW9ReminderPayees(rows, [{ ...received, w9Status: 'requested' as const }])).toHaveLength(1);
+  });
+});
+
+describe('a new job starting from a zeroed Tax Center', () => {
+  const year = 2026;
+
+  function screen(projects: any[]) {
+    const current = projects.filter(isCurrentTaxProject);
+    const summary = computeTaxCenterSummary(current, [], [], [], year, []);
+    const yearExpenses = getYearExpenses(current, year);
+    const subs = buildSubcontractorPaymentSummary(yearExpenses, year, []);
+    const wages = buildW2PaymentSummary(yearExpenses);
+    return {
+      revenue: summary.grossIncomeCollected,
+      receivables: summary.outstandingReceivables,
+      expenses: summary.totalExpenses,
+      committed: summary.committedCosts,
+      net: summary.netProfit,
+      margin: summary.grossIncomeCollected > 0 ? formatTaxNetMarginPercent(summary.netMargin) : '—',
+      ten99: summary.subcontractorPayments,
+      w2: summary.w2Payments,
+      receipts: summary.receiptCount,
+      categories: groupExpensesByTaxCategory(yearExpenses).length,
+      projects: buildProjectTaxSummaries(current, year).length,
+      breakdown1099: subs.reduce((sum, row) => sum + row.totalPaid, 0),
+      breakdownW2: wages.reduce((sum, row) => sum + row.totalPaid, 0),
+    };
+  }
+
+  const zeros = {
+    revenue: 0,
+    receivables: 0,
+    expenses: 0,
+    committed: 0,
+    net: 0,
+    margin: '—',
+    ten99: 0,
+    w2: 0,
+    receipts: 0,
+    categories: 0,
+    projects: 0,
+    breakdown1099: 0,
+    breakdownW2: 0,
+  };
+
+  it('keeps every card at zero, then moves only the card each new-job event owns', () => {
+    expect(screen([])).toEqual(zeros);
+    expect(
+      screen([
+        {
+          id: 'smith',
+          title: 'Smith bathroom',
+          status: 'bid_submitted',
+          bidPrice: 20000,
+        },
+      ])
+    ).toEqual(zeros);
+
+    const job: any = {
+      id: 'smith',
+      title: 'Smith bathroom',
+      status: 'won',
+      bidPrice: 20000,
+      projectData: { timelineV2Milestones: [] as any[] },
+      expenses: [] as any[],
+      purchaseOrders: [] as any[],
+    };
+    expect(screen([job])).toEqual(zeros);
+
+    job.projectData.timelineV2Milestones.push({
+      id: 'deposit',
+      title: 'Deposit',
+      amount: 5000,
+      paymentAmount: 5000,
+      status: 'pending',
+      plannedDate: '2026-04-01',
+    });
+    expect(screen([job])).toMatchObject({
+      revenue: 0,
+      receivables: 5000,
+      expenses: 0,
+      net: 0,
+      margin: '—',
+      projects: 1,
+    });
+
+    Object.assign(job.projectData.timelineV2Milestones[0], {
+      status: 'paid',
+      collectedAt: '2026-04-10',
+    });
+    expect(screen([job])).toMatchObject({
+      revenue: 5000,
+      receivables: 0,
+      expenses: 0,
+      net: 5000,
+      margin: '100.0%',
+    });
+
+    job.expenses.push({
+      id: 'materials',
+      vendor: 'Home Depot',
+      category: 'Materials',
+      amount: 1200,
+      date: '2026-07-01',
+      paidAt: '2026-07-01',
+      paymentStatus: 'paid',
+      receiptUri: 'file://receipt.jpg',
+    });
+    expect(screen([job])).toMatchObject({
+      revenue: 5000,
+      expenses: 1200,
+      net: 3800,
+      margin: '76.0%',
+      receipts: 1,
+      categories: 1,
+      ten99: 0,
+    });
+
+    job.purchaseOrders.push({
+      id: 'po-lumber',
+      vendor: 'Lumber yard',
+      amount: 400,
+      status: 'pending',
+      orderDate: '2026-08-01',
+    });
+    expect(screen([job])).toMatchObject({
+      expenses: 1200,
+      committed: 400,
+      net: 3800,
+    });
+
+    job.expenses.push({
+      id: 'sub',
+      vendor: 'Alex Rivera',
+      category: 'Labor',
+      amount: 2000,
+      date: '2026-09-01',
+      paidAt: '2026-09-01',
+      paymentStatus: 'paid',
+      paymentMethod: 'check',
+    });
+    expect(screen([job])).toMatchObject({
+      expenses: 3200,
+      net: 1800,
+      margin: '36.0%',
+      ten99: 2000,
+      w2: 0,
+      breakdown1099: 2000,
+      categories: 2,
+    });
+
+    job.expenses.push({
+      id: 'w2',
+      vendor: 'Sam Lee',
+      category: 'Labor',
+      amount: 800,
+      date: '2026-09-15',
+      paidAt: '2026-09-15',
+      paymentStatus: 'paid',
+      laborPayType: 'w2',
+    });
+    const done = screen([job]);
+    expect(done).toMatchObject({
+      revenue: 5000,
+      receivables: 0,
+      expenses: 4000,
+      committed: 400,
+      net: 1000,
+      margin: '20.0%',
+      ten99: 2000,
+      w2: 800,
+      receipts: 1,
+      categories: 2,
+      projects: 1,
+      breakdown1099: 2000,
+      breakdownW2: 800,
+    });
+    expect(done.net).toBe(done.revenue - done.expenses);
+    expect(done.expenses).toBe(1200 + 2000 + 800);
   });
 });
 

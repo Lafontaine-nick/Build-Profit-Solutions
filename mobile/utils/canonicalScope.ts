@@ -13,6 +13,7 @@ import {
   readNoteWork,
 } from '@/utils/noteClauseReader';
 import { notesOwnerHandlesScopeCategory } from '@/utils/scopeItemNoteHints';
+import { dropGenericTileBesideBathroomTile } from '@/utils/bathroomNoteScope';
 import { wholeHomeRemodelNamedItemIds } from '@/utils/wholeHomeRemodelNote';
 
 export const CANONICAL_SCOPE_SCHEMA_VERSION = 1 as const;
@@ -410,6 +411,22 @@ export function resolveCanonicalScopeForNotes(
   return buildCanonicalScope({ notes, existing });
 }
 
+const UNNAMED_PAINT_CARD_IDS = new Set([
+  'interior_paint',
+  'paint',
+  'paint_repair',
+  'ceiling_paint',
+  'prep',
+  'trim_paint',
+]);
+
+function notesNamePaintWork(notes?: string | null): boolean {
+  const text = String(notes || '')
+    .replace(/\bno\s+(?:new\s+)?paint(?:ing)?\b/gi, ' ')
+    .replace(/\b(?:do not|don't|dont)\s+paint(?:ing)?\b/gi, ' ');
+  return /\bpaint(?:ing)?\b|\brepaint(?:ing)?\b/i.test(text);
+}
+
 function namedIncludedIdsFromNotes(notes?: string | null): Set<string> {
   return new Set(
     noteDrivenInclusions(String(notes || ''))
@@ -485,7 +502,12 @@ export function applyCanonicalScopeToChecklistItems<
       } as T,
     ];
   }
-  return dropCombinedFloorDemoWhenStyled(next);
+  const scoped = dropGenericTileBesideBathroomTile(
+    dropCombinedFloorDemoWhenStyled(next),
+    notes
+  );
+  if (notesNamePaintWork(notes)) return scoped;
+  return scoped.filter(item => !UNNAMED_PAINT_CARD_IDS.has(itemId(item.id)));
 }
 
 export function stripCanonicalExcludedMeasurements<

@@ -10,6 +10,14 @@ import {
   syncAdditionConversionScopeFromMeasurements,
 } from '@/utils/estimateScopeChecklistUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { applyStep2NoteScopeFilters } from '@/utils/scopePackagesForReview';
+import {
+  FRAMING_SHEATHING_PIECE,
+  garageScopeTextAdditions,
+  notesOfferFramingSheathingChip,
+  scopeFoundRevealLines,
+} from '@/utils/scopeFoundClarification';
+import { resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import {
   getInitialRevealChecklistScopePreview,
@@ -131,6 +139,98 @@ describe('addition / conversion scope defaults', () => {
     expect(included).toEqual(
       expect.arrayContaining(['plumbing_rough', 'plumbing_trim', 'tile'])
     );
+  });
+
+  it('drops unnamed addition phases on Confirm Scope for a framing-only bedroom addition', () => {
+    const notes =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    const items = applyStep2NoteScopeFilters(
+      additionChecklistItems().map(item => ({ ...item, state: 'included' as const })),
+      {
+        originalNotes: notes,
+        projectType: 'room_addition',
+        scopeChecklist: { templateKey: 'addition', items: additionChecklistItems() },
+      } as EstimateAiDraft,
+      { framedAreaSqft: '320' },
+      'addition'
+    );
+    expect(items.map(item => item.id)).toEqual(['framing']);
+    expect(items[0]?.label).toBe('Framing / shell');
+    expect(
+      groupScopeChecklistItems(items, 'addition', {
+        projectType: 'room_addition',
+        notes,
+      }).map(group => group.title)
+    ).toEqual(['Shell']);
+  });
+
+  it('adds sheathing from the framing button without using the floor area', () => {
+    const bedroom =
+      'Build a 320 sqft bedroom addition. Frame the walls. No roofing in this bid.';
+    const walls = 'Frame the walls. No roofing in this bid.';
+    const adu =
+      'Build a 720 sqft addition for a detached ADU. Frame the walls. No roofing in this bid.';
+    expect(notesOfferFramingSheathingChip(bedroom)).toBe(true);
+    expect(notesOfferFramingSheathingChip(walls)).toBe(true);
+    expect(notesOfferFramingSheathingChip(adu)).toBe(true);
+    expect(notesOfferFramingSheathingChip('Replace the shower tile.')).toBe(false);
+
+    const typed = garageScopeTextAdditions('400 sqft of sheathing', bedroom);
+    expect(typed.pieceIds).toContain(FRAMING_SHEATHING_PIECE);
+    expect(typed.counts.sheathingSqft).toBe('400');
+    expect(garageScopeTextAdditions('sheathing').matched).toBe(false);
+    expect(
+      scopeFoundRevealLines(bedroom, 'remodel_remainder', null, [
+        FRAMING_SHEATHING_PIECE,
+      ]).map(row => row.name)
+    ).toEqual(['Sheathing']);
+
+    const items = applyStep2NoteScopeFilters(
+      additionChecklistItems().map(item => ({ ...item, state: 'included' as const })),
+      {
+        originalNotes: bedroom,
+        projectType: 'room_addition',
+        scopeChecklist: { templateKey: 'addition', items: additionChecklistItems() },
+      } as EstimateAiDraft,
+      { framedAreaSqft: '320', scopeFoundPieces: [FRAMING_SHEATHING_PIECE] },
+      'addition'
+    );
+    expect(items.map(item => item.id).sort()).toEqual(['framing', 'shear_sheathing']);
+    expect(
+      groupScopeChecklistItems(items, 'addition', {
+        projectType: 'room_addition',
+        notes: bedroom,
+      }).map(group => group.title)
+    ).toEqual(['Sheathing', 'Shell']);
+    expect(
+      resolveChecklistItemQuantity(
+        'shear_sheathing',
+        { framedAreaSqft: '720', floorAreaSqft: '720' },
+        { templateKey: 'addition', notes: adu }
+      ).pricingReady
+    ).toBe(false);
+
+    const wallItems = applyStep2NoteScopeFilters(
+      [
+        {
+          id: 'wall_framing',
+          label: 'Wall framing',
+          inputType: 'yes_no' as const,
+          state: 'included' as const,
+        },
+      ],
+      {
+        originalNotes: walls,
+        projectType: 'framing',
+        scopeChecklist: { templateKey: 'framing', items: [] },
+      } as EstimateAiDraft,
+      { scopeFoundPieces: [FRAMING_SHEATHING_PIECE] },
+      'framing'
+    );
+    expect(wallItems.map(item => item.id).sort()).toEqual([
+      'shear_sheathing',
+      'wall_framing',
+    ]);
   });
 
   it('keeps a denied-roof bedroom addition on the shell card', () => {

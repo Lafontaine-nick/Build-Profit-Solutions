@@ -33,7 +33,9 @@ import {
   filterDedicatedFlooringConfirmItems,
   flooringExistingCardStartsOpen,
   flooringRemovalSelectedOnConfirm,
+  bathroomFloorOwnsFloorMeasurement,
   notesDescribeDedicatedFlooringJob,
+  notesNameInstallableHouseFlooring,
   notesRequestFloorPrep,
   notesRequestFlooringDemo,
   retainedFlooringConfirmItemIds,
@@ -1237,5 +1239,24 @@ describe('dedicated flooring note', () => {
         'Kitchen reno. Cabs 20 LF, tops 48 sqft, splash 35 sqft, LVP 160 sqft.'
       )
     ).toBe(false);
+  });
+});
+
+describe('bathroom floor versus house flooring', () => {
+  const bathroomFloor =
+    'Bathroom remodel, demo bathroom floor and shower floor tile and shower walls. Install new shower walls with waterproofing and shower wall tile. Install new shower pan and tile. Install new bathroom floor. Install new vanity and countertop.';
+
+  it('keeps a named bathroom floor off the house flooring measurement', () => {
+    expect(notesNameInstallableHouseFlooring(bathroomFloor)).toBe(false);
+    expect(bathroomFloorOwnsFloorMeasurement(bathroomFloor)).toBe(true);
+  });
+
+  it('keeps house flooring when the note names it beside a bathroom floor', () => {
+    const note = `${bathroomFloor} Install 40 sqft of LVP.`;
+    expect(notesNameInstallableHouseFlooring(note)).toBe(true);
+    expect(bathroomFloorOwnsFloorMeasurement(note)).toBe(false);
+    expect(notesNameInstallableHouseFlooring('Install 400 sqft of flooring.')).toBe(
+      true
+    );
   });
 });

@@ -1,3 +1,5 @@
+import { quickMeasurementRowsForTemplate } from '@/utils/scopeQuickMeasurements';
+import { resolveScopeFoundClarification } from '@/utils/scopeFoundClarification';
 import {
   scopePackageNeedsManualPrice,
   scopePackagePricedAmount,
@@ -1000,6 +1002,60 @@ describe('estimateInitialRevealUi', () => {
     ]);
   });
 
+  it('keeps an unmeasured wall-framing note to one card and one size', () => {
+    const notes = 'Frame the walls. No roofing in this bid.';
+    const draft = {
+      originalNotes: notes,
+      projectType: 'framing',
+      projectTitle: 'Framing',
+      missingInfo: [
+        'Wall framing dimensions, layout, and material specifications',
+        'Permit and engineering requirements',
+      ],
+      stillNeededReview: [
+        'Wall framing price',
+        'Wall framing labor and materials pricing',
+      ],
+      scopeChecklist: {
+        templateKey: 'framing',
+        items: [
+          { id: 'framing', label: 'Framing', state: 'included' },
+          {
+            id: 'review-dimensions',
+            label: 'Wall framing dimensions, layout, and material specifications',
+            state: 'included',
+          },
+          {
+            id: 'permits',
+            label: 'Permit and engineering requirements',
+            state: 'included',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(resolveScopeFoundClarification(notes)).toBeNull();
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['Wall framing']);
+    expect(
+      quickMeasurementRowsForTemplate('framing', 'framing', notes)
+        .flat()
+        .map(field => field.label)
+    ).toEqual(['Wall framing']);
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        ...draft,
+        scopeAssumptionsConfirmed: false,
+      } as EstimateAiDraft,
+      notes
+    );
+    expect(repaired.scopeChecklist?.items?.map(item => item.id)).toEqual([
+      'wall_framing',
+    ]);
+    expect(repaired.missingInfo).toEqual([]);
+  });
+
   it('shows the stated wall demolition quantity on Scope found', () => {
     const notes =
       'Demolish 120 sqft of nonstructural walls. Frame 960 sqft of walls and 200 sqft of sheathing, including one rough opening.';
@@ -1458,6 +1514,7 @@ describe('estimateInitialRevealUi', () => {
     expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
       'demo',
       'shower_tile',
+      'waterproofing',
       'flooring_lvp',
     ]);
     expect(repaired.scopeMeasurements?.showerWallTileSqft).toBeUndefined();
@@ -1471,10 +1528,12 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       { name: 'Shower tile demo', quantity: undefined },
       { name: 'Install shower tile', quantity: undefined },
+      { name: 'Shower waterproofing', quantity: undefined },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(getInitialRevealConfirmItems(repaired).pricingScope).toEqual([
       'Price needed for Install shower tile',
+      'Price needed for Shower waterproofing',
     ]);
     expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
     expect(getInitialRevealTagline(repaired)).toBe('Bathroom · Flooring');
@@ -1483,7 +1542,7 @@ describe('estimateInitialRevealUi', () => {
         repaired,
         getInitialRevealConfirmItems(repaired).pricingScope.length
       ).label
-    ).toBe('Mostly ready · 1 to check');
+    ).toBe('Mostly ready · 2 to check');
 
     const lvpQuantity = resolveChecklistItemQuantity(
       'flooring_lvp',
@@ -1589,6 +1648,20 @@ describe('estimateInitialRevealUi', () => {
         null,
         notes
       ).fill
+    ).toBeNull();
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'waterproofing',
+        {
+          ...(repaired.scopeMeasurements || {}),
+          waterproofingSqft: 90,
+        },
+        'room_remodel',
+        { quantity: 90, unit: 'sqft', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      ).fill
     ).toMatchObject({
       material: 450,
       labor: 630,
@@ -1614,6 +1687,7 @@ describe('estimateInitialRevealUi', () => {
       'tub_demo',
       'demo',
       'shower_tile',
+      'waterproofing',
       'flooring_lvp',
     ]);
     expect(repaired.scopeMeasurements?.flooringLvpSqft).toBe(80);
@@ -1627,6 +1701,7 @@ describe('estimateInitialRevealUi', () => {
       'Remove tub',
       'Shower tile demo',
       'Install shower tile',
+      'Shower waterproofing',
       'LVP flooring',
     ]);
     expect(getInitialRevealDisplayTitle(repaired)).toBe('Bathroom tile and LVP');
@@ -1651,6 +1726,7 @@ describe('estimateInitialRevealUi', () => {
     expect(repaired.scopeChecklist?.items.map(item => item.id)).toEqual([
       'demo',
       'shower_tile',
+      'waterproofing',
       'flooring_lvp',
     ]);
     expect(measurements.showerWallTileSqft).toBe(80);
@@ -1664,6 +1740,7 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       { name: 'Shower tile demo', quantity: '80 sqft' },
       { name: 'Install shower tile', quantity: '80 sqft' },
+      { name: 'Shower waterproofing', quantity: '80 sqft' },
       { name: 'LVP flooring', quantity: '80 sqft' },
     ]);
     expect(
@@ -1675,6 +1752,7 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual([
       'Shower tile demo',
       'Install shower tile',
+      'Shower waterproofing',
       'LVP flooring',
     ]);
     const price = (id: string) => {
@@ -1698,6 +1776,11 @@ describe('estimateInitialRevealUi', () => {
       material: 640,
       labor: 1440,
       total: 2080,
+    });
+    expect(price('waterproofing')).toMatchObject({
+      material: 400,
+      labor: 560,
+      total: 960,
     });
     expect(price('flooring_lvp')).toMatchObject({
       material: 280,

@@ -26,6 +26,7 @@ import {
   filterDedicatedBathroomConfirmItems,
   notesAskForSeparateHaulOff,
   notesKeepExistingWetArea,
+  notesAutoIncludeShowerWallWaterproofing,
   notesMentionStructuralFraming,
   notesNameBathroomAssembly,
   notesNameShowerTileWithFlooring,
@@ -132,6 +133,7 @@ describe('bathroom note checklist', () => {
         'shower_floor_demo',
         'shower_pan',
         'shower_tile',
+        'waterproofing',
         'wet_area_install',
       ].sort()
     );
@@ -218,6 +220,7 @@ describe('bathroom note checklist', () => {
         'Remove tile shower pan',
         'Shower tile demo / tear-out',
         'Shower wall tile',
+        'Shower waterproofing & backer board',
         'Build shower pan',
         'Wet area install',
       ].sort()
@@ -410,6 +413,7 @@ describe('bathroom note checklist', () => {
         'Remove tile shower pan',
         'Shower tile demo / tear-out',
         'Shower wall tile',
+        'Shower waterproofing & backer board',
         'Build shower pan',
         'Wet area install',
       ].sort()
@@ -832,6 +836,7 @@ describe('bathroom note checklist', () => {
         'paint_repair',
         'shower_tile',
         'vanity',
+        'waterproofing',
         'wet_area_install',
       ].sort()
     );
@@ -1110,6 +1115,7 @@ describe('shower removal question', () => {
     expect(groups.map(group => group.title)).toEqual([
       'Demo',
       'Install shower tile',
+      'Shower waterproofing',
       'LVP flooring',
     ]);
     expect(groups[0].items.map(item => item.id)).toEqual([
@@ -1326,6 +1332,25 @@ describe('shower removal question', () => {
     ).toMatchObject({ amount: 1450 });
   });
 
+  it('includes waterproofing when wall tile comes out and new wall tile goes in', () => {
+    const notes =
+      'Bathroom remodel. Demo the shower walls. Install new shower wall tile.';
+    expect(notesAutoIncludeShowerWallWaterproofing(notes)).toBe(true);
+    expect(bathroomChecklistItemNamedInNotes('waterproofing', notes)).toBe(true);
+    expect(bathroomScopeLines(notes).map(line => line.label)).toEqual(
+      expect.arrayContaining([
+        'Shower tile demo / tear-out',
+        'Shower wall tile',
+        'Shower waterproofing & backer board',
+      ])
+    );
+    expect(
+      notesAutoIncludeShowerWallWaterproofing(
+        'Install new shower wall tile. No demo.'
+      )
+    ).toBe(false);
+  });
+
   it('leaves negated waterproofing and the generic flooring card off the review draft', () => {
     const notes =
       "Customer wants the shower retiled. Pull the old tile. Throw down about 80 square feet of vinyl plank in that bath. Don't demo the floor. No waterproofing unless I say so.";
@@ -1392,6 +1417,7 @@ describe('shower removal question', () => {
       'shower_enclosure_demo',
       'glass_door_demo',
       'shower_tile',
+      'waterproofing',
       'flooring_lvp',
     ]);
     const repaired = repairDraftRatePricingFromNotes(
@@ -1459,6 +1485,7 @@ describe('shower removal question', () => {
     expect(groups.map(group => group.title)).toEqual([
       'Demo',
       'Install shower tile',
+      'Shower waterproofing',
       'LVP flooring',
     ]);
     expect(groups[0].items.map(item => item.id)).toEqual([

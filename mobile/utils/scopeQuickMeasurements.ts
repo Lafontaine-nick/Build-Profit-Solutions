@@ -83,6 +83,7 @@ import {
   notesNameCoveredFramedFloor,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
+  notesNameUnmeasuredWallFraming,
   notesNameWallAreaFramingWithFlooring,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 
@@ -112,6 +113,7 @@ export type QuickMeasurementFieldKey =
   | 'patchRepairSqft'
   | 'exteriorPaintSqft'
   | 'baseboardLf'
+  | 'baseboardDemoLf'
   | 'interiorDoorCount'
   | 'windowCount'
   | 'exteriorDoorCount'
@@ -477,6 +479,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'exterior'
   ),
   baseboardLf: F('baseboardLf', 'Baseboard', '48', 'LF', 'interior'),
+  baseboardDemoLf: F(
+    'baseboardDemoLf',
+    'Baseboard demo',
+    'Enter',
+    'LF',
+    'interior',
+    undefined,
+    'Existing baseboard coming out.'
+  ),
   interiorDoorCount: F(
     'interiorDoorCount',
     'Interior doors',
@@ -2913,6 +2924,21 @@ function wallAreaFramingWithFlooringRows(notes: string): QuickMeasurementRow[] {
   return rows;
 }
 
+function unmeasuredWallFramingRows(): QuickMeasurementRow[] {
+  const wall = QUICK_MEASUREMENT_FIELD_DEFS.wallFramingSqft;
+  if (!wall) return [];
+  return [
+    [
+      {
+        ...wall,
+        label: 'Wall framing',
+        placeholder: 'Enter',
+        helperText: 'Square feet of walls to frame.',
+      },
+    ],
+  ];
+}
+
 function linearFootStudWallRows(notes: string): QuickMeasurementRow[] {
   const wall = QUICK_MEASUREMENT_FIELD_DEFS.wallFramingLf;
   const openings = QUICK_MEASUREMENT_FIELD_DEFS.framingOpeningCount;
@@ -3260,6 +3286,9 @@ export function quickMeasurementRowsForTemplate(
       : remodelRows;
   if (notesNameLinearFootStudWall(framingNoteText)) {
     return linearFootStudWallRows(framingNoteText);
+  }
+  if (notesNameUnmeasuredWallFraming(framingNoteText)) {
+    return unmeasuredWallFramingRows();
   }
   if (notesNameShowerTileWithFlooring(framingNoteText)) {
     return showerTileWithFlooringRows(framingNoteText);
@@ -3927,6 +3956,9 @@ function computeQuickMeasurementRowsForInput(
   }
   if (notesNameLinearFootStudWall(String(options?.scopeNotes || ''))) {
     return linearFootStudWallRows(String(options?.scopeNotes || ''));
+  }
+  if (notesNameUnmeasuredWallFraming(String(options?.scopeNotes || ''))) {
+    return unmeasuredWallFramingRows();
   }
   if (
     notesDescribeDrywallAndFlooringJob(options?.scopeNotes) &&
@@ -5703,6 +5735,7 @@ export function emptyQuickMeasurementInput(): Record<
     patchRepairSqft: '',
     exteriorPaintSqft: '',
     baseboardLf: '',
+    baseboardDemoLf: '',
     interiorDoorCount: '',
     windowCount: '',
     exteriorDoorCount: '',

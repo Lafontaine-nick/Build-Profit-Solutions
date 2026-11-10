@@ -20,13 +20,12 @@ describe('paraphrase reader score', () => {
       'carpet_replace',
       'owner_removes_carpet',
       'drywall_denial',
+      'addition_no_roof',
       'garage_no_hvac',
       'stucco_replace',
       'whole_house_names',
     ]);
-    expect(readings.filter(row => !row.passed).map(row => row.id)).toEqual([
-      'addition_no_roof',
-    ]);
+    expect(readings.filter(row => !row.passed).map(row => row.id)).toEqual([]);
   });
 
   it('asks about the unnamed shower pieces and does not ask for wall tile', () => {

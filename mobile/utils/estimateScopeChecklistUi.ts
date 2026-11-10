@@ -19,6 +19,7 @@ import { notesDescribeMeasuredWholeHomeRemodel } from '@/utils/wholeHomeRemodelN
 import {
   bathroomAffirmativeNotes,
   bathroomChecklistItemNamedInNotes,
+  dropGenericTileBesideBathroomTile,
   notesAskForSeparateHaulOff,
   notesNameShowerTileWithFlooring,
   notesReuseExistingShowerDoor,
@@ -4773,13 +4774,21 @@ function ensureBathroomNoteBackedScopeItems(
     : withReuse;
 }
 
-/** Inject localized paint-repair row for bathroom remodels (single card for patch + paint). */
+/** Inject localized paint-repair row when the bathroom note names paint or drywall patch. */
 export function ensureBathroomPaintRepairItem(
   items: ScopeChecklistItem[],
-  templateKey?: string | null
+  templateKey?: string | null,
+  notes?: string | null
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
   if (items.some(row => row.id === 'paint_repair')) return items;
+  const text = String(notes || '');
+  if (
+    !/\bpaint(?:ing)?\b|\brepaint(?:ing)?\b/i.test(text) &&
+    !/\b(?:drywall|sheetrock|gypsum|patch(?:ing)?|texture)\b/i.test(text)
+  ) {
+    return items;
+  }
   const paintRepair: ScopeChecklistItem = {
     id: 'paint_repair',
     inputType: 'yes_no',
@@ -5480,7 +5489,8 @@ function hydrateScopeChecklistFromNotesUnfrozen(
   );
   const withPaintRepair = ensureBathroomPaintRepairItem(
     withBathroomNoteScope,
-    templateKey
+    templateKey,
+    notes
   );
   const withoutLegacyDrywall = suppressBathroomDrywallChecklistItems(
     withPaintRepair,
@@ -6632,6 +6642,33 @@ export function syncInteriorPaintScopeItems(
       return row;
     });
   }
+  const notesNameInteriorPaint =
+    /\bpaint(?:ing)?\b|\brepaint(?:ing)?\b/i.test(String(params.notes || ''));
+  const hasEnteredPaintArea =
+    positiveSqft(params.wallPaintSqft) ||
+    positiveSqft(params.ceilingPaintSqft) ||
+    positiveSqft(params.paintAreaSqft) ||
+    positiveSqft(params.combinedPaintableAreaSqft) ||
+    positiveSqft(params.patchRepairSqft);
+  const bathroomJobWithoutPaint =
+    (String(params.templateKey || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(
+        String(params.notes || '')
+      )) &&
+    !notesDescribeMeasuredWholeHomeRemodel(params.notes) &&
+    !notesNameInteriorPaint &&
+    !hasEnteredPaintArea;
+  if (bathroomJobWithoutPaint) {
+    const stripped = workingItems.filter(
+      row =>
+        row.id !== 'paint_repair' &&
+        row.id !== 'interior_paint' &&
+        row.id !== 'paint' &&
+        row.id !== 'prep' &&
+        row.id !== 'ceiling_paint'
+    );
+    if (stripped.length !== workingItems.length) return stripped;
+  }
   const bathroomPaintRepair = workingItems.some(
     row => row.id === 'paint_repair'
   );
@@ -7563,6 +7600,22 @@ export function checklistDisplayLabel(
     }
     return PAINT_SCOPE_LABEL_OVERRIDES[item.id];
   }
+  const rawLabel = String(item.label || '').trim();
+  if (
+    (item.id === 'shower_floor_demo' ||
+      item.id.startsWith('shower_floor_demo__')) &&
+    (!rawLabel || rawLabel === item.id || rawLabel.includes('_'))
+  ) {
+    return 'Demo shower floor tile';
+  }
+  if (
+    !rawLabel ||
+    rawLabel === item.id ||
+    /^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(rawLabel)
+  ) {
+    const source = rawLabel || item.id;
+    return source.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+  }
   return item.label;
 }
 
@@ -7677,6 +7730,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       itemIds: [
         'demo',
         'floor_demo',
+        'baseboard_demo',
         'tub_demo',
         'shower_floor_demo',
         'wall_demo',
@@ -7837,6 +7891,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       itemIds: ['sitework', 'excavation', 'grading', 'utility_trenching'],
     },
     { title: 'Foundation', itemIds: ['foundation', 'concrete'] },
+    { title: 'Sheathing', itemIds: ['shear_sheathing'] },
     {
       title: 'Shell',
       itemIds: [
@@ -7953,7 +8008,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Cabinets & counters',
       itemIds: ['cabinets', 'countertops', 'vanity'],
     },
-    { title: 'Baseboard', itemIds: ['baseboard_install'] },
+    { title: 'Baseboard', itemIds: ['baseboard_demo', 'baseboard_install'] },
     { title: 'Closeout', itemIds: ['permits'] },
   ],
   roofing: [
@@ -8453,6 +8508,7 @@ export function groupScopeChecklistItems(
   templateKey?: string,
   context: ScopeChecklistGroupingContext = {}
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  items = dropGenericTileBesideBathroomTile(items, context.notes);
   if (noteUsesSeparateJobReader(context.notes)) {
     const lines = readNoteWork(context.notes).lines;
     return lines.map(entry => ({

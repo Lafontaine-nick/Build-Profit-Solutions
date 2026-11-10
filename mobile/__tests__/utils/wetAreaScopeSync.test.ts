@@ -6,6 +6,7 @@ import {
   syncWaterproofingFromTileScopeItems,
   syncBathroomFloorTileScopeItems,
   syncInteriorPaintScopeItems,
+  checklistDisplayLabel,
 } from '@/utils/estimateScopeChecklistUi';
 import { finalizeWetAreaInstallScopeFromMeasurements } from '@/utils/wetAreaInstallScopeGate';
 import { resolveDemoWetAreaFromIntent } from '@/utils/wetAreaExistingDemo';
@@ -1089,6 +1090,30 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(r => r.id === 'patch_repair')?.state).toBe('included');
   });
 
+  test('drops interior painting when a bathroom note never names paint', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'paint_repair',
+        label: 'Paint repair',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'vanity',
+        label: 'Vanity',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      templateKey: 'bathroom',
+      notes:
+        'Bathroom remodel, demo bathroom floor and shower floor tile. Install new bathroom floor and a vanity.',
+      baseboardLf: '50',
+    });
+    expect(next.map(row => row.id)).toEqual(['vanity']);
+  });
+
   test('finalizeWetAreaInstallScopeFromMeasurements drops install lines when steppers are zero', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -1114,5 +1139,21 @@ describe('wetAreaScopeSync', () => {
       'not_in_scope'
     );
     expect(next.find(r => r.id === 'shower_pan')).toBeUndefined();
+  });
+});
+
+describe('shower floor demo card title', () => {
+  it('uses a readable title when the stored label is the raw id', () => {
+    expect(
+      checklistDisplayLabel(
+        {
+          id: 'shower_floor_demo',
+          label: 'shower_floor_demo',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        'bathroom'
+      )
+    ).toBe('Demo shower floor tile');
   });
 });

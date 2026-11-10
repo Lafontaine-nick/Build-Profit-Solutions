@@ -166,6 +166,28 @@ export function notesNameRoughOpeningsOnly(notes: string): boolean {
   );
 }
 
+/**
+ * "Frame the walls. No roofing in this bid." names the walls and nothing else.
+ * A stated wall area, linear feet, or an addition floor stays on those paths.
+ */
+export function notesNameUnmeasuredWallFraming(notes: string): boolean {
+  const text = notesWithoutDeniedSentences(notes);
+  if (!notesMentionAffirmativeWallFraming(text)) return false;
+  if (notesFrameExplicitWallArea(text)) return false;
+  if (notesNameCoveredFramedFloor(text)) return false;
+  if (notesNameFramingOnlyAddition(notes)) return false;
+  if (
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:ft|feet|foot)|feet|foot)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return !/\b(?:drywall|sheetrock|paint(?:ing)?|plumb(?:ing)?|electrical|hvac|insulation|sheathing|addition|concrete|cabinets?|tile|trim|baseboard|permits?|kitchen|bath(?:room)?|flooring|lvp|laminate|vinyl|carpet|hardwood|garage|living|demo|demolition|remove|removal)\b/i.test(
+    text
+  );
+}
+
 /** "Frame the walls" after denied sentences are removed. */
 export function notesMentionAffirmativeWallFraming(notes: string): boolean {
   return /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
@@ -293,6 +315,14 @@ export function notesNameFramingOnlyAddition(notes: string): boolean {
   return !/\b(?:foundation|footings?|stem\s+wall|slab|concrete|roof(?:ing)?|windows?|doors?|electrical|insulation|drywall|sheetrock|paint(?:ing)?|flooring|lvp|plumbing|hvac|cabinets?|tile|trim|inspection|cleanup|demolish|demolition|sheathing|siding|stucco|excavation|permits?)\b/i.test(
     text
   );
+}
+
+/** The framing-only addition bid is one Framing / shell card. That card is the wall framing. */
+export function framingShellCountsAsWallFraming(
+  notes: string | null | undefined,
+  ids: readonly string[]
+): boolean {
+  return notesNameFramingOnlyAddition(String(notes || '')) && ids.includes('framing');
 }
 
 /** LF/count lines that duplicate the covered-SF shell package on ground-up bids. */

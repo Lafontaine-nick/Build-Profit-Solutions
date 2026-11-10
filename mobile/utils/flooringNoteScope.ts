@@ -125,6 +125,34 @@ function flooringClauseIsNegated(clause: string): boolean {
   return /^(?:no|not|without|do not|don't|dont|never)\b/i.test(clause.trim());
 }
 
+/**
+ * LVP, carpet, laminate, hardwood, or the word flooring.
+ * A bathroom floor and a shower floor stay on those measurements.
+ */
+export function notesNameInstallableHouseFlooring(
+  notes: string | null | undefined
+): boolean {
+  if (notesLeaveFlooringToOthers(notes)) return false;
+  const text = String(notes || '')
+    .replace(/\b(?:bath(?:room)?|shower)\s+floor(?:ing)?(?:\s+tile)?\b/gi, ' ')
+    .replace(/\btile\s+(?:the\s+)?(?:bath(?:room)?|shower)\s+floor\b/gi, ' ');
+  return /\b(?:flooring|lvp|luxury\s+vinyl|vinyl\s+plank|laminate|carpet|hardwood|sheet\s+vinyl|floor\s+tile|tile\s+floor(?:ing)?)\b/i.test(
+    text
+  );
+}
+
+/** The note names a bathroom floor and does not also name house flooring. */
+export function bathroomFloorOwnsFloorMeasurement(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  const bathroomFloor =
+    /\b(?:bath(?:room)?\s+floor(?:ing)?|tile\s+(?:the\s+)?bath(?:room)?\s+floor)\b/i.test(
+      text
+    );
+  return bathroomFloor && !notesNameInstallableHouseFlooring(text);
+}
+
 /** "Flooring by others" names the floor and keeps it off this bid. */
 export function notesLeaveFlooringToOthers(
   notes: string | null | undefined

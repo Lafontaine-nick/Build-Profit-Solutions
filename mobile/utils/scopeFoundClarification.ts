@@ -26,6 +26,7 @@ import {
   notesNameDedicatedWallAreaFraming,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
+  notesNameUnmeasuredWallFraming,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { notesNameDedicatedHvacEquipmentJob } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import { notesDescribeDedicatedInsulationJob } from '@/utils/insulationNoteScope';
@@ -370,6 +371,7 @@ const PIECE_IDS = new Set<string>([
   'doors',
   'paint_cabinets',
   'bathrooms',
+  'framing_sheathing',
 ]);
 
 const FLOOR_TYPE_BY_PIECE: Record<string, string> = {
@@ -1356,7 +1358,18 @@ export function toggleGarageSuggestionPiece(
   return next;
 }
 
+export const FRAMING_SHEATHING_PIECE = 'framing_sheathing';
+
+/** Framing notes can add sheathing from a button. The note did not name it. */
+export function notesOfferFramingSheathingChip(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return notesNameFramingOnlyAddition(text) || notesNameUnmeasuredWallFraming(text);
+}
+
 const TYPED_SCOPE_MEASURE: Record<string, { key: string; unit: 'sqft' | 'lf' }> = {
+  framing_sheathing: { key: 'sheathingSqft', unit: 'sqft' },
   remodel_demo: { key: 'floorDemoSqft', unit: 'sqft' },
   remodel_paint: { key: 'wallPaintSqft', unit: 'sqft' },
   remodel_framing: { key: 'wallFramingSqft', unit: 'sqft' },
@@ -1389,6 +1402,18 @@ export function typedRemainderQuantity(
   return `${value.toLocaleString('en-US')} ${spec.unit}`;
 }
 
+function measurementsNameBaseboard(
+  measurements?: {
+    typedTrimLabel?: unknown;
+    typedScopeAddendum?: unknown;
+  } | null
+): boolean {
+  if (String(measurements?.typedTrimLabel || '') === 'Baseboard') return true;
+  return /\bbaseboards?\b|\bbase\s*board\b/i.test(
+    String(measurements?.typedScopeAddendum || '')
+  );
+}
+
 /** Maps a typed addition onto catalog pieces. A stated count or area is kept. */
 export function garageScopeTextAdditions(text: string, notes?: string | null): {
   pieceIds: string[];
@@ -1401,17 +1426,31 @@ export function garageScopeTextAdditions(text: string, notes?: string | null): {
     .split(/[.;\n]+|\s+\band\b\s+/i)
     .map(part => part.trim())
     .filter(Boolean);
-  const phases =
+  const packagePhases =
     remodelRemainderPackage(noteText(notes))?.phases ?? CONVERSION_PHASES;
+  const phases = [...packagePhases];
+  for (const phase of Object.values(REMODEL_PHASES)) {
+    if (!TYPED_SCOPE_MEASURE[phase.id]) continue;
+    if (phases.some(item => item.id === phase.id)) continue;
+    phases.push(phase);
+  }
   const pieceIds: string[] = [];
   const counts: Record<string, string> = {};
+  if (notesOfferFramingSheathingChip(notes)) {
+    for (const clause of clauses) {
+      if (!/\b(?:structural\s+)?sheathing\b/i.test(clause)) continue;
+      pieceIds.push(FRAMING_SHEATHING_PIECE);
+      const quantity = typedScopeMeasure(clause, 'sqft');
+      if (quantity) counts.sheathingSqft = quantity;
+    }
+  }
   for (const phase of phases) {
     const clause = clauses.find(part => phase.named.test(part));
     if (!clause) continue;
     pieceIds.push(phase.id);
     const measure = TYPED_SCOPE_MEASURE[phase.id];
     if (measure) {
-      const quantity = typedScopeMeasure(clause, measure.unit);
+      const quantity = typedScopeMeasure(clause, measure.unit) || typedScopeMeasure(sentence, measure.unit);
       if (quantity) counts[measure.key] = quantity;
     }
     if (phase.id === 'remodel_plumbing') pieceIds.push(extentUnsureId(phase.id));
@@ -1423,6 +1462,17 @@ export function garageScopeTextAdditions(text: string, notes?: string | null): {
       } else {
         pieceIds.push(extentUnsureId(phase.id));
       }
+    }
+  }
+  if (pieceIds.includes('remodel_trim') && /\bbaseboards?\b/i.test(sentence)) {
+    const wantsDemo = /\b(?:demo|demolition|remove|removal|tear[\s-]?out|pull)\b/i.test(sentence);
+    const wantsInstall = /\b(?:install|replace|new)\b/i.test(sentence) || !wantsDemo;
+    counts.typedTrimLabel = 'Baseboard';
+    counts.typedBaseboardInstall = wantsInstall ? '1' : '0';
+    counts.typedScopeAddendum = sentence;
+    if (wantsDemo) {
+      const length = counts.baseboardLf || typedScopeMeasure(sentence, 'lf');
+      if (length) counts.baseboardDemoLf = length;
     }
   }
   return { pieceIds, counts, matched: pieceIds.length > 0 };
@@ -2278,7 +2328,12 @@ export function declineRemodelExtent(
 
 /** Blank measurement boxes for the chips the contractor tapped. */
 export function remodelRemainderMeasurementFields(
-  pieces: readonly string[] | null | undefined
+  pieces: readonly string[] | null | undefined,
+  measurements?: {
+    typedTrimLabel?: unknown;
+    typedBaseboardInstall?: unknown;
+    baseboardDemoLf?: unknown;
+  } | null
 ): RemodelRemainderMeasurement[] {
   const selected = new Set(pruneRemodelExtentPieces(pieces || []));
   const phases = Object.values(REMODEL_PHASES).filter(phase => selected.has(phase.id));
@@ -2329,6 +2384,29 @@ export function remodelRemainderMeasurementFields(
           });
         }
       }
+    }
+  }
+  const namedBaseboard = measurementsNameBaseboard(measurements);
+  if (namedBaseboard) {
+    if (String(measurements?.typedBaseboardInstall || '') === '0') {
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        if (rows[index]?.key === 'baseboardLf') rows.splice(index, 1);
+      }
+    } else {
+      for (const row of rows) {
+        if (row.key === 'baseboardLf') row.label = 'Baseboard';
+      }
+    }
+    const demoLf = Number(String(measurements?.baseboardDemoLf ?? '').replace(/,/g, ''));
+    if (demoLf > 0 && !rows.some(row => row.key === 'baseboardDemoLf')) {
+      const demoRow: RemodelRemainderMeasurement = {
+        pieceId: 'remodel_trim',
+        key: 'baseboardDemoLf',
+        label: 'Baseboard demo',
+      };
+      const installAt = rows.findIndex(row => row.key === 'baseboardLf');
+      if (installAt >= 0) rows.splice(installAt, 0, demoRow);
+      else rows.push(demoRow);
     }
   }
   // Bathroom fixtures price on their own cards. Plumbing counts the rest.
@@ -2957,6 +3035,7 @@ const PIECE_REVEAL: Record<string, string> = {
   remodel_flooring: 'Flooring',
   remodel_hvac: 'HVAC',
   remodel_drywall: 'Drywall',
+  framing_sheathing: 'Sheathing',
   remodel_doors: 'Doors',
   remodel_kitchen: 'Kitchen',
   remodel_roofing: 'Roofing',
@@ -3002,6 +3081,16 @@ function linesForPieces(
 ): ClarificationLine[] {
   const selected = new Set(pieces);
   const lines: ClarificationLine[] = [];
+  if (selected.has(FRAMING_SHEATHING_PIECE)) {
+    lines.push(
+      line(
+        'shear_sheathing',
+        'Sheathing',
+        'Structural wall sheathing. Enter the sheathing area.',
+        'structure'
+      )
+    );
+  }
   const floor = ['flooring', 'carpet', 'tile', 'hardwood', 'vinyl', 'laminate', 'kitchen_floor'].some(
     piece => selected.has(piece)
   );
@@ -3258,10 +3347,17 @@ export function scopeFoundRevealLines(
         !GARAGE_HANG_PIECES.has(piece) &&
         piece !== GARAGE_NO_ADDITIONAL
     );
-    return visiblePieces.map(piece => ({
-      name: PIECE_REVEAL[piece] || TRADE_PIECE_BY_ID.get(piece)?.reveal || piece,
+    const namedBaseboard = measurementsNameBaseboard(
+      measurements as { typedTrimLabel?: unknown; typedScopeAddendum?: unknown } | null
+    );
+    const lines = visiblePieces.map(piece => ({
+      name:
+        piece === 'remodel_trim' && namedBaseboard
+          ? 'Baseboard'
+          : PIECE_REVEAL[piece] || TRADE_PIECE_BY_ID.get(piece)?.reveal || piece,
       amount: 0,
-      quantity: piece.startsWith('remodel_')
+      quantity:
+        piece.startsWith('remodel_') || piece === FRAMING_SHEATHING_PIECE
         ? remodelExtentSummary(pieces, piece) ||
           typedRemainderQuantity(piece, measurements)
         :
@@ -3335,6 +3431,22 @@ export function scopeFoundRevealLines(
                     ? quantityLabel(area, 'sqft')
                     : '1'),
     }));
+    const demoLf = Number(
+      String(
+        (measurements as { baseboardDemoLf?: unknown } | null)?.baseboardDemoLf ?? ''
+      ).replace(/,/g, '')
+    );
+    if (namedBaseboard && demoLf > 0) {
+      const installAt = lines.findIndex(line => line.name === 'Baseboard');
+      const demoLine = {
+        name: 'Baseboard demo',
+        amount: 0,
+        quantity: `${demoLf.toLocaleString('en-US')} lf`,
+      };
+      if (installAt >= 0) lines.splice(installAt, 0, demoLine);
+      else lines.push(demoLine);
+    }
+    return lines;
   }
   const lines = prompt
     ? wantedLines(text, prompt.id, choice)
@@ -3905,6 +4017,112 @@ export function applyScopeFoundClarification<T extends { id?: string | null }>(
     id === 'remodel_remainder' ? [...impliedDemo, ...wanted] : wanted,
     owned
   );
+}
+
+/** Baseboard typed on Scope Found stays on Confirm Scope after the note filter. */
+export function withTypedTrimChoice<T extends { id?: string | null; state?: string | null }>(
+  items: T[],
+  measurements?: {
+    scopeFoundPieces?: unknown;
+    typedTrimLabel?: unknown;
+    typedBaseboardInstall?: unknown;
+    baseboardDemoLf?: unknown;
+  } | null
+): T[] {
+  if (!readScopeFoundPieces(measurements?.scopeFoundPieces).includes('remodel_trim')) {
+    return items;
+  }
+  const namedBaseboard = measurementsNameBaseboard(measurements);
+  const trimIds = new Set(['trim', 'baseboard_install', 'interior_trim']);
+  if (!namedBaseboard) {
+    if (items.some(item => trimIds.has(String(item.id || '')) && item.state !== 'excluded')) {
+      return items.map(item =>
+        trimIds.has(String(item.id || ''))
+          ? ({ ...item, state: 'included', noteBacked: true } as T)
+          : item
+      );
+    }
+    return [
+      ...items.filter(item => !trimIds.has(String(item.id || ''))),
+      {
+        id: 'trim',
+        inputType: 'yes_no',
+        label: 'Trim',
+        helperText: 'Baseboard and other interior trim. Enter the length.',
+        category: 'trades',
+        state: 'included',
+        noteBacked: true,
+      } as T,
+    ];
+  }
+  const installId = 'baseboard_install';
+  const installOff = String(measurements?.typedBaseboardInstall || '') === '0';
+  const demoLf = Number(String(measurements?.baseboardDemoLf ?? '').replace(/,/g, ''));
+  const drop = new Set(['trim', 'baseboard_install', 'interior_trim', 'baseboard_demo']);
+  const kept = items.filter(item => {
+    const id = String(item.id || '');
+    if (!drop.has(id)) return true;
+    return item.state === 'excluded';
+  });
+  const excluded = (id: string) =>
+    items.some(item => String(item.id || '') === id && item.state === 'excluded');
+  const next = [...kept];
+  if (namedBaseboard && demoLf > 0 && !excluded('baseboard_demo')) {
+    next.push({
+      id: 'baseboard_demo',
+      inputType: 'yes_no',
+      label: 'Baseboard demo',
+      helperText: 'Existing baseboard coming out.',
+      category: 'trades',
+      state: 'included',
+      noteBacked: true,
+    } as T);
+  }
+  if (!installOff && !excluded(installId)) {
+    next.push({
+      id: installId,
+      inputType: 'yes_no',
+      label: namedBaseboard ? 'Baseboard' : 'Trim',
+      helperText: namedBaseboard
+        ? 'New baseboard. Priced per linear foot.'
+        : 'Baseboard and other interior trim. Enter the length.',
+      category: 'trades',
+      state: 'included',
+      noteBacked: true,
+    } as T);
+  }
+  return next;
+}
+
+/** Sheathing chosen on a framing note stays on the bid after the shell-only filter. */
+export function withFramingSheathingChoice<T extends { id?: string | null }>(
+  items: T[],
+  measurements?: { scopeFoundPieces?: unknown } | null
+): T[] {
+  if (!readScopeFoundPieces(measurements?.scopeFoundPieces).includes(FRAMING_SHEATHING_PIECE)) {
+    return items;
+  }
+  if (
+    items.some(
+      item =>
+        item.id === 'shear_sheathing' &&
+        (item as { state?: string }).state !== 'excluded'
+    )
+  ) {
+    return items;
+  }
+  return [
+    ...items.filter(item => item.id !== 'shear_sheathing'),
+    {
+      id: 'shear_sheathing',
+      inputType: 'yes_no',
+      label: 'Sheathing',
+      helperText: 'Structural wall sheathing. Enter the sheathing area.',
+      category: 'structure',
+      state: 'included',
+      noteBacked: true,
+    } as T,
+  ];
 }
 
 function appendLines<T extends { id?: string | null }>(

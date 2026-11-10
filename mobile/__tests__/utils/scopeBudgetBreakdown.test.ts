@@ -7,6 +7,7 @@ import {
 } from '@/utils/scopeBudgetBreakdown';
 import {
   computeNationalAverageBudgetSplit,
+  resolveScopeItemSuggestedPricing,
   resolveSuggestedBudgetSplitDisplay,
 } from '@/utils/scopeItemQuantities';
 
@@ -491,5 +492,20 @@ describe('applyDraftToEstimate budget splits', () => {
     expect(laborLines.find((l) => /Appliance/i.test(String(l.name)))?.total).toBe(300);
     expect(allowanceLines.find((l) => /Permit/i.test(String(l.name)))?.amount).toBe(500);
     expect(allowanceLines.some((l) => /Appliance/i.test(String(l.name)))).toBe(false);
+  });
+});
+
+describe('baseboard demo national rate', () => {
+  it('prices 50 LF of baseboard removal', () => {
+    const priced = resolveScopeItemSuggestedPricing(
+      'baseboard_demo',
+      { baseboardDemoLf: '50' },
+      'bathroom',
+      { quantity: 50, unit: 'lf', quantitySource: 'notes' }
+    );
+    expect(priced.fill?.material).toBe(25);
+    expect(priced.fill?.labor).toBe(75);
+    expect(priced.fill?.total).toBe(100);
+    expect(priced.fill?.displayUnitRateLabel).toBe('50 LF × $2/LF');
   });
 });

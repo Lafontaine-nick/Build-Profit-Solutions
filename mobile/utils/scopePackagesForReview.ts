@@ -93,6 +93,8 @@ import {
   applyScopeFoundClarification,
   readScopeFoundPieces,
   splitRoofTearOffCards,
+  withFramingSheathingChoice,
+  withTypedTrimChoice,
 } from '@/utils/scopeFoundClarification';
 import {
   filterDedicatedKitchenConfirmItems,
@@ -718,12 +720,15 @@ export function applyStep2NoteScopeFilters(
   const kitchenBathItems = measuredKitchenBathConfirmItems(notes);
   if (kitchenBathItems && !wholeHomeRemodelMentioned) {
     const removedIds = measurements.contractorRemovedScopeItemIds;
-    return applyScopeFoundClarification(
-      applyContractorRemovedScopeItems(
-        kitchenBathItems,
-        Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+    return withTypedTrimChoice(
+      applyScopeFoundClarification(
+        applyContractorRemovedScopeItems(
+          kitchenBathItems,
+          Array.isArray(removedIds) ? removedIds.map(id => String(id)) : undefined
+        ),
+        notes,
+        measurements
       ),
-      notes,
       measurements
     );
   }
@@ -1019,7 +1024,9 @@ export function applyStep2NoteScopeFilters(
     scopeNotes: notes,
     originalNotes: notes,
   });
-  return orderDedicatedDrywallCards(
+  return withTypedTrimChoice(withFramingSheathingChoice(
+    filterFramingOnlyAdditionScopeItems(
+    orderDedicatedDrywallCards(
     dropGenericDrywallDemoBesideSurfaceCards(
     applyScopeFoundClarification(
     filterDedicatedFlooringConfirmItems(
@@ -1048,6 +1055,12 @@ export function applyStep2NoteScopeFilters(
     measurements
   )
   )
+  ),
+    notes
+    ),
+    measurements
+  ),
+    measurements
   );
 }
 

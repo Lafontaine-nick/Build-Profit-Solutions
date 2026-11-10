@@ -100,6 +100,72 @@ describe('canonical scope contract', () => {
     expect(canonicalScopeBlocksItemId(scope, 'flooring_lvp')).toBe(false);
   });
 
+  it('drops interior painting on a bathroom note that never names paint', () => {
+    const notes =
+      'Bathroom remodel, demo bathroom floor and shower floor tile and shower walls. Install new shower walls with waterproofing and shower wall tile. Install new shower pan and tile. Install new bathroom floor. Install new vanity and countertop.';
+    const saved = buildCanonicalScope({
+      notes,
+      checklistItems: [
+        { id: 'interior_paint', state: 'included' },
+        { id: 'vanity', state: 'included' },
+      ],
+    });
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'interior_paint', state: 'included', label: 'Interior painting' },
+        { id: 'vanity', state: 'included', label: 'Vanity' },
+        { id: 'shower_tile', state: 'included', label: 'Shower wall tile' },
+      ],
+      notes,
+      saved
+    );
+    expect(items.map(item => item.id)).not.toContain('interior_paint');
+    expect(items.map(item => item.id)).toContain('vanity');
+    expect(items.map(item => item.id)).toContain('shower_tile');
+  });
+
+  it('keeps bathroom tile cards and puts baseboard demo with demo', () => {
+    const notes =
+      'Bathroom remodel, demo bathroom floor and shower floor tile and shower walls. Install new shower walls with waterproofing and shower wall tile. Install new shower pan and tile. Install new bathroom floor. Install new vanity and countertop.';
+    const saved = buildCanonicalScope({
+      notes,
+      checklistItems: [
+        { id: 'tile', state: 'included' },
+        { id: 'tile_flooring', state: 'included' },
+        { id: 'shower_tile', state: 'included' },
+        { id: 'floor_tile', state: 'included' },
+        { id: 'baseboard_demo', state: 'included' },
+        { id: 'baseboard_install', state: 'included' },
+      ],
+    });
+    const items = applyCanonicalScopeToChecklistItems(
+      [
+        { id: 'tile', state: 'included', label: 'Tile' },
+        { id: 'tile_flooring', state: 'included', label: 'Tile' },
+        { id: 'shower_tile', state: 'included', label: 'Shower wall tile' },
+        { id: 'floor_tile', state: 'included', label: 'Bathroom floor' },
+        { id: 'baseboard_demo', state: 'included', label: 'Baseboard demo' },
+        { id: 'baseboard_install', state: 'included', label: 'Baseboard' },
+      ],
+      notes,
+      saved
+    );
+    const ids = items.map(item => item.id);
+    expect(ids).not.toContain('tile');
+    expect(ids).not.toContain('tile_flooring');
+    expect(ids).toContain('shower_tile');
+    expect(ids).toContain('floor_tile');
+    const groups = groupScopeChecklistItems(items, 'bathroom', { notes });
+    const demo = groups.find(group => group.title === 'Demo');
+    const other = groups.find(group => group.title === 'Other');
+    expect(demo?.items.map(item => item.id)).toContain('baseboard_demo');
+    expect(other?.items.map(item => item.id)).toContain('baseboard_install');
+    expect(other?.items.map(item => item.id) || []).not.toContain('baseboard_demo');
+    expect(groups.flatMap(group => group.items).map(item => item.id)).not.toContain(
+      'tile'
+    );
+  });
+
   it('drops unnamed template cards on a dedicated paint note', () => {
     const items = applyCanonicalScopeToChecklistItems(
       [

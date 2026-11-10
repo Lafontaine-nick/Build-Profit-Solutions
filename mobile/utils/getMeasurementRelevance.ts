@@ -138,6 +138,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
       'paint_trim',
       'trim_paint',
     ],
+    baseboardDemoLf: ['baseboard_demo'],
     interiorDoorCount: [
       'interior_doors',
       'interior_door_install',

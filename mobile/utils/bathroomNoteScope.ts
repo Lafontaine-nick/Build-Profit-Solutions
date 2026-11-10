@@ -373,6 +373,45 @@ export function bathroomNoteTakeoff(
   };
 }
 
+function notesDenyShowerWallWaterproofing(
+  notes: string | null | undefined
+): boolean {
+  const raw = String(notes || '');
+  return (
+    /\bno\s+(?:new\s+)?waterproof(?:ing)?\b/i.test(raw) ||
+    /\b(?:do not|don't|dont)\b[^.]{0,40}\bwaterproof/i.test(raw) ||
+    /\bwithout\b[^.]{0,30}\bwaterproof/i.test(raw)
+  );
+}
+
+/** Wall tile coming out and new wall tile going in. A denial stays off. */
+export function notesAutoIncludeShowerWallWaterproofing(
+  notes: string | null | undefined
+): boolean {
+  if (notesDenyShowerWallWaterproofing(notes)) return false;
+  const text = bathroomAffirmativeNotes(notes);
+  const demo =
+    notesNameShowerTileTearOut(text) ||
+    notesReplaceShowerTile(text) ||
+    notesNameShowerRetile(text);
+  const install =
+    notesReplaceShowerTile(text) ||
+    notesNameShowerRetile(text) ||
+    text.split(/[.!\n]/).some(sentence => {
+      if (!SHOWER_WALL_TILE.test(sentence)) return false;
+      if (
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+          sentence
+        ) &&
+        !/\b(?:install|new|replace)\b/i.test(sentence)
+      ) {
+        return false;
+      }
+      return /\b(?:install|new|replace)\b/i.test(sentence);
+    });
+  return demo && install;
+}
+
 export function bathroomChecklistItemNamedInNotes(
   itemId: string,
   notes: string | null | undefined
@@ -436,8 +475,11 @@ export function bathroomChecklistItemNamedInNotes(
         /\bwet\s+area\b/i.test(text)
       );
     case 'waterproofing':
-      return /\b(?:waterproof(?:ing)?|redgard|backer\s+board|cement\s+board)\b/i.test(
-        text
+      if (notesDenyShowerWallWaterproofing(notes)) return false;
+      return (
+        /\b(?:waterproof(?:ing)?|redgard|backer\s+board|cement\s+board)\b/i.test(
+          text
+        ) || notesAutoIncludeShowerWallWaterproofing(notes)
       );
     case 'shower_pan':
       // A new tile shower floor is a mud pan. A prefab pan is a different card.
@@ -1878,4 +1920,32 @@ export function alignDedicatedBathroomScopeRows<
     presentLabels.add(line.label.toLowerCase());
   }
   return aligned;
+}
+
+const GENERIC_BATHROOM_TILE_IDS = new Set(['tile', 'tile_flooring']);
+
+/** Shower and bathroom-floor tile already have their own cards. */
+export function notesNameBathroomSpecificTile(
+  notes?: string | null
+): boolean {
+  const text = String(notes || '');
+  if (!/\b(?:bath(?:room)?|shower)\b/i.test(text)) return false;
+  return /\b(?:shower\s+(?:wall\s+|floor\s+)?tile|wall\s+tile|tile\s+shower|floor\s+tile|tile\s+floor|bath(?:room)?\s+floor)\b/i.test(
+    text
+  );
+}
+
+export function dropGenericTileBesideBathroomTile<T extends { id?: string }>(
+  items: T[],
+  notes?: string | null
+): T[] {
+  const specificInList = items.some(item =>
+    ['floor_tile', 'shower_tile', 'shower_floor_tile'].includes(
+      String(item.id || '')
+    )
+  );
+  if (!specificInList && !notesNameBathroomSpecificTile(notes)) return items;
+  return items.filter(
+    item => !GENERIC_BATHROOM_TILE_IDS.has(String(item.id || ''))
+  );
 }

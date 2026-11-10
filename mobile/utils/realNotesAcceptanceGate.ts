@@ -17,6 +17,7 @@ import {
 } from '@/utils/estimateReliabilityContract';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { confirmScopeDisplayItemsFromDraft } from '@/utils/scopePackagesForReview';
+import { framingShellCountsAsWallFraming } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 import {
   resolveChecklistItemQuantity,
@@ -208,8 +209,11 @@ export function evaluateRealNotesCase(
   ).map(item => String(item.id || ''));
 
   for (const id of fixture.includedIds) {
+    const pathIds = [...visibleIds, ...fromCanonical];
     const onScreen =
-      visibleIds.includes(id) || fromCanonical.includes(id);
+      pathIds.includes(id) ||
+      (id === 'wall_framing' &&
+        framingShellCountsAsWallFraming(fixture.notes, pathIds));
     if (!onScreen || canonicalItemIsExcluded(repaired.canonicalScope, id)) {
       failures.push({
         caseId: fixture.id,

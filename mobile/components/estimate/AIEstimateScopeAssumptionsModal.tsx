@@ -159,6 +159,7 @@ import {
   notesNameCoveredFramedFloor,
   notesNameFramingOnlyAddition,
   notesNameLinearFootStudWall,
+  notesNameUnmeasuredWallFraming,
   notesNameWallAreaFramingWithFlooring,
   notesWithoutDeniedSentences,
   parseFramingMeasurementsFromNotes,
@@ -354,9 +355,11 @@ import {
   remodelRemainderMeasurementFields,
 } from '@/utils/scopeFoundClarification';
 import {
+  bathroomFloorOwnsFloorMeasurement,
   filterDedicatedFlooringConfirmItems,
   notesDescribeDedicatedFlooringJob,
   notesLeaveFlooringToOthers,
+  notesNameInstallableHouseFlooring,
   notesRequestFlooringDemo,
   retainedFlooringConfirmItemIds,
 } from '@/utils/flooringNoteScope';
@@ -967,7 +970,7 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   wet_area_install: 'tub or pan count',
   shower_tile: 'shower wall sqft',
   shower_floor_tile: 'shower floor sqft',
-  waterproofing: 'shower wall sqft',
+  waterproofing: 'waterproofing sqft',
   shower_pan: 'shower floor sqft (mud pan area)',
   shower_niche: 'niche count',
   shower_bench: 'bench count or LF',
@@ -15831,19 +15834,17 @@ function CollapsibleQuickMeasurements({
       !mixedScopeMode &&
       isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
   const compactMixedScope = mixedScopeMode && !singleTradeImport;
-  const flooringIsNamedInNotes =
-    /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
-      String(notes || '')
-    ) && !notesLeaveFlooringToOthers(notes);
+  const flooringIsNamedInNotes = notesNameInstallableHouseFlooring(notes);
   const mixedScopeFlooringSelected =
-    includedScopeKeys.includes('flooring') ||
+    !bathroomFloorOwnsFloorMeasurement(notes) &&
+    (includedScopeKeys.includes('flooring') ||
       includedScopeKeys.includes('floor_demo') ||
       includedScopeKeys.includes('existing_floor_removal') ||
       includedScopeKeys.includes('floor_tile') ||
       readScopeFoundPieces(measurements.scopeFoundPieces).some(piece =>
         ['flooring', 'floor_demo', 'floor_tile'].includes(piece)
       ) ||
-      flooringIsNamedInNotes;
+      flooringIsNamedInNotes);
   const planBackedMeasurements = Boolean(
     String(measurements.planImportMode || '').trim() ||
     measurements.planImportFingerprint
@@ -16487,7 +16488,8 @@ function CollapsibleQuickMeasurements({
       }
     }
     for (const extra of remodelRemainderMeasurementFields(
-      readScopeFoundPieces(measurements.scopeFoundPieces)
+      readScopeFoundPieces(measurements.scopeFoundPieces),
+      measurements
     )) {
       const remainderUnit =
         extra.key === 'plumbingRoughPointCount' ? 'points' : undefined;
@@ -16723,6 +16725,12 @@ function CollapsibleQuickMeasurements({
         }
       } else if (notesNameFramingOnlyAddition(notesTextForScopeFields)) {
         ensureScopeField('framedAreaSqft');
+      } else if (notesNameUnmeasuredWallFraming(notesTextForScopeFields)) {
+        ensureScopeField('wallFramingSqft', {
+          label: 'Wall framing',
+          helperText: 'Square feet of walls to frame.',
+          placeholder: 'Enter',
+        });
       } else if (String(effectiveTemplateKey || '').toLowerCase() !== 'ground_up') {
         ensureScopeField('framedAreaSqft', {
           label: 'Wall framing area',
@@ -16824,6 +16832,11 @@ function CollapsibleQuickMeasurements({
               field.key !== 'framedAreaSqft' && field.key !== 'wallFramingLf'
           )
         )
+        .filter(row => row.length > 0);
+    }
+    if (notesNameUnmeasuredWallFraming(notesTextForScopeFields)) {
+      baseRows = baseRows
+        .map(row => row.filter(field => field.key === 'wallFramingSqft'))
         .filter(row => row.length > 0);
     }
     if (notesNameFramingOnlyAddition(notesTextForScopeFields)) {
@@ -16938,6 +16951,27 @@ function CollapsibleQuickMeasurements({
           ? [[openings]]
           : []),
       ];
+    }
+    if (
+      readScopeFoundPieces(measurements.scopeFoundPieces).includes(
+        'framing_sheathing'
+      ) &&
+      !baseRows.some(row => row.some(field => field.key === 'sheathingSqft'))
+    ) {
+      const sheathing = quickMeasurementFieldDef('sheathingSqft');
+      if (sheathing) {
+        baseRows = [
+          ...baseRows,
+          [
+            {
+              ...sheathing,
+              label: 'Sheathing',
+              placeholder: 'Enter',
+              helperText: 'Square feet of sheathing. The note did not state it.',
+            },
+          ],
+        ];
+      }
     }
     // A dedicated bathroom note already owns shower-wall, pan, and bath-floor
     // quantities on the wet-area cards. Package scope keys must not add the
@@ -17274,7 +17308,8 @@ function CollapsibleQuickMeasurements({
         notesRequireInteriorPaintMeasurements(notes);
       const selectedRemainderKeys = new Set(
         remodelRemainderMeasurementFields(
-          readScopeFoundPieces(measurements.scopeFoundPieces)
+          readScopeFoundPieces(measurements.scopeFoundPieces),
+          measurements
         ).map(row => row.key)
       );
       return baseRows
@@ -17363,8 +17398,9 @@ function CollapsibleQuickMeasurements({
               field.key === 'ceilingPaintSqft' ||
               field.key === 'paintAreaSqft';
             const wallAreaOnly =
-              notesFrameExplicitWallArea(noteText) &&
-              !notesNameCoveredFramedFloor(noteText);
+              notesNameUnmeasuredWallFraming(noteText) ||
+              (notesFrameExplicitWallArea(noteText) &&
+                !notesNameCoveredFramedFloor(noteText));
             const framingField = [
               wallAreaOnly ? 'wallFramingSqft' : 'framedAreaSqft',
               wallAreaOnly ? 'wallFramingSqft' : 'wallFramingLf',
@@ -17642,7 +17678,8 @@ function CollapsibleQuickMeasurements({
         String(notes || '')
       ) && !notesRequireInteriorPaintMeasurements(notes);
     const remainderRows = remodelRemainderMeasurementFields(
-      readScopeFoundPieces(measurements.scopeFoundPieces)
+      readScopeFoundPieces(measurements.scopeFoundPieces),
+      measurements
     );
     const remainderOrder = remainderRows.map(row => row.key);
     const selectedRemainderKeys = new Set(remainderOrder);
@@ -17954,7 +17991,8 @@ function CollapsibleQuickMeasurements({
     () => {
       const optionalRemainderKeys = new Set(
         remodelRemainderMeasurementFields(
-          readScopeFoundPieces(measurements.scopeFoundPieces)
+          readScopeFoundPieces(measurements.scopeFoundPieces),
+          measurements
         )
           .filter(row => row.optional)
           .map(row => row.key)
@@ -18666,7 +18704,8 @@ function CollapsibleQuickMeasurements({
     // Scope Found extras keep the chip order: single boxes first, then each
     // trade's boxes under its header.
     const remainderOrder = remodelRemainderMeasurementFields(
-      readScopeFoundPieces(measurements.scopeFoundPieces)
+      readScopeFoundPieces(measurements.scopeFoundPieces),
+      measurements
     ).map(row => row.key);
     if (remainderOrder.length) {
       const remainderKeys = new Set(remainderOrder);
@@ -18691,7 +18730,8 @@ function CollapsibleQuickMeasurements({
     // must not sit under Needs confirmation or jump when a count is typed.
     const optionalRemainderKeys = new Set(
       remodelRemainderMeasurementFields(
-        readScopeFoundPieces(measurements.scopeFoundPieces)
+        readScopeFoundPieces(measurements.scopeFoundPieces),
+        measurements
       )
         .filter(row => row.optional)
         .map(row => row.key)
@@ -19966,7 +20006,8 @@ function CollapsibleQuickMeasurements({
       | 'showerWallTileSqft'
       | 'showerFloorTileSqft'
       | 'bathroomFloorSqft'
-      | 'wallDemoSqft',
+      | 'wallDemoSqft'
+      | 'waterproofingSqft',
     options?: {
       syncExistingWall?: boolean;
       syncExistingFloor?: boolean;
@@ -19976,7 +20017,36 @@ function CollapsibleQuickMeasurements({
   ) => {
     const value = String(measurements[field] ?? '');
     const applySqftChange = (cleaned: string) => {
-      if (field === 'wallDemoSqft') {
+      if (field === 'waterproofingSqft') {
+      setMeasurements(prev => {
+        const itemQuantities = { ...(prev.itemQuantities || {}) };
+        const qty = Number(String(cleaned).replace(/,/g, ''));
+        if (Number.isFinite(qty) && qty > 0) {
+          itemQuantities.waterproofing = {
+            quantity: qty,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          };
+        } else {
+          delete itemQuantities.waterproofing;
+        }
+        return {
+          ...prev,
+          waterproofingSqft: cleaned,
+          itemQuantities,
+          quickMeasurementUserOverrides: {
+            ...(prev.quickMeasurementUserOverrides || {}),
+            waterproofingSqft: true,
+          },
+          quickMeasurementSources: {
+            ...(prev.quickMeasurementSources || {}),
+            waterproofingSqft: 'user_entered',
+          },
+        };
+      });
+      return;
+    }
+    if (field === 'wallDemoSqft') {
         setMeasurements(prev => {
           const itemQuantities = { ...(prev.itemQuantities || {}) };
           const qty = Number(String(cleaned).replace(/,/g, ''));
@@ -20425,6 +20495,34 @@ function CollapsibleQuickMeasurements({
       answeredRemoval('shower_door') ||
       !bathroomNotesCardFilter ||
       notesMentionDemoShowerDoor(bathroomNoteText);
+    const showRemoveVanity = answeredRemoval('vanity');
+    const showRemoveToilet = answeredRemoval('toilet');
+    const vanityDemoCount =
+      Number(measurements.bathroomDemoVanityCount) > 0
+        ? Number(measurements.bathroomDemoVanityCount)
+        : 1;
+    const toiletDemoCount =
+      Number(measurements.bathroomDemoToiletCount) > 0
+        ? Number(measurements.bathroomDemoToiletCount)
+        : 1;
+    const adjustAnsweredRemovalCount = (
+      piece: 'vanity' | 'toilet',
+      key: 'bathroomDemoVanityCount' | 'bathroomDemoToiletCount',
+      current: number,
+      delta: number
+    ) => {
+      const nextCount =
+        current + delta < 1
+          ? null
+          : Math.min(wetAreaStepperMax, current + delta);
+      setMeasurementsSynced(prev => ({
+        ...prev,
+        [key]: nextCount,
+        showerRemovalPieces: readShowerRemovalPieces(
+          prev.showerRemovalPieces
+        ).filter(item => nextCount != null || item !== piece),
+      }));
+    };
     const showDemoBathFloor = takeoff.bathFloorDemo;
     const onlyBathFloorDemo =
       showDemoBathFloor &&
@@ -20443,6 +20541,8 @@ function CollapsibleQuickMeasurements({
       !showRemovePrefabPan &&
       !showRemovePrefabEnclosure &&
       !showRemoveShowerDoor &&
+      !showRemoveVanity &&
+      !showRemoveToilet &&
       !showDemoBathFloor &&
       !showAnsweredPanRemoval
     ) {
@@ -20542,6 +20642,26 @@ function CollapsibleQuickMeasurements({
               d => adjustDemoCount('demoShowerDoorCount', d)
             )
           : null}
+        {showRemoveVanity
+          ? renderBathCountStepper('Remove vanity', vanityDemoCount, d =>
+              adjustAnsweredRemovalCount(
+                'vanity',
+                'bathroomDemoVanityCount',
+                vanityDemoCount,
+                d
+              )
+            )
+          : null}
+        {showRemoveToilet
+          ? renderBathCountStepper('Remove toilet', toiletDemoCount, d =>
+              adjustAnsweredRemovalCount(
+                'toilet',
+                'bathroomDemoToiletCount',
+                toiletDemoCount,
+                d
+              )
+            )
+          : null}
         {showDemoBathFloor
           ? renderDemoSqftField(
               'Demo bath floor tile',
@@ -20576,6 +20696,11 @@ function CollapsibleQuickMeasurements({
     const openBathroomTileTakeoff =
       notesNameBathroomRemodelPanel(notes) &&
       !/\b(?:shower|tub|bathtub|tile)\b/i.test(bathroomNoteText);
+    const showerWallTileHelper = 'New wall tile area — priced per sqft.';
+    const showWaterproofingSqft = bathroomChecklistItemNamedInNotes(
+      'waterproofing',
+      notes
+    );
     const showShowerWallTile =
       openBathroomTileTakeoff ||
       takeoff.showerWallSqft ||
@@ -20658,6 +20783,7 @@ function CollapsibleQuickMeasurements({
       showTubInstall ||
       showBathroomWallPaint ||
       showShowerWallTile ||
+      showWaterproofingSqft ||
       showShowerFloorTile ||
       showBathFloorHeading ||
       showBathFloorTile ||
@@ -20781,8 +20907,19 @@ function CollapsibleQuickMeasurements({
             {showShowerWallTile
               ? renderDemoSqftField(
                   'Shower wall tile',
-                  'New wall tile area — priced per sqft.',
+                  showerWallTileHelper,
                   'showerWallTileSqft'
+                )
+              : null}
+            {showWaterproofingSqft
+              ? renderWetAreaInstallSubheading('SHOWER WATERPROOFING')
+              : null}
+            {showWaterproofingSqft
+              ? renderDemoSqftField(
+                  'Fiber board, tape & RedGard/waterproofing',
+                  'Square feet of DensShield-class board, fiber tape, vapor barrier, and RedGard/waterproofing.',
+                  'waterproofingSqft',
+                  { skipDemoBasis: true }
                 )
               : null}
             {showShowerFloorTile
@@ -20867,10 +21004,21 @@ function CollapsibleQuickMeasurements({
             {renderWetAreaInstallSubheading('SHOWER WALL TILE')}
             {renderDemoSqftField(
               'Shower wall tile',
-              'New wall tile area — priced per sqft.',
+              showerWallTileHelper,
               'showerWallTileSqft',
               { skipDemoBasis: true }
             )}
+            {showWaterproofingSqft
+              ? renderWetAreaInstallSubheading('SHOWER WATERPROOFING')
+              : null}
+            {showWaterproofingSqft
+              ? renderDemoSqftField(
+                  'Fiber board, tape & RedGard/waterproofing',
+                  'Square feet of DensShield-class board, fiber tape, vapor barrier, and RedGard/waterproofing.',
+                  'waterproofingSqft',
+                  { skipDemoBasis: true }
+                )
+              : null}
             {renderWetAreaInstallSubheading('SHOWER FLOOR TILE')}
             {renderDemoSqftField(
               'Shower floor tile',
@@ -21054,7 +21202,14 @@ function CollapsibleQuickMeasurements({
           wallPaintSqft: { id: 'paint', unit: 'sqft' },
           patchRepairSqft: { id: 'patch_repair', unit: 'sqft' },
           exteriorPaintSqft: { id: 'exterior_paint', unit: 'sqft' },
-          baseboardLf: { id: 'trim', unit: 'lf' },
+          baseboardLf: {
+            id:
+              String(prev.typedTrimLabel || '') === 'Baseboard'
+                ? 'baseboard_install'
+                : 'trim',
+            unit: 'lf',
+          },
+          baseboardDemoLf: { id: 'baseboard_demo', unit: 'lf' },
           railingLf: { id: 'railing', unit: 'lf' },
           landscapeSqft: { id: 'landscaping', unit: 'sqft' },
           sidingRepairSqft: { id: 'siding_repairs', unit: 'sqft' },
@@ -21457,6 +21612,22 @@ function CollapsibleQuickMeasurements({
             helperText: notesStateFlooringArea(notes)
               ? 'Flooring area from the notes.'
               : 'Flooring was named. Enter the area before pricing.',
+          }
+        : resolvedField.key === 'baseboardDemoLf'
+          ? {
+              ...resolvedField,
+              label: 'Baseboard demo',
+              helperText: 'Existing baseboard coming out.',
+            }
+        : resolvedField.key === 'baseboardLf' &&
+      (String(measurements.typedTrimLabel || '') === 'Baseboard' ||
+        /\bbaseboards?\b|\bbase\s*board\b/i.test(
+          String(measurements.typedScopeAddendum || '')
+        ))
+        ? {
+            ...resolvedField,
+            label: 'Baseboard',
+            helperText: 'New baseboard. Priced per linear foot.',
           }
         : resolvedField.key === 'baseboardLf' &&
       compactMixedScope &&
@@ -21876,7 +22047,8 @@ function CollapsibleQuickMeasurements({
     </Text>
   );
   const remainderRows = remodelRemainderMeasurementFields(
-    readScopeFoundPieces(measurements.scopeFoundPieces)
+    readScopeFoundPieces(measurements.scopeFoundPieces),
+    measurements
   );
   const remainderGroupByKey = new Map(
     remainderRows
@@ -25237,6 +25409,30 @@ export default function AIEstimateScopeAssumptionsModal({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
     });
+  useEffect(() => {
+    const saved = draft?.scopeMeasurements;
+    if (!saved) return;
+    const namedBaseboard =
+      saved.typedTrimLabel === 'Baseboard' ||
+      /\bbaseboards?\b|\bbase\s*board\b/i.test(String(saved.typedScopeAddendum || ''));
+    if (!namedBaseboard) return;
+    setMeasurements(prev => {
+      if (prev.typedTrimLabel === 'Baseboard') return prev;
+      const length = (value: unknown, current: unknown) => {
+        const savedLength = Number(String(value ?? '').replace(/,/g, ''));
+        if (savedLength > 0) return String(savedLength);
+        return current;
+      };
+      return {
+        ...prev,
+        typedTrimLabel: 'Baseboard',
+        typedBaseboardInstall: saved.typedBaseboardInstall === '0' ? '0' : '1',
+        typedScopeAddendum: saved.typedScopeAddendum || prev.typedScopeAddendum || null,
+        baseboardLf: length(saved.baseboardLf, prev.baseboardLf),
+        baseboardDemoLf: length(saved.baseboardDemoLf, prev.baseboardDemoLf),
+      };
+    });
+  }, [draft?.scopeMeasurements]);
   const effectiveTemplateKey = useMemo(
     () =>
       resolveEffectiveQuickMeasurementTemplateKey({
@@ -34158,7 +34354,10 @@ export default function AIEstimateScopeAssumptionsModal({
       ((item.id === 'toilet_demo' &&
         displayItems.some(row => row.id === 'toilet')) ||
         (item.id === 'vanity_demo' &&
-          displayItems.some(row => row.id === 'vanity')) ||
+          displayItems.some(row => row.id === 'vanity') &&
+          !readShowerRemovalPieces(measurements.showerRemovalPieces).includes(
+            'vanity'
+          )) ||
         (item.id === 'drywall_demo' &&
           displayItems.some(
             row => row.id === 'patch_repair' || row.id === 'drywall'

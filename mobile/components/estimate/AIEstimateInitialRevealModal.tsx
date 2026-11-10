@@ -44,6 +44,8 @@ import {
   remodelExtentSummary,
   resolveScopeFoundClarification,
   ROOF_TEAR_OFF_CARDS,
+  FRAMING_SHEATHING_PIECE,
+  notesOfferFramingSheathingChip,
   scopeFoundRevealLines,
   toggleRemodelExtentPiece,
   toggleRemodelScopePiece,
@@ -146,6 +148,13 @@ function scopeFoundChipRows<T extends { label: string }>(options: T[]): T[][] {
   return options.length ? packChipRows(options, 2) : [];
 }
 
+/** A check plus a long word does not fit in a third of the row. */
+function removalMaterialColumns<T extends { label: string }>(options: T[]): number {
+  if (options.length !== 5 && options.length !== 6) return 2;
+  const longest = options.reduce((max, option) => Math.max(max, option.label.length), 0);
+  return longest > 12 ? 2 : 3;
+}
+
 function ReliablePress({
   onPress,
   disabled,
@@ -211,6 +220,19 @@ function AIEstimateInitialRevealModal({
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [confirmListExpanded, setConfirmListExpanded] = useState(false);
   const scopeDefaultAppliedRef = useRef(false);
+  const [showerPiecesLive, setShowerPiecesLive] = useState<ShowerRemovalPiece[]>(() =>
+    readShowerRemovalPieces(draft?.scopeMeasurements?.showerRemovalPieces)
+  );
+  const [showerDeclinedLive, setShowerDeclinedLive] = useState<'none' | 'unsure' | null>(
+    () => {
+      const choice = readShowerRemovalChoice(draft?.scopeMeasurements?.showerRemovalChoice);
+      return choice === 'none' || choice === 'unsure' ? choice : null;
+    }
+  );
+  const showerChoiceRef = useRef<ShowerRemovalPiece[] | 'none' | 'unsure'>(
+    showerDeclinedLive ?? showerPiecesLive
+  );
+  showerChoiceRef.current = showerDeclinedLive ?? showerPiecesLive;
 
   const PRICING_PREVIEW_COUNT = 3;
 
@@ -293,16 +315,8 @@ function AIEstimateInitialRevealModal({
     draft && planRevealOmitsWhatWeFound(draft)
       ? null
       : resolveScopeFoundClarification(draft?.originalNotes);
-  const showerRemovalPieces = readShowerRemovalPieces(
-    draft?.scopeMeasurements?.showerRemovalPieces
-  );
-  const showerRemovalDeclined = readShowerRemovalChoice(
-    draft?.scopeMeasurements?.showerRemovalChoice
-  );
-  const showerRemovalSelected =
-    showerRemovalDeclined === 'none' || showerRemovalDeclined === 'unsure'
-      ? showerRemovalDeclined
-      : null;
+  const showerRemovalPieces = showerPiecesLive;
+  const showerRemovalSelected = showerDeclinedLive;
   const storedScopeFoundId = readScopeFoundClarificationId(
     draft?.scopeMeasurements?.scopeFoundClarificationId
   );
@@ -340,48 +354,46 @@ function AIEstimateInitialRevealModal({
   const applyTypedScope = (): boolean => {
     const text = scopeNote;
     if (!text.trim()) return true;
-    if (!clarification || garageAssistant) {
-      const added = garageScopeTextAdditions(text, draft?.originalNotes);
-      if (!added.matched) {
-        setScopeNoteError(
-          garageAssistant
-            ? "That didn't match a scope item. Use Expand list."
-            : "That didn't match a scope item."
-        );
-        return false;
+    if (clarification && !garageAssistant) {
+      const ids = matchScopeOptionText(text, clarification.options);
+      if (ids.length) {
+        if (clarification.id === 'shower') {
+          const next = [...new Set([...showerRemovalPieces, ...ids])];
+          onShowerRemovalChoice?.(next as ShowerRemovalPiece[]);
+        } else if (clarification.multi) {
+          let next = scopeFoundPiecesRef.current;
+          for (const id of ids) {
+            if (!next.includes(id)) next = toggleRemodelScopePiece(next, id);
+          }
+          scopeFoundPiecesRef.current = next;
+          onScopeFoundChoice?.(clarification.id, next);
+        } else {
+          const choice = readScopeFoundChoice(ids[0]);
+          if (choice) onScopeFoundChoice?.(clarification.id, choice);
+        }
+        setScopeNote('');
+        setScopeNoteError('');
+        return true;
       }
-      const merged = [
-        ...scopeFoundPiecesRef.current.filter(id => id !== 'garage_no_additional_work'),
-        ...added.pieceIds.filter(id => !scopeFoundPiecesRef.current.includes(id)),
-      ];
-      scopeFoundPiecesRef.current = merged;
-      if (clarification) {
-        applyGaragePieces(merged, added.counts);
-      } else {
-        onScopeFoundChoice?.('remodel_remainder', merged, added.counts);
-      }
-      setScopeNote('');
-      setScopeNoteError('');
-      return true;
     }
-    const ids = matchScopeOptionText(text, clarification.options);
-    if (!ids.length) {
-      setScopeNoteError("That didn't match a scope item. Use Expand list.");
+    const added = garageScopeTextAdditions(text, draft?.originalNotes);
+    if (!added.matched) {
+      setScopeNoteError(
+        clarification || garageAssistant
+          ? "That didn't match a scope item. Use Expand list."
+          : "That didn't match a scope item."
+      );
       return false;
     }
-    if (clarification.id === 'shower') {
-      const next = [...new Set([...showerRemovalPieces, ...ids])];
-      onShowerRemovalChoice?.(next as ShowerRemovalPiece[]);
-    } else if (clarification.multi) {
-      let next = scopeFoundPiecesRef.current;
-      for (const id of ids) {
-        if (!next.includes(id)) next = toggleRemodelScopePiece(next, id);
-      }
-      scopeFoundPiecesRef.current = next;
-      onScopeFoundChoice?.(clarification.id, next);
+    const merged = [
+      ...scopeFoundPiecesRef.current.filter(id => id !== 'garage_no_additional_work'),
+      ...added.pieceIds.filter(id => !scopeFoundPiecesRef.current.includes(id)),
+    ];
+    scopeFoundPiecesRef.current = merged;
+    if (clarification) {
+      applyGaragePieces(merged, added.counts);
     } else {
-      const choice = readScopeFoundChoice(ids[0]);
-      if (choice) onScopeFoundChoice?.(clarification.id, choice);
+      onScopeFoundChoice?.('remodel_remainder', merged, added.counts);
     }
     setScopeNote('');
     setScopeNoteError('');
@@ -549,21 +561,27 @@ function AIEstimateInitialRevealModal({
     }
   }, [visible, viewModel]);
 
+  const flushShowerChoice = () => {
+    onShowerRemovalChoice?.(showerChoiceRef.current);
+  };
+
   const handleBack = useCallback(() => {
+    flushShowerChoice();
     onBack();
     if (Platform.OS !== 'web') {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-  }, [onBack]);
+  }, [onBack, onShowerRemovalChoice]);
 
   const handlePrimary = useCallback(() => {
     if (viewModel?.needsScopeConfirmation && onConfirmScope) {
       if (!applyTypedScopeRef.current()) return;
+      flushShowerChoice();
       onConfirmScope();
       return;
     }
     onOpenDetailedReview();
-  }, [viewModel?.needsScopeConfirmation, onConfirmScope, onOpenDetailedReview]);
+  }, [viewModel?.needsScopeConfirmation, onConfirmScope, onOpenDetailedReview, onShowerRemovalChoice]);
 
   const handleDetailed = useCallback(() => {
     onOpenDetailedReview();
@@ -953,7 +971,7 @@ function AIEstimateInitialRevealModal({
                                         <MaterialIcons name="check" size={15} color={brandAccent} />
                                       ) : null}
                                       <Text
-                                        numberOfLines={1}
+                                        numberOfLines={2}
                                         style={[styles.removalChipText, { color: Colors.text }]}
                                       >
                                         {option.label}
@@ -1016,9 +1034,7 @@ function AIEstimateInitialRevealModal({
                                     <MaterialIcons name="check" size={15} color={brandAccent} />
                                   ) : null}
                                   <Text
-                                    numberOfLines={1}
-                                    adjustsFontSizeToFit
-                                    minimumFontScale={0.85}
+                                    numberOfLines={2}
                                     style={[styles.removalChipText, { color: Colors.text }]}
                                   >
                                     {option.label}
@@ -1131,10 +1147,7 @@ function AIEstimateInitialRevealModal({
                     </View>
                     {packChipRows(
                       visibleRemovalMaterials,
-                      visibleRemovalMaterials.length === 5 ||
-                        visibleRemovalMaterials.length === 6
-                        ? 3
-                        : 2
+                      removalMaterialColumns(visibleRemovalMaterials)
                     )
                       .concat(
                         scopeFoundChipRows(
@@ -1164,17 +1177,20 @@ function AIEstimateInitialRevealModal({
                           return (
                             <GestureTouchableOpacity
                               key={option.id}
-                              onPress={() => {
+                              onPressIn={() => {
                                 if (clarification.id === 'shower') {
                                   if (option.id === 'none' || option.id === 'unsure') {
-                                    onShowerRemovalChoice?.(option.id);
+                                    setShowerPiecesLive([]);
+                                    setShowerDeclinedLive(option.id);
                                     return;
                                   }
                                   const piece = option.id as ShowerRemovalPiece;
-                                  const next = showerRemovalPieces.includes(piece)
-                                    ? showerRemovalPieces.filter(item => item !== piece)
-                                    : [...showerRemovalPieces, piece];
-                                  onShowerRemovalChoice?.(next);
+                                  setShowerDeclinedLive(null);
+                                  setShowerPiecesLive(current =>
+                                    current.includes(piece)
+                                      ? current.filter(item => item !== piece)
+                                      : [...current, piece]
+                                  );
                                   return;
                                 }
                                 if (clarification.multi) {
@@ -1217,9 +1233,7 @@ function AIEstimateInitialRevealModal({
                                 <MaterialIcons name="check" size={15} color={brandAccent} />
                               ) : null}
                               <Text
-                                numberOfLines={1}
-                                adjustsFontSizeToFit
-                                minimumFontScale={0.85}
+                                numberOfLines={2}
                                 style={[
                                   styles.removalChipText,
                                   {
@@ -1405,9 +1419,7 @@ function AIEstimateInitialRevealModal({
                                             />
                                           ) : null}
                                           <Text
-                                            numberOfLines={1}
-                                            adjustsFontSizeToFit
-                                            minimumFontScale={0.85}
+                                            numberOfLines={2}
                                             style={[
                                               styles.removalChipText,
                                               {
@@ -1461,6 +1473,53 @@ function AIEstimateInitialRevealModal({
                     <Text style={[styles.bodyLine, styles.assistantHelp, { color: Colors.sub }]}>
                       Add any other work for this job.
                     </Text>
+                    {notesOfferFramingSheathingChip(draft?.originalNotes) ? (
+                      <View style={[styles.removalChipRow, styles.assistantChipRow]}>
+                        <GestureTouchableOpacity
+                          onPress={() => {
+                            const current = scopeFoundPiecesRef.current;
+                            const selected = current.includes(FRAMING_SHEATHING_PIECE);
+                            const next = selected
+                              ? current.filter(id => id !== FRAMING_SHEATHING_PIECE)
+                              : [...current, FRAMING_SHEATHING_PIECE];
+                            scopeFoundPiecesRef.current = next;
+                            onScopeFoundChoice?.(
+                              'remodel_remainder',
+                              next.length ? next : 'none'
+                            );
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Sheathing"
+                          accessibilityState={{
+                            selected: scopeFoundPieces.includes(FRAMING_SHEATHING_PIECE),
+                          }}
+                          containerStyle={styles.sheathingChip}
+                          style={[
+                            styles.removalChip,
+                            {
+                              borderColor: scopeFoundPieces.includes(FRAMING_SHEATHING_PIECE)
+                                ? brandAccent
+                                : 'rgba(148, 163, 184, 0.16)',
+                              backgroundColor: scopeFoundPieces.includes(
+                                FRAMING_SHEATHING_PIECE
+                              )
+                                ? 'rgba(45, 204, 154, 0.14)'
+                                : 'rgba(148, 163, 184, 0.16)',
+                            },
+                          ]}
+                        >
+                          {scopeFoundPieces.includes(FRAMING_SHEATHING_PIECE) ? (
+                            <MaterialIcons name="check" size={15} color={brandAccent} />
+                          ) : null}
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.removalChipText, { color: Colors.text }]}
+                          >
+                            Sheathing
+                          </Text>
+                        </GestureTouchableOpacity>
+                      </View>
+                    ) : null}
                     <View
                       style={[
                         styles.assistantField,
@@ -1969,6 +2028,7 @@ const styles = StyleSheet.create({
   },
   removalChipText: {
     flexShrink: 1,
+    minWidth: 0,
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 18,
@@ -2011,6 +2071,9 @@ const styles = StyleSheet.create({
   },
   manualScopeField: {
     marginTop: 0,
+  },
+  sheathingChip: {
+    alignSelf: 'flex-start',
   },
   assistantAddLink: {
     alignSelf: 'flex-start',

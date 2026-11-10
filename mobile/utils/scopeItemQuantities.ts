@@ -889,6 +889,7 @@ export type NormalizedScopeMeasurements = {
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
   baseboardLf: number | null;
+  baseboardDemoLf: number | null;
   interiorDoorCount: number | null;
   cabinetPaintSqft: number | null;
   cabinetUpperLf: number | null;
@@ -899,6 +900,7 @@ export type NormalizedScopeMeasurements = {
   paintAreaSqft: number | null;
   combinedPaintableAreaSqft: number | null;
   showerWallTileSqft: number | null;
+  waterproofingSqft: number | null;
   showerFloorTileSqft: number | null;
   wallPaintSqft: number | null;
   bathCount: number | null;
@@ -1046,6 +1048,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 6.5,
     sourceLabel:
       'Suggested budget split · National Average · baseboard installation',
+  },
+  baseboard_demo: {
+    unit: 'lf',
+    material: 0.5,
+    labor: 1.5,
+    sourceLabel:
+      'Suggested budget split · National Average · baseboard removal',
   },
   exterior_trim_paint: {
     unit: 'each',
@@ -4819,6 +4828,37 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       ),
     ],
   },
+  baseboard_demo: {
+    category: 'demo',
+    rootCause:
+      'Build Profit national-average baseboard demo ($2/LF) is pull, denail, and haul. New baseboard stays on the install line.',
+    assumptions: [
+      assumption(
+        'pull',
+        'included',
+        'Pull existing baseboard',
+        'Pull the existing baseboard and remove nails from the wall.'
+      ),
+      assumption(
+        'haul',
+        'included',
+        'Haul-off',
+        'Protection and haul-off of the removed baseboard are included.'
+      ),
+      assumption(
+        'install',
+        'excluded',
+        'New baseboard',
+        'New baseboard material and install are on the baseboard line.'
+      ),
+      assumption(
+        'paint',
+        'excluded',
+        'Wall patch and paint',
+        'Wall patching and paint after removal are not included.'
+      ),
+    ],
+  },
   backsplash_tile: {
     category: 'tile',
     rootCause:
@@ -6300,12 +6340,12 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   waterproofing: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft'],
-    measurementKey: 'showerWallTileSqft',
+    measurementKey: 'waterproofingSqft',
     requiresUserQuantity: true,
     canUseRoomSqft: false,
     quantityHelper:
-      'Shower wall sqft — includes backer, RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation.',
-    missingMessage: 'Enter shower waterproofing sqft.',
+      'Square feet of fiber board, fiber tape, vapor barrier, and RedGard/waterproofing. Separate from the wall tile area.',
+    missingMessage: 'Enter waterproofing sqft.',
   },
   floor_tile: {
     defaultUnit: 'sqft',
@@ -6526,6 +6566,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     quantityHelper: 'Enter baseboard installation LF.',
     missingMessage: 'Enter baseboard installation LF or pricing.',
+  },
+  baseboard_demo: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf'],
+    measurementKey: 'baseboardDemoLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Linear feet of existing baseboard coming out.',
+    missingMessage: 'Enter baseboard demo LF.',
   },
   trim_paint: {
     defaultUnit: 'lf',
@@ -8051,6 +8099,7 @@ export function normalizeScopeMeasurements(
     stuccoWallHeightFt: num(measurements?.stuccoWallHeightFt),
     railingLf: num(measurements?.railingLf),
     baseboardLf: num(measurements?.baseboardLf) ?? num(measurements?.lf),
+    baseboardDemoLf: num(measurements?.baseboardDemoLf),
     interiorDoorCount: num(measurements?.interiorDoorCount),
     windowCount: num(measurements?.windowCount),
     exteriorDoorCount: num(measurements?.exteriorDoorCount),
@@ -8061,6 +8110,7 @@ export function normalizeScopeMeasurements(
     cabinetTallLf: num(measurements?.cabinetTallLf),
     cabinetRunLf: num(measurements?.cabinetRunLf),
     showerWallTileSqft: num(measurements?.showerWallTileSqft),
+    waterproofingSqft: num(measurements?.waterproofingSqft),
     showerFloorTileSqft: num(measurements?.showerFloorTileSqft),
     wallPaintSqft: num(measurements?.wallPaintSqft),
     ceilingPaintSqft: num(measurements?.ceilingPaintSqft),
@@ -10420,7 +10470,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
       measurementKeys: ['showerFloorTileSqft'],
     },
     shower_pan: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
-    waterproofing: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
+    waterproofing: { unit: 'sqft', measurementKeys: ['waterproofingSqft'] },
     backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
     backsplash_demo: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
     countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
@@ -17175,6 +17225,47 @@ export function resolveScopeItemSuggestedPricing(
       comparison: null,
     };
   }
+  if (itemId === 'baseboard_demo') {
+    const lf =
+      parseScopeMeasurementInput(
+        (measurementsInput as { baseboardDemoLf?: unknown }).baseboardDemoLf
+      ) ||
+      (String(resolved.unit || '').toLowerCase() === 'lf' &&
+      Number(resolved.quantity) > 0
+        ? Number(resolved.quantity)
+        : null) ||
+      (resolved.dualCount?.unit === 'lf' && resolved.dualCount.quantity > 0
+        ? resolved.dualCount.quantity
+        : null);
+    const rates = lf ? NATIONAL_AVERAGE_BUDGET_SPLITS.baseboard_demo : null;
+    if (lf && rates) {
+      const material = round2(lf * rates.material);
+      const labor = round2(lf * rates.labor);
+      const perLf = round2(rates.material + rates.labor);
+      const perLfLabel = Number.isInteger(perLf)
+        ? `$${perLf}`
+        : `$${perLf.toFixed(2)}`;
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${lf.toLocaleString()} LF of existing baseboard coming out.`,
+          mode: 'suggested_price',
+          basis: { quantity: lf, unit: 'lf' },
+          displayUnitRateLabel: `${lf.toLocaleString()} LF × ${perLfLabel}/LF`,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'baseboard_demo',
+        },
+        comparison: null,
+      };
+    }
+  }
   const demoStyle = flooringDemoStyleFromItemId(itemId);
   if (demoStyle) {
     const quantity = Number(resolved.quantity);
@@ -18483,10 +18574,15 @@ export function resolveScopeItemSuggestedPricing(
     }
     if (itemId === 'waterproofing') {
       const areas = showerTileWithFlooringAreas(notesText);
-      const measured = parseScopeMeasurementInput(
-        (measurementsInput as { showerWallTileSqft?: unknown }).showerWallTileSqft
+      const entered = parseScopeMeasurementInput(
+        (measurementsInput as { waterproofingSqft?: unknown }).waterproofingSqft
       );
-      const sqft = areas.showerWallTileSqft || measured;
+      const userSet = Boolean(
+        (measurementsInput as {
+          quickMeasurementUserOverrides?: { waterproofingSqft?: boolean };
+        }).quickMeasurementUserOverrides?.waterproofingSqft
+      );
+      const sqft = userSet ? entered : entered || areas.showerWallTileSqft;
       const rates = sqft ? NATIONAL_AVERAGE_BUDGET_SPLITS.waterproofing : null;
       if (!sqft || !rates) return empty;
       const material = round2(sqft * rates.material);
@@ -18503,7 +18599,7 @@ export function resolveScopeItemSuggestedPricing(
           materialSource: 'national_average',
           laborSource: 'national_average',
           rateSourceLabel: rates.sourceLabel,
-          helper: `${sqft.toLocaleString()} sqft of backer and membrane for the new shower tile.`,
+          helper: `${sqft.toLocaleString()} sqft of fiber board, fiber tape, vapor barrier, and RedGard/waterproofing.`,
           mode: 'suggested_price',
           basis: { quantity: sqft, unit: 'sqft' },
           displayUnitRateLabel: `${sqft.toLocaleString()} sqft × ${perSqftLabel}/sqft`,
@@ -28517,21 +28613,28 @@ export function resolveChecklistItemQuantity(
     notesNameShowerTileWithFlooring(ctx.notes)
   ) {
     const areas = showerTileWithFlooringAreas(ctx.notes);
-    const measured = Number(
-      String(measurements.showerWallTileSqft ?? '').replace(/,/g, '')
+    const entered = Number(
+      String(measurements.waterproofingSqft ?? '').replace(/,/g, '')
     );
-    const sqft =
-      areas.showerWallTileSqft ||
-      (Number.isFinite(measured) && measured > 0 ? measured : 0);
+    const userSet = Boolean(
+      measurements.quickMeasurementUserOverrides?.waterproofingSqft
+    );
+    const sqft = userSet
+      ? Number.isFinite(entered) && entered > 0
+        ? entered
+        : 0
+      : (Number.isFinite(entered) && entered > 0 ? entered : 0) ||
+        areas.showerWallTileSqft ||
+        0;
     if (sqft > 0) {
       return {
         quantity: sqft,
         unit: 'sqft',
-        quantitySource: 'notes',
-        sourceLabel: 'From notes',
+        quantitySource: userSet ? 'user_entered' : 'notes',
+        sourceLabel: userSet ? 'Entered waterproofing area' : 'From notes',
         pricingReady: true,
         quantityHelper:
-          'Backer and membrane for the new shower tile. Uses the shower wall area.',
+          'Square feet of fiber board, fiber tape, vapor barrier, and RedGard/waterproofing.',
         showInput: true,
       };
     }
@@ -32027,6 +32130,24 @@ export function scopeMeasurementsToPayload(
         ? Math.round(Number(sanitized.garageDoorOpenerCount))
         : null,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
+    baseboardDemoLf: parseScopeMeasurementInput(
+      (sanitized as { baseboardDemoLf?: unknown }).baseboardDemoLf
+    ),
+    typedTrimLabel:
+      (sanitized as { typedTrimLabel?: unknown }).typedTrimLabel === 'Baseboard'
+        ? 'Baseboard'
+        : (sanitized as { typedTrimLabel?: unknown }).typedTrimLabel === 'Trim'
+          ? 'Trim'
+          : null,
+    typedBaseboardInstall:
+      (sanitized as { typedBaseboardInstall?: unknown }).typedBaseboardInstall === '0'
+        ? '0'
+        : (sanitized as { typedBaseboardInstall?: unknown }).typedBaseboardInstall === '1'
+          ? '1'
+          : null,
+    typedScopeAddendum:
+      String((sanitized as { typedScopeAddendum?: unknown }).typedScopeAddendum || '').trim() ||
+      null,
     ...copyPlumbingQuantityFields(sanitized as Record<string, unknown>),
     plumbingScope: Array.isArray(sanitized.plumbingScope)
       ? sanitized.plumbingScope
@@ -32038,6 +32159,9 @@ export function scopeMeasurementsToPayload(
     ...copyDrywallQuantityFields(sanitized as Record<string, unknown>),
     showerWallTileSqft: parseScopeMeasurementInput(
       sanitized.showerWallTileSqft
+    ),
+    waterproofingSqft: parseScopeMeasurementInput(
+      (sanitized as { waterproofingSqft?: unknown }).waterproofingSqft
     ),
     showerFloorTileSqft: parseScopeMeasurementInput(
       sanitized.showerFloorTileSqft
@@ -32345,7 +32469,28 @@ export function scopeMeasurementsInputFromPayload(
     ),
     railingLf: measurementFieldString(payload.railingLf),
     baseboardLf: measurementFieldString(payload.baseboardLf),
+    baseboardDemoLf: measurementFieldString(
+      (payload as { baseboardDemoLf?: unknown }).baseboardDemoLf
+    ),
+    typedTrimLabel:
+      (payload as { typedTrimLabel?: unknown }).typedTrimLabel === 'Baseboard'
+        ? 'Baseboard'
+        : (payload as { typedTrimLabel?: unknown }).typedTrimLabel === 'Trim'
+          ? 'Trim'
+          : null,
+    typedBaseboardInstall:
+      (payload as { typedBaseboardInstall?: unknown }).typedBaseboardInstall === '0'
+        ? '0'
+        : (payload as { typedBaseboardInstall?: unknown }).typedBaseboardInstall === '1'
+          ? '1'
+          : null,
+    typedScopeAddendum:
+      String((payload as { typedScopeAddendum?: unknown }).typedScopeAddendum || '').trim() ||
+      null,
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
+    waterproofingSqft: measurementFieldString(
+      (payload as { waterproofingSqft?: unknown }).waterproofingSqft
+    ),
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallDemoSqft: measurementFieldString(payload.wallDemoSqft),
     demoTilePanSqft: measurementFieldString(payload.demoTilePanSqft),
@@ -33759,6 +33904,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   } | null;
   /** Kitchen QM — island counter SF (rolled into countertops when island install is on). */
   kitchenIslandCounterSqft?: string | number | null;
+  typedTrimLabel?: 'Baseboard' | 'Trim' | null;
+  typedBaseboardInstall?: '0' | '1' | null;
+  typedScopeAddendum?: string | null;
 } & Partial<
     Record<ElectricalQuantityKey | PlumbingQuantityKey, string | number | null>
   >;
@@ -34373,6 +34521,14 @@ export function initialScopeMeasurementInputExtended(
   const hasBaseboardNotes =
     /\b(baseboards?|trim|crown|moulding|molding|casing)\b/i.test(scopeNotes);
   const pickBaseboardLf = () => {
+    const savedBaseboard = Number(String(saved?.baseboardLf ?? '').replace(/,/g, ''));
+    if (
+      (saved?.quickMeasurementUserOverrides?.baseboardLf ||
+        String(saved?.typedTrimLabel || '') === 'Baseboard') &&
+      savedBaseboard > 0
+    ) {
+      return String(savedBaseboard);
+    }
     if (!hasBaseboardNotes) return '';
     const fromNotes = parsedFromNotes.baseboardLf ?? suggested?.baseboardLf;
     if (fromNotes != null && Number(fromNotes) > 0) return String(fromNotes);
@@ -34616,7 +34772,18 @@ export function initialScopeMeasurementInputExtended(
     }),
     railingLf: pick('railingLf'),
     baseboardLf: pickBaseboardLf(),
+    baseboardDemoLf: saved?.baseboardDemoLf ?? null,
+    typedTrimLabel: saved?.typedTrimLabel ?? null,
+    typedBaseboardInstall: saved?.typedBaseboardInstall ?? null,
+    typedScopeAddendum: saved?.typedScopeAddendum ?? null,
     showerWallTileSqft: pick('showerWallTileSqft'),
+    waterproofingSqft: saved?.quickMeasurementUserOverrides?.waterproofingSqft
+      ? (saved?.waterproofingSqft ?? null)
+      : ((parsedFromNotes as { waterproofingSqft?: number | null })
+          .waterproofingSqft ??
+        saved?.waterproofingSqft ??
+        suggested?.waterproofingSqft ??
+        null),
     showerFloorTileSqft: pick('showerFloorTileSqft'),
     showerDoorCount: (() => {
       const overrides = saved?.quickMeasurementUserOverrides as
