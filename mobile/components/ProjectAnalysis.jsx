@@ -644,6 +644,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const scenarioBidMatchesOriginal =
     Math.abs((sim.totalBid ?? 0) - (sim.originalBid ?? 0)) < 0.01;
 
+  const netProfitStatusColor =
+    sim.netProfit < 0 ? '#f87171'
+      : aiTip.color === palette.green ? '#2dcc9a' : aiTip.color;
+
   const sectionCardStyle = estimateFlowCardStyle(themeColors, darkMode, {
     marginBottom: ESTIMATE_FLOW_CARD_GAP,
   });
@@ -666,7 +670,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               )}
             </View>
             <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 }}>
-              Stress-test profit. These are templates, not benchmarks.
+              Stress-test your profit with a starting template.
             </Text>
 
             <View style={styles.presetRow}>
@@ -684,7 +688,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <Text style={[
                   styles.presetChipText,
                   getActivePreset === 'typical' && styles.presetChipTextActive
-                ]}>
+                ]} numberOfLines={2}>
                   Typical Friction
                 </Text>
               </TouchableOpacity>
@@ -702,8 +706,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <Text style={[
                   styles.presetChipText,
                   getActivePreset === 'bad' && styles.presetChipTextActive
-                ]}>
-                  High Friction Job
+                ]} numberOfLines={2}>
+                  High Friction
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -720,28 +724,17 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <Text style={[
                   styles.presetChipText,
                   getActivePreset === 'smooth' && styles.presetChipTextActive
-                ]}>
-                  Best-Case Execution
+                ]} numberOfLines={2}>
+                  Best Case
                 </Text>
               </TouchableOpacity>
             </View>
-            
-            {/* Preset applied / insight — keep a block mounted when sliders leave a preset so layout height
-                does not collapse (avoids first fine-tune tap scroll jump on web from scroll anchoring). */}
-            {(getPresetDetails || (hasChanges && !getActivePreset)) ? (
-              <Text style={{ color: '#d7e1f0', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
-                {getPresetDetails
-                  ? `${getPresetDetails.name} · ${getPresetDetails.details}`
-                  : 'Custom scenario. Totals use these percentages.'}
-              </Text>
-            ) : null}
-
       </View>
 
       <View style={sectionCardStyle}>
             <Text style={styles.fineTuneSectionTitle}>Fine-tune scenario</Text>
             <Text style={styles.fineTuneHint}>
-              5% steps. Bid moves in 2% steps.
+              Tap + or − to test each change.
             </Text>
             {isMarkupManuallyAdjusted && (
               <View style={styles.bidActiveBanner}>
@@ -764,7 +757,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     <View style={styles.stepperLabelCol}>
                       <Text style={styles.stepperLabel}>{row.label}</Text>
                       {row.field === 'timelinePct' ? (
-                        <Text style={styles.stepperLabelHint}>Longer + · earlier −</Text>
+                        <Text style={styles.stepperLabelHint}>+ longer · − shorter</Text>
                       ) : null}
                     </View>
                     <View style={styles.stepperControl}>
@@ -823,29 +816,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             {/* A) Key outcomes — same values as before, clearer hierarchy */}
             <View style={styles.heroOutcomes}>
               {scenarioBidMatchesOriginal ? (
-                <View style={[styles.heroRow, { alignItems: 'flex-start', marginBottom: 10 }]}>
-                  <View style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={styles.heroLabel}>Your bid (unchanged in this scenario)</Text>
-                    <Text style={styles.heroSubLabel}>
-                      Same price — costs below reflect the scenario; profit shows the impact.
-                    </Text>
-                  </View>
-                  <Animated.Text
-                    style={[
-                      styles.heroBidValue,
-                      {
-                        color: (sim.totalBid || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
-                        transform: [{
-                          scale: totalBidAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 1.05],
-                          }),
-                        }],
-                      },
-                    ]}
-                  >
+                <View style={styles.heroRow}>
+                  <Text style={styles.heroLabel}>Bid stays</Text>
+                  <Text style={[styles.heroValue, styles.heroQuietValue]}>
                     ${sim.totalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Animated.Text>
+                  </Text>
                 </View>
               ) : (
                 <>
@@ -887,39 +862,24 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </>
               )}
               <View style={styles.heroDivider} />
-              <View style={styles.heroRow}>
-                <Text style={styles.heroLabel}>Estimated net profit</Text>
-                <Text style={[styles.heroValue, { color: sim.netProfit < 0 ? '#f87171' : palette.text }]}>
+              <View style={[styles.heroRow, { alignItems: 'flex-start', marginBottom: 10 }]}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.heroProfitLabel}>Estimated net profit</Text>
+                  <Text style={[styles.heroSubLabel, { color: netProfitStatusColor, fontWeight: '600' }]}>
+                    {sim.netProfitMarginPct.toFixed(1)}% net margin
+                  </Text>
+                  {Math.abs(aiTip.profitDelta) >= 0.01 ? (
+                    <Text style={[styles.heroSubLabel, { color: aiTip.profitDelta > 0 ? '#2dcc9a' : '#f87171', fontWeight: '600' }]}>
+                      {aiTip.profitDelta > 0 ? '+' : '−'}
+                      ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} vs. your estimate
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.heroBidValue, styles.heroTabular, { color: netProfitStatusColor }]}>
                   ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
-              <View style={styles.heroRow}>
-                <Text style={styles.heroLabel}>Net profit margin (revenue)</Text>
-                <Text style={[styles.heroValue, { color: sim.netProfitMarginPct < 5 ? '#f87171' : sim.netProfitMarginPct < 8 ? '#fbbf24' : palette.text }]}>
-                  {sim.netProfitMarginPct.toFixed(1)}%
-                </Text>
-              </View>
-              <View style={styles.heroRow}>
-                <Text style={styles.heroLabel}>Profit change</Text>
-                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta > 0 ? '#2dcc9a' : aiTip.profitDelta < 0 ? '#f87171' : '#d7e1f0' }]}>
-                  {aiTip.profitDelta >= 0 ? '+' : '-'}
-                  ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
-              <View style={[styles.heroRow, { marginBottom: 0 }]}>
-                <Text style={styles.heroLabel}>Cushion above break-even</Text>
-                <Text style={[styles.heroValue, {
-                  color: (sim.totalBid - sim.breakEvenBid) < 0 ? '#f87171' : palette.text,
-                }]}>
-                  ${((sim.totalBid || 0) - (sim.breakEvenBid || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
-            </View>
-
-            {/* C) Safety / margin signal — same aiTip.text & color logic */}
-            <View style={styles.safetyCard}>
-              <Text style={[styles.safetyCardTitle, { color: '#d7e1f0' }]}>Margin check</Text>
-              <Text style={[styles.safetyCardBody, { color: sim.netProfitMarginPct < 5 ? '#f87171' : sim.netProfitMarginPct < 8 ? '#fbbf24' : '#e2e8f0' }]}>
+              <Text style={[styles.heroVerdict, { color: netProfitStatusColor }]}>
                 {aiTip.text}
               </Text>
             </View>
@@ -979,6 +939,14 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <Text style={styles.supportingLabel}>Current bid</Text>
                 <Text style={[styles.supportingValue, { fontWeight: '700' }]}>
                   ${(sim.totalBid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Cushion above break-even</Text>
+                <Text style={[styles.supportingValue, {
+                  color: (sim.totalBid - sim.breakEvenBid) < 0 ? '#f87171' : palette.text,
+                }]}>
+                  ${((sim.totalBid || 0) - (sim.breakEvenBid || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               {sim.netProfitOnCostPct > 0 && (
@@ -1645,6 +1613,25 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
     fontSize: ew(22, 24),
     fontWeight: '800',
   },
+  heroQuietValue: {
+    fontSize: ew(15, 17),
+    fontWeight: '600',
+    ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+  },
+  heroTabular: {
+    ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+  },
+  heroProfitLabel: {
+    color: palette.text,
+    fontSize: ew(15, 17),
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  heroVerdict: {
+    fontSize: ew(13, 15),
+    lineHeight: ew(18, 21),
+    fontWeight: '600',
+  },
   heroDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: palette.divider,
@@ -1728,10 +1715,10 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
   },
   supportingFootnote: {
     color: palette.textDim,
-    fontSize: ew(11, 13),
-    fontStyle: 'italic',
+    fontSize: ew(12, 14),
+    fontWeight: '500',
     textAlign: 'center',
-    marginTop: 6,
+    marginTop: 8,
   },
 
   simSummary: {

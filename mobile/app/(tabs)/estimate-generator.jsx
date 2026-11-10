@@ -199,6 +199,7 @@ import {
   ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS,
   getProjectJobDurationDays,
   getProjectJobDurationWeeks,
+  defaultWeeklyProjectWeeks,
   resolveWeeklyProjectWeeks,
   estimateFlowInputShellStyle,
   estimateFlowStepContentWrapStyle,
@@ -3755,6 +3756,9 @@ const WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS = {
   custom_date: 'Custom date',
 };
 
+/** Choices shown for new schedules. Older saved choices still render and keep their contract wording. */
+const WEEKLY_PROGRESS_HOLDBACK_DUE_OPTIONS = ['final_walkthrough_punch_list', 'custom_date'];
+
 const buildWeeklyProgressSchedule = ({
   contractAmount,
   projectWeeks,
@@ -5148,7 +5152,6 @@ export default function EstimateGeneratorScreen() {
     },
     [syncDraftWithLatestScopeMeasurements]
   );
-  const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
   const [hasReviewedTotal, setHasReviewedTotal] = useState(false);
@@ -7068,10 +7071,6 @@ export default function EstimateGeneratorScreen() {
           if (Platform.OS !== 'web') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
-          setAiDraftFillToast({
-            visible: true,
-            roomCount: draftToApply.rooms?.length || 0,
-          });
           if (!scopeOnly) {
             void capturePricingMemory({
               draft: draftToApply,
@@ -8677,6 +8676,7 @@ export default function EstimateGeneratorScreen() {
     weekNumber: '',
   });
   const weeklyProjectWeeksInputRef = useRef(null);
+  const weeklyProjectWeeksAutoRef = useRef(null);
   const weeklyDepositPercentInputRef = useRef(null);
   const weeklyHoldbackPercentInputRef = useRef(null);
   const milestoneDepositPercentInputRef = useRef(null);
@@ -8763,6 +8763,7 @@ export default function EstimateGeneratorScreen() {
     milestoneBasedSettingsHydratedBidRef.current = null;
     weeklyAutoSaveDidInitRef.current = false;
     weeklyDatesChosenRef.current = false;
+    weeklyProjectWeeksAutoRef.current = null;
     step7UserCollapsedRef.current = false;
     setWeeklyHoldbackCustomOpen(false);
   }, [bid?.id]);
@@ -8777,9 +8778,15 @@ export default function EstimateGeneratorScreen() {
       if (settings.depositPercent != null) {
         setWeeklyDepositPercentText(String(settings.depositPercent));
       }
-      if (settings.projectWeeks != null) {
-        setWeeklyProjectWeeksText(String(settings.projectWeeks));
-      }
+      setWeeklyProjectWeeksText(
+        String(
+          defaultWeeklyProjectWeeks(
+            bid.startDate || bid.projectStartDate,
+            bid.endDate || bid.projectEndDate,
+            settings.projectWeeks,
+          ),
+        ),
+      );
       if (settings.holdbackPercent != null) {
         setWeeklyHoldbackPercentText(String(settings.holdbackPercent));
       }
@@ -8810,25 +8817,32 @@ export default function EstimateGeneratorScreen() {
       }
       setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
     } else {
-      const step2Weeks = getProjectJobDurationWeeks(
-        bid.startDate || bid.projectStartDate,
-        bid.endDate || bid.projectEndDate,
-      );
       setWeeklyProjectWeeksText(
-        String(step2Weeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS),
+        String(
+          defaultWeeklyProjectWeeks(
+            bid.startDate || bid.projectStartDate,
+            bid.endDate || bid.projectEndDate,
+          ),
+        ),
       );
       setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
     }
   }, [bid.id, bid.paymentScheduleVariant, bid.weeklyProgressSettings, bid.weeklyPayments, bid.startDate, bid.endDate, bid.projectStartDate, bid.projectEndDate]);
   useEffect(() => {
-    if (bid.weeklyProgressSettings?.projectWeeks != null) return;
-    const step2Weeks = getProjectJobDurationWeeks(
-      bid.startDate || bid.projectStartDate,
-      bid.endDate || bid.projectEndDate,
-    );
-    setWeeklyProjectWeeksText(
-      String(step2Weeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS),
-    );
+    const start = bid.startDate || bid.projectStartDate;
+    const end = bid.endDate || bid.projectEndDate;
+    const saved = bid.weeklyProgressSettings?.projectWeeks;
+    const derived = getProjectJobDurationWeeks(start, end);
+    const resolved = String(defaultWeeklyProjectWeeks(start, end, saved));
+    setWeeklyProjectWeeksText((current) => {
+      const auto = weeklyProjectWeeksAutoRef.current;
+      if (auto != null && current !== auto) return current;
+      const savedIsPreviousAuto = auto != null && String(Math.round(Number(saved))) === auto;
+      const next = savedIsPreviousAuto && derived != null ? String(derived) : resolved;
+      weeklyProjectWeeksAutoRef.current =
+        derived != null ? String(derived) : String(ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS);
+      return next;
+    });
   }, [
     bid.startDate,
     bid.endDate,
@@ -13421,7 +13435,6 @@ export default function EstimateGeneratorScreen() {
     setAiDraftSuggestingSplits(false);
     setAiDraftClarifying(false);
     setAiDraftSuggestingMissing(false);
-    setAiDraftFillToast({ visible: false, roomCount: 0 });
     aiSavedPricingAutoRef.current = null;
 
     // Save the blank bid to storage
@@ -15642,43 +15655,45 @@ export default function EstimateGeneratorScreen() {
         // Load contractor type from profile or bid
         const contractorType = bid.contractorType || null;
         
-        // Pricing profile presets (step 5) — suggested starting targets only, not requirements
+        // Pricing profile presets (step 5) — suggested starting targets only, not requirements.
+        // Markup recovers overhead on job cost plus the profit margin on the bid:
+        // (overhead + profit) / (1 - profit). The default is the middle of each band.
         const contractorTypes = {
           1: {
             name: 'Self-Perform Lean',
             subtitle: 'Lean self-perform work',
             overheadRange: { min: 5, max: 8 },
             profitRange: { min: 8, max: 12 },
-            markupEquivalentRange: { min: 13, max: 20 },
-            safeMarkupRange: { min: 13, max: 20 },
-            defaultMarkup: 17,
+            markupEquivalentRange: { min: 14, max: 23 },
+            safeMarkupRange: { min: 14, max: 23 },
+            defaultMarkup: 18,
           },
           2: {
             name: 'Self-Perform + Subs',
             subtitle: 'Crew + subcontractors',
             overheadRange: { min: 6, max: 10 },
             profitRange: { min: 10, max: 15 },
-            markupEquivalentRange: { min: 16, max: 25 },
-            safeMarkupRange: { min: 16, max: 25 },
-            defaultMarkup: 20,
+            markupEquivalentRange: { min: 18, max: 29 },
+            safeMarkupRange: { min: 18, max: 29 },
+            defaultMarkup: 23,
           },
           3: {
             name: 'General Contractor',
             subtitle: 'Managed subcontractor delivery',
             overheadRange: { min: 5, max: 9 },
             profitRange: { min: 8, max: 12 },
-            markupEquivalentRange: { min: 13, max: 21 },
-            safeMarkupRange: { min: 13, max: 21 },
-            defaultMarkup: 17,
+            markupEquivalentRange: { min: 14, max: 24 },
+            safeMarkupRange: { min: 14, max: 24 },
+            defaultMarkup: 19,
           },
           4: {
-            name: 'Developer-Led Project',
+            name: 'Developer-Led',
             subtitle: 'Larger developer-led work',
             overheadRange: { min: 3, max: 6 },
             profitRange: { min: 8, max: 12 },
-            markupEquivalentRange: { min: 11, max: 18 },
-            safeMarkupRange: { min: 11, max: 18 },
-            defaultMarkup: 14,
+            markupEquivalentRange: { min: 12, max: 20 },
+            safeMarkupRange: { min: 12, max: 20 },
+            defaultMarkup: 16,
           },
           5: {
             name: 'Custom Profile',
@@ -15696,7 +15711,6 @@ export default function EstimateGeneratorScreen() {
             : null;
         const showDeveloperProjectCosts = profileBehavior.showDeveloperProjectCosts;
         const showAdvancedDeveloperCosts = showDeveloperProjectCosts;
-        const markupBaseSummary = 'hard costs + soft costs';
         const handleSelectStep5Profile = (typeNum) => {
           const currentBid = bidRef.current || bid;
           const updatedBid = {
@@ -15752,8 +15766,6 @@ export default function EstimateGeneratorScreen() {
         const marginOnBidLockedByMarkupPctOnly =
           businessOverheadDeduct < 0.005 &&
           Math.abs((calc?.markupBaseSubtotal ?? 0) - (calc?.subtotal ?? 0)) < 0.005;
-        const netProfitAccentColor = netProfit > 0 ? '#2dcc9a' : netProfit < 0 ? '#f87171' : '#d7e1f0';
-        
         // Status badges evaluate projected net margin vs pricing profile — not markup % alone.
         const showApplyButton = true;
         const marginTargetFeedback = getEstimateStep5MarginTargetFeedback({
@@ -15768,10 +15780,59 @@ export default function EstimateGeneratorScreen() {
         const markupStatus = marginTargetFeedback.markupStatus;
         const markupStatusText = marginTargetFeedback.markupStatusText;
         const markupStatusColor = marginTargetFeedback.markupStatusColor;
+        const step5TargetColor =
+          markupStatusColor === '#22c55e'
+            ? '#2dcc9a'
+            : markupStatusColor === '#ef4444'
+              ? '#f87171'
+              : markupStatusColor;
 
         const step5Label = darkMode ? '#d7e1f0' : '#334155';
         const step5Muted = step5Label;
         const step5MutedSoft = darkMode ? 'rgba(215, 225, 240, 0.72)' : Colors.sub;
+        const step5AmountStyle = {
+          textAlign: 'right',
+          minWidth: 108,
+          ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+        };
+        const step5ReceiptDivider = (
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 12 }} />
+        );
+        const step5ReceiptRow = ({ label, value, caption, bold = false, color, labelColor }) => (
+          <View
+            key={label}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5 }}
+          >
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text
+                style={{
+                  color: labelColor || (bold ? Colors.text : step5Muted),
+                  fontSize: ew(14, 16),
+                  fontWeight: bold ? '700' : '500',
+                }}
+              >
+                {label}
+              </Text>
+              {caption ? (
+                <Text style={{ color: step5MutedSoft, fontSize: ew(12, 14), marginTop: 2, lineHeight: ew(16, 19) }}>
+                  {caption}
+                </Text>
+              ) : null}
+            </View>
+            <Text
+              style={[
+                step5AmountStyle,
+                {
+                  color: color || Colors.text,
+                  fontSize: ew(14, 16),
+                  fontWeight: bold ? '700' : '600',
+                },
+              ]}
+            >
+              {value}
+            </Text>
+          </View>
+        );
         const step5FieldLabelStyle = {
           color: step5Label,
           fontSize: 12,
@@ -15929,20 +15990,24 @@ export default function EstimateGeneratorScreen() {
                               letterSpacing: -0.2,
                               lineHeight: ew(16, 19),
                             }}
-                            numberOfLines={2}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.85}
                           >
                             {info.name}
                           </Text>
                           <Text
                             style={{
                               color: selected ? 'rgba(142, 236, 201, 0.82)' : step5MutedSoft,
-                              fontSize: ew(11, 13),
-                              lineHeight: ew(13, 16),
-                              marginTop: 2,
+                              fontSize: ew(11.5, 13),
+                              lineHeight: ew(15, 17),
+                              marginTop: 3,
+                              fontWeight: '500',
+                              ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
                             }}
-                            numberOfLines={2}
+                            numberOfLines={1}
                           >
-                            {info.subtitle}
+                            {`Markup ${info.markupEquivalentRange.min}\u2013${info.markupEquivalentRange.max}%`}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -15957,7 +16022,13 @@ export default function EstimateGeneratorScreen() {
                   }}
                   style={[
                     step5ProfileChipBaseStyle,
-                    { width: '100%', marginBottom: 4 },
+                    {
+                      width: '100%',
+                      marginBottom: 4,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    },
                     normalizedContractorType === 5 && step5ProfileChipSelectedStyle,
                   ]}
                 >
@@ -15981,10 +16052,11 @@ export default function EstimateGeneratorScreen() {
                         normalizedContractorType === 5
                           ? 'rgba(142, 236, 201, 0.82)'
                           : step5MutedSoft,
-                      fontSize: ew(11, 13),
-                      lineHeight: ew(13, 16),
-                      marginTop: 2,
+                      fontSize: ew(11.5, 13),
+                      lineHeight: ew(15, 17),
+                      fontWeight: '500',
                     }}
+                    numberOfLines={1}
                   >
                     {contractorTypes[5].subtitle}
                   </Text>
@@ -15999,47 +16071,52 @@ export default function EstimateGeneratorScreen() {
                             color: step5Label,
                             fontSize: 12,
                             fontWeight: '600',
-                            marginBottom: 4,
+                            marginBottom: 12,
                           }}
                         >
                           Suggested starting targets
                         </Text>
-                        {[
-                          ['Overhead', recommendationInfo.overheadRange],
-                          ['Profit', recommendationInfo.profitRange],
-                          ['Markup equivalent', recommendationInfo.markupEquivalentRange],
-                        ].map(([label, range]) => (
-                          <Text
-                            key={String(label)}
-                            style={{
-                              fontSize: ew(11, 13),
-                              lineHeight: ew(16, 19),
-                              marginBottom: 2,
-                              fontWeight: '500',
-                            }}
-                          >
-                            <Text
+                        <View style={{ flexDirection: 'row' }}>
+                          {[
+                            ['Overhead', recommendationInfo.overheadRange],
+                            ['Profit', recommendationInfo.profitRange],
+                            ['Markup', recommendationInfo.markupEquivalentRange],
+                          ].map(([label, range], index) => (
+                            <View
+                              key={String(label)}
                               style={{
-                                color: darkMode ? 'rgba(203, 213, 225, 0.86)' : 'rgba(71, 85, 105, 0.88)',
+                                flex: 1,
+                                paddingLeft: index === 0 ? 0 : 12,
+                                borderLeftWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
+                                borderLeftColor: estimateFlowDividerColor(darkMode),
                               }}
                             >
-                              {`${label}: `}
-                            </Text>
-                            <Text
-                              style={{
-                                color: step5MutedSoft,
-                                fontWeight: '600',
-                              }}
-                            >
-                              {`${range.min}\u2013${range.max}%`}
-                            </Text>
-                          </Text>
-                        ))}
+                              <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 13), fontWeight: '500' }}>
+                                {label}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: Colors.text,
+                                  fontSize: ew(17, 19),
+                                  fontWeight: '700',
+                                  letterSpacing: -0.3,
+                                  marginTop: 4,
+                                  ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                                }}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                              >
+                                {`${range.min}\u2013${range.max}%`}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
                         <Text
                           style={{
                             color: step5MutedSoft,
                             fontSize: 12,
-                            marginTop: 6,
+                            marginTop: 12,
                             lineHeight: 16,
                             fontWeight: '500',
                           }}
@@ -17021,47 +17098,29 @@ export default function EstimateGeneratorScreen() {
               {calc && (
                 <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
                 <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginBottom: 0, backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: 'rgba(148, 163, 184, 0.12)' }]}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={[{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 4 }]}>Total project cost</Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
-                        {`${(Number(bid.equipment) || 0) > 0 ? 'Hard costs + equipment' : 'Hard costs'} ${money(calc.hardCosts || 0)} · Soft costs ${money(calc.softCosts || 0)} · Contingency ${money(calc.contingency || 0)}`}
-                      </Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: ew(10.5, 13), marginTop: 6, lineHeight: ew(15, 18), fontWeight: '600' }}>
-                        {`Builder margin is ${markupBaseSummary}. Contingency and overhead are not marked up.`}
-                      </Text>
-                    </View>
-                    <Text style={{
-                      color: Colors.text,
-                      fontSize: 16,
-                      fontWeight: '700',
-                      textAlign: 'right',
-                      minWidth: 108,
-                      letterSpacing: -0.2,
-                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
-                    }}
-                    >
-                      {money(calc.subtotal || 0)}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#64748b', fontSize: ew(13, 15), fontWeight: '700' }}>
-                      {`+ Builder margin (${Number(currentMarkup) || 0}%)`}
-                    </Text>
-                    <Text style={{
-                      color: (calc.profit || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
-                      fontSize: 16,
-                      fontWeight: '700',
-                      textAlign: 'right',
-                      minWidth: 108,
-                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
-                    }}
-                    >
-                      {money(calc.profit || 0)}
-                    </Text>
-                  </View>
-                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 10 }} />
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  {step5ReceiptRow({
+                    label: (Number(bid.equipment) || 0) > 0 ? 'Hard costs + equipment' : 'Hard costs',
+                    value: money(calc.hardCosts || 0),
+                  })}
+                  {(calc.softCosts || 0) > 0
+                    ? step5ReceiptRow({ label: 'Soft costs', value: money(calc.softCosts) })
+                    : null}
+                  {(calc.contingency || 0) > 0
+                    ? step5ReceiptRow({ label: 'Contingency', value: money(calc.contingency) })
+                    : null}
+                  {step5ReceiptDivider}
+                  {step5ReceiptRow({
+                    label: 'Total project cost',
+                    value: money(calc.subtotal || 0),
+                    bold: true,
+                  })}
+                  {step5ReceiptRow({
+                    label: `+ Builder margin (${Number(currentMarkup) || 0}%)`,
+                    value: money(calc.profit || 0),
+                    caption: 'On hard + soft costs',
+                  })}
+                  {step5ReceiptDivider}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
                     <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
                     <Text style={{
                       color: (calc?.grandTotal || calc?.total || 0) > 0 ? '#2dcc9a' : '#d7e1f0',
@@ -17076,47 +17135,20 @@ export default function EstimateGeneratorScreen() {
                       {money(calc?.grandTotal || calc?.total || 0)}
                     </Text>
                   </View>
-                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 10 }} />
-                  <Text style={{ color: step5Label, fontSize: 12, fontWeight: '600', marginBottom: 10 }}>Profit breakdown</Text>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <Text style={{ color: step5Muted, fontSize: ew(13, 15), fontWeight: '600' }}>Markup available</Text>
-                    <Text style={{
-                      color: Colors.text,
-                      fontSize: 15,
-                      fontWeight: '600',
-                      textAlign: 'right',
-                      minWidth: 108,
-                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
-                    }}
-                    >
-                      {money(calc.profit || 0)}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={{ color: '#f97316', fontSize: ew(13, 15), fontWeight: '700' }}>− Project overhead</Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
-                        Overhead on this job. Paid from the builder margin, not added to the client bid.
-                      </Text>
-                    </View>
-                    <Text style={{
-                      color: '#f97316',
-                      fontSize: 16,
-                      fontWeight: '700',
-                      textAlign: 'right',
-                      minWidth: 108,
-                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
-                    }}
-                    >
-                      {money(businessOverheadDeduct)}
-                    </Text>
-                  </View>
-                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: estimateFlowDividerColor(darkMode), marginVertical: 10 }} />
+                  {step5ReceiptDivider}
+                  {step5ReceiptRow({
+                    label: '− Project overhead',
+                    value: businessOverheadDeduct > 0 ? `−${money(businessOverheadDeduct)}` : money(0),
+                    caption: 'Paid from builder margin',
+                    color: '#f97316',
+                    labelColor: '#f97316',
+                  })}
+                  {step5ReceiptDivider}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1, paddingRight: 12 }}>
                       <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Projected net profit</Text>
-                      <Text style={{ color: netProfitAccentColor, fontSize: ew(12.5, 14.5), marginTop: 4, fontWeight: '600' }}>
-                        {netProfitPct.toFixed(1)}% projected net margin
+                      <Text style={{ color: step5TargetColor, fontSize: ew(12.5, 14.5), marginTop: 4, fontWeight: '600' }}>
+                        {`${netProfitPct.toFixed(1)}% net margin`}
                       </Text>
                       {marginOnBidLockedByMarkupPctOnly ? (
                         <Text
@@ -17132,15 +17164,12 @@ export default function EstimateGeneratorScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <Text style={{
-                      color: netProfitAccentColor,
-                      fontSize: 20,
+                    <Text style={[step5AmountStyle, {
+                      color: step5TargetColor,
+                      fontSize: ew(17, 19),
                       fontWeight: '800',
-                      letterSpacing: -0.35,
-                      textAlign: 'right',
-                      minWidth: 108,
-                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
-                    }}
+                      letterSpacing: -0.3,
+                    }]}
                     >
                       {money(netProfit)}
                     </Text>
@@ -18610,8 +18639,9 @@ export default function EstimateGeneratorScreen() {
                         );
                         const showCustomHoldback = weeklyHoldbackCustomOpen || !holdbackIsPreset;
                         const holdbackChipStyle = {
+                          flex: 1,
                           paddingVertical: 8,
-                          paddingHorizontal: 12,
+                          paddingHorizontal: 4,
                           borderRadius: 14,
                           minHeight: 36,
                           alignItems: 'center',
@@ -18622,7 +18652,7 @@ export default function EstimateGeneratorScreen() {
                         };
                         return (
                           <>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
                               {WEEKLY_PROGRESS_HOLDBACK_OPTIONS.map((value) => {
                                 const selected = !showCustomHoldback && Number(weeklyHoldbackPercentText) === value;
                                 return (
@@ -18635,7 +18665,7 @@ export default function EstimateGeneratorScreen() {
                                     }}
                                     style={[holdbackChipStyle, selected && step7SelectedFill]}
                                   >
-                                    <Text style={{ color: selected ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
+                                    <Text numberOfLines={1} style={{ color: selected ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
                                       {value === 0 ? 'None' : `${value}%`}
                                     </Text>
                                   </TouchableOpacity>
@@ -18649,7 +18679,7 @@ export default function EstimateGeneratorScreen() {
                                 }}
                                 style={[holdbackChipStyle, showCustomHoldback && step7SelectedFill]}
                               >
-                                <Text style={{ color: showCustomHoldback ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
+                                <Text numberOfLines={1} style={{ color: showCustomHoldback ? step7SelectedText : '#e2e8f0', fontSize: 13, fontWeight: '700' }}>
                                   Custom
                                 </Text>
                               </TouchableOpacity>
@@ -18684,10 +18714,11 @@ export default function EstimateGeneratorScreen() {
                     {weeklyPreviewHoldbackPct > 0 && (
                     <View>
                       <Text style={step7FieldLabel}>Holdback due</Text>
-                      <View style={{ gap: 8 }}>
-                        {[0, 2].map((start) => (
-                        <View key={`holdback-due-row-${start}`} style={{ flexDirection: 'row', gap: 8 }}>
-                        {Object.keys(WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS).slice(start, start + 2).map((key) => {
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {[
+                          ...(WEEKLY_PROGRESS_HOLDBACK_DUE_OPTIONS.includes(weeklyHoldbackDue) ? [] : [weeklyHoldbackDue]),
+                          ...WEEKLY_PROGRESS_HOLDBACK_DUE_OPTIONS,
+                        ].filter((key) => WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS[key]).map((key) => {
                           const selected = weeklyHoldbackDue === key;
                           const label = {
                             substantial_completion: 'Substantial completion',
@@ -18732,8 +18763,6 @@ export default function EstimateGeneratorScreen() {
                             </TouchableOpacity>
                           );
                         })}
-                        </View>
-                        ))}
                       </View>
                       <View style={[step7DateGroup, { marginTop: 10 }]}>
                         {renderStep7DateRow({
@@ -18871,7 +18900,9 @@ export default function EstimateGeneratorScreen() {
                             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: rowDotColor, marginTop: 5 }} />
                             <View style={{ flex: 1 }}>
                               <Text style={{ color: Colors.text, fontSize: 12.5, fontWeight: '700' }}>
-                                {payment.name || payment.description || `Payment ${index + 1}`}
+                                {payment.type === 'weekly' && payment.weekNumber
+                                  ? `Week ${payment.weekNumber}`
+                                  : payment.name || payment.description || `Payment ${index + 1}`}
                               </Text>
                               {payment.scheduledDate ? (
                                 <Text style={{ color: step7MutedSoft, fontSize: 11, marginTop: 2 }}>
@@ -18903,7 +18934,7 @@ export default function EstimateGeneratorScreen() {
                     )}
 
                     {weeklyPreviewHoldbackPct > 0 && (
-                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16 }}>
+                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 18, marginTop: 4 }}>
                         Minor punch-list items should not delay payment for completed work. If incomplete or defective work remains, the customer may only withhold a reasonable amount directly related to those specific items.
                       </Text>
                     )}
@@ -23770,18 +23801,6 @@ export default function EstimateGeneratorScreen() {
         defaultEstimateName={bid.title}
         onClose={() => setShowSaveTemplateModal(false)}
         onSave={handleSaveAsTemplate}
-      />
-
-      <BottomToast
-        visible={aiDraftFillToast.visible}
-        message="AI draft applied"
-        subtitle={
-          aiDraftFillToast.roomCount > 0
-            ? `${aiDraftFillToast.roomCount} room${aiDraftFillToast.roomCount === 1 ? '' : 's'} added as labor line items. Review pricing and scope before sending.`
-            : 'Review pricing and scope before sending.'
-        }
-        onDismiss={() => setAiDraftFillToast({ visible: false, roomCount: 0 })}
-        duration={2500}
       />
 
       <BottomToast

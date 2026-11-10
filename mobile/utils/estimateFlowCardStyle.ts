@@ -2,52 +2,19 @@ import { StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 
+export {
+  ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS,
+  defaultWeeklyProjectWeeks,
+  getProjectJobDurationDays,
+  getProjectJobDurationWeeks,
+  resolveWeeklyProjectWeeks,
+} from './projectJobDuration';
+
 /** Horizontal inset for estimate flow screens — matches `wideContainer` cards on Bid Summary. */
 export const ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD = PROJECT_WIDE_CONTAINER_CARD_INSET;
 
 /** Uniform vertical gap between stacked flow cards (Summary → Step 8). */
 export const ESTIMATE_FLOW_CARD_GAP = 12;
-
-/** Inclusive calendar-day count between project start and end (YYYY-MM-DD). */
-export function getProjectJobDurationDays(
-  startDate?: string | null,
-  endDate?: string | null,
-): number | null {
-  if (!startDate || !endDate) return null;
-  const startTs = new Date(`${startDate}T00:00:00`).getTime();
-  const endTs = new Date(`${endDate}T00:00:00`).getTime();
-  const spanDays = Math.round((endTs - startTs) / (1000 * 60 * 60 * 24));
-  if (spanDays < 0) return null;
-  return spanDays + 1;
-}
-
-/** Billable week count from Step 2 start/end dates (partial weeks round up). */
-export function getProjectJobDurationWeeks(
-  startDate?: string | null,
-  endDate?: string | null,
-): number | null {
-  const days = getProjectJobDurationDays(startDate, endDate);
-  if (days == null) return null;
-  return Math.max(1, Math.ceil(days / 7));
-}
-
-/** Step 7 weekly progress default when Step 2 dates are not set yet. */
-export const ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS = 4;
-
-export function resolveWeeklyProjectWeeks(
-  startDate?: string | null,
-  endDate?: string | null,
-  overrideWeeks?: string | number | null,
-): number {
-  const parsedOverride = Math.round(Number(overrideWeeks));
-  if (Number.isFinite(parsedOverride) && parsedOverride > 0) {
-    return parsedOverride;
-  }
-  return (
-    getProjectJobDurationWeeks(startDate, endDate) ??
-    ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS
-  );
-}
 
 /** Light mint ring when an inline date field has its calendar open. */
 export function estimateFlowActiveDateFieldStyle(isActive: boolean): ViewStyle {

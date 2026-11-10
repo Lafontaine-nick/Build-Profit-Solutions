@@ -440,50 +440,38 @@ export default function TaxCenterSummaryDetailModal({
   );
 
   const chips = useMemo(() => {
-    const yearChip = `TY ${selectedYear}`;
-    const total = summaryCardValue;
+    const missingReceiptsChip =
+      missingReceiptsExpenseCount > 0 ? (
+        <Chip styles={styles} label={`Missing receipts: ${missingReceiptsExpenseCount}`} warn />
+      ) : null;
     switch (kind) {
       case 'revenue':
         return (
-          <>
-            <Chip styles={styles} label={`${revenuePayments.length} payment row${revenuePayments.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} figure />
-            <Chip styles={styles} label={yearChip} />
-            <Chip styles={styles} label="Cash basis" />
-          </>
+          <Chip
+            styles={styles}
+            label={`${revenuePayments.length} payment row${revenuePayments.length === 1 ? '' : 's'}`}
+          />
         );
       case 'ar':
         return (
-          <>
-            <Chip styles={styles} label={`${arRows.length} unpaid row${arRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} figure />
-            <Chip styles={styles} label="Informational only" />
-            <Chip styles={styles} label={yearChip} />
-          </>
+          <Chip styles={styles} label={`${arRows.length} unpaid row${arRows.length === 1 ? '' : 's'}`} />
         );
-      case 'expenses': {
-        const miss = missingReceiptsExpenseCount;
+      case 'expenses':
         return (
           <>
-            <Chip styles={styles} label={`${expenseRows.length} expense row${expenseRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} figure />
-            {miss > 0 ? (
-              <Chip styles={styles} label={`Missing receipts: ${miss}`} warn />
-            ) : (
-              <Chip styles={styles} label="Missing receipts: 0" />
-            )}
-            <Chip styles={styles} label={yearChip} />
+            <Chip
+              styles={styles}
+              label={`${expenseRows.length} expense row${expenseRows.length === 1 ? '' : 's'}`}
+            />
+            {missingReceiptsChip}
           </>
         );
-      }
       case 'committed':
         return (
-          <>
-            <Chip styles={styles} label={`${committedRows.length} committed row${committedRows.length === 1 ? '' : 's'}`} />
-            <Chip styles={styles} label={total} figure />
-            <Chip styles={styles} label="Informational only" />
-            <Chip styles={styles} label={yearChip} />
-          </>
+          <Chip
+            styles={styles}
+            label={`${committedRows.length} committed row${committedRows.length === 1 ? '' : 's'}`}
+          />
         );
       case 'subcontractor':
       case 'w2':
@@ -497,16 +485,8 @@ export default function TaxCenterSummaryDetailModal({
             warn
           />
         );
-      case 'receipts': {
-        const miss = missingReceiptsExpenseCount;
-        return (
-          <>
-            <Chip styles={styles} label={`Receipt count: ${summary.receiptCount}`} figure />
-            {miss > 0 ? <Chip styles={styles} label={`Missing receipts: ${miss}`} warn /> : <Chip styles={styles} label="Missing receipts: 0" />}
-            <Chip styles={styles} label={yearChip} />
-          </>
-        );
-      }
+      case 'receipts':
+        return missingReceiptsChip;
       default:
         return null;
     }
@@ -518,8 +498,6 @@ export default function TaxCenterSummaryDetailModal({
     missingReceiptsExpenseCount,
     revenuePayments.length,
     review1099.potential1099VendorCount,
-    summary.receiptCount,
-    summaryCardValue,
     selectedYear,
     styles,
   ]);
