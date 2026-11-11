@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Pressable } from "react-native";
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import GreyCalendar from "./GreyCalendar";
+import { useProjectScheduleDateKeys } from "@/hooks/useProjectScheduleDateKeys";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -58,6 +59,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
   const [orderDate, setOrderDate] = useState(() => new Date());
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() => new Date());
   const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
+  const projectSchedule = useProjectScheduleDateKeys();
 
   useEffect(() => {
     if (visible && purchaseOrder) {
@@ -237,7 +239,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowDeliveryDatePicker(true);
+                  setShowDeliveryDatePicker((open) => !open);
                 }}
                 style={[
                   styles.dateButton,
@@ -260,16 +262,26 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 </Text>
               </TouchableOpacity>
               {showDeliveryDatePicker && (
-                <DateTimePicker
-                  value={expectedDeliveryDate}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  minimumDate={orderDate}
-                  onChange={(_, date) => {
-                    setShowDeliveryDatePicker(Platform.OS === 'ios');
-                    if (date) setExpectedDeliveryDate(date);
-                  }}
-                />
+                <View style={{ marginTop: 12 }}>
+                  <GreyCalendar
+                    onDayPress={(day) => {
+                      const selectedDate = new Date(day.dateString + "T00:00:00");
+                      const earliest = new Date(orderDate);
+                      earliest.setHours(0, 0, 0, 0);
+                      if (selectedDate < earliest) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        return;
+                      }
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setExpectedDeliveryDate(selectedDate);
+                      setShowDeliveryDatePicker(false);
+                    }}
+                    selectedDateString={toYYYYMMDD(expectedDeliveryDate)}
+                    rangeStartDate={projectSchedule.start}
+                    rangeEndDate={projectSchedule.end}
+                    initialDate={toYYYYMMDD(expectedDeliveryDate)}
+                  />
+                </View>
               )}
             </View>
 

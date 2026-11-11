@@ -355,11 +355,6 @@ function ProjectDetailContent() {
     }
   }, [id]);
 
-  // Debug: Log when project data changes
-  useEffect(() => {
-    console.log(`🔄 Project data updated - overallProgressPct: ${contextProjectData?.overallProgressPct}`);
-  }, [contextProjectData?.overallProgressPct]);
-
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -732,11 +727,12 @@ function ProjectDetailContent() {
   const loadMaterialsFromStorage = useCallback(async () => {
     try {
       const saved = await AsyncStorage.getItem('bps.materialsCart');
-      if (saved) {
-        const materials = JSON.parse(saved);
-        setMaterialsCart(materials);
-        console.log(`📦 Loaded ${materials.length} materials from AsyncStorage`);
-      }
+        if (saved) {
+          const materials = JSON.parse(saved);
+          setMaterialsCart((prev) =>
+            JSON.stringify(prev) === JSON.stringify(materials) ? prev : materials
+          );
+        }
     } catch (error) {
       console.error('Error loading materials:', error);
     }
@@ -748,15 +744,12 @@ function ProjectDetailContent() {
       const loadOnFocus = async () => {
         if (!isActive) return;
         await loadMaterialsFromStorage();
-        if (reloadFromStorage) {
-          await reloadFromStorage();
-        }
       };
       loadOnFocus();
       return () => {
         isActive = false;
       };
-    }, [loadMaterialsFromStorage, reloadFromStorage])
+    }, [loadMaterialsFromStorage])
   );
 
   // Recalculate budget total and cost (subtotal) from estimate data
@@ -1165,8 +1158,6 @@ function ProjectDetailContent() {
 
   // Convert project data to BudgetData format for BudgetTab
   const convertToBudgetData = (project: any) => {
-    console.log('🔍 Converting project to budget data:', project);
-
     const sharedListFields = () => ({
       expenses: contextProjectData?.expenses || [],
       changeOrders: contextProjectData?.changeOrders || [],
@@ -1300,7 +1291,6 @@ function ProjectDetailContent() {
     };
 
     if (!project?.estimateData) {
-      console.log('⚠️ No estimate data — building budget category lines from buckets / spend');
       const lines: any[] = mapApprovedCostBucketsToBudgetLines(
         (realProjectData as any)?.approvedCostBuckets
       );
@@ -1317,9 +1307,6 @@ function ProjectDetailContent() {
 
     const estimate = project.estimateData;
     const lines = [];
-
-    console.log('📊 Estimate data:', estimate);
-    console.log('📦 Materials cart:', materialsCart);
 
     const sumLineItems = (items: any[] = []) =>
       items.reduce((sum, item) => {
@@ -1445,8 +1432,6 @@ function ProjectDetailContent() {
         spent: materialsSpent,
         aiSuggested: false,
       });
-      
-      console.log(`📊 Materials budget: materialsCart=$${materialsFromCart}, materialLineItems=$${materialsFromLineItems}, final=$${finalMaterialsBudget}, totalBudgetCap=$${totalBudgetCap}`);
     }
 
     // Add one Labor card - PREFER estimate.laborLineItems (same as Overview tab), then bucket budget
@@ -1480,8 +1465,6 @@ function ProjectDetailContent() {
         spent: laborSpent,
         aiSuggested: false,
       });
-      
-      console.log(`📊 Labor budget: estimate=$${laborFromEstimate}, bucket=$${laborBucketBudget}, final=$${laborBudget}`);
     }
 
     // Allowances card — soft costs from bid.allowanceLineItems (under Labor)
@@ -1557,7 +1540,6 @@ function ProjectDetailContent() {
     // Markup stays off the budget cards. Project overhead is job cost and sits inside the cost cap.
 
     if (lines.length === 0) {
-      console.log('⚠️ Estimate path produced no category lines — applying bucket fallback');
       appendBucketFallbackLines(lines);
     }
 
@@ -1570,7 +1552,6 @@ function ProjectDetailContent() {
       committedPOs: contextProjectData?.committedPOs || 0,
     };
 
-    console.log('✅ Converted budget data:', budgetData);
     return budgetData;
   };
 
@@ -1642,17 +1623,6 @@ function ProjectDetailContent() {
     };
   })();
 
-  // Debug logging
-  console.log('🔍 Project Detail Debug:');
-  console.log('📋 Project ID:', id);
-  console.log('📋 Real Project Data:', realProjectData);
-  console.log('📋 Estimate Start Date:', realProjectData?.estimateData?.projectStartDate);
-  console.log('📋 Estimate End Date:', realProjectData?.estimateData?.projectEndDate);
-  console.log('📋 Final Start ISO:', projectData?.startISO);
-  console.log('📋 Final End ISO:', projectData?.endISO);
-  console.log('📋 Final Project Data:', projectData);
-  console.log('📋 Budget Data:', budgetData);
-  
   const missingProjectData = !projectData;
   const projectDataBase: any = projectData ?? {
     title: 'Untitled Project',
@@ -2067,9 +2037,6 @@ function ProjectDetailContent() {
       </View>
     );
     try {
-      console.log('🔍 Rendering tab:', activeTab);
-      console.log('🔍 Safe project data:', safeProjectData);
-      
       switch (activeTab) {
         case 'Overview': {
           if (!projectDetailReady) {

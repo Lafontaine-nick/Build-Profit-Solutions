@@ -5297,18 +5297,6 @@ export default function EstimateGeneratorScreen() {
 
   const formatZipInput = (text) => text.replace(/\D/g, '').slice(0, 10);
 
-  // Debug useEffect to track state changes
-  useEffect(() => {
-    console.log('🔍 State update:', {
-      isFirstTime,
-      hasCreatedFirstEstimate,
-      hasSubmittedFirstEstimate,
-      isLoaded,
-      step,
-      total: calc?.total,
-    });
-  }, [isFirstTime, hasCreatedFirstEstimate, hasSubmittedFirstEstimate, isLoaded, step, calc?.total]);
-
   // Persist "submitted at least once" without turning off first-run copy until second bid (handled by coachGate / hasMultipleBids).
   useEffect(() => {
     if (!isLoaded) return;

@@ -1337,10 +1337,25 @@ export default function TimelineTabV2({
   /* ---------- actions ---------- */
 
   const ignorePaymentPressUntilRef = useRef(0);
+  const openedChangeOrderArrivalRef = useRef(0);
   useEffect(() => {
     if (!paymentsArrival) return;
     ignorePaymentPressUntilRef.current = Date.now() + 800;
   }, [paymentsArrival]);
+
+  useEffect(() => {
+    if (!paymentsArrival || !pendingChangeOrderBillId || !isLoaded) return;
+    if (openedChangeOrderArrivalRef.current === paymentsArrival) return;
+    const milestone = milestones.find(
+      (item) => String(item.id) === `bps-co-${pendingChangeOrderBillId}`
+    );
+    if (!milestone) return;
+    const timer = setTimeout(() => {
+      openedChangeOrderArrivalRef.current = paymentsArrival;
+      setEditingMilestone(milestone);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [paymentsArrival, pendingChangeOrderBillId, isLoaded, milestones]);
 
   const onOpenMilestone = (m: Milestone) => {
     if (Date.now() < ignorePaymentPressUntilRef.current) return;

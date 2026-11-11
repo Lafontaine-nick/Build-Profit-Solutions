@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
-  InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
@@ -311,28 +310,8 @@ export default function BudgetTab({
   }, [showChangeOrderModal, changeOrderPricingMode, changeOrderSqftInput, changeOrderRateInput]);
 
   const router = useRouter();
-  const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
+  const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO } = useProjectData();
   const { projects, getProjectById } = useProjectList();
-  
-  
-  // Reload from storage when Budget tab is focused, but defer until nav interactions complete
-  // to avoid visible shuttering during screen/modal transitions.
-  useFocusEffect(
-    React.useCallback(() => {
-      if (reloadFromStorage) {
-        const task = InteractionManager.runAfterInteractions(() => {
-          reloadFromStorage().catch(() => {});
-        });
-        return () => task.cancel();
-      }
-      return undefined;
-    }, [reloadFromStorage])
-  );
-  
-  // Reduced logging to prevent terminal glitching
-  // useEffect(() => {
-  //   // Only log count, not full array
-  // }, [contextProjectData?.purchaseOrders, contextProjectData?.committedPOs]);
   
   // Resolve list project early — cost-control bucket fallback needs approvedCostBuckets.
   const projectId = useMemo(

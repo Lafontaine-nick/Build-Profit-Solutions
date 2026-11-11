@@ -110,6 +110,12 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   const parseDateKey = (dateKey: string) =>
     new Date(`${dateKey}T00:00:00`).getTime();
 
+  const formatScheduleDay = (dateKey: string) => {
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return dateKey;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   const rangeBounds = useMemo(() => {
     const startTs = rangeStartDate ? parseDateKey(rangeStartDate) : null;
     const endTs = rangeEndDate ? parseDateKey(rangeEndDate) : null;
@@ -151,6 +157,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
         activePicker === 'start' ? isRangeStart : activePicker === 'end' ? isRangeEnd : false;
       const isOtherEndpoint =
         activePicker === 'start' ? isRangeEnd : activePicker === 'end' ? isRangeStart : false;
+      const isScheduleEndpoint = isRangeStart || isRangeEnd;
       const isInRange =
         rangeBounds.min != null &&
         rangeBounds.max != null &&
@@ -159,6 +166,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
       const isSelected = selectedDateString
         ? dateString === selectedDateString
         : isActiveEndpoint || Boolean(markedConfig.selected);
+      const showScheduleEndpoint =
+        !isSelected && (isOtherEndpoint || (activePicker == null && isScheduleEndpoint));
       const isMarked = Boolean(markedConfig.marked || (markedConfig.selected && !isSelected));
 
       // Get events for this date
@@ -167,7 +176,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
 
       const dayNumberStyle = isSelected
         ? styles.dayTextSelected
-        : isOtherEndpoint
+        : showScheduleEndpoint
           ? styles.dayTextRangeEndpoint
         : isToday
           ? styles.dayTextToday
@@ -189,7 +198,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
             style={[
               styles.dayInner,
               isSelected && styles.dayInnerSelected,
-              !isSelected && isOtherEndpoint && styles.dayInnerRangeEndpoint,
+              showScheduleEndpoint && styles.dayInnerRangeEndpoint,
             ]}
           >
             <Text style={dayNumberStyle}>{day}</Text>
@@ -283,6 +292,17 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
               <Text style={styles.legendText}>{item.label}</Text>
             </View>
           ))}
+        </View>
+      ) : null}
+
+      {activePicker == null && rangeStartDate && rangeEndDate ? (
+        <View style={styles.scheduleLabelRow}>
+          <Text style={styles.scheduleLabel}>
+            Start date <Text style={styles.scheduleLabelDate}>{formatScheduleDay(rangeStartDate)}</Text>
+          </Text>
+          <Text style={[styles.scheduleLabel, styles.scheduleLabelEnd]}>
+            End date <Text style={styles.scheduleLabelDate}>{formatScheduleDay(rangeEndDate)}</Text>
+          </Text>
         </View>
       ) : null}
 
@@ -484,6 +504,29 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: darkMode ? 'rgba(255, 255, 255, 0.86)' : Colors.sub,
+  },
+  scheduleLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+  },
+  scheduleLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: darkMode ? 'rgba(215, 225, 240, 0.9)' : Colors.sub,
+  },
+  scheduleLabelEnd: {
+    textAlign: 'right',
+  },
+  scheduleLabelDate: {
+    color: CALENDAR_MINT,
+    fontWeight: '700',
   },
   footer: {
     marginTop: 10,

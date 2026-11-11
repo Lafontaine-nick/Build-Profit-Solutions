@@ -326,46 +326,67 @@ export default function EstimateLinePicker({
     close();
   }, [close, inline, onBack]);
 
+  const projectIdForChangeOrders = useCallback(() => {
+    return String(
+      (projectLike as { id?: string; projectId?: string } | null)?.id ||
+        (projectLike as { projectId?: string } | null)?.projectId ||
+        ''
+    );
+  }, [projectLike]);
+
+  const jumpToChangeOrderPayment = useCallback(
+    (changeOrderId: string) => {
+      if (!onOpenChangeOrderPayment) return;
+      setTimeout(() => {
+        onOpenChangeOrderPayment(changeOrderId);
+        setTimeout(() => {
+          closeImmediately();
+          onDidDismiss?.();
+        }, 50);
+      }, 200);
+    },
+    [closeImmediately, onDidDismiss, onOpenChangeOrderPayment]
+  );
+
+  const showUnreceivedChangeOrderAlert = useCallback(
+    (changeOrderId: string) => {
+      Alert.alert(
+        'Mark received first',
+        'Mark this payment Received on the Timeline before you record material or labor.',
+        onOpenChangeOrderPayment
+          ? [
+              { text: 'Not now', style: 'cancel' },
+              {
+                text: 'Go to Timeline',
+                onPress: () => jumpToChangeOrderPayment(changeOrderId),
+              },
+            ]
+          : [{ text: 'OK' }]
+      );
+    },
+    [jumpToChangeOrderPayment, onOpenChangeOrderPayment]
+  );
+
+  const changeOrderPaymentIsReceived = useCallback(
+    async (changeOrderId: string) => {
+      if (receivedChangeOrderIds?.has(changeOrderId)) return true;
+      if (receivedChangeOrderIds && !receivedChangeOrderIds.has(changeOrderId)) return false;
+      return isChangeOrderPaymentReceived(projectIdForChangeOrders(), changeOrderId);
+    },
+    [projectIdForChangeOrders, receivedChangeOrderIds]
+  );
+
   const confirmSelection = useCallback(() => {
     void (async () => {
       const changeOrderId = changeOrderIdFromBudgetLineId(pendingLine?.id);
-      if (changeOrderId) {
-        const projectId = String(
-          (projectLike as { id?: string; projectId?: string } | null)?.id ||
-            (projectLike as { projectId?: string } | null)?.projectId ||
-            ''
-        );
-        const received = await isChangeOrderPaymentReceived(projectId, changeOrderId);
-        if (!received) {
-          const name = pendingLine?.name?.trim() || 'this change order';
-          Alert.alert(
-            'Payment not received',
-            `Mark ${name} as Received on the Timeline before logging this bill.`,
-            onOpenChangeOrderPayment
-              ? [
-                  { text: 'Not now', style: 'cancel' },
-                  {
-                    text: 'Go to Timeline',
-                    onPress: () => {
-                      setTimeout(() => {
-                        onOpenChangeOrderPayment(changeOrderId);
-                        setTimeout(() => {
-                          closeImmediately();
-                          onDidDismiss?.();
-                        }, 50);
-                      }, 200);
-                    },
-                  },
-                ]
-              : undefined
-          );
-          return;
-        }
+      if (changeOrderId && !(await changeOrderPaymentIsReceived(changeOrderId))) {
+        showUnreceivedChangeOrderAlert(changeOrderId);
+        return;
       }
       onSelect(pendingLine);
       close();
     })();
-  }, [close, closeImmediately, onDidDismiss, onOpenChangeOrderPayment, onSelect, pendingLine, projectLike]);
+  }, [changeOrderPaymentIsReceived, close, onSelect, pendingLine, showUnreceivedChangeOrderAlert]);
 
   const choose = (line: EstimateLineOption | null) => {
     onSelect(line);
@@ -373,7 +394,18 @@ export default function EstimateLinePicker({
   };
 
   const togglePending = (lineId: string) => {
-    setPendingLineId((current) => (current === lineId ? null : lineId));
+    void (async () => {
+      const changeOrderId = changeOrderIdFromBudgetLineId(lineId);
+      if (
+        changeOrderId &&
+        tracksChangeOrders(kind) &&
+        !(await changeOrderPaymentIsReceived(changeOrderId))
+      ) {
+        showUnreceivedChangeOrderAlert(changeOrderId);
+        return;
+      }
+      setPendingLineId((current) => (current === lineId ? null : lineId));
+    })();
   };
 
   const pendingSummary = pendingLine
@@ -594,8 +626,7 @@ export default function EstimateLinePicker({
                         ) : null}
                       </View>
                     ) : null}
-                    <Pressable
-                      onPress={() => togglePending(line.id)}
+                    <View
                       style={[
                         styles.option,
                         {
@@ -605,6 +636,11 @@ export default function EstimateLinePicker({
                         isLast && styles.optionLast,
                       ]}
                     >
+                      <View style={styles.optionBody}>
+                      <Pressable
+                        onPress={() => togglePending(line.id)}
+                        style={styles.optionSelect}
+                      >
                       <View style={styles.optionText}>
                         <View style={styles.optionTitleRow}>
                           <Text style={[styles.optionName, { color: colors.text, flex: 1 }]}>
@@ -622,13 +658,6 @@ export default function EstimateLinePicker({
                           </Text>
                           {line.quantity && line.unit ? ` · ${line.quantity} ${line.unit}` : ''}
                         </Text>
-                        {isChangeOrder &&
-                        receivedChangeOrderIds != null &&
-                        !receivedChangeOrderIds.has(changeOrderIdFromBudgetLineId(line.id) || '') ? (
-                          <Text style={{ color: '#f59e0b', fontSize: 14, fontWeight: '700', marginTop: 8 }}>
-                            Mark Received on the Timeline
-                          </Text>
-                        ) : null}
                         {summary.loggedTotal > 0 ? (
                           <>
                             <Text
@@ -669,7 +698,24 @@ export default function EstimateLinePicker({
                         size={24}
                         color="#2dcc9a"
                       />
-                    </Pressable>
+                      </Pressable>
+                      {isChangeOrder &&
+                      receivedChangeOrderIds != null &&
+                      !receivedChangeOrderIds.has(changeOrderIdFromBudgetLineId(line.id) || '') ? (
+                        <Pressable
+                          onPress={() => {
+                            const changeOrderId = changeOrderIdFromBudgetLineId(line.id);
+                            if (changeOrderId) jumpToChangeOrderPayment(changeOrderId);
+                          }}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Mark Received on the Timeline"
+                        >
+                          <Text style={styles.timelineLink}>Mark Received on the Timeline</Text>
+                        </Pressable>
+                      ) : null}
+                      </View>
+                    </View>
                     </React.Fragment>
                   );
                 })}
@@ -942,6 +988,12 @@ const styles = StyleSheet.create({
     minHeight: 62,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 14,
+  },
+  optionBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  optionSelect: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -957,6 +1009,13 @@ const styles = StyleSheet.create({
   },
   optionName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2 },
   optionMeta: { fontSize: 15, marginTop: 4, fontWeight: '600' },
+  timelineLink: {
+    color: '#f59e0b',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 8,
+    textDecorationLine: 'underline',
+  },
   optionSpent: { fontSize: 15, marginTop: 6, fontWeight: '700' },
   progressTrack: {
     height: 8,

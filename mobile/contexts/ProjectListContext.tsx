@@ -408,6 +408,38 @@ function dedupeProjectsById(list: UnifiedProject[]): UnifiedProject[] {
   return [...byId.values(), ...noId];
 }
 
+function projectListVisibleSignature(rows: UnifiedProject[]): string {
+  return rows
+    .map((project) => {
+      const data = (project.projectData || {}) as {
+        spent?: number;
+        budgeted?: number;
+        committedPOs?: number;
+        expenses?: { id?: string; amount?: number }[];
+        purchaseOrders?: { id?: string; status?: string; amount?: number }[];
+        changeOrders?: { id?: string; approved?: boolean; amount?: number }[];
+      };
+      return [
+        project.id,
+        project.status,
+        project.progress,
+        project.overallProgressPct,
+        project.bidPrice,
+        project.actualCost,
+        project.estimatedCost,
+        project.startDate,
+        project.endDate,
+        data.spent,
+        data.budgeted,
+        data.committedPOs,
+        (data.expenses || []).map((row) => `${row.id}:${row.amount}`).join(","),
+        (data.purchaseOrders || []).map((row) => `${row.id}:${row.status}:${row.amount}`).join(","),
+        (data.changeOrders || []).map((row) => `${row.id}:${row.approved}:${row.amount}`).join(","),
+      ].join(":");
+    })
+    .join("\n");
+}
+
 async function hydrateProjectDataFromStorageKeys(
   projects: UnifiedProject[]
 ): Promise<UnifiedProject[]> {
@@ -2084,6 +2116,9 @@ const ProjectListProviderCore = ({
           normalized
         )
       );
+      if (projectListVisibleSignature(reconciled) === projectListVisibleSignature(projectsRef.current)) {
+        return;
+      }
       setProjects(reconciled);
       projectsRef.current = reconciled;
     } catch (e) {
@@ -2139,6 +2174,9 @@ const ProjectListProviderCore = ({
           withoutDeletedProjects(projectsRef.current)
         )
       );
+      if (projectListVisibleSignature(reconciled) === projectListVisibleSignature(projectsRef.current)) {
+        return true;
+      }
       setProjects(reconciled);
       projectsRef.current = reconciled;
       if (reconciled.length > 0) setProjectListSeed(reconciled, accountUserId);

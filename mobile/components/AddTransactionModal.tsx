@@ -25,6 +25,7 @@ import BackButton from "@/components/ui/BackButton";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
+import { useProjectScheduleDateKeys } from "@/hooks/useProjectScheduleDateKeys";
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
@@ -140,6 +141,7 @@ export default function AddTransactionModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { projectData } = useProjectData();
+  const projectSchedule = useProjectScheduleDateKeys();
   
   const [vendor, setVendor] = useState("");
   const [material, setMaterial] = useState("");
@@ -2495,17 +2497,13 @@ export default function AddTransactionModal({
                         setExpectedDelivery(selectedDate);
                         setShowDeliveryDatePicker(false);
                       }}
-                      markedDates={
+                      selectedDateString={
                         expectedDelivery
-                          ? {
-                              [`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`]: {
-                                selected: true,
-                                selectedColor: '#22c55e',
-                                selectedTextColor: '#000000',
-                              },
-                            }
-                          : {}
+                          ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`
+                          : null
                       }
+                      rangeStartDate={projectSchedule.start}
+                      rangeEndDate={projectSchedule.end}
                       initialDate={
                         expectedDelivery
                           ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`

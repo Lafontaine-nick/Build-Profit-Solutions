@@ -459,16 +459,6 @@ export default function ProjectsScreen() {
 
         if (foundProgress !== undefined) {
           progressMap[pid] = foundProgress;
-          // Sync to bps.project.${pid}.progress so ProjectListContext/AI use correct value
-          try {
-            AsyncStorage.setItem(`bps.project.${pid}.progress`, JSON.stringify({
-              progress: foundProgress,
-              overallProgressPct: foundProgress,
-              updatedAt: new Date().toISOString(),
-            }));
-          } catch {
-            /* ignore */
-          }
         }
 
         let foundLatestMs: number | undefined;
@@ -497,31 +487,15 @@ export default function ProjectsScreen() {
       );
       applyWorkspaceTimelineProgressToMaps(all, workspaceProgress, progressMap);
 
-      for (const project of all) {
-        const pid = String(project?.id ?? '');
-        const pct = progressMap[pid];
-        if (pid && pct !== undefined) {
-          try {
-            AsyncStorage.setItem(
-              `bps.project.${pid}.progress`,
-              JSON.stringify({
-                progress: pct,
-                overallProgressPct: pct,
-                updatedAt: new Date().toISOString(),
-              })
-            );
-          } catch {
-            /* ignore */
-          }
-        }
-      }
     } catch {
       // Keep UI responsive if storage read fails.
     }
 
-    setProjectDataOverrides(next);
-    setTimelineProgress(progressMap);
-    setTimelineLatestPlannedMs(latestPlannedMap);
+    setProjectDataOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    setTimelineProgress((prev) => (JSON.stringify(prev) === JSON.stringify(progressMap) ? prev : progressMap));
+    setTimelineLatestPlannedMs((prev) =>
+      JSON.stringify(prev) === JSON.stringify(latestPlannedMap) ? prev : latestPlannedMap
+    );
   }, [activeProjects, estimates]);
 
   const projectsFocusedRef = useRef(false);

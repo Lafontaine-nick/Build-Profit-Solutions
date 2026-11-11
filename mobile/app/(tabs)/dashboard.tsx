@@ -2984,11 +2984,15 @@ const DashboardScreen: React.FC = () => {
       // Keep UI responsive if storage read fails
     }
 
-    setProjectDataOverrides(nextOverrides);
-    setTimelineProgress(progressMap);
-    setWorkTaskProgress(workMap);
-    setTimelineItemsByProject(timelineItemsMap);
-    setTimelineLatestPlannedMs(latestPlannedMap);
+    setProjectDataOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(nextOverrides) ? prev : nextOverrides));
+    setTimelineProgress((prev) => (JSON.stringify(prev) === JSON.stringify(progressMap) ? prev : progressMap));
+    setWorkTaskProgress((prev) => (JSON.stringify(prev) === JSON.stringify(workMap) ? prev : workMap));
+    setTimelineItemsByProject((prev) =>
+      JSON.stringify(prev) === JSON.stringify(timelineItemsMap) ? prev : timelineItemsMap
+    );
+    setTimelineLatestPlannedMs((prev) =>
+      JSON.stringify(prev) === JSON.stringify(latestPlannedMap) ? prev : latestPlannedMap
+    );
   }, [activeProjects, estimates]);
 
   useEffect(() => {
